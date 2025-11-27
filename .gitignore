@@ -1,0 +1,45 @@
+# Ignore environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.uv/
+*.egg-info/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+poker-engine
+*.test
+*.out
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
