@@ -1,0 +1,213 @@
+"use client";
+
+import CornerBorders from "@/components/CornerBorders";
+import Player from "@/components/Player";
+import TableFelt from "@/components/TableFelt";
+import { PlayerState } from "@/lib/api";
+
+interface PlayerLayout {
+  top: number[];
+  left: number[];
+  right: number[];
+  bottom: number[];
+}
+
+interface PokerTableProps {
+  players: PlayerState[];
+  layout: PlayerLayout;
+  currentPlayerIdx: number;
+  buttonIdx: number;
+  communityCards: string[];
+  pot: number;
+  stakes: { smallBlind: number; bigBlind: number };
+}
+
+// Calculate position name based on seat relative to button
+function getPosition(playerIdx: number, buttonIdx: number, totalPlayers: number): string {
+  if (buttonIdx < 0) return '';
+  
+  // Calculate how many seats after the button this player is
+  const seatsFromButton = (playerIdx - buttonIdx + totalPlayers) % totalPlayers;
+  
+  // Positions depend on table size
+  // 9-max: BTN, SB, BB, UTG, UTG+1, UTG+2, LJ, HJ, CO
+  // 8-max: BTN, SB, BB, UTG, UTG+1, LJ, HJ, CO
+  // 7-max: BTN, SB, BB, UTG, LJ, HJ, CO
+  // 6-max: BTN, SB, BB, UTG, HJ, CO
+  
+  if (seatsFromButton === 0) return 'BTN';
+  if (seatsFromButton === 1) return 'SB';
+  if (seatsFromButton === 2) return 'BB';
+  
+  // Remaining positions depend on table size
+  const remainingSeats = totalPlayers - 3; // Exclude BTN, SB, BB
+  const posFromUTG = seatsFromButton - 3; // 0 = UTG
+  
+  if (totalPlayers === 9) {
+    // 9-max: UTG, UTG+1, UTG+2, LJ, HJ, CO
+    const positions = ['UTG', 'UTG+1', 'UTG+2', 'LJ', 'HJ', 'CO'];
+    return positions[posFromUTG] || '';
+  } else if (totalPlayers === 8) {
+    // 8-max: UTG, UTG+1, LJ, HJ, CO
+    const positions = ['UTG', 'UTG+1', 'LJ', 'HJ', 'CO'];
+    return positions[posFromUTG] || '';
+  } else if (totalPlayers === 7) {
+    // 7-max: UTG, LJ, HJ, CO
+    const positions = ['UTG', 'LJ', 'HJ', 'CO'];
+    return positions[posFromUTG] || '';
+  } else if (totalPlayers === 6) {
+    // 6-max: UTG, HJ, CO
+    const positions = ['UTG', 'HJ', 'CO'];
+    return positions[posFromUTG] || '';
+  }
+  
+  return '';
+}
+
+export default function PokerTable({
+  players,
+  layout,
+  currentPlayerIdx,
+  buttonIdx,
+  communityCards,
+  pot,
+  stakes,
+}: PokerTableProps) {
+  const totalPlayers = players.length;
+  
+  if (players.length === 0) {
+    return (
+      <div className="relative border border-gray-300 bg-stone-50 shadow-sm">
+        <CornerBorders />
+        <div className="w-[510px] h-[360px] flex items-center justify-center text-gray-400 text-sm">
+          Start a new game to begin
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative border border-gray-300 bg-stone-50 shadow-sm">
+      <CornerBorders />
+      <table className="border-collapse" style={{ borderSpacing: 0 }}>
+        <tbody>
+          {/* TOP ROW */}
+          <tr>
+            {layout.left.length > 0 && (
+              <td className="border-r border-b border-gray-700/20 w-[170px] h-[120px]" />
+            )}
+            {layout.top.map((idx, i) => (
+              <td 
+                key={`top-${idx}`} 
+                className={`border-b border-gray-700/20 w-[170px] h-[120px] ${i < layout.top.length - 1 ? 'border-r' : ''}`}
+              >
+                <Player 
+                  player={players[idx]} 
+                  active={idx === currentPlayerIdx}
+                  position={getPosition(idx, buttonIdx, totalPlayers)}
+                  folded={players[idx]?.status === 'folded'}
+                />
+              </td>
+            ))}
+            {layout.right.length > 0 && (
+              <td className="border-l border-b border-gray-700/20 w-[170px] h-[120px]" />
+            )}
+          </tr>
+
+          {/* MIDDLE ROWS */}
+          {Array.from({ length: Math.max(layout.left.length, layout.right.length) }).map((_, rowIdx) => (
+            <tr key={`middle-${rowIdx}`}>
+              {layout.left.length > 0 && (
+                <td className="border-r border-b border-gray-700/20 w-[170px] h-[120px]">
+                  {layout.left[rowIdx] !== undefined && players[layout.left[rowIdx]] && (
+                    <Player 
+                      player={players[layout.left[rowIdx]]} 
+                      active={layout.left[rowIdx] === currentPlayerIdx}
+                      position={getPosition(layout.left[rowIdx], buttonIdx, totalPlayers)}
+                      folded={players[layout.left[rowIdx]]?.status === 'folded'}
+                    />
+                  )}
+                </td>
+              )}
+
+              {rowIdx === 0 && (
+                <td 
+                  className="bg-pattern border-b border-gray-700/20"
+                  colSpan={layout.top.length}
+                  rowSpan={Math.max(layout.left.length, layout.right.length)}
+                >
+                  <div className="flex items-center justify-center h-full">
+                    <TableFelt 
+                      cards={communityCards} 
+                      pot={pot} 
+                      stakes={`${stakes.smallBlind}/${stakes.bigBlind}`}
+                    />
+                  </div>
+                </td>
+              )}
+
+              {layout.right.length > 0 && (
+                <td className="border-l border-b border-gray-700/20 w-[170px] h-[120px]">
+                  {layout.right[rowIdx] !== undefined && players[layout.right[rowIdx]] && (
+                    <Player 
+                      player={players[layout.right[rowIdx]]} 
+                      active={layout.right[rowIdx] === currentPlayerIdx}
+                      position={getPosition(layout.right[rowIdx], buttonIdx, totalPlayers)}
+                      folded={players[layout.right[rowIdx]]?.status === 'folded'}
+                    />
+                  )}
+                </td>
+              )}
+            </tr>
+          ))}
+
+          {/* BOTTOM ROW */}
+          <tr>
+            {layout.left.length > 0 && (
+              <td className="border-r border-gray-700/20 w-[170px] h-[120px]" />
+            )}
+            <td colSpan={layout.top.length} className="h-[120px] p-0">
+              <div className="flex h-full">
+                {layout.bottom.map((playerIdx, i) => (
+                  <div 
+                    key={`bottom-${playerIdx}`}
+                    className={`flex-1 ${i < layout.bottom.length - 1 ? 'border-r border-gray-700/20' : ''}`}
+                  >
+                    {players[playerIdx] && (
+                      <Player 
+                        player={players[playerIdx]} 
+                        active={playerIdx === currentPlayerIdx}
+                        position={getPosition(playerIdx, buttonIdx, totalPlayers)}
+                        folded={players[playerIdx]?.status === 'folded'}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </td>
+            {layout.right.length > 0 && (
+              <td className="border-l border-gray-700/20 w-[170px] h-[120px]" />
+            )}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Helper function to get player layout based on count (6-9 players)
+export function getPlayerLayout(count: number): PlayerLayout {
+  switch (count) {
+    case 6:
+      return { top: [0, 1], left: [5], right: [2], bottom: [4, 3] };
+    case 7:
+      return { top: [0, 1, 2], left: [6], right: [3], bottom: [5, 4] };
+    case 8:
+      return { top: [0, 1], left: [7, 6], right: [2, 3], bottom: [5, 4] };
+    case 9:
+      return { top: [0, 1, 2], left: [8, 7], right: [3, 4], bottom: [6, 5] };
+    default:
+      return { top: [], left: [], right: [], bottom: [] };
+  }
+}
+
