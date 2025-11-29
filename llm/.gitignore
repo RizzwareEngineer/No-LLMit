@@ -1,0 +1,15 @@
+# Ignore environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.uv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
