@@ -27,6 +27,7 @@ interface UseGameStateReturn {
   newGame: (payload: NewGamePayload) => void;
   startHand: () => void;
   submitAction: (action: ActionPayload['action'], amount?: number) => void;
+  clearError: () => void;
 }
 
 export function useGameState(options: UseGameStateOptions = {}): UseGameStateReturn {
@@ -62,6 +63,10 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
         const err = payload as ErrorPayload;
         setError(err.message);
         setIsLoading(false);
+        // If game not found, clear game state so auto-create triggers
+        if (err.message.includes('No game found') || err.message.includes('game not found')) {
+          setGameState(null);
+        }
       });
 
       ws.on('action_required', (payload) => {
@@ -145,6 +150,10 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     wsRef.current.action(payload);
   }, [gameState]);
 
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
   // Auto-connect if option is set
   useEffect(() => {
     if (autoConnect) {
@@ -168,6 +177,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     newGame,
     startHand,
     submitAction,
+    clearError,
   };
 }
 

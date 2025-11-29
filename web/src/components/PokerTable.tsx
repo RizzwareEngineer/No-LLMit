@@ -12,14 +12,20 @@ interface PlayerLayout {
   bottom: number[];
 }
 
+interface WinnerInfo {
+  amount: number;
+  handDesc: string;
+}
+
 interface PokerTableProps {
   players: PlayerState[];
   layout: PlayerLayout;
   currentPlayerIdx: number;
   buttonIdx: number;
   communityCards: string[];
-  pot: number;
+    pot: number;
   stakes: { smallBlind: number; bigBlind: number };
+  winnersByIdx?: Record<number, WinnerInfo>;
 }
 
 // Calculate position name based on seat relative to button
@@ -65,13 +71,14 @@ function getPosition(playerIdx: number, buttonIdx: number, totalPlayers: number)
 }
 
 export default function PokerTable({
-  players,
+    players,
   layout,
   currentPlayerIdx,
   buttonIdx,
   communityCards,
-  pot,
+    pot,
   stakes,
+  winnersByIdx = {},
 }: PokerTableProps) {
   const totalPlayers = players.length;
   
@@ -79,38 +86,44 @@ export default function PokerTable({
     return (
       <div className="relative border border-gray-300 bg-stone-50 shadow-sm">
         <CornerBorders />
-        <div className="w-[510px] h-[360px] flex items-center justify-center text-gray-400 text-sm">
+        <div className="w-[660px] h-[360px] flex items-center justify-center text-gray-400 text-sm">
           Start a new game to begin
         </div>
       </div>
     );
   }
 
+  // Calculate fixed width based on layout
+  const numCols = layout.top.length + (layout.left.length > 0 ? 1 : 0) + (layout.right.length > 0 ? 1 : 0);
+  const tableWidth = numCols * 220;
+
   return (
-    <div className="relative border border-gray-300 bg-stone-50 shadow-sm">
+    <div className="relative border border-gray-300 bg-stone-50 shadow-sm shrink-0" style={{ width: tableWidth }}>
       <CornerBorders />
-      <table className="border-collapse" style={{ borderSpacing: 0 }}>
+      <table className="border-collapse table-fixed w-full" style={{ borderSpacing: 0 }}>
         <tbody>
           {/* TOP ROW */}
           <tr>
             {layout.left.length > 0 && (
-              <td className="border-r border-b border-gray-700/20 w-[170px] h-[120px]" />
+              <td className="border-r border-b border-gray-700/20 w-[220px] h-[120px]" />
             )}
             {layout.top.map((idx, i) => (
               <td 
                 key={`top-${idx}`} 
-                className={`border-b border-gray-700/20 w-[170px] h-[120px] ${i < layout.top.length - 1 ? 'border-r' : ''}`}
+                className={`border-b border-gray-700/20 w-[220px] h-[120px] overflow-hidden ${i < layout.top.length - 1 ? 'border-r' : ''}`}
               >
                 <Player 
                   player={players[idx]} 
                   active={idx === currentPlayerIdx}
                   position={getPosition(idx, buttonIdx, totalPlayers)}
                   folded={players[idx]?.status === 'folded'}
+                  winAmount={winnersByIdx[idx]?.amount}
+                  winDesc={winnersByIdx[idx]?.handDesc}
                 />
               </td>
             ))}
             {layout.right.length > 0 && (
-              <td className="border-l border-b border-gray-700/20 w-[170px] h-[120px]" />
+              <td className="border-l border-b border-gray-700/20 w-[220px] h-[120px]" />
             )}
           </tr>
 
@@ -118,13 +131,15 @@ export default function PokerTable({
           {Array.from({ length: Math.max(layout.left.length, layout.right.length) }).map((_, rowIdx) => (
             <tr key={`middle-${rowIdx}`}>
               {layout.left.length > 0 && (
-                <td className="border-r border-b border-gray-700/20 w-[170px] h-[120px]">
+                <td className="border-r border-b border-gray-700/20 w-[220px] h-[120px] overflow-hidden">
                   {layout.left[rowIdx] !== undefined && players[layout.left[rowIdx]] && (
                     <Player 
                       player={players[layout.left[rowIdx]]} 
                       active={layout.left[rowIdx] === currentPlayerIdx}
                       position={getPosition(layout.left[rowIdx], buttonIdx, totalPlayers)}
                       folded={players[layout.left[rowIdx]]?.status === 'folded'}
+                      winAmount={winnersByIdx[layout.left[rowIdx]]?.amount}
+                      winDesc={winnersByIdx[layout.left[rowIdx]]?.handDesc}
                     />
                   )}
                 </td>
@@ -132,28 +147,35 @@ export default function PokerTable({
 
               {rowIdx === 0 && (
                 <td 
-                  className="bg-pattern border-b border-gray-700/20"
+                  className="bg-pattern border-b border-gray-700/20 overflow-hidden"
                   colSpan={layout.top.length}
                   rowSpan={Math.max(layout.left.length, layout.right.length)}
                 >
-                  <div className="flex items-center justify-center h-full">
+                  <div className="flex items-center justify-center h-full overflow-hidden">
                     <TableFelt 
                       cards={communityCards} 
                       pot={pot} 
                       stakes={`${stakes.smallBlind}/${stakes.bigBlind}`}
+                      winners={Object.entries(winnersByIdx).map(([idx, info]) => ({
+                        name: players[Number(idx)]?.name || `Player ${idx}`,
+                        amount: info.amount,
+                        handDesc: info.handDesc,
+                      }))}
                     />
-                  </div>
+                </div>
                 </td>
               )}
 
               {layout.right.length > 0 && (
-                <td className="border-l border-b border-gray-700/20 w-[170px] h-[120px]">
+                <td className="border-l border-b border-gray-700/20 w-[220px] h-[120px] overflow-hidden">
                   {layout.right[rowIdx] !== undefined && players[layout.right[rowIdx]] && (
                     <Player 
                       player={players[layout.right[rowIdx]]} 
                       active={layout.right[rowIdx] === currentPlayerIdx}
                       position={getPosition(layout.right[rowIdx], buttonIdx, totalPlayers)}
                       folded={players[layout.right[rowIdx]]?.status === 'folded'}
+                      winAmount={winnersByIdx[layout.right[rowIdx]]?.amount}
+                      winDesc={winnersByIdx[layout.right[rowIdx]]?.handDesc}
                     />
                   )}
                 </td>
@@ -164,7 +186,7 @@ export default function PokerTable({
           {/* BOTTOM ROW */}
           <tr>
             {layout.left.length > 0 && (
-              <td className="border-r border-gray-700/20 w-[170px] h-[120px]" />
+              <td className="border-r border-gray-700/20 w-[220px] h-[120px] overflow-hidden" />
             )}
             <td colSpan={layout.top.length} className="h-[120px] p-0">
               <div className="flex h-full">
@@ -179,20 +201,22 @@ export default function PokerTable({
                         active={playerIdx === currentPlayerIdx}
                         position={getPosition(playerIdx, buttonIdx, totalPlayers)}
                         folded={players[playerIdx]?.status === 'folded'}
+                        winAmount={winnersByIdx[playerIdx]?.amount}
+                        winDesc={winnersByIdx[playerIdx]?.handDesc}
                       />
                     )}
-                  </div>
+                    </div>
                 ))}
-              </div>
+            </div>
             </td>
             {layout.right.length > 0 && (
-              <td className="border-l border-gray-700/20 w-[170px] h-[120px]" />
+              <td className="border-l border-gray-700/20 w-[220px] h-[120px] overflow-hidden" />
             )}
           </tr>
         </tbody>
       </table>
-    </div>
-  );
+        </div>
+    );
 }
 
 // Helper function to get player layout based on count (6-9 players)

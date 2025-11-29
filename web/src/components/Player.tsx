@@ -1,7 +1,6 @@
 "use client";
 
 import Card from "@/components/Card";
-import NumberFlow from '@number-flow/react';
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
 
@@ -10,6 +9,8 @@ interface PlayerProps {
   active?: boolean;
   position?: string;
   folded?: boolean;
+  winAmount?: number;
+  winDesc?: string;
 }
 
 // Position badge colors
@@ -41,27 +42,23 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc }: PlayerProps) {
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-400 text-white' : '';
+  const isWinner = winAmount !== undefined && winAmount > 0;
   
   return (
-    <div className={`p-px bg-stone-300 overflow-hidden relative ${active ? "border-animation" : ""} h-full flex flex-col ${folded ? "opacity-40" : ""} transition-colors`}>
-      <div className="relative bg-stone-50 hover:bg-stone-100 flex-1 flex flex-col">
-        <div className="flex flex-col lg:flex-row items-start gap-3 justify-between p-3">
-          <div className="flex items-center gap-2">
+    <div className={`p-px overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors ${isWinner ? "bg-green-400" : "bg-stone-300"}`}>
+      <div className="relative bg-stone-50 hover:bg-stone-100 flex-1 flex flex-col overflow-hidden">
+        <div className="flex flex-col lg:flex-row items-start gap-3 justify-between p-3 overflow-hidden">
+          <div className="flex items-center gap-2 min-w-0 overflow-hidden">
             <LLMLogo model={player.name} size={20} />
-            <div className="flex flex-col">
-              <div className="text-[11px] font-bold uppercase tracking-wide">{player.name}</div>
-              <div className="flex flex-row items-center gap-1">
-                <div className="text-sm text-gray-700">¤</div>
-                <div className="text-[11px] text-gray-700/60">
-                  <NumberFlow value={player.stack} />
-                </div>
-              </div>
+            <div className="flex flex-col min-w-0">
+              <div className="text-[11px] font-bold uppercase tracking-wide truncate">{player.name}</div>
+              <div className="text-[11px] text-gray-700/60">¤{player.stack.toLocaleString()}</div>
             </div>
           </div>
-          <div className="flex flex-row items-center gap-1">
+          <div className="flex flex-row items-center gap-1 shrink-0">
             {cards.length > 0 ? (
               cards.map((card, i) => (
                 <Card key={`${card}-${i}`} value={card} className="w-7 h-10" />
@@ -75,8 +72,8 @@ export default function Player({ player, active, position, folded = false }: Pla
           </div>
         </div>
 
-        <div className="flex flex-col mt-auto p-3 pt-0">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col mt-auto p-3 pt-0 min-w-0 overflow-hidden">
+          <div className="flex items-center gap-2 min-w-0">
             {/* Position Badge */}
             {position && (
               <div 
@@ -87,37 +84,33 @@ export default function Player({ player, active, position, folded = false }: Pla
               </div>
             )}
             
-            {player.lastAction ? (
-              <div className="flex flex-row items-center gap-2">
-                <div className="text-[11px] text-gray-700 font-mono uppercase font-bold tracking-wider">
+            {/* Winner display */}
+            {isWinner ? (
+              <div className="flex flex-row items-center gap-1 min-w-0">
+                <span className="text-green-600 font-bold text-[11px] shrink-0">+¤{winAmount.toLocaleString()}</span>
+                <span className="text-green-600/60 text-[9px] truncate min-w-0">({winDesc})</span>
+              </div>
+            ) : player.lastAction ? (
+              <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
+                <div className="text-[11px] text-gray-700 font-mono uppercase font-bold tracking-wider shrink-0">
                   {player.lastAction}
                 </div>
                 {(player.lastAmount ?? 0) > 0 && (
-                  <div className="flex flex-row items-center gap-1">
-                    <div className="text-sm text-gray-700/60">¤</div>
-                    <div className="text-[11px] text-gray-700/60">
-                      <NumberFlow value={player.lastAmount ?? 0} />
-                    </div>
+                  <div className="flex flex-row items-center shrink-0">
+                    <div className="text-[11px] text-gray-700/60">¤{player.lastAmount?.toLocaleString()}</div>
                   </div>
                 )}
               </div>
             ) : player.currentBet > 0 ? (
-              <div className="flex flex-row items-center gap-2">
-                <div className="text-[11px] text-gray-700/50 font-mono uppercase tracking-wider">
-                  BET
-                </div>
-                <div className="flex flex-row items-center gap-1">
-                  <div className="text-sm text-gray-700/60">¤</div>
-                  <div className="text-[11px] text-gray-700/60">
-                    <NumberFlow value={player.currentBet} />
-                  </div>
-                </div>
+              <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
+                <div className="text-[11px] text-gray-700/50 font-mono uppercase tracking-wider shrink-0">BET</div>
+                <div className="text-[11px] text-gray-700/60 shrink-0">¤{player.currentBet.toLocaleString()}</div>
               </div>
             ) : (
-              <div className="text-[11px] text-gray-700/30 font-mono uppercase">
-                {player.status === 'folded' ? 'FOLDED' : 
+              <div className="text-[11px] text-gray-700/30 font-mono uppercase truncate">
+                {player.status === 'folded' ? 'FOLD' : 
                  player.status === 'all-in' ? 'ALL-IN' :
-                 player.status === 'eliminated' ? 'OUT' : 'Waiting...'}
+                 player.status === 'eliminated' ? 'OUT' : 'WAITING'}
               </div>
             )}
           </div>

@@ -5,12 +5,7 @@ import { useRouter } from "next/navigation";
 import { Play, ArrowLeft, ChartBar } from "@phosphor-icons/react";
 import CornerBorders from "@/components/CornerBorders";
 import LLMLogo from "@/components/LLMLogo";
-
-// All available LLM players
-const ALL_LLMS = [
-  "GPT-4o", "Claude 3.5", "Gemini Pro", "Llama 3", 
-  "Mistral Large", "DeepSeek V3", "Grok 2", "Qwen 2.5", "Cohere R+"
-];
+import { ALL_LLMS } from "@/lib/constants";
 
 export default function PlayPage() {
   const router = useRouter();

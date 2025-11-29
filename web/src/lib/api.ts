@@ -219,13 +219,3 @@ export class PokerWebSocket {
   }
 }
 
-// Singleton instance
-let pokerWs: PokerWebSocket | null = null;
-
-export function getPokerWebSocket(): PokerWebSocket {
-  if (!pokerWs) {
-    pokerWs = new PokerWebSocket();
-  }
-  return pokerWs;
-}
-

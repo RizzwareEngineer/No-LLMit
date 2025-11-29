@@ -2,17 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, CircleNotch, ArrowClockwise, GameController, Television, Wrench, Timer } from "@phosphor-icons/react";
+import { Eye, CircleNotch, ArrowClockwise, GameController, Television, Wrench, Timer, Bug } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
 import { useGameState } from "@/hooks/useGameState";
-
-// All available LLM players
-const ALL_LLMS = [
-  "GPT-4o", "Claude 3.5", "Gemini Pro", "Llama 3", 
-  "Mistral Large", "DeepSeek V3", "Grok 2", "Qwen 2.5", "Cohere R+"
-];
+import { ALL_LLMS, DEFAULT_GAME_CONFIG } from "@/lib/constants";
 
 export default function Home() {
   const router = useRouter();
@@ -28,12 +23,14 @@ export default function Home() {
     newGame,
     startHand,
     submitAction,
+    clearError,
   } = useGameState();
 
   const [showWinnings, setShowWinnings] = useState(true);
   const [gameMode, setGameMode] = useState<'spectate' | 'play' | 'test'>('spectate');
   const [selectedLLMs, setSelectedLLMs] = useState<string[]>([]);
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
+  const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
   
   // Check for test mode via URL param (?test=true) or play mode via sessionStorage
   useEffect(() => {
@@ -72,18 +69,14 @@ export default function Home() {
         // Play mode: user vs selected LLMs
         newGame({
           playerNames: ['You', ...selectedLLMs],
-          startingStack: 2000,
-          smallBlind: 5,
-          bigBlind: 10,
+          ...DEFAULT_GAME_CONFIG,
           mode: 'play',
         });
       } else {
         // Spectate or test mode: all LLMs
         newGame({
-          playerNames: ALL_LLMS,
-          startingStack: 2000,
-          smallBlind: 5,
-          bigBlind: 10,
+          playerNames: [...ALL_LLMS],
+          ...DEFAULT_GAME_CONFIG,
           mode: gameMode === 'test' ? 'test' : 'simulate',
         });
       }
@@ -137,7 +130,36 @@ export default function Home() {
   const winners = gameState?.winners || lastHandResult?.winners || [];
   const isHandComplete = street === 'complete';
 
+  // Auto-start next hand countdown (5 seconds after hand completes)
+  useEffect(() => {
+    if (isHandComplete && nextHandCountdown === null) {
+      setNextHandCountdown(7);
+    } else if (!isHandComplete && nextHandCountdown !== null) {
+      // Hand started, clear countdown
+      setNextHandCountdown(null);
+    }
+  }, [isHandComplete]);
+
+  useEffect(() => {
+    if (nextHandCountdown === null) return;
+    
+    if (nextHandCountdown <= 0) {
+      // Start next hand
+      setNextHandCountdown(null);
+      clearError(); // Clear any previous errors
+      startHand();
+      return;
+    }
+    
+    const timer = setTimeout(() => {
+      setNextHandCountdown(prev => prev !== null ? prev - 1 : null);
+    }, 1000);
+    
+    return () => clearTimeout(timer);
+  }, [nextHandCountdown, startHand, clearError]);
+
   const handleStartHand = () => {
+    clearError();
     startHand();
   };
 
@@ -149,31 +171,41 @@ export default function Home() {
     setGameMode('spectate');
     setSelectedLLMs([]);
     newGame({
-      playerNames: ALL_LLMS,
-      startingStack: 2000,
-      smallBlind: 5,
-      bigBlind: 10,
+      playerNames: [...ALL_LLMS],
+      ...DEFAULT_GAME_CONFIG,
       mode: 'simulate',
     });
   };
 
   // Determine if action panel should be shown
   const showActionPanel = (() => {
-    if (currentPlayerIdx < 0 || isHandComplete || !players[currentPlayerIdx]) return false;
-    
-    // Test mode: always show action panel (dev testing)
+    // Test mode: always show action panel (for dev testing all players)
     if (gameMode === 'test') return true;
     
-    // Play mode: only show when it's the user's turn (player 0)
-    if (gameMode === 'play' && currentPlayerIdx === 0) return true;
+    // Play mode: always show action panel (user plays against LLMs)
+    if (gameMode === 'play') return true;
     
     // Spectate mode: never show action panel
     return false;
   })();
+  
+  // Determine if actions are currently available (for disabling buttons)
+  const canAct = currentPlayerIdx >= 0 && !isHandComplete && !!players[currentPlayerIdx];
+
+  // Calculate winners by player index for display on player cards
+  const winnersByIdx = isHandComplete && winners.length > 0
+    ? winners.reduce((acc, w) => {
+        if (!acc[w.playerIdx]) {
+          acc[w.playerIdx] = { amount: 0, handDesc: w.handDesc || w.handType };
+        }
+        acc[w.playerIdx].amount += w.amount;
+        return acc;
+      }, {} as Record<number, { amount: number; handDesc: string }>)
+    : {};
 
   // Show loading while connecting
   if (!isConnected) {
-    return (
+  return (
       <div className="flex flex-col min-h-screen p-4 lg:p-8 overflow-auto bg-stone-100">
         <div className="text-gray-700 flex-1 flex flex-col items-center justify-center">
           <div className="flex items-center gap-3">
@@ -183,13 +215,13 @@ export default function Home() {
           {error && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm max-w-md">
               {error}
-              <button 
+            <button
                 onClick={() => connect()}
                 className="block mt-2 text-red-700 underline text-xs"
               >
                 Retry connection
-              </button>
-            </div>
+            </button>
+          </div>
           )}
         </div>
       </div>
@@ -204,7 +236,7 @@ export default function Home() {
         <div className="mb-2 text-center">
           <h1 className="text-2xl font-bold tracking-wider">No-LLMit</h1>
           <p className="text-[11px] text-gray-500 mt-1">
-            Watch SOTA LLMs play each other in a No Limit Texas Hold&apos;em cash game (and tournament soon)!
+          Spectate (or play against) SOTA LLMs in a No Limit Texas Hold'em cash game (or, soon, tournament)!
           </p>
         </div>
 
@@ -248,24 +280,40 @@ export default function Home() {
             </>
           )}
 
-          {/* Next hand button */}
+          {/* Next hand countdown/button */}
           {isHandComplete && (
             <>
-              <button 
-                onClick={handleStartHand}
-                disabled={isLoading}
-                className="btn-brutal px-3 py-1 text-[10px] flex items-center gap-2"
-              >
-                {isLoading ? <CircleNotch size={12} className="animate-spin" /> : <ArrowClockwise size={12} weight="bold" />}
-                NEXT HAND
-              </button>
+              {nextHandCountdown !== null && nextHandCountdown > 0 ? (
+                <div className="flex items-center gap-2 text-[10px] text-gray-500">
+                  <CircleNotch size={12} className="animate-spin text-gray-400" />
+                  <span>{nextHandCountdown}s</span>
+                  <button
+                    onClick={() => {
+                      setNextHandCountdown(null);
+                      startHand();
+                    }}
+                    className="text-blue-500 hover:underline"
+                  >
+                    Skip
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleStartHand}
+                  disabled={isLoading}
+                  className="btn-brutal px-3 py-1 text-[10px] flex items-center gap-2"
+                >
+                  {isLoading ? <CircleNotch size={12} className="animate-spin" /> : <ArrowClockwise size={12} weight="bold" />}
+                  NEXT HAND
+                </button>
+              )}
               <div className="h-4 w-px bg-gray-300" />
             </>
           )}
 
           {/* Play / Spectate buttons */}
           {gameMode === 'play' ? (
-            <button 
+            <button
               onClick={handleBackToSpectate}
               className="btn-brutal px-3 py-1 text-[10px] flex items-center gap-2"
               style={{ textTransform: 'none' }}
@@ -274,7 +322,7 @@ export default function Home() {
               Back to Spectate
             </button>
           ) : (
-            <button 
+            <button
               onClick={() => router.push('/play')}
               className="btn-brutal btn-brutal-success px-3 py-1 text-[10px] flex items-center gap-2"
               style={{ textTransform: 'none' }}
@@ -292,28 +340,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Winners announcement */}
-        {winners.length > 0 && isHandComplete && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 text-sm max-w-2xl">
-            <div className="font-bold mb-1">🎉 Hand Complete!</div>
-            {(() => {
-              const consolidated = winners.reduce((acc, w) => {
-                const name = players[w.playerIdx]?.name || `Player ${w.playerIdx}`;
-                if (!acc[name]) {
-                  acc[name] = { total: 0, handDesc: w.handDesc || w.handType };
-                }
-                acc[name].total += w.amount;
-                return acc;
-              }, {} as Record<string, { total: number; handDesc: string }>);
-              
-              return Object.entries(consolidated).map(([name, data]) => (
-                <div key={name}>
-                  {name} wins ¤{data.total.toLocaleString()} with {data.handDesc}
-                </div>
-              ));
-            })()}
-          </div>
-        )}
 
         {/* Main content */}
         <div className="flex-1 flex items-center justify-center">
@@ -329,6 +355,7 @@ export default function Home() {
                 communityCards={communityCards}
                 pot={pot}
                 stakes={stakes}
+                winnersByIdx={winnersByIdx}
               />
 
               {/* Rankings sidebar */}
@@ -352,15 +379,16 @@ export default function Home() {
 
             {/* Action Panel - shown based on mode */}
             {showActionPanel && (
-              <div className="mt-6 flex w-full justify-end">
+              <div className="mt-6 flex w-full justify-start">
                 <ActionPanel
-                  currentPlayer={players[currentPlayerIdx]}
+                  currentPlayer={canAct ? players[currentPlayerIdx] : null}
                   currentBet={currentBet}
                   minRaise={minRaise}
-                  validActions={validActions}
+                  validActions={canAct ? validActions : []}
                   stakes={stakes}
-                  actionRequired={!!actionRequired}
-                  onAction={handleAction}
+                  actionRequired={!!actionRequired && canAct}
+        onAction={handleAction}
+                  disabled={!canAct}
                 />
               </div>
             )}
@@ -368,6 +396,33 @@ export default function Home() {
         </div>
       </div>
 
+      {/* Dev-only test mode toggle - only visible in development */}
+      {process.env.NODE_ENV === 'development' && gameMode !== 'test' && (
+        <button
+          onClick={() => {
+            window.location.href = '/?test=true';
+          }}
+          className="fixed bottom-4 left-4 bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded shadow-lg flex items-center gap-2 text-xs font-bold z-50"
+          title="Enter Test Mode (Dev Only)"
+        >
+          <Bug size={16} weight="bold" />
+          TEST MODE
+        </button>
+      )}
+
+      {/* Exit test mode button */}
+      {process.env.NODE_ENV === 'development' && gameMode === 'test' && (
+        <button
+          onClick={() => {
+            window.location.href = '/';
+          }}
+          className="fixed bottom-4 left-4 bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded shadow-lg flex items-center gap-2 text-xs font-bold z-50"
+          title="Exit Test Mode"
+        >
+          <Bug size={16} weight="bold" />
+          EXIT TEST
+        </button>
+      )}
     </div>
   );
 }
