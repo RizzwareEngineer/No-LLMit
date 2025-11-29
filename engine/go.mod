@@ -1,4 +1,4 @@
-module github.com/rizzwareengineer/llm-poker/engine
+module github.com/rizzwareengineer/no-LLMit/engine
 
 go 1.25.4
 
