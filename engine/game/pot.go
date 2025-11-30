@@ -231,6 +231,13 @@ func (gs *GameState) AwardPotToLastPlayer() *Winner {
 	gs.Players[lastPlayerIdx].Stack += totalPot
 	gs.Players[lastPlayerIdx].Winnings += profit
 
+	// Deduct contributions from losers (players who folded)
+	for i := range gs.Players {
+		if i != lastPlayerIdx && gs.Players[i].TotalBetThisHand > 0 {
+			gs.Players[i].Winnings -= gs.Players[i].TotalBetThisHand
+		}
+	}
+
 	return &Winner{
 		PlayerIdx: lastPlayerIdx,
 		Amount:    profit,
