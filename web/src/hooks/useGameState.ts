@@ -15,25 +15,33 @@ interface UseGameStateOptions {
   autoConnect?: boolean;
 }
 
-interface ShotClockState {
-  playerIdx: number;
-  playerName: string;
-  secondsLeft: number;
-}
-
-interface LLMThinkingState {
-  playerIdx: number;
-  playerName: string;
-  reason?: string; // Filled in once API returns
-}
-
-interface LLMActionState {
+interface LLMDecision {
   playerIdx: number;
   playerName: string;
   action: string;
   amount: number;
   reason: string;
+  receivedAt: number;
 }
+
+// Display phases for each LLM turn
+type DisplayPhase = 'idle' | 'thinking' | 'reasoning' | 'revealed' | 'settling';
+
+// What's currently being displayed to the user
+interface DisplayState {
+  phase: DisplayPhase;
+  playerIdx: number;
+  playerName: string;
+  reason: string | null;
+  action: string | null;
+  amount: number;
+  phaseStartTime: number;
+}
+
+// Timing constants (in ms)
+const THINKING_DURATION = 3000;      // 3s "Thinking..."
+const MIN_REASONING_DURATION = 10000; // 10s minimum to read reasoning
+const SETTLE_DURATION = 5000;         // 5s after action revealed
 
 interface UseGameStateReturn {
   gameState: GameState | null;
@@ -42,10 +50,10 @@ interface UseGameStateReturn {
   error: string | null;
   actionRequired: ActionRequiredPayload | null;
   lastHandResult: HandCompletePayload | null;
-  shotClock: ShotClockState | null;
-  llmThinking: LLMThinkingState | null;
-  lastLLMAction: LLMActionState | null;
+  // Display state for UI (controlled timing)
+  displayState: DisplayState | null;
   isPaused: boolean;
+  isPausePending: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
   newGame: (payload: NewGamePayload) => void;
@@ -56,6 +64,16 @@ interface UseGameStateReturn {
   resume: () => void;
 }
 
+const initialDisplayState: DisplayState = {
+  phase: 'idle',
+  playerIdx: -1,
+  playerName: '',
+  reason: null,
+  action: null,
+  amount: 0,
+  phaseStartTime: 0,
+};
+
 export function useGameState(options: UseGameStateOptions = {}): UseGameStateReturn {
   const { autoConnect = false } = options;
   
@@ -65,12 +83,126 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   const [error, setError] = useState<string | null>(null);
   const [actionRequired, setActionRequired] = useState<ActionRequiredPayload | null>(null);
   const [lastHandResult, setLastHandResult] = useState<HandCompletePayload | null>(null);
-  const [shotClock, setShotClock] = useState<ShotClockState | null>(null);
-  const [llmThinking, setLLMThinking] = useState<LLMThinkingState | null>(null);
-  const [lastLLMAction, setLastLLMAction] = useState<LLMActionState | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [isPausePending, setIsPausePending] = useState(false);
+  const [displayState, setDisplayState] = useState<DisplayState | null>(null);
   
   const wsRef = useRef<PokerWebSocket | null>(null);
+  
+  // Queue of pending decisions from backend
+  const decisionQueueRef = useRef<LLMDecision[]>([]);
+  // Currently processing decision
+  const currentDecisionRef = useRef<LLMDecision | null>(null);
+  // Timer for phase transitions
+  const phaseTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Process the display queue
+  const processQueue = useCallback(() => {
+    // If paused, don't process
+    if (isPaused) return;
+    
+    // If already processing a decision, don't start another
+    if (currentDecisionRef.current) return;
+    
+    // Get next decision from queue
+    const nextDecision = decisionQueueRef.current.shift();
+    if (!nextDecision) {
+      // Queue empty, go idle
+      setDisplayState(null);
+      return;
+    }
+    
+    currentDecisionRef.current = nextDecision;
+    const now = Date.now();
+    
+    // Start with "Thinking" phase
+    setDisplayState({
+      phase: 'thinking',
+      playerIdx: nextDecision.playerIdx,
+      playerName: nextDecision.playerName,
+      reason: null,
+      action: null,
+      amount: 0,
+      phaseStartTime: now,
+    });
+    
+    // After 3s, transition to "reasoning" phase
+    phaseTimerRef.current = setTimeout(() => {
+      if (!currentDecisionRef.current) return;
+      
+      const reasoningStartTime = Date.now();
+      setDisplayState(prev => prev ? {
+        ...prev,
+        phase: 'reasoning',
+        reason: currentDecisionRef.current!.reason,
+        phaseStartTime: reasoningStartTime,
+      } : null);
+      
+      // After 10s of reasoning, reveal the action
+      phaseTimerRef.current = setTimeout(() => {
+        if (!currentDecisionRef.current) return;
+        
+        const revealTime = Date.now();
+        setDisplayState(prev => prev ? {
+          ...prev,
+          phase: 'revealed',
+          action: currentDecisionRef.current!.action,
+          amount: currentDecisionRef.current!.amount,
+          phaseStartTime: revealTime,
+        } : null);
+        
+        // After 5s settle time, move to next
+        phaseTimerRef.current = setTimeout(() => {
+          currentDecisionRef.current = null;
+          processQueue();
+        }, SETTLE_DURATION);
+        
+      }, MIN_REASONING_DURATION);
+      
+    }, THINKING_DURATION);
+    
+  }, [isPaused]);
+
+  // Handle incoming LLM thinking notification (player is now deciding)
+  const handleLLMThinking = useCallback((payload: { playerIdx: number; playerName: string }) => {
+    // If this is just a "starting to think" notification without a reason,
+    // we'll wait for the full decision to come in via llm_action
+    console.log('LLM starting to think:', payload.playerName);
+  }, []);
+
+  // Handle incoming LLM decision (complete with action + reason)
+  const handleLLMAction = useCallback((payload: LLMDecision) => {
+    console.log('LLM decision received:', payload.playerName, payload.action);
+    
+    // Add to queue
+    decisionQueueRef.current.push({
+      ...payload,
+      receivedAt: Date.now(),
+    });
+    
+    // If not currently processing, start processing
+    if (!currentDecisionRef.current) {
+      processQueue();
+    }
+  }, [processQueue]);
+
+  // Clear queue on hand complete or new hand
+  const clearDisplayQueue = useCallback(() => {
+    decisionQueueRef.current = [];
+    currentDecisionRef.current = null;
+    if (phaseTimerRef.current) {
+      clearTimeout(phaseTimerRef.current);
+      phaseTimerRef.current = null;
+    }
+    setDisplayState(null);
+  }, []);
+
+  // Resume processing when unpaused
+  useEffect(() => {
+    if (!isPaused && currentDecisionRef.current === null && decisionQueueRef.current.length > 0) {
+      processQueue();
+    }
+  }, [isPaused, processQueue]);
 
   const connect = useCallback(async () => {
     if (wsRef.current?.isConnected()) {
@@ -83,7 +215,6 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     try {
       const ws = new PokerWebSocket();
       
-      // Set up handlers before connecting
       ws.on('game_state', (payload) => {
         setGameState(payload as GameState);
         setIsLoading(false);
@@ -93,7 +224,6 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
         const err = payload as ErrorPayload;
         setError(err.message);
         setIsLoading(false);
-        // If game not found, clear game state so auto-create triggers
         if (err.message.includes('No game found') || err.message.includes('game not found')) {
           setGameState(null);
         }
@@ -106,48 +236,43 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
       ws.on('hand_complete', (payload) => {
         setLastHandResult(payload as HandCompletePayload);
         setActionRequired(null);
+        clearDisplayQueue();
       });
 
       ws.on('hand_start', () => {
         setLastHandResult(null);
         setActionRequired(null);
+        clearDisplayQueue();
       });
 
       ws.on('street_change', () => {
-        // Street changed, action_required will follow
-        setShotClock(null);
-        setLLMThinking(null);
+        // Street changed - don't clear display, let current action finish
       });
 
-      ws.on('shot_clock', (payload) => {
-        const clock = payload as ShotClockState;
-        // -1 means clear the shot clock
-        if (clock.secondsLeft < 0) {
-          setShotClock(null);
-        } else {
-          setShotClock(clock);
-        }
+      ws.on('shot_clock', () => {
+        // No longer used - frontend handles timing
       });
 
       ws.on('llm_thinking', (payload) => {
-        const thinking = payload as LLMThinkingState;
-        console.log('LLM Thinking:', thinking);
-        setLLMThinking(thinking);
-        setLastLLMAction(null);
+        handleLLMThinking(payload as { playerIdx: number; playerName: string });
       });
 
       ws.on('llm_action', (payload) => {
-        setLastLLMAction(payload as LLMActionState);
-        setLLMThinking(null);
-        setShotClock(null);
+        handleLLMAction(payload as LLMDecision);
       });
 
       ws.on('paused', () => {
         setIsPaused(true);
+        setIsPausePending(false);
       });
 
       ws.on('resumed', () => {
         setIsPaused(false);
+        setIsPausePending(false);
+      });
+
+      ws.on('pause_pending', () => {
+        setIsPausePending(true);
       });
 
       await ws.connect();
@@ -159,7 +284,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
       setIsConnected(false);
       setIsLoading(false);
     }
-  }, []);
+  }, [handleLLMThinking, handleLLMAction, clearDisplayQueue]);
 
   const disconnect = useCallback(() => {
     if (wsRef.current) {
@@ -169,7 +294,8 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     setIsConnected(false);
     setGameState(null);
     setActionRequired(null);
-  }, []);
+    clearDisplayQueue();
+  }, [clearDisplayQueue]);
 
   const newGame = useCallback((payload: NewGamePayload) => {
     if (!wsRef.current?.isConnected()) {
@@ -179,8 +305,9 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     setIsLoading(true);
     setError(null);
     setLastHandResult(null);
+    clearDisplayQueue();
     wsRef.current.newGame(payload);
-  }, []);
+  }, [clearDisplayQueue]);
 
   const startHand = useCallback(() => {
     if (!wsRef.current?.isConnected()) {
@@ -190,8 +317,9 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     setIsLoading(true);
     setError(null);
     setLastHandResult(null);
+    clearDisplayQueue();
     wsRef.current.startHand();
-  }, []);
+  }, [clearDisplayQueue]);
 
   const submitAction = useCallback((action: ActionPayload['action'], amount?: number) => {
     if (!wsRef.current?.isConnected()) {
@@ -221,6 +349,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     if (!wsRef.current?.isConnected()) {
       return;
     }
+    setIsPausePending(true);
     wsRef.current.send({ type: 'pause' });
   }, []);
 
@@ -242,6 +371,15 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     };
   }, [autoConnect, connect, disconnect]);
 
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (phaseTimerRef.current) {
+        clearTimeout(phaseTimerRef.current);
+      }
+    };
+  }, []);
+
   return {
     gameState,
     isConnected,
@@ -249,10 +387,9 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     error,
     actionRequired,
     lastHandResult,
-    shotClock,
-    llmThinking,
-    lastLLMAction,
+    displayState,
     isPaused,
+    isPausePending,
     connect,
     disconnect,
     newGame,
@@ -263,4 +400,3 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     resume,
   };
 }
-

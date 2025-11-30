@@ -32,11 +32,6 @@ type Server struct {
 	mu           sync.RWMutex
 }
 
-const (
-	ShotClockSeconds = 30 // Total shot clock countdown (30→0)
-	MinActionDelay   = 7  // Minimum seconds before revealing action
-)
-
 func NewServer() *Server {
 	return &Server{
 		games:        make(map[string]*game.GameState),

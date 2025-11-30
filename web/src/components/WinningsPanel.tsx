@@ -14,7 +14,7 @@ interface WinningsPanelProps {
 
 export default function WinningsPanel({ players, onHide }: WinningsPanelProps) {
   return (
-    <div className="flex flex-col border border-gray-300 relative w-[240px] shrink-0 bg-stone-50 shadow-sm">
+    <div className="flex flex-col border border-gray-300 relative w-[240px] shrink-0 bg-stone-50 shadow-sm flex-1">
       <CornerBorders />
       <div className="flex items-start justify-between p-3 border-b border-gray-700/20">
         <div className="flex flex-col">

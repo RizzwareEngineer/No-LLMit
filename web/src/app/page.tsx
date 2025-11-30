@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug } from "@phosphor-icons/react";
+import { Eye, CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
-import GameHeader from "@/components/GameHeader";
 import ReasoningPanel from "@/components/ReasoningPanel";
+import UsageIndicator from "@/components/UsageIndicator";
 import { useGameState } from "@/hooks/useGameState";
 import { ALL_LLMS, DEFAULT_GAME_CONFIG } from "@/lib/constants";
 
@@ -20,10 +20,9 @@ export default function Home() {
     error,
     actionRequired,
     lastHandResult,
-    shotClock,
-    llmThinking,
-    lastLLMAction,
+    displayState,
     isPaused,
+    isPausePending,
     connect,
     disconnect,
     newGame,
@@ -211,31 +210,6 @@ export default function Home() {
       }, {} as Record<number, { amount: number; handDesc: string }>)
     : {};
 
-  // Show loading while connecting
-  if (!isConnected) {
-  return (
-      <div className="flex flex-col min-h-screen p-4 lg:p-8 overflow-auto bg-stone-100">
-        <div className="text-gray-700 flex-1 flex flex-col items-center justify-center">
-          <div className="flex items-center gap-3">
-            <CircleNotch size={24} className="animate-spin text-gray-400" />
-            <span className="text-sm text-gray-500">Connecting...</span>
-          </div>
-          {error && (
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm max-w-md">
-              {error}
-            <button
-                onClick={() => connect()}
-                className="block mt-2 text-red-700 underline text-xs"
-              >
-                Retry connection
-            </button>
-          </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col min-h-screen p-4 lg:p-8 overflow-auto bg-stone-100">
       <div className="text-gray-700 flex-1 flex flex-col items-center">
@@ -271,6 +245,18 @@ export default function Home() {
               </>
             )}
           </div>
+
+          {/* Hand counter, blinds, timer */}
+          {handNumber > 0 && (
+            <>
+              <div className="h-4 w-px bg-gray-300" />
+              <span className="text-[10px] text-gray-500 uppercase">Hand #{handNumber}</span>
+              <div className="h-4 w-px bg-gray-300" />
+              <span className="text-[10px] text-gray-500">¤{stakes.smallBlind}/{stakes.bigBlind}</span>
+              <div className="h-4 w-px bg-gray-300" />
+              <span className="text-[10px] text-gray-500 font-mono">{elapsedTime}</span>
+            </>
+          )}
 
           {/* Next hand countdown/button */}
           {isHandComplete && (
@@ -327,26 +313,11 @@ export default function Home() {
           )}
         </div>
 
-        {/* Error display */}
-        {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm max-w-2xl">
-            {error}
-          </div>
-        )}
 
 
         {/* Main content */}
         <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col gap-3">
-            {/* Game Header - Hand#, Stakes, Timer */}
-            {handNumber > 0 && (
-              <GameHeader
-                handNumber={handNumber}
-                elapsedTime={elapsedTime}
-                stakes={stakes}
-              />
-            )}
-
+          <div className="flex flex-col">
             {/* Row 1: Table + Winnings */}
             <div className="flex gap-6 items-stretch relative">
               {/* Main game grid */}
@@ -360,33 +331,41 @@ export default function Home() {
                 winnersByIdx={winnersByIdx}
               />
 
-              {/* Rankings sidebar */}
-              {showWinnings && (
-                <WinningsPanel 
-                  players={players} 
-                  onHide={() => setShowWinnings(false)} 
-                />
-              )}
-              
-              {!showWinnings && (
-            <button
-                  onClick={() => setShowWinnings(true)}
-                  className="absolute top-0 right-0 flex items-center justify-center w-10 h-10 border border-gray-300 bg-stone-50 shadow-sm text-gray-400 hover:text-gray-700 transition-colors"
-                  title="Show winnings"
-            >
-                  <Eye size={18} weight="bold" />
-            </button>
-              )}
+              {/* Right sidebar column - API Usage above Winnings */}
+              <div className="flex flex-col w-[240px] shrink-0">
+                {/* API Usage - static, above winnings */}
+                <UsageIndicator isPaused={isPaused} inline />
+                
+                {/* Winnings panel */}
+                {showWinnings && (
+                  <div className="mt-4 flex-1 flex flex-col min-h-0">
+                    <WinningsPanel 
+                      players={players} 
+                      onHide={() => setShowWinnings(false)} 
+                    />
+                  </div>
+                )}
+                
+                {!showWinnings && (
+                  <button
+                    onClick={() => setShowWinnings(true)}
+                    className="mt-4 flex items-center justify-center w-10 h-10 border border-gray-300 bg-stone-50 shadow-sm text-gray-400 hover:text-gray-700 transition-colors"
+                    title="Show winnings"
+                  >
+                    <Eye size={18} weight="bold" />
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* Reasoning Panel - Shot clock + LLM reasoning (always visible in spectate) */}
+            {/* Reasoning Panel - LLM thinking + reasoning (always visible in spectate) */}
             {gameMode === 'spectate' && (
-              <ReasoningPanel
-                shotClock={shotClock}
-                llmThinking={llmThinking}
-                isPaused={isPaused}
-                currentPlayerName={players[currentPlayerIdx]?.name}
-              />
+              <div className="mt-4" style={{ width: '50vw', maxWidth: '700px', minWidth: '500px' }}>
+                <ReasoningPanel
+                  displayState={displayState}
+                  isPaused={isPaused}
+                />
+              </div>
             )}
 
             {/* Action Panel - shown in play/test modes */}
@@ -408,53 +387,89 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Dev-only test mode toggle - only visible in development */}
-      {/* Pause/Resume button - dev mode only, all game modes */}
-      {process.env.NODE_ENV === 'development' && !isHandComplete && (
-        <button
-          onClick={() => isPaused ? resume() : pause()}
-          className={`fixed bottom-4 right-4 ${isPaused ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 hover:bg-gray-600'} text-white px-4 py-2 rounded shadow-lg flex items-center gap-2 text-sm font-bold z-50`}
-          title={isPaused ? 'Resume Game' : 'Pause Game'}
-        >
-          {isPaused ? (
-            <>
-              <ArrowClockwise size={18} weight="bold" />
-              RESUME
-            </>
-          ) : (
-            <>
-              <Timer size={18} weight="bold" />
-              PAUSE
-            </>
+      {/* Dev controls - top left */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed top-4 left-4 flex flex-col gap-2 z-50">
+          {/* Pause/Resume button */}
+          {!isHandComplete && (
+            <button
+              onClick={() => isPaused ? resume() : pause()}
+              disabled={isPausePending}
+              className={`${
+                isPaused ? 'bg-green-500 hover:bg-green-600' : 
+                isPausePending ? 'bg-amber-500 cursor-wait' : 
+                'bg-gray-500 hover:bg-gray-600'
+              } text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold`}
+              title={isPaused ? 'Resume Game' : isPausePending ? 'Waiting for current action...' : 'Pause Game'}
+            >
+              {isPaused ? (
+                <>
+                  <ArrowClockwise size={14} weight="bold" />
+                  RESUME
+                </>
+              ) : isPausePending ? (
+                <>
+                  <CircleNotch size={14} weight="bold" className="animate-spin" />
+                  PAUSING...
+                </>
+              ) : (
+                <>
+                  <Timer size={14} weight="bold" />
+                  PAUSE
+                </>
+              )}
+            </button>
           )}
-        </button>
+
+          {/* Test mode toggle */}
+          {gameMode !== 'test' ? (
+            <button
+              onClick={() => { window.location.href = '/?test=true'; }}
+              className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold"
+              title="Enter Test Mode (Dev Only)"
+            >
+              <Bug size={14} weight="bold" />
+              TEST MODE
+            </button>
+          ) : (
+            <button
+              onClick={() => { window.location.href = '/'; }}
+              className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold"
+              title="Exit Test Mode"
+            >
+              <Bug size={14} weight="bold" />
+              EXIT TEST
+            </button>
+          )}
+        </div>
       )}
 
-      {process.env.NODE_ENV === 'development' && gameMode !== 'test' && (
-        <button
-          onClick={() => {
-            window.location.href = '/?test=true';
-          }}
-          className="fixed bottom-4 left-4 bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded shadow-lg flex items-center gap-2 text-xs font-bold z-50"
-          title="Enter Test Mode (Dev Only)"
-        >
-          <Bug size={16} weight="bold" />
-          TEST MODE
-        </button>
-      )}
-
-      {/* Exit test mode button */}
-      {process.env.NODE_ENV === 'development' && gameMode === 'test' && (
-        <button
-          onClick={() => {
-            window.location.href = '/';
-          }}
-          className="fixed bottom-4 left-4 bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded shadow-lg flex items-center gap-2 text-xs font-bold z-50"
-          title="Exit Test Mode"
-        >
-          <Bug size={16} weight="bold" />
-          EXIT TEST
-        </button>
+      {/* Fixed notification bar for connection status/errors */}
+      {(!isConnected || error) && (
+        <div className="fixed bottom-0 left-0 right-0 bg-amber-500 text-white px-4 py-2 flex items-center justify-center gap-4 z-50 shadow-lg">
+          <div className="flex items-center gap-2">
+            {!isConnected && (
+              <>
+                <CircleNotch size={14} className="animate-spin" />
+                <span className="text-sm font-medium">Connecting to game server...</span>
+              </>
+            )}
+            {isConnected && error && (
+              <span className="text-sm font-medium">⚠️ {error}</span>
+            )}
+          </div>
+          {error && (
+            <button
+              onClick={() => {
+                clearError();
+                if (!isConnected) connect();
+              }}
+              className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded font-bold"
+            >
+              {isConnected ? 'Dismiss' : 'Retry'}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

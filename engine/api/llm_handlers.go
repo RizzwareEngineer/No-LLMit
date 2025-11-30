@@ -1,5 +1,6 @@
-// Orchestrates LLM turns: runs the shot clock, calls client/llm.go to get decisions,
-// and sends updates to the frontend. Called by game_handlers.go after human actions.
+// Orchestrates LLM turns: calls client/llm.go to get decisions and sends results
+// immediately to frontend. Frontend handles all display timing.
+// Called by game_handlers.go after human actions.
 package api
 
 import (
@@ -20,7 +21,7 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 	}
 
 	for !gs.IsHandComplete() && gs.IsWaitingForAction() {
-		// Wait if paused (don't exit - we'll continue when resumed)
+		// Wait if paused
 		for s.isPaused(gs.ID) {
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -49,8 +50,17 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 		log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		log.Printf("🎯 Requesting decision from: %s", playerName)
 
-		validActions := s.buildLLMValidActions(gs)
+		// Notify frontend that this player is now deciding
+		s.send(conn, ServerMessage{
+			Type: MsgLLMThinking,
+			Payload: LLMThinkingPayload{
+				PlayerIdx:  playerIdx,
+				PlayerName: playerName,
+				// No reason yet - frontend will show "Thinking..."
+			},
+		})
 
+		validActions := s.buildLLMValidActions(gs)
 		payload := gs.GetLLMPromptPayload(playerName, validActions)
 		if payload == nil {
 			log.Printf("Failed to build LLM payload for %s", playerName)
@@ -58,123 +68,38 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 			return
 		}
 
-		// Call LLM API and run shot clock concurrently
-		type apiResult struct {
-			decision *client.LLMDecisionResponse
-			err      error
-		}
-		apiChan := make(chan apiResult, 1)
-
-		go func() {
-			decision, err := client.GetLLMDecision(playerName, payload)
-			apiChan <- apiResult{decision, err}
-		}()
-
-		// Run shot clock from 30 down to 0, waiting for minimum 15 seconds
-		var decision *client.LLMDecisionResponse
-		apiReady := false
+		// Call LLM API (blocking - compute as fast as possible)
 		startTime := time.Now()
+		decision, err := client.GetLLMDecision(playerName, payload)
+		apiDuration := time.Since(startTime)
 
-		for secondsLeft := ShotClockSeconds; secondsLeft >= 0; secondsLeft-- {
-			// Check if paused
-			for s.isPaused(gs.ID) {
-				time.Sleep(100 * time.Millisecond)
+		if err != nil {
+			log.Printf("❌ LLM ERROR for %s: %v", playerName, err)
+			decision = &client.LLMDecisionResponse{
+				Action: "FOLD",
+				Amount: 0,
+				Reason: "LLM service error, auto-fold",
 			}
-
-			// Send shot clock update
-			s.send(conn, ServerMessage{
-				Type: MsgShotClock,
-				Payload: ShotClockPayload{
-					PlayerIdx:   playerIdx,
-					PlayerName:  playerName,
-					SecondsLeft: secondsLeft,
-				},
-			})
-
-			// TODO: refactor this later
-			if !apiReady {
-				select {
-				case result := <-apiChan:
-					if result.err != nil {
-						log.Printf("❌ LLM ERROR for %s: %v", playerName, result.err)
-						decision = &client.LLMDecisionResponse{
-							Action: "FOLD",
-							Amount: 0,
-							Reason: "LLM service error, auto-fold",
-						}
-					} else {
-						decision = result.decision
-					}
-					apiReady = true
-					apiDuration := time.Since(startTime)
-
-					actionEmoji := map[string]string{
-						"FOLD": "🚫", "CHECK": "✋", "CALL": "📞",
-						"RAISE": "📈", "BET": "💰", "ALL_IN": "🔥",
-					}[decision.Action]
-					if actionEmoji == "" {
-						actionEmoji = "❓"
-					}
-
-					log.Printf("%s %s: %s", actionEmoji, playerName, decision.Action)
-					if decision.Amount > 0 {
-						log.Printf("   Amount: ¤%d", decision.Amount)
-					}
-					log.Printf("   Reason: %s", decision.Reason)
-					log.Printf("   ⏱️  %dms", apiDuration.Milliseconds())
-					log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-					// Send reasoning immediately to frontend (action still hidden)
-					s.send(conn, ServerMessage{
-						Type: MsgLLMThinking,
-						Payload: LLMThinkingPayload{
-							PlayerIdx:  playerIdx,
-							PlayerName: playerName,
-							Reason:     decision.Reason,
-						},
-					})
-				default:
-					// API not ready yet
-				}
-			}
-
-			// If API is ready AND we've waited at least MinActionDelay, we can proceed
-			elapsed := time.Since(startTime)
-			if apiReady && elapsed >= time.Duration(MinActionDelay)*time.Second {
-				log.Printf("⏰ Delay complete, revealing action...")
-				break
-			}
-
-			// If clock hits 0 and API still not ready, wait for it
-			if secondsLeft == 0 && !apiReady {
-				log.Printf("Shot clock expired, waiting for API...")
-				result := <-apiChan
-				if result.err != nil {
-					decision = &client.LLMDecisionResponse{
-						Action: "FOLD",
-						Amount: 0,
-						Reason: "LLM timeout, auto-fold",
-					}
-				} else {
-					decision = result.decision
-				}
-				break
-			}
-
-			time.Sleep(1 * time.Second)
 		}
 
-		// Clear shot clock
-		s.send(conn, ServerMessage{
-			Type: MsgShotClock,
-			Payload: ShotClockPayload{
-				PlayerIdx:   playerIdx,
-				PlayerName:  playerName,
-				SecondsLeft: -1, // Signal to clear
-			},
-		})
+		actionEmoji := map[string]string{
+			"FOLD": "🚫", "CHECK": "✋", "CALL": "📞",
+			"RAISE": "📈", "BET": "💰", "ALL_IN": "🔥",
+		}[decision.Action]
+		if actionEmoji == "" {
+			actionEmoji = "❓"
+		}
 
-		// Now show the action
+		log.Printf("%s %s: %s", actionEmoji, playerName, decision.Action)
+		if decision.Amount > 0 {
+			log.Printf("   Amount: ¤%d", decision.Amount)
+		}
+		log.Printf("   Reason: %s", decision.Reason)
+		log.Printf("   ⏱️  %dms", apiDuration.Milliseconds())
+		log.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+		// Send complete decision to frontend (action + reasoning together)
+		// Frontend will handle timing for display
 		s.send(conn, ServerMessage{
 			Type: MsgLLMAction,
 			Payload: LLMActionPayload{
@@ -186,6 +111,7 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 			},
 		})
 
+		// Process action immediately (compute ahead)
 		action := game.Action{
 			Type:      ParseActionType(decision.Action),
 			Amount:    decision.Amount,
@@ -224,16 +150,17 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 			})
 		}
 
+		// Send updated game state
 		s.sendGameState(conn, gs)
 
-		// Check if pause was requested - activate it now (after action completed)
+		// Check if pause was requested
 		if s.activatePendingPause(gs.ID) {
 			log.Printf("Game %s paused (pending pause activated)", gs.ID)
 			s.send(conn, ServerMessage{Type: MsgPaused})
-			// Don't return - we'll wait in the pause loop at the top of the next iteration
 		}
 
-		time.Sleep(500 * time.Millisecond)
+		// No delay here - continue to next player immediately
+		// Frontend handles all display timing
 	}
 }
 

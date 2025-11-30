@@ -8,6 +8,7 @@ __pycache__/
 .Python
 .uv/
 *.egg-info/
+.usage_stats.json
 
 # Go
 *.exe

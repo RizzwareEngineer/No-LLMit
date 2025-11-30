@@ -21,7 +21,16 @@ export default function TableFelt({
   winners = [],
 }: TableFeltProps) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 w-[280px]">
+    <div 
+      className="flex flex-col items-center justify-center gap-3 w-full h-full py-2"
+      style={{
+        backgroundImage: `
+          linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(0,0,0,0.03) 1px, transparent 1px)
+        `,
+        backgroundSize: '20px 20px',
+      }}
+    >
       {/* Winner announcement or Pot */}
       <div className="h-[44px] w-full flex items-center justify-center">
         {winners.length > 0 ? (
@@ -38,7 +47,7 @@ export default function TableFelt({
             )}
           </div>
         ) : (
-          <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border border-gray-700">
+          <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm">
             <div className="text-xs uppercase tracking-widest text-gray-700/50">POT</div>
             <div className="text-lg text-gray-700 font-bold">
               ¤<NumberFlow value={pot} />

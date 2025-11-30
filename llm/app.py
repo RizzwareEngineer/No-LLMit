@@ -1,84 +1,74 @@
 """FastAPI server for querying LLM APIs for their decisions/action given the current game state."""
 
 import os
+import json
 import time
 import logging
-from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
 from schemas import DecisionRequest, DecisionResponse
+from providers.huggingface import get_decision
+from usage import tracker
 
 load_dotenv()
-
-# TODO: refactor out this providers as its own class, may be overengineering but oh well 
-from providers.huggingface import get_decision
-from registry import list_models
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("app")
-
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="No-LLMit LLM Service")
 
-# Local usage tracking (HuggingFace doesn't expose remaining credits via API)
-usage_stats = {
-    "session_start": datetime.now().isoformat(),
-    "total_requests": 0,
-    "estimated_input_tokens": 0,
-    "estimated_output_tokens": 0,
-}
+# Allow frontend to call /usage directly
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
 def health():
-    """Verifies health of all LLM API keys providers."""
-    
-    api_key = os.getenv("HF_API_KEY")
-    if not api_key: raise HTTPException(status_code=503, detail="HF_API_KEY not configured")
-    
+    """Verify API key is configured."""
+    if not os.getenv("HF_API_KEY"):
+        raise HTTPException(status_code=503, detail="HF_API_KEY not configured")
     return {"status": "ok"}
 
 
 @app.get("/usage")
 def get_usage():
-    """
-    Returns local usage stats for this session.
-    
-    Note: HuggingFace doesn't expose an API to check remaining credits.
-    Limits: Free = ~100k tokens/month + 1k requests/day, Pro = ~2M tokens/month + 20k requests/day
-    """
-    return {
-        **usage_stats,
-        "estimated_total_tokens": usage_stats["estimated_input_tokens"] + usage_stats["estimated_output_tokens"],
-        "note": "HuggingFace limits: Free ~100k tokens/mo, Pro ~2M tokens/mo. This is local tracking only.",
-    }
+    """Get usage stats (monthly tokens + daily requests)."""
+    return tracker.get_summary()
+
+
+@app.post("/usage/reset")
+def reset_usage():
+    """Manually reset all usage stats."""
+    tracker.reset()
+    return {"status": "reset", "usage": tracker.get_summary()}
 
 
 @app.post("/decide", response_model=DecisionResponse)
 def decide(request: DecisionRequest):
-    """
-    Query an LLM's API for their decision/action given context of the current game state.
-
-    Look at GetLLMPromptPayload() inside no-LLMit/engine/game/game.go to see how payload is constructed.
-    """
+    """Get LLM decision for the current game state."""
     logger.info("")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info(f"🎯 LLM API Request: {request.player_name}")
-    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info(f"🎯 {request.player_name}")
+    
     start = time.time()
     
-    # Estimate input tokens (rough: ~4 chars per token)
-    import json
+    # Estimate input tokens (~4 chars per token)
     input_text = json.dumps(request.payload)
-    estimated_input = len(input_text) // 4
+    est_input = len(input_text) // 4
     
     try:
         result = get_decision(request.player_name, request.payload)
     except Exception as e:
-        logger.error(f"❌ Error for {request.player_name}: {e}")
+        logger.error(f"❌ Error: {e}")
         return DecisionResponse(
             action="FOLD",
             amount=0,
@@ -88,22 +78,16 @@ def decide(request: DecisionRequest):
         )
     
     latency_ms = int((time.time() - start) * 1000)
+    est_output = len(result.get("raw", "")) // 4
     
-    # Update usage stats
-    estimated_output = len(result.get("raw", "")) // 4
-    usage_stats["total_requests"] += 1
-    usage_stats["estimated_input_tokens"] += estimated_input
-    usage_stats["estimated_output_tokens"] += estimated_output
+    # Track usage
+    tracker.record(est_input, est_output)
     
-    # Format action with emoji
-    action_emojis = {"FOLD": "🃏", "CHECK": "✋", "CALL": "📞", "RAISE": "⬆️", "ALL_IN": "🔥"}
-    emoji = action_emojis.get(result["action"], "❓")
-    
-    logger.info(f"{emoji} {result['action']}")
-    if result["amount"] > 0:
-        logger.info(f"   Amount: ¤{result['amount']}")
-    logger.info(f"   Reason: {result['reason']}")
-    logger.info(f"   ⏱️  {latency_ms}ms | 📊 ~{estimated_input + estimated_output} tokens (session: {usage_stats['total_requests']} reqs)")
+    # Log result
+    emoji = {"FOLD": "🃏", "CHECK": "✋", "CALL": "📞", "RAISE": "⬆️", "ALL_IN": "🔥"}.get(result["action"], "❓")
+    logger.info(f"{emoji} {result['action']}" + (f" ¤{result['amount']}" if result["amount"] else ""))
+    logger.info(f"   {result['reason']}")
+    logger.info(f"   ⏱️ {latency_ms}ms | 📊 ~{est_input + est_output} tok | 📅 {tracker.daily_requests}/day {tracker.monthly_requests}/mo")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     return DecisionResponse(
@@ -117,6 +101,4 @@ def decide(request: DecisionRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "5001"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
-
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "5001")))
