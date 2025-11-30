@@ -1,83 +1,85 @@
+// WebSocket message types and payloads for communication between frontend (web/) and server.
+// Used by server.go to serialize/deserialize messages.
 package api
 
 import (
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
 )
 
-// MessageType represents the type of WebSocket message
 type MessageType string
 
 const (
-	// Client -> Server messages
-	MsgNewGame     MessageType = "new_game"
-	MsgStartHand   MessageType = "start_hand"
-	MsgAction      MessageType = "action"
-	MsgGetState    MessageType = "get_state"
-	
-	// Server -> Client messages
-	MsgGameState   MessageType = "game_state"
-	MsgError       MessageType = "error"
-	MsgHandStart   MessageType = "hand_start"
-	MsgActionReq   MessageType = "action_required"
+	// Client → Server
+	MsgNewGame   MessageType = "new_game"
+	MsgStartHand MessageType = "start_hand"
+	MsgAction    MessageType = "action"
+	MsgGetState  MessageType = "get_state"
+	MsgPause     MessageType = "pause"
+	MsgResume    MessageType = "resume"
+
+	// Server → Client
+	MsgGameState    MessageType = "game_state"
+	MsgError        MessageType = "error"
+	MsgHandStart    MessageType = "hand_start"
+	MsgActionReq    MessageType = "action_required"
 	MsgStreetChange MessageType = "street_change"
 	MsgHandComplete MessageType = "hand_complete"
-	MsgPotAwarded  MessageType = "pot_awarded"
+	MsgPotAwarded   MessageType = "pot_awarded"
+	MsgShotClock    MessageType = "shot_clock"
+	MsgLLMThinking  MessageType = "llm_thinking"
+	MsgLLMAction    MessageType = "llm_action"
+	MsgPaused       MessageType = "paused"
+	MsgResumed      MessageType = "resumed"
 )
 
-// ClientMessage represents a message from client to server
 type ClientMessage struct {
-	Type    MessageType     `json:"type"`
-	Payload interface{}     `json:"payload,omitempty"`
+	Type    MessageType `json:"type"`
+	Payload interface{} `json:"payload,omitempty"`
 }
 
-// ServerMessage represents a message from server to client
 type ServerMessage struct {
-	Type    MessageType     `json:"type"`
-	Payload interface{}     `json:"payload,omitempty"`
+	Type    MessageType `json:"type"`
+	Payload interface{} `json:"payload,omitempty"`
 }
 
-// NewGamePayload is the payload for creating a new game
 type NewGamePayload struct {
-	PlayerNames   []string      `json:"playerNames"`
-	StartingStack int           `json:"startingStack"`
-	SmallBlind    int           `json:"smallBlind"`
-	BigBlind      int           `json:"bigBlind"`
-	Mode          string        `json:"mode"` // "simulate", "play", "test"
-	UserSeatIdx   int           `json:"userSeatIdx"`
+	PlayerNames   []string `json:"playerNames"`
+	StartingStack int      `json:"startingStack"`
+	SmallBlind    int      `json:"smallBlind"`
+	BigBlind      int      `json:"bigBlind"`
+	Mode          string   `json:"mode"` // "simulate", "play", "test"
+	UserSeatIdx   int      `json:"userSeatIdx"`
 }
 
-// ActionPayload is the payload for a player action
 type ActionPayload struct {
 	PlayerIdx int    `json:"playerIdx"`
-	Action    string `json:"action"` // "fold", "check", "call", "raise", "all-in"
-	Amount    int    `json:"amount,omitempty"` // For raise
+	Action    string `json:"action"`
+	Amount    int    `json:"amount,omitempty"`
 }
 
-// GameStatePayload is the full game state sent to clients
 type GameStatePayload struct {
-	ID               string              `json:"id"`
-	HandNumber       int                 `json:"handNumber"`
-	Street           string              `json:"street"`
-	Pot              int                 `json:"pot"`
-	CommunityCards   []string            `json:"communityCards"`
-	CurrentBet       int                 `json:"currentBet"`
-	MinRaise         int                 `json:"minRaise"`
-	CurrentPlayerIdx int                 `json:"currentPlayerIdx"`
-	ButtonIdx        int                 `json:"buttonIdx"`
+	ID               string               `json:"id"`
+	HandNumber       int                  `json:"handNumber"`
+	Street           string               `json:"street"`
+	Pot              int                  `json:"pot"`
+	CommunityCards   []string             `json:"communityCards"`
+	CurrentBet       int                  `json:"currentBet"`
+	MinRaise         int                  `json:"minRaise"`
+	CurrentPlayerIdx int                  `json:"currentPlayerIdx"`
+	ButtonIdx        int                  `json:"buttonIdx"`
 	Players          []PlayerStatePayload `json:"players"`
 	ValidActions     []ValidActionPayload `json:"validActions,omitempty"`
 	Winners          []WinnerPayload      `json:"winners,omitempty"`
-	Mode             string              `json:"mode"`
-	Stakes           StakesPayload       `json:"stakes"`
-	GameStartTime    string              `json:"gameStartTime"` // ISO8601 timestamp
+	Mode             string               `json:"mode"`
+	Stakes           StakesPayload        `json:"stakes"`
+	GameStartTime    string               `json:"gameStartTime"`
 }
 
-// PlayerStatePayload represents a player's state for the client
 type PlayerStatePayload struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
 	Stack      int      `json:"stack"`
-	HoleCards  []string `json:"holeCards,omitempty"` // Only visible in test mode or at showdown
+	HoleCards  []string `json:"holeCards,omitempty"`
 	Status     string   `json:"status"`
 	CurrentBet int      `json:"currentBet"`
 	LastAction string   `json:"lastAction,omitempty"`
@@ -86,35 +88,30 @@ type PlayerStatePayload struct {
 	Winnings   int      `json:"winnings"`
 }
 
-// ValidActionPayload represents a valid action for the client
 type ValidActionPayload struct {
 	Type      string `json:"type"`
 	MinAmount int    `json:"minAmount,omitempty"`
 	MaxAmount int    `json:"maxAmount,omitempty"`
 }
 
-// WinnerPayload represents a winner for the client
 type WinnerPayload struct {
 	PlayerIdx       int    `json:"playerIdx"`
 	Amount          int    `json:"amount"`
 	HandType        string `json:"handType"`
 	HandDesc        string `json:"handDesc"`
-	EligiblePlayers []int  `json:"eligiblePlayers"` // Player indices who competed for this pot
-	PotNumber       int    `json:"potNumber"`       // 1 = main pot, 2+ = side pots
+	EligiblePlayers []int  `json:"eligiblePlayers"`
+	PotNumber       int    `json:"potNumber"`
 }
 
-// StakesPayload represents the blind structure
 type StakesPayload struct {
 	SmallBlind int `json:"smallBlind"`
 	BigBlind   int `json:"bigBlind"`
 }
 
-// ErrorPayload is the payload for error messages
 type ErrorPayload struct {
 	Message string `json:"message"`
 }
 
-// ActionRequiredPayload tells client who needs to act
 type ActionRequiredPayload struct {
 	PlayerIdx    int                  `json:"playerIdx"`
 	PlayerName   string               `json:"playerName"`
@@ -122,19 +119,37 @@ type ActionRequiredPayload struct {
 	TimeoutMs    int                  `json:"timeoutMs,omitempty"`
 }
 
-// HandCompletePayload announces hand completion
 type HandCompletePayload struct {
-	Winners     []WinnerPayload `json:"winners"`
-	HandNumber  int             `json:"handNumber"`
+	Winners    []WinnerPayload `json:"winners"`
+	HandNumber int             `json:"handNumber"`
 }
 
-// ConvertGameState converts internal game state to client payload
+type ShotClockPayload struct {
+	PlayerIdx   int    `json:"playerIdx"`
+	PlayerName  string `json:"playerName"`
+	SecondsLeft int    `json:"secondsLeft"`
+}
+
+type LLMThinkingPayload struct {
+	PlayerIdx  int    `json:"playerIdx"`
+	PlayerName string `json:"playerName"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type LLMActionPayload struct {
+	PlayerIdx  int    `json:"playerIdx"`
+	PlayerName string `json:"playerName"`
+	Action     string `json:"action"`
+	Amount     int    `json:"amount"`
+	Reason     string `json:"reason"`
+}
+
 func ConvertGameState(gs *game.GameState, showAllCards bool) GameStatePayload {
 	players := make([]PlayerStatePayload, len(gs.Players))
 	for i, p := range gs.Players {
 		var holeCards []string
-		// Show cards in test mode, at showdown, or if it's the user's cards in play mode
 		canSeeCards := showAllCards ||
+			gs.Mode == game.ModeSimulate ||
 			gs.Street == game.StreetShowdown ||
 			gs.Street == game.StreetComplete ||
 			(gs.Mode == game.ModePlay && i == gs.UserSeatIdx)
@@ -210,11 +225,10 @@ func ConvertGameState(gs *game.GameState, showAllCards bool) GameStatePayload {
 			SmallBlind: gs.Stakes.SmallBlind,
 			BigBlind:   gs.Stakes.BigBlind,
 		},
-		GameStartTime:    gs.GameStartTime.Format("2006-01-02T15:04:05Z07:00"), // ISO8601
+		GameStartTime: gs.GameStartTime.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 
-// ParseActionType converts string action to ActionType
 func ParseActionType(s string) game.ActionType {
 	switch s {
 	case "FOLD", "fold":
@@ -232,7 +246,6 @@ func ParseActionType(s string) game.ActionType {
 	}
 }
 
-// ParseGameMode converts string mode to GameMode
 func ParseGameMode(s string) game.GameMode {
 	switch s {
 	case "simulate":
@@ -245,4 +258,3 @@ func ParseGameMode(s string) game.GameMode {
 		return game.ModeTest
 	}
 }
-

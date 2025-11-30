@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, CircleNotch, ArrowClockwise, GameController, Television, Wrench, Timer, Bug } from "@phosphor-icons/react";
+import { Eye, CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
+import GameHeader from "@/components/GameHeader";
+import ReasoningPanel from "@/components/ReasoningPanel";
 import { useGameState } from "@/hooks/useGameState";
 import { ALL_LLMS, DEFAULT_GAME_CONFIG } from "@/lib/constants";
 
@@ -18,12 +20,18 @@ export default function Home() {
     error,
     actionRequired,
     lastHandResult,
+    shotClock,
+    llmThinking,
+    lastLLMAction,
+    isPaused,
     connect,
     disconnect,
     newGame,
     startHand,
     submitAction,
     clearError,
+    pause,
+    resume,
   } = useGameState();
 
   const [showWinnings, setShowWinnings] = useState(true);
@@ -263,30 +271,15 @@ export default function Home() {
               </>
             )}
           </div>
-          <div className="h-4 w-px bg-gray-300" />
-
-          {/* Hand counter & Timer */}
-          {handNumber > 0 && (
-            <>
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] text-gray-500 uppercase">Hand #{handNumber}</span>
-                <div className="h-4 w-px bg-gray-300" />
-                <div className="flex items-center gap-1">
-                  <Timer size={12} className="text-gray-400" />
-                  <span className="text-[10px] text-gray-500 font-mono">{elapsedTime}</span>
-                </div>
-              </div>
-              <div className="h-4 w-px bg-gray-300" />
-            </>
-          )}
 
           {/* Next hand countdown/button */}
           {isHandComplete && (
             <>
+              <div className="h-4 w-px bg-gray-300" />
               {nextHandCountdown !== null && nextHandCountdown > 0 ? (
                 <div className="flex items-center gap-2 text-[10px] text-gray-500">
                   <CircleNotch size={12} className="animate-spin text-gray-400" />
-                  <span>{nextHandCountdown}s</span>
+                  <span>Next hand in {nextHandCountdown}s</span>
                   <button
                     onClick={() => {
                       setNextHandCountdown(null);
@@ -307,9 +300,10 @@ export default function Home() {
                   NEXT HAND
                 </button>
               )}
-              <div className="h-4 w-px bg-gray-300" />
             </>
           )}
+
+          <div className="flex-1" />
 
           {/* Play / Spectate buttons */}
           {gameMode === 'play' ? (
@@ -343,7 +337,16 @@ export default function Home() {
 
         {/* Main content */}
         <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-3">
+            {/* Game Header - Hand#, Stakes, Timer */}
+            {handNumber > 0 && (
+              <GameHeader
+                handNumber={handNumber}
+                elapsedTime={elapsedTime}
+                stakes={stakes}
+              />
+            )}
+
             {/* Row 1: Table + Winnings */}
             <div className="flex gap-6 items-stretch relative">
               {/* Main game grid */}
@@ -354,7 +357,6 @@ export default function Home() {
                 buttonIdx={buttonIdx}
                 communityCards={communityCards}
                 pot={pot}
-                stakes={stakes}
                 winnersByIdx={winnersByIdx}
               />
 
@@ -371,15 +373,25 @@ export default function Home() {
                   onClick={() => setShowWinnings(true)}
                   className="absolute top-0 right-0 flex items-center justify-center w-10 h-10 border border-gray-300 bg-stone-50 shadow-sm text-gray-400 hover:text-gray-700 transition-colors"
                   title="Show winnings"
-                >
+            >
                   <Eye size={18} weight="bold" />
             </button>
               )}
             </div>
 
-            {/* Action Panel - shown based on mode */}
+            {/* Reasoning Panel - Shot clock + LLM reasoning (always visible in spectate) */}
+            {gameMode === 'spectate' && (
+              <ReasoningPanel
+                shotClock={shotClock}
+                llmThinking={llmThinking}
+                isPaused={isPaused}
+                currentPlayerName={players[currentPlayerIdx]?.name}
+              />
+            )}
+
+            {/* Action Panel - shown in play/test modes */}
             {showActionPanel && (
-              <div className="mt-6 flex w-full justify-start">
+              <div className="flex w-full justify-start">
                 <ActionPanel
                   currentPlayer={canAct ? players[currentPlayerIdx] : null}
                   currentBet={currentBet}
@@ -387,7 +399,7 @@ export default function Home() {
                   validActions={canAct ? validActions : []}
                   stakes={stakes}
                   actionRequired={!!actionRequired && canAct}
-        onAction={handleAction}
+                  onAction={handleAction}
                   disabled={!canAct}
                 />
               </div>
@@ -397,6 +409,27 @@ export default function Home() {
       </div>
 
       {/* Dev-only test mode toggle - only visible in development */}
+      {/* Pause/Resume button - dev mode only, all game modes */}
+      {process.env.NODE_ENV === 'development' && !isHandComplete && (
+        <button
+          onClick={() => isPaused ? resume() : pause()}
+          className={`fixed bottom-4 right-4 ${isPaused ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 hover:bg-gray-600'} text-white px-4 py-2 rounded shadow-lg flex items-center gap-2 text-sm font-bold z-50`}
+          title={isPaused ? 'Resume Game' : 'Pause Game'}
+        >
+          {isPaused ? (
+            <>
+              <ArrowClockwise size={18} weight="bold" />
+              RESUME
+            </>
+          ) : (
+            <>
+              <Timer size={18} weight="bold" />
+              PAUSE
+            </>
+          )}
+        </button>
+      )}
+
       {process.env.NODE_ENV === 'development' && gameMode !== 'test' && (
         <button
           onClick={() => {

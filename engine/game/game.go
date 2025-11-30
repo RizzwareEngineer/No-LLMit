@@ -1,3 +1,7 @@
+// This file is the heart of the poker engine. It holds the GameState struct which tracks
+// everything: players, cards, pots, betting state. NewGame creates a table, StartHand deals
+// cards and posts blinds, AdvanceStreet moves through flop/turn/river, and resolveShowdown
+// determines winners. Called by api/game_handlers.go and api/llm_handlers.go.
 package game
 
 import (
@@ -5,7 +9,6 @@ import (
 	"time"
 )
 
-// Street represents the current betting round
 type Street int
 
 const (
@@ -21,7 +24,6 @@ func (s Street) String() string {
 	return []string{"preflop", "flop", "turn", "river", "showdown", "complete"}[s]
 }
 
-// GameMode represents how the game is being played
 type GameMode int
 
 const (
@@ -34,13 +36,11 @@ func (gm GameMode) String() string {
 	return []string{"simulate", "play", "test"}[gm]
 }
 
-// Stakes represents the blind structure
 type Stakes struct {
 	SmallBlind int `json:"smallBlind"`
 	BigBlind   int `json:"bigBlind"`
 }
 
-// GameConfig holds configuration for a new game
 type GameConfig struct {
 	PlayerNames   []string `json:"playerNames"`
 	StartingStack int      `json:"startingStack"`
@@ -49,34 +49,31 @@ type GameConfig struct {
 	UserSeatIdx   int      `json:"userSeatIdx"` // Only relevant in ModePlay
 }
 
-// GameState represents the complete state of a poker game
 type GameState struct {
-	ID               string    `json:"id"`
-	Players          []Player  `json:"players"`
-	CommunityCards   []Card    `json:"communityCards"`
-	Pots             []Pot     `json:"pots"`
-	Street           Street    `json:"street"`
-	ButtonIdx        int       `json:"buttonIdx"`
-	CurrentPlayerIdx int       `json:"currentPlayerIdx"`
-	CurrentBet       int       `json:"currentBet"`      // Current bet to match
-	MinRaise         int       `json:"minRaise"`        // Minimum raise amount
-	LastRaiseAmount  int       `json:"lastRaiseAmount"` // Size of last raise
-	Stakes           Stakes    `json:"stakes"`
-	Mode             GameMode  `json:"mode"`
-	UserSeatIdx      int       `json:"userSeatIdx"`
-	HandNumber       int       `json:"handNumber"`
-	Winners          []Winner  `json:"winners,omitempty"`
-	GameStartTime    time.Time `json:"gameStartTime"` // When the game was created on server
-
-	// Internal state (not sent to client)
-	deck             *Deck `json:"-"`
-	actionsThisRound int   `json:"-"`
+	ID                 string            `json:"id"`
+	Players            []Player          `json:"players"`
+	CommunityCards     []Card            `json:"communityCards"`
+	Pots               []Pot             `json:"pots"`
+	Street             Street            `json:"street"`
+	ButtonIdx          int               `json:"buttonIdx"`
+	CurrentPlayerIdx   int               `json:"currentPlayerIdx"`
+	CurrentBet         int               `json:"currentBet"`
+	MinRaise           int               `json:"minRaise"`
+	LastRaiseAmount    int               `json:"lastRaiseAmount"`
+	Stakes             Stakes            `json:"stakes"`
+	Mode               GameMode          `json:"mode"`
+	UserSeatIdx        int               `json:"userSeatIdx"`
+	HandNumber         int               `json:"handNumber"`
+	Winners            []Winner          `json:"winners,omitempty"`
+	GameStartTime      time.Time         `json:"gameStartTime"`
+	deck               *Deck             `json:"-"`
+	actionsThisRound   int               `json:"-"`
+	LLMActionsThisHand []map[string]any  `json:"-"`
+	LLMPreviousHands   []LLMPreviousHand `json:"-"`
 }
 
-// WinnerFinder is a function type for finding winners (used by AwardPots)
 type WinnerFinder func(players []Player, communityCards []Card, eligibleIndices []int) []int
 
-// NewGame creates a new poker game with the given configuration
 func NewGame(config GameConfig) *GameState {
 	players := make([]Player, len(config.PlayerNames))
 	for i, name := range config.PlayerNames {
@@ -91,30 +88,29 @@ func NewGame(config GameConfig) *GameState {
 	}
 
 	gs := &GameState{
-		ID:               generateGameID(),
-		Players:          players,
-		CommunityCards:   []Card{},
-		Pots:             []Pot{},
-		Street:           StreetPreflop,
-		ButtonIdx:        0, // Will be rotated before first hand
-		CurrentPlayerIdx: -1,
-		Stakes:           config.Stakes,
-		Mode:             config.Mode,
-		UserSeatIdx:      config.UserSeatIdx,
-		HandNumber:       0,
-		GameStartTime:    time.Now(), // Server timestamp for game start
-		deck:             NewDeck(),
+		ID:                 generateGameID(),
+		Players:            players,
+		CommunityCards:     []Card{},
+		Pots:               []Pot{},
+		Street:             StreetPreflop,
+		ButtonIdx:          0, // Will be rotated before first hand
+		CurrentPlayerIdx:   -1,
+		Stakes:             config.Stakes,
+		Mode:               config.Mode,
+		UserSeatIdx:        config.UserSeatIdx,
+		HandNumber:         0,
+		GameStartTime:      time.Now(), // Server timestamp for game start
+		deck:               NewDeck(),
+		LLMActionsThisHand: []map[string]any{},
+		LLMPreviousHands:   []LLMPreviousHand{},
 	}
 
 	return gs
 }
 
-// StartHand starts a new hand
 func (gs *GameState) StartHand() error {
-	// First, eliminate any players with 0 chips from previous hand
 	gs.EliminateBrokePlayers()
 
-	// Check we have enough active players
 	activeCount := 0
 	for _, p := range gs.Players {
 		if p.Status != PlayerEliminated && p.Stack > 0 {
@@ -125,14 +121,12 @@ func (gs *GameState) StartHand() error {
 		return fmt.Errorf("not enough players to start hand (need at least 2, have %d)", activeCount)
 	}
 
-	// Reset for new hand
 	gs.HandNumber++
 	gs.deck.Reset()
 	gs.CommunityCards = []Card{}
 	gs.Winners = nil
 	gs.ResetPotsForNewHand()
 
-	// Reset player states
 	for i := range gs.Players {
 		gs.Players[i].HoleCards = []Card{}
 		gs.Players[i].LastAction = nil
@@ -142,25 +136,18 @@ func (gs *GameState) StartHand() error {
 		}
 	}
 
-	// Rotate button
 	gs.rotateButton()
-
-	// Post blinds
 	if err := gs.postBlinds(); err != nil {
 		return err
 	}
-
-	// Deal hole cards
 	gs.dealHoleCards()
 
-	// Set first to act (UTG preflop)
 	gs.Street = StreetPreflop
 	gs.CurrentPlayerIdx = gs.GetFirstToAct()
 
 	return nil
 }
 
-// rotateButton moves the button to the next active player
 func (gs *GameState) rotateButton() {
 	for i := 1; i <= len(gs.Players); i++ {
 		idx := (gs.ButtonIdx + i) % len(gs.Players)
@@ -171,14 +158,10 @@ func (gs *GameState) rotateButton() {
 	}
 }
 
-// postBlinds posts small and big blinds
 func (gs *GameState) postBlinds() error {
-	// Small blind is left of button
-	sbIdx := gs.getNextActivePlayer(gs.ButtonIdx)
-	// Big blind is left of small blind
-	bbIdx := gs.getNextActivePlayer(sbIdx)
+	sbIdx := gs.getNextActivePlayer(gs.ButtonIdx) // SB is left of button
+	bbIdx := gs.getNextActivePlayer(sbIdx)        // BB is left of SB
 
-	// Post small blind
 	sbPlayer := &gs.Players[sbIdx]
 	sbAmount := min(gs.Stakes.SmallBlind, sbPlayer.Stack)
 	sbPlayer.Stack -= sbAmount
@@ -188,7 +171,6 @@ func (gs *GameState) postBlinds() error {
 		sbPlayer.Status = PlayerAllIn
 	}
 
-	// Post big blind
 	bbPlayer := &gs.Players[bbIdx]
 	bbAmount := min(gs.Stakes.BigBlind, bbPlayer.Stack)
 	bbPlayer.Stack -= bbAmount
@@ -202,10 +184,12 @@ func (gs *GameState) postBlinds() error {
 	gs.MinRaise = gs.Stakes.BigBlind
 	gs.LastRaiseAmount = gs.Stakes.BigBlind
 
+	gs.RecordActionForLLMs(sbPlayer.Name, "post", sbAmount)
+	gs.RecordActionForLLMs(bbPlayer.Name, "post", bbAmount)
+
 	return nil
 }
 
-// getNextActivePlayer gets the next player who can act (not eliminated, has chips)
 func (gs *GameState) getNextActivePlayer(fromIdx int) int {
 	for i := 1; i <= len(gs.Players); i++ {
 		idx := (fromIdx + i) % len(gs.Players)
@@ -220,20 +204,15 @@ func (gs *GameState) getNextActivePlayer(fromIdx int) int {
 	return -1
 }
 
-// dealHoleCards deals 2 cards to each active player
 func (gs *GameState) dealHoleCards() {
-	// Deal cards starting left of button
-	startIdx := (gs.ButtonIdx + 1) % len(gs.Players)
+	startIdx := (gs.ButtonIdx + 1) % len(gs.Players) // Start left of button
 
-	// First card to each player
 	for i := 0; i < len(gs.Players); i++ {
 		idx := (startIdx + i) % len(gs.Players)
 		if gs.Players[idx].Status != PlayerEliminated {
 			gs.Players[idx].HoleCards = append(gs.Players[idx].HoleCards, gs.deck.Deal(1)[0])
 		}
 	}
-
-	// Second card to each player
 	for i := 0; i < len(gs.Players); i++ {
 		idx := (startIdx + i) % len(gs.Players)
 		if gs.Players[idx].Status != PlayerEliminated {
@@ -242,19 +221,13 @@ func (gs *GameState) dealHoleCards() {
 	}
 }
 
-// AdvanceStreet moves to the next street (flop, turn, river, showdown)
 func (gs *GameState) AdvanceStreet() error {
-	// Collect bets from this round
 	gs.CollectBetsIntoPot()
 
-	// Check if only one player remains
 	if gs.CountActivePlayers() == 1 {
 		return gs.finishHandOnePlayerRemains()
 	}
-
-	// Check if all remaining players are all-in
 	if gs.CountActiveNonAllInPlayers() <= 1 {
-		// Run out remaining cards and go to showdown
 		return gs.runOutBoard()
 	}
 
@@ -276,32 +249,27 @@ func (gs *GameState) AdvanceStreet() error {
 		return nil
 	}
 
-	// Reset for new betting round
 	gs.ResetBettingRound()
 	gs.CurrentPlayerIdx = gs.GetFirstToAct()
 
 	return nil
 }
 
-// dealFlop deals the flop (3 community cards)
 func (gs *GameState) dealFlop() {
 	gs.deck.Burn()
 	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(3)...)
 }
 
-// dealTurn deals the turn (1 community card)
 func (gs *GameState) dealTurn() {
 	gs.deck.Burn()
 	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(1)[0])
 }
 
-// dealRiver deals the river (1 community card)
 func (gs *GameState) dealRiver() {
 	gs.deck.Burn()
 	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(1)[0])
 }
 
-// runOutBoard deals remaining community cards when all players are all-in
 func (gs *GameState) runOutBoard() error {
 	for len(gs.CommunityCards) < 5 {
 		gs.deck.Burn()
@@ -311,24 +279,20 @@ func (gs *GameState) runOutBoard() error {
 	return gs.resolveShowdown()
 }
 
-// finishHandOnePlayerRemains ends the hand when only one player is left
 func (gs *GameState) finishHandOnePlayerRemains() error {
 	winner := gs.AwardPotToLastPlayer()
 	if winner != nil {
 		gs.Winners = []Winner{*winner}
 	}
 	gs.Street = StreetComplete
+	gs.ArchiveHandForLLMs()
 	return nil
 }
 
-// resolveShowdown determines winners and awards pots
 func (gs *GameState) resolveShowdown() error {
 	gs.CalculatePots()
-
-	// Evaluate hands and award pots
 	gs.Winners = gs.AwardPots(gs.CommunityCards, FindWinners)
 
-	// Add hand descriptions to winners
 	for i := range gs.Winners {
 		playerIdx := gs.Winners[i].PlayerIdx
 		allCards := append([]Card{}, gs.Players[playerIdx].HoleCards...)
@@ -339,20 +303,18 @@ func (gs *GameState) resolveShowdown() error {
 	}
 
 	gs.Street = StreetComplete
+	gs.ArchiveHandForLLMs()
 	return nil
 }
 
-// IsHandComplete checks if the current hand is finished
 func (gs *GameState) IsHandComplete() bool {
 	return gs.Street == StreetComplete
 }
 
-// IsWaitingForAction checks if we're waiting for a player action
 func (gs *GameState) IsWaitingForAction() bool {
 	return gs.CurrentPlayerIdx >= 0 && gs.CurrentPlayerIdx < len(gs.Players)
 }
 
-// NeedToAdvanceStreet checks if current betting round is done
 func (gs *GameState) NeedToAdvanceStreet() bool {
 	if gs.IsHandComplete() {
 		return false
@@ -360,7 +322,6 @@ func (gs *GameState) NeedToAdvanceStreet() bool {
 	return gs.IsBettingRoundComplete()
 }
 
-// GetCurrentPlayer returns the current player who needs to act
 func (gs *GameState) GetCurrentPlayer() *Player {
 	if gs.CurrentPlayerIdx < 0 || gs.CurrentPlayerIdx >= len(gs.Players) {
 		return nil
@@ -368,7 +329,6 @@ func (gs *GameState) GetCurrentPlayer() *Player {
 	return &gs.Players[gs.CurrentPlayerIdx]
 }
 
-// EliminateBrokePlayers marks players with 0 chips as eliminated
 func (gs *GameState) EliminateBrokePlayers() {
 	for i := range gs.Players {
 		if gs.Players[i].Stack == 0 && gs.Players[i].Status != PlayerEliminated {
@@ -377,22 +337,133 @@ func (gs *GameState) EliminateBrokePlayers() {
 	}
 }
 
-// GetGameSummary returns a summary suitable for display
-func (gs *GameState) GetGameSummary() map[string]interface{} {
-	return map[string]interface{}{
-		"handNumber":     gs.HandNumber,
-		"street":         gs.Street.String(),
-		"pot":            gs.GetTotalPot(),
-		"communityCards": gs.CommunityCards,
-		"currentPlayer":  gs.CurrentPlayerIdx,
-		"currentBet":     gs.CurrentBet,
-		"playersInHand":  gs.CountActivePlayers(),
+func (gs *GameState) RecordActionForLLMs(playerName, action string, amount int) {
+	a := map[string]any{"player": playerName, "action": action}
+	if amount > 0 {
+		a["amount"] = amount
+	}
+	gs.LLMActionsThisHand = append(gs.LLMActionsThisHand, a)
+}
+
+func (gs *GameState) ArchiveHandForLLMs() {
+	showdown := []map[string]any{}
+	if gs.Street == StreetShowdown || gs.Street == StreetComplete {
+		for i, p := range gs.Players {
+			if p.Status == PlayerActive || p.Status == PlayerAllIn {
+				showdown = append(showdown, map[string]any{
+					"player": p.Name,
+					"cards":  gs.GetLLMHoleCards(i),
+				})
+			}
+		}
+	}
+
+	winners := make([]map[string]any, len(gs.Winners))
+	for i, w := range gs.Winners {
+		winners[i] = map[string]any{
+			"player": gs.Players[w.PlayerIdx].Name,
+			"amount": w.Amount,
+		}
+	}
+
+	hand := LLMPreviousHand{
+		Players:        gs.GetLLMPlayers(),
+		CommunityCards: gs.GetLLMCommunityCards(),
+		Actions:        gs.LLMActionsThisHand,
+		Showdown:       showdown,
+		Winners:        winners,
+	}
+	gs.LLMPreviousHands = append(gs.LLMPreviousHands, hand)
+	gs.LLMActionsThisHand = []map[string]any{}
+}
+
+func (gs *GameState) GetLLMPlayers() []LLMPlayer {
+	players := make([]LLMPlayer, len(gs.Players))
+	for i, p := range gs.Players {
+		players[i] = LLMPlayer{
+			Name:     p.Name,
+			Seat:     p.SeatPosition,
+			Stack:    p.Stack,
+			Position: gs.getPositionName(i),
+		}
+	}
+	return players
+}
+
+func (gs *GameState) getPositionName(playerIdx int) string {
+	numPlayers := len(gs.Players)
+	distFromButton := (playerIdx - gs.ButtonIdx + numPlayers) % numPlayers
+
+	switch distFromButton {
+	case 0:
+		return "BTN"
+	case 1:
+		return "SB"
+	case 2:
+		return "BB"
+	case 3:
+		return "UTG"
+	case 4:
+		if numPlayers <= 6 {
+			return "MP"
+		}
+		return "UTG+1"
+	case 5:
+		if numPlayers <= 6 {
+			return "CO"
+		}
+		return "MP"
+	case 6:
+		return "MP+1"
+	case 7:
+		return "HJ"
+	case 8:
+		return "CO"
+	default:
+		return "MP"
 	}
 }
 
-// Helper functions
+func (gs *GameState) GetLLMCommunityCards() []string {
+	cards := make([]string, len(gs.CommunityCards))
+	for i, c := range gs.CommunityCards {
+		cards[i] = c.String()
+	}
+	return cards
+}
+
+func (gs *GameState) GetLLMHoleCards(playerIdx int) []string {
+	cards := make([]string, len(gs.Players[playerIdx].HoleCards))
+	for i, c := range gs.Players[playerIdx].HoleCards {
+		cards[i] = c.String()
+	}
+	return cards
+}
+
+func (gs *GameState) GetLLMPromptPayload(playerName string, validActions []LLMValidAction) *LLMPromptPayload {
+	playerIdx := -1
+	for i, p := range gs.Players {
+		if p.Name == playerName {
+			playerIdx = i
+			break
+		}
+	}
+	if playerIdx < 0 {
+		return nil
+	}
+
+	return &LLMPromptPayload{
+		YourName:        playerName,
+		YourCards:       gs.GetLLMHoleCards(playerIdx),
+		Players:         gs.GetLLMPlayers(),
+		CommunityCards:  gs.GetLLMCommunityCards(),
+		Pot:             gs.GetTotalPot(),
+		ActionsThisHand: gs.LLMActionsThisHand,
+		PreviousHands:   gs.LLMPreviousHands,
+		ValidActions:    validActions,
+	}
+}
 
 func generateGameID() string {
 	return fmt.Sprintf("game_%d", time.Now().UnixNano())
 }
-

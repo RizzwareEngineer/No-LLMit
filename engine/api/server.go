@@ -1,3 +1,5 @@
+// WebSocket server that receives messages from the frontend (web/).
+// Routes messages to game_handlers.go (human actions) or llm_handlers.go (LLM turns).
 package api
 
 import (
@@ -11,36 +13,42 @@ import (
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
 )
 
+// WebSocket connections start as HTTP, then get "upgraded" to WebSocket protocol.
+// The upgrader handles this handshake so we can push real-time game updates (vs polling).
+// https://pkg.go.dev/github.com/gorilla/websocket#section-readme
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow all origins for development
 		return true
 	},
 }
 
-// Server represents the WebSocket game server
 type Server struct {
-	games   map[string]*game.GameState
-	clients map[*websocket.Conn]string // conn -> gameID
-	mu      sync.RWMutex
+	games        map[string]*game.GameState
+	clients      map[*websocket.Conn]string // conn -> gameID
+	paused       map[string]bool            // gameID -> isPaused
+	pendingPause map[string]bool            // gameID -> pause requested (takes effect after current action)
+	mu           sync.RWMutex
 }
 
-// NewServer creates a new game server
+const (
+	ShotClockSeconds = 30 // Total shot clock countdown (30→0)
+	MinActionDelay   = 7  // Minimum seconds before revealing action
+)
+
 func NewServer() *Server {
 	return &Server{
-		games:   make(map[string]*game.GameState),
-		clients: make(map[*websocket.Conn]string),
+		games:        make(map[string]*game.GameState),
+		clients:      make(map[*websocket.Conn]string),
+		paused:       make(map[string]bool),
+		pendingPause: make(map[string]bool),
 	}
 }
 
-// Start starts the HTTP server
 func (s *Server) Start(port int) error {
 	http.HandleFunc("/ws", s.handleWebSocket)
 	http.HandleFunc("/health", s.handleHealth)
-
-	// Enable CORS for REST endpoints
 	http.HandleFunc("/api/games", s.handleCORS(s.handleListGames))
 
 	addr := fmt.Sprintf(":%d", port)
@@ -96,7 +104,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("New WebSocket connection from %s", conn.RemoteAddr())
 
-	// Main message loop
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
@@ -109,7 +116,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.handleMessage(conn, message)
 	}
 
-	// Cleanup on disconnect
 	s.mu.Lock()
 	delete(s.clients, conn)
 	s.mu.Unlock()
@@ -133,12 +139,15 @@ func (s *Server) handleMessage(conn *websocket.Conn, message []byte) {
 		s.handleAction(conn, msg.Payload)
 	case MsgGetState:
 		s.handleGetState(conn)
+	case MsgPause:
+		s.handlePause(conn)
+	case MsgResume:
+		s.handleResume(conn)
 	default:
 		s.sendError(conn, fmt.Sprintf("Unknown message type: %s", msg.Type))
 	}
 }
 
-// parsePayload converts interface{} payload to a typed struct
 func parsePayload[T any](payload interface{}) (*T, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -151,157 +160,27 @@ func parsePayload[T any](payload interface{}) (*T, error) {
 	return &result, nil
 }
 
-func (s *Server) handleNewGame(conn *websocket.Conn, payload interface{}) {
-	ngp, err := parsePayload[NewGamePayload](payload)
-	if err != nil {
-		s.sendError(conn, "Invalid new game payload")
-		return
-	}
+func (s *Server) isPaused(gameID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.paused[gameID]
+}
 
-	// Validate
-	if len(ngp.PlayerNames) < 2 || len(ngp.PlayerNames) > 9 {
-		s.sendError(conn, "Player count must be between 2 and 9")
-		return
-	}
+func (s *Server) isPendingPause(gameID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.pendingPause[gameID]
+}
 
-	if ngp.StartingStack <= 0 {
-		ngp.StartingStack = 2000
-	}
-	if ngp.SmallBlind <= 0 {
-		ngp.SmallBlind = 5
-	}
-	if ngp.BigBlind <= 0 {
-		ngp.BigBlind = 10
-	}
-
-	// Create game
-	config := game.GameConfig{
-		PlayerNames:   ngp.PlayerNames,
-		StartingStack: ngp.StartingStack,
-		Stakes: game.Stakes{
-			SmallBlind: ngp.SmallBlind,
-			BigBlind:   ngp.BigBlind,
-		},
-		Mode:        ParseGameMode(ngp.Mode),
-		UserSeatIdx: ngp.UserSeatIdx,
-	}
-
-	gs := game.NewGame(config)
-
+func (s *Server) activatePendingPause(gameID string) bool {
 	s.mu.Lock()
-	s.games[gs.ID] = gs
-	s.clients[conn] = gs.ID
-	s.mu.Unlock()
-
-	log.Printf("Created new game: %s with %d players in %s mode", gs.ID, len(gs.Players), gs.Mode.String())
-
-	// Send initial state
-	s.sendGameState(conn, gs)
-}
-
-func (s *Server) handleStartHand(conn *websocket.Conn) {
-	gs := s.getGameForConn(conn)
-	if gs == nil {
-		s.sendError(conn, "No game found. Create a game first.")
-		return
+	defer s.mu.Unlock()
+	if s.pendingPause[gameID] {
+		s.paused[gameID] = true
+		s.pendingPause[gameID] = false
+		return true
 	}
-
-	if err := gs.StartHand(); err != nil {
-		s.sendError(conn, err.Error())
-		return
-	}
-
-	log.Printf("Started hand #%d", gs.HandNumber)
-
-	// Send hand start notification
-	s.send(conn, ServerMessage{
-		Type: MsgHandStart,
-		Payload: map[string]interface{}{
-			"handNumber": gs.HandNumber,
-		},
-	})
-
-	// Send updated game state
-	s.sendGameState(conn, gs)
-
-	// Send action required if waiting for player
-	s.sendActionRequiredIfNeeded(conn, gs)
-}
-
-func (s *Server) handleAction(conn *websocket.Conn, payload interface{}) {
-	gs := s.getGameForConn(conn)
-	if gs == nil {
-		s.sendError(conn, "No game found")
-		return
-	}
-
-	ap, err := parsePayload[ActionPayload](payload)
-	if err != nil {
-		s.sendError(conn, "Invalid action payload")
-		return
-	}
-
-	// Create action
-	action := game.Action{
-		Type:      ParseActionType(ap.Action),
-		Amount:    ap.Amount,
-		PlayerIdx: ap.PlayerIdx,
-	}
-
-	// Process action
-	if err := gs.ProcessAction(action); err != nil {
-		s.sendError(conn, err.Error())
-		return
-	}
-
-	log.Printf("Player %d: %s %d", ap.PlayerIdx, ap.Action, ap.Amount)
-
-	// Check if betting round is complete
-	if gs.NeedToAdvanceStreet() {
-		if err := gs.AdvanceStreet(); err != nil {
-			s.sendError(conn, err.Error())
-			return
-		}
-
-		// Send street change notification
-		s.send(conn, ServerMessage{
-			Type: MsgStreetChange,
-			Payload: map[string]interface{}{
-				"street": gs.Street.String(),
-			},
-		})
-	}
-
-	// Check if hand is complete
-	if gs.IsHandComplete() {
-		gs.EliminateBrokePlayers()
-
-		s.send(conn, ServerMessage{
-			Type: MsgHandComplete,
-			Payload: HandCompletePayload{
-				Winners:    convertWinners(gs.Winners),
-				HandNumber: gs.HandNumber,
-			},
-		})
-	}
-
-	// Send updated state
-	s.sendGameState(conn, gs)
-
-	// Send action required if still waiting
-	if !gs.IsHandComplete() {
-		s.sendActionRequiredIfNeeded(conn, gs)
-	}
-}
-
-func (s *Server) handleGetState(conn *websocket.Conn) {
-	gs := s.getGameForConn(conn)
-	if gs == nil {
-		s.sendError(conn, "No game found")
-		return
-	}
-
-	s.sendGameState(conn, gs)
+	return false
 }
 
 func (s *Server) getGameForConn(conn *websocket.Conn) *game.GameState {

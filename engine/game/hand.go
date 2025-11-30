@@ -1,3 +1,7 @@
+// This file evaluates poker hands. Given 7 cards (2 hole + 5 community), EvaluateHand
+// finds the best 5-card combination and ranks it (Royal Flush down to High Card).
+// FindWinners compares multiple players' hands to determine who wins. GetHandDescription
+// returns human-readable text like "Full House, Kings over Aces". Called by game.go at showdown.
 package game
 
 import (
@@ -5,7 +9,6 @@ import (
 	"sort"
 )
 
-// HandType represents the type of poker hand
 type HandType int
 
 const (
@@ -36,7 +39,6 @@ func (ht HandType) String() string {
 	}[ht]
 }
 
-// HandResult represents the result of evaluating a player's hand
 type HandResult struct {
 	HandType  HandType `json:"handType"`
 	HandRank  int      `json:"handRank"`  // Overall rank (higher is better)
@@ -45,11 +47,9 @@ type HandResult struct {
 	PlayerIdx int      `json:"playerIdx"`
 }
 
-// Debug flag - set to true to enable logging
 var EvaluatorDebug = false
 
-// Hand type base values - each hand type has a base that's higher than the max of the type below it
-// This ensures any pair beats any high card, any two pair beats any pair, etc.
+// Base values ensure any higher hand type always beats any lower type
 const (
 	baseHighCard      = 0
 	baseOnePair       = 100000000 // 10^8
@@ -63,13 +63,11 @@ const (
 	baseRoyalFlush    = 900000000 // 9 * 10^8
 )
 
-// EvaluateHand evaluates 7 cards (2 hole + 5 community) and returns the best 5-card hand
 func EvaluateHand(cards []Card) HandResult {
 	if len(cards) < 5 {
 		return HandResult{}
 	}
 
-	// Generate all 5-card combinations from the cards
 	var bestResult HandResult
 	bestResult.HandRank = -1
 
@@ -79,7 +77,6 @@ func EvaluateHand(cards []Card) HandResult {
 		if result.HandRank > bestResult.HandRank {
 			bestResult = result
 		} else if result.HandRank == bestResult.HandRank {
-			// Compare kickers
 			if compareKickers(result.Kickers, bestResult.Kickers) > 0 {
 				bestResult = result
 			}
@@ -89,9 +86,7 @@ func EvaluateHand(cards []Card) HandResult {
 	return bestResult
 }
 
-// evaluate5Cards evaluates exactly 5 cards
 func evaluate5Cards(cards []Card) HandResult {
-	// Sort cards by rank (descending)
 	sorted := make([]Card, len(cards))
 	copy(sorted, cards)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -106,7 +101,6 @@ func evaluate5Cards(cards []Card) HandResult {
 		BestCards: sorted,
 	}
 
-	// Check for each hand type (highest to lowest)
 	if isFlush && isStraight {
 		if straightHigh == Ace {
 			result.HandType = RoyalFlush
@@ -119,7 +113,6 @@ func evaluate5Cards(cards []Card) HandResult {
 		return result
 	}
 
-	// Four of a kind
 	if quad := findNOfAKind(rankCounts, 4); quad != 0 {
 		kicker := findHighestExcluding(sorted, quad)
 		result.HandType = FourOfAKind
@@ -128,7 +121,6 @@ func evaluate5Cards(cards []Card) HandResult {
 		return result
 	}
 
-	// Full house
 	trips := findNOfAKind(rankCounts, 3)
 	pair := findNOfAKind(rankCounts, 2)
 	if trips != 0 && pair != 0 {
@@ -138,7 +130,6 @@ func evaluate5Cards(cards []Card) HandResult {
 		return result
 	}
 
-	// Flush
 	if isFlush {
 		result.HandType = Flush
 		result.HandRank = baseFlush + rankScore(sorted)
@@ -146,7 +137,6 @@ func evaluate5Cards(cards []Card) HandResult {
 		return result
 	}
 
-	// Straight
 	if isStraight {
 		result.HandType = Straight
 		result.HandRank = baseStraight + int(straightHigh)
@@ -154,7 +144,6 @@ func evaluate5Cards(cards []Card) HandResult {
 		return result
 	}
 
-	// Three of a kind
 	if trips != 0 {
 		kickers := findKickersExcluding(sorted, trips, 2)
 		result.HandType = ThreeOfAKind
@@ -163,7 +152,6 @@ func evaluate5Cards(cards []Card) HandResult {
 		return result
 	}
 
-	// Two pair
 	pairs := findAllPairs(rankCounts)
 	if len(pairs) >= 2 {
 		highPair := pairs[0]
@@ -175,7 +163,6 @@ func evaluate5Cards(cards []Card) HandResult {
 		return result
 	}
 
-	// One pair
 	if pair != 0 {
 		kickers := findKickersExcluding(sorted, pair, 3)
 		result.HandType = OnePair
@@ -184,14 +171,12 @@ func evaluate5Cards(cards []Card) HandResult {
 		return result
 	}
 
-	// High card
 	result.HandType = HighCard
 	result.HandRank = baseHighCard + rankScore(sorted)
 	result.Kickers = getRanks(sorted)
 	return result
 }
 
-// CompareHands compares two hand results, returns 1 if a wins, -1 if b wins, 0 if tie
 func CompareHands(a, b HandResult) int {
 	if a.HandRank > b.HandRank {
 		return 1
@@ -202,7 +187,6 @@ func CompareHands(a, b HandResult) int {
 	return compareKickers(a.Kickers, b.Kickers)
 }
 
-// FindWinners determines the winner(s) among active players
 func FindWinners(players []Player, communityCards []Card, eligibleIndices []int) []int {
 	if len(eligibleIndices) == 0 {
 		return nil
@@ -275,7 +259,6 @@ func FindWinners(players []Player, communityCards []Card, eligibleIndices []int)
 		}
 	}
 
-	// Get all players with the best hand (for split pots)
 	winners := []int{hands[0].idx}
 	for i := 1; i < len(hands); i++ {
 		if CompareHands(hands[i].result, hands[0].result) == 0 {
@@ -293,7 +276,6 @@ func FindWinners(players []Player, communityCards []Card, eligibleIndices []int)
 	return winners
 }
 
-// GetHandDescription returns a human-readable description of a hand
 func GetHandDescription(result HandResult) string {
 	switch result.HandType {
 	case RoyalFlush:
@@ -321,8 +303,6 @@ func GetHandDescription(result HandResult) string {
 		return "Unknown"
 	}
 }
-
-// Helper functions
 
 func rankName(r Rank) string {
 	switch r {
@@ -373,7 +353,6 @@ func checkStraight(cards []Card) (bool, Rank) {
 		return ranks[i] > ranks[j]
 	})
 
-	// Remove duplicates
 	unique := []Rank{ranks[0]}
 	for i := 1; i < len(ranks); i++ {
 		if ranks[i] != ranks[i-1] {
@@ -385,7 +364,6 @@ func checkStraight(cards []Card) (bool, Rank) {
 		return false, 0
 	}
 
-	// Check for regular straight
 	for i := 0; i <= len(unique)-5; i++ {
 		if unique[i]-unique[i+4] == 4 {
 			return true, unique[i]

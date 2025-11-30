@@ -12,20 +12,18 @@ interface WinnerDisplay {
 interface TableFeltProps {
   cards: string[];
   pot: number;
-  stakes?: string;
   winners?: WinnerDisplay[];
 }
 
-export default function TableFelt({ cards, pot, stakes = "5/10", winners = [] }: TableFeltProps) {
+export default function TableFelt({ 
+  cards, 
+  pot, 
+  winners = [],
+}: TableFeltProps) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 w-[280px]">
-      {/* Stakes */}
-      <div className="text-xs font-bold uppercase tracking-widest text-gray-500 bg-white/80 px-3 py-1 border border-gray-300">
-        ¤{stakes}
-      </div>
-
-      {/* Winner announcement or Pot - fixed size container */}
-      <div className="h-[48px] w-full flex items-center justify-center">
+      {/* Winner announcement or Pot */}
+      <div className="h-[44px] w-full flex items-center justify-center">
         {winners.length > 0 ? (
           <div className="flex flex-col items-center bg-green-50 p-2 px-3 border border-green-500 max-w-full overflow-hidden">
             {winners.slice(0, 1).map((w, i) => (
@@ -49,11 +47,11 @@ export default function TableFelt({ cards, pot, stakes = "5/10", winners = [] }:
         )}
       </div>
 
-      {/* Community cards */}
-      <div className="flex gap-2 min-h-[44px]">
+      {/* Community cards - THE MAIN FOCUS */}
+      <div className="flex gap-2 min-h-[70px] items-center">
         {cards.length > 0 ? (
           cards.map((card, i) => (
-            <Card key={`${card}-${i}`} value={card} className="w-8 h-11" />
+            <Card key={`${card}-${i}`} value={card} className="w-11 h-16" />
           ))
         ) : (
           <div className="text-[10px] text-gray-400 uppercase">No cards dealt</div>
@@ -62,4 +60,3 @@ export default function TableFelt({ cards, pot, stakes = "5/10", winners = [] }:
     </div>
   );
 }
-

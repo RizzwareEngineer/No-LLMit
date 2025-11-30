@@ -7,13 +7,20 @@ export type MessageType =
   | 'start_hand'
   | 'action'
   | 'get_state'
+  | 'pause'
+  | 'resume'
   | 'game_state'
   | 'error'
   | 'hand_start'
   | 'action_required'
   | 'street_change'
   | 'hand_complete'
-  | 'pot_awarded';
+  | 'pot_awarded'
+  | 'shot_clock'
+  | 'llm_thinking'
+  | 'llm_action'
+  | 'paused'
+  | 'resumed';
 
 export interface ClientMessage {
   type: MessageType;

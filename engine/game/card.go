@@ -1,11 +1,10 @@
+// This file defines Card, Suit, and Rank types. Cards use short notation like "Ah" for
+// Ace of hearts, "Tc" for Ten of clubs. ParseCard converts strings back to Card structs.
+// Used everywhere cards are handled: deck.go, game.go, hand.go.
 package game
 
-import (
-	"encoding/json"
-	"fmt"
-)
+import "fmt"
 
-// Suit represents a card suit
 type Suit int
 
 const (
@@ -23,7 +22,6 @@ func (s Suit) Symbol() string {
 	return []string{"♥", "♦", "♣", "♠"}[s]
 }
 
-// Rank represents a card rank (2-14, where 14 is Ace)
 type Rank int
 
 const (
@@ -59,37 +57,15 @@ func (r Rank) String() string {
 	}
 }
 
-// Card represents a playing card
 type Card struct {
 	Rank Rank `json:"rank"`
 	Suit Suit `json:"suit"`
 }
 
-// String returns the card in format like "Ah", "Kd", "Tc"
 func (c Card) String() string {
 	return c.Rank.String() + c.Suit.String()
 }
 
-// MarshalJSON implements custom JSON marshaling for Card
-func (c Card) MarshalJSON() ([]byte, error) {
-	return json.Marshal(c.String())
-}
-
-// UnmarshalJSON implements custom JSON unmarshaling for Card
-func (c *Card) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	card, err := ParseCard(s)
-	if err != nil {
-		return err
-	}
-	*c = card
-	return nil
-}
-
-// ParseCard parses a string like "Ah" into a Card
 func ParseCard(s string) (Card, error) {
 	if len(s) < 2 {
 		return Card{}, fmt.Errorf("invalid card string: %s", s)
@@ -145,4 +121,3 @@ func ParseCard(s string) (Card, error) {
 
 	return Card{Rank: rank, Suit: suit}, nil
 }
-

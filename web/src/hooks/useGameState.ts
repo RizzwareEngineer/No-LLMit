@@ -15,6 +15,26 @@ interface UseGameStateOptions {
   autoConnect?: boolean;
 }
 
+interface ShotClockState {
+  playerIdx: number;
+  playerName: string;
+  secondsLeft: number;
+}
+
+interface LLMThinkingState {
+  playerIdx: number;
+  playerName: string;
+  reason?: string; // Filled in once API returns
+}
+
+interface LLMActionState {
+  playerIdx: number;
+  playerName: string;
+  action: string;
+  amount: number;
+  reason: string;
+}
+
 interface UseGameStateReturn {
   gameState: GameState | null;
   isConnected: boolean;
@@ -22,12 +42,18 @@ interface UseGameStateReturn {
   error: string | null;
   actionRequired: ActionRequiredPayload | null;
   lastHandResult: HandCompletePayload | null;
+  shotClock: ShotClockState | null;
+  llmThinking: LLMThinkingState | null;
+  lastLLMAction: LLMActionState | null;
+  isPaused: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
   newGame: (payload: NewGamePayload) => void;
   startHand: () => void;
   submitAction: (action: ActionPayload['action'], amount?: number) => void;
   clearError: () => void;
+  pause: () => void;
+  resume: () => void;
 }
 
 export function useGameState(options: UseGameStateOptions = {}): UseGameStateReturn {
@@ -39,6 +65,10 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   const [error, setError] = useState<string | null>(null);
   const [actionRequired, setActionRequired] = useState<ActionRequiredPayload | null>(null);
   const [lastHandResult, setLastHandResult] = useState<HandCompletePayload | null>(null);
+  const [shotClock, setShotClock] = useState<ShotClockState | null>(null);
+  const [llmThinking, setLLMThinking] = useState<LLMThinkingState | null>(null);
+  const [lastLLMAction, setLastLLMAction] = useState<LLMActionState | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
   
   const wsRef = useRef<PokerWebSocket | null>(null);
 
@@ -85,6 +115,39 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
 
       ws.on('street_change', () => {
         // Street changed, action_required will follow
+        setShotClock(null);
+        setLLMThinking(null);
+      });
+
+      ws.on('shot_clock', (payload) => {
+        const clock = payload as ShotClockState;
+        // -1 means clear the shot clock
+        if (clock.secondsLeft < 0) {
+          setShotClock(null);
+        } else {
+          setShotClock(clock);
+        }
+      });
+
+      ws.on('llm_thinking', (payload) => {
+        const thinking = payload as LLMThinkingState;
+        console.log('LLM Thinking:', thinking);
+        setLLMThinking(thinking);
+        setLastLLMAction(null);
+      });
+
+      ws.on('llm_action', (payload) => {
+        setLastLLMAction(payload as LLMActionState);
+        setLLMThinking(null);
+        setShotClock(null);
+      });
+
+      ws.on('paused', () => {
+        setIsPaused(true);
+      });
+
+      ws.on('resumed', () => {
+        setIsPaused(false);
       });
 
       await ws.connect();
@@ -154,6 +217,20 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     setError(null);
   }, []);
 
+  const pause = useCallback(() => {
+    if (!wsRef.current?.isConnected()) {
+      return;
+    }
+    wsRef.current.send({ type: 'pause' });
+  }, []);
+
+  const resume = useCallback(() => {
+    if (!wsRef.current?.isConnected()) {
+      return;
+    }
+    wsRef.current.send({ type: 'resume' });
+  }, []);
+
   // Auto-connect if option is set
   useEffect(() => {
     if (autoConnect) {
@@ -172,12 +249,18 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     error,
     actionRequired,
     lastHandResult,
+    shotClock,
+    llmThinking,
+    lastLLMAction,
+    isPaused,
     connect,
     disconnect,
     newGame,
     startHand,
     submitAction,
     clearError,
+    pause,
+    resume,
   };
 }
 

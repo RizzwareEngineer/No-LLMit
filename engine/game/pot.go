@@ -1,28 +1,27 @@
+// This file handles pot math. CalculatePots figures out main pots and side pots (needed
+// when players go all-in for different amounts). AwardPots gives money to winners, handling
+// split pots when hands tie. AwardPotToLastPlayer handles the simple case when everyone
+// else folded. Called by game.go at the end of each hand.
 package game
 
 import "sort"
 
-// Pot represents a pot (main or side)
 type Pot struct {
 	Amount          int   `json:"amount"`
-	EligiblePlayers []int `json:"eligiblePlayers"` // Indices of players who can win this pot
-	ContributedBy   []int `json:"contributedBy"`   // How much each player contributed
+	EligiblePlayers []int `json:"eligiblePlayers"`
+	ContributedBy   []int `json:"contributedBy"`
 }
 
-// Winner represents a winner of a pot
 type Winner struct {
 	PlayerIdx       int      `json:"playerIdx"`
 	Amount          int      `json:"amount"`
 	HandType        HandType `json:"handType"`
 	HandDesc        string   `json:"handDesc"`        // e.g., "Full House, Kings over Aces"
 	EligiblePlayers []int    `json:"eligiblePlayers"` // Players who were competing for this pot
-	PotNumber       int      `json:"potNumber"`       // 1 = main pot, 2+ = side pots
+	PotNumber       int      `json:"potNumber"`
 }
 
-// CalculatePots calculates the main pot and any side pots
-// Side pots are only created when players go all-in for different amounts
 func (gs *GameState) CalculatePots() {
-	// Get all contributions from active (non-folded) players, sorted by amount
 	type contribution struct {
 		playerIdx int
 		amount    int
@@ -35,7 +34,6 @@ func (gs *GameState) CalculatePots() {
 	for i, p := range gs.Players {
 		if p.TotalBetThisHand > 0 {
 			if p.Status == PlayerFolded || p.Status == PlayerEliminated {
-				// Folded players' money goes into pot but they can't win
 				totalFromFolded += p.TotalBetThisHand
 			} else {
 				activeContributions = append(activeContributions, contribution{
@@ -48,9 +46,7 @@ func (gs *GameState) CalculatePots() {
 	}
 
 	if len(activeContributions) == 0 {
-		// Everyone folded except winner - just one pot
 		if totalFromFolded > 0 {
-			// Find any remaining player
 			var eligible []int
 			for i, p := range gs.Players {
 				if p.Status != PlayerFolded && p.Status != PlayerEliminated {
@@ -64,12 +60,10 @@ func (gs *GameState) CalculatePots() {
 		return
 	}
 
-	// Sort by contribution amount (ascending) to handle side pots
 	sort.Slice(activeContributions, func(i, j int) bool {
 		return activeContributions[i].amount < activeContributions[j].amount
 	})
 
-	// Check if we need side pots (only if someone is all-in for less than others)
 	needsSidePots := false
 	for i := 0; i < len(activeContributions)-1; i++ {
 		if activeContributions[i].isAllIn && activeContributions[i].amount < activeContributions[i+1].amount {
@@ -79,7 +73,6 @@ func (gs *GameState) CalculatePots() {
 	}
 
 	if !needsSidePots {
-		// Simple case: one main pot with all money
 		totalPot := totalFromFolded
 		var eligible []int
 		for _, c := range activeContributions {
@@ -90,7 +83,6 @@ func (gs *GameState) CalculatePots() {
 		return
 	}
 
-	// Complex case: need to calculate side pots
 	var pots []Pot
 	prevLevel := 0
 
@@ -101,17 +93,13 @@ func (gs *GameState) CalculatePots() {
 		}
 
 		levelDiff := currentLevel - prevLevel
-
-		// Calculate pot amount: (levelDiff * number of players at or above this level) + proportional folded money
 		playersAtThisLevel := len(activeContributions) - i
 		potAmount := levelDiff * playersAtThisLevel
 
-		// Add proportional amount from folded players for first pot
 		if i == 0 && totalFromFolded > 0 {
 			potAmount += totalFromFolded
 		}
 
-		// All active players at or above this level are eligible
 		var eligible []int
 		for j := i; j < len(activeContributions); j++ {
 			eligible = append(eligible, activeContributions[j].playerIdx)
@@ -130,7 +118,6 @@ func (gs *GameState) CalculatePots() {
 	gs.Pots = pots
 }
 
-// SimplifiedPotCalculation - for simpler cases, just sum all bets into main pot
 func (gs *GameState) SimplifiedPotCalculation() int {
 	total := 0
 	for _, p := range gs.Players {
@@ -139,9 +126,7 @@ func (gs *GameState) SimplifiedPotCalculation() int {
 	return total
 }
 
-// GetTotalPot returns the total amount in all pots
 func (gs *GameState) GetTotalPot() int {
-	// If pots haven't been calculated yet, sum up all bets
 	if len(gs.Pots) == 0 {
 		return gs.SimplifiedPotCalculation()
 	}
@@ -153,29 +138,19 @@ func (gs *GameState) GetTotalPot() int {
 	return total
 }
 
-// CollectBetsIntoPot moves current round bets into the pot
-// Called at the end of each betting round
 func (gs *GameState) CollectBetsIntoPot() {
-	// For now, we track TotalBetThisHand and calculate pots at showdown
-	// This just resets the current round bets
 	for i := range gs.Players {
 		gs.Players[i].CurrentBet = 0
 	}
 }
 
-// AwardPots awards pot(s) to winner(s)
-// Returns a slice of Winner structs
 func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player, []Card, []int) []int) []Winner {
 	if len(gs.Pots) == 0 {
 		gs.CalculatePots()
 	}
 
 	var winners []Winner
-
-	// Track how much each player wins this hand (for profit calculation)
 	amountWon := make(map[int]int)
-
-	// Separate counter for displayed pot numbers (skips uncalled bet pots)
 	displayPotNumber := 0
 
 	for _, pot := range gs.Pots {
@@ -183,36 +158,28 @@ func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player
 			continue
 		}
 
-		// If only one player is eligible, it's an uncalled bet - just return it
-		if len(pot.EligiblePlayers) == 1 {
+		if len(pot.EligiblePlayers) == 1 { // Uncalled bet - return it
+
 			playerIdx := pot.EligiblePlayers[0]
 			gs.Players[playerIdx].Stack += pot.Amount
 			amountWon[playerIdx] += pot.Amount
-			// Don't add to winners list or increment display number - it's just returning their uncalled bet
 			continue
 		}
 
-		// This is a contested pot - increment display number
 		displayPotNumber++
-
-		// Find winners for this pot
 		potWinners := evaluateFunc(gs.Players, communityCards, pot.EligiblePlayers)
 		if len(potWinners) == 0 {
 			continue
 		}
 
-		// Split the pot among winners
 		splitAmount := pot.Amount / len(potWinners)
 		remainder := pot.Amount % len(potWinners)
-
-		// Copy eligible players to avoid nil issues
 		eligible := make([]int, len(pot.EligiblePlayers))
 		copy(eligible, pot.EligiblePlayers)
 
 		for i, winnerIdx := range potWinners {
 			amount := splitAmount
-			// Give remainder to first winner (closest to button)
-			if i == 0 {
+			if i == 0 { // Remainder to first winner
 				amount += remainder
 			}
 
@@ -223,22 +190,19 @@ func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player
 				PlayerIdx:       winnerIdx,
 				Amount:          amount,
 				EligiblePlayers: eligible,
-				PotNumber:       displayPotNumber, // Use display counter, not array index
+				PotNumber:       displayPotNumber,
 			})
 		}
 	}
 
-	// Calculate and record actual PROFIT for each player (won - contributed)
 	for playerIdx, won := range amountWon {
 		contributed := gs.Players[playerIdx].TotalBetThisHand
 		profit := won - contributed
 		gs.Players[playerIdx].Winnings += profit
 	}
 
-	// Also record losses for players who didn't win anything
 	for i := range gs.Players {
 		if _, won := amountWon[i]; !won && gs.Players[i].TotalBetThisHand > 0 {
-			// This player contributed but won nothing - record the loss
 			gs.Players[i].Winnings -= gs.Players[i].TotalBetThisHand
 		}
 	}
@@ -246,14 +210,11 @@ func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player
 	return winners
 }
 
-// AwardPotToLastPlayer awards the pot to the last remaining player (everyone else folded)
 func (gs *GameState) AwardPotToLastPlayer() *Winner {
-	// Find the last active player
 	lastPlayerIdx := -1
 	for i, p := range gs.Players {
 		if p.Status == PlayerActive || p.Status == PlayerAllIn {
 			if lastPlayerIdx != -1 {
-				// More than one player remaining, shouldn't use this method
 				return nil
 			}
 			lastPlayerIdx = i
@@ -265,20 +226,18 @@ func (gs *GameState) AwardPotToLastPlayer() *Winner {
 	}
 
 	totalPot := gs.SimplifiedPotCalculation()
-	playerContribution := gs.Players[lastPlayerIdx].TotalBetThisHand
-	profit := totalPot - playerContribution // Actual profit (pot minus what they put in)
+	profit := totalPot - gs.Players[lastPlayerIdx].TotalBetThisHand
 
 	gs.Players[lastPlayerIdx].Stack += totalPot
-	gs.Players[lastPlayerIdx].Winnings += profit // Only count PROFIT, not total pot
+	gs.Players[lastPlayerIdx].Winnings += profit
 
 	return &Winner{
 		PlayerIdx: lastPlayerIdx,
-		Amount:    profit, // Show profit, not total pot
+		Amount:    profit,
 		HandDesc:  "uncontested",
 	}
 }
 
-// ResetPotsForNewHand clears pot state for a new hand
 func (gs *GameState) ResetPotsForNewHand() {
 	gs.Pots = []Pot{}
 	for i := range gs.Players {

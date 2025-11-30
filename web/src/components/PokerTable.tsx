@@ -23,8 +23,7 @@ interface PokerTableProps {
   currentPlayerIdx: number;
   buttonIdx: number;
   communityCards: string[];
-    pot: number;
-  stakes: { smallBlind: number; bigBlind: number };
+  pot: number;
   winnersByIdx?: Record<number, WinnerInfo>;
 }
 
@@ -71,13 +70,12 @@ function getPosition(playerIdx: number, buttonIdx: number, totalPlayers: number)
 }
 
 export default function PokerTable({
-    players,
+  players,
   layout,
   currentPlayerIdx,
   buttonIdx,
   communityCards,
-    pot,
-  stakes,
+  pot,
   winnersByIdx = {},
 }: PokerTableProps) {
   const totalPlayers = players.length;
@@ -88,8 +86,8 @@ export default function PokerTable({
         <CornerBorders />
         <div className="w-[660px] h-[360px] flex items-center justify-center text-gray-400 text-sm">
           Start a new game to begin
-        </div>
-      </div>
+                    </div>
+            </div>
     );
   }
 
@@ -141,7 +139,7 @@ export default function PokerTable({
                       winAmount={winnersByIdx[layout.left[rowIdx]]?.amount}
                       winDesc={winnersByIdx[layout.left[rowIdx]]?.handDesc}
                     />
-                  )}
+                        )}
                 </td>
               )}
 
@@ -150,12 +148,11 @@ export default function PokerTable({
                   className="bg-pattern border-b border-gray-700/20 overflow-hidden"
                   colSpan={layout.top.length}
                   rowSpan={Math.max(layout.left.length, layout.right.length)}
-                >
+                    >
                   <div className="flex items-center justify-center h-full overflow-hidden">
                     <TableFelt 
                       cards={communityCards} 
                       pot={pot} 
-                      stakes={`${stakes.smallBlind}/${stakes.bigBlind}`}
                       winners={Object.entries(winnersByIdx).map(([idx, info]) => ({
                         name: players[Number(idx)]?.name || `Player ${idx}`,
                         amount: info.amount,
@@ -194,7 +191,7 @@ export default function PokerTable({
                   <div 
                     key={`bottom-${playerIdx}`}
                     className={`flex-1 ${i < layout.bottom.length - 1 ? 'border-r border-gray-700/20' : ''}`}
-                  >
+                    >
                     {players[playerIdx] && (
                       <Player 
                         player={players[playerIdx]} 
@@ -203,7 +200,7 @@ export default function PokerTable({
                         folded={players[playerIdx]?.status === 'folded'}
                         winAmount={winnersByIdx[playerIdx]?.amount}
                         winDesc={winnersByIdx[playerIdx]?.handDesc}
-                      />
+                        />
                     )}
                     </div>
                 ))}

@@ -135,7 +135,7 @@ export default function ActionPanel({
               disabled={!canDoAction('raise')}
               className="btn-brutal btn-brutal-warning w-[90px] h-9 text-xs flex items-center justify-center disabled:opacity-50 rounded-r-none border-r-0"
             >
-              RAISE
+              {currentBet === 0 ? 'BET' : 'RAISE'}
             </button>
             <div className={`relative border-2 ${canDoAction('raise') ? 'border-black' : 'border-gray-300'} bg-white h-9 w-[90px] rounded-r ${!canDoAction('raise') ? 'opacity-50' : ''}`}>
               <span className="absolute left-1 top-1/2 -translate-y-1/2 text-amber-600 text-sm font-bold pointer-events-none">¤</span>

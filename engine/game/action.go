@@ -1,15 +1,16 @@
+// This file handles all betting logic. When a player needs to act, GetValidActions tells them
+// what they can do (fold, check, call, raise, all-in). When they choose, ProcessAction validates
+// and executes it. Called by api/game_handlers.go for human actions and api/llm_handlers.go for LLMs.
 package game
 
 import "fmt"
 
-// ValidAction represents an action the current player can take
 type ValidAction struct {
 	Type      ActionType `json:"type"`
 	MinAmount int        `json:"minAmount,omitempty"` // For raise
 	MaxAmount int        `json:"maxAmount,omitempty"` // For raise (player's stack)
 }
 
-// GetValidActions returns the valid actions for the current player
 func (gs *GameState) GetValidActions() []ValidAction {
 	if gs.CurrentPlayerIdx < 0 || gs.CurrentPlayerIdx >= len(gs.Players) {
 		return nil
@@ -20,27 +21,20 @@ func (gs *GameState) GetValidActions() []ValidAction {
 		return nil
 	}
 
-	// Player with no chips can't take any action
 	if player.Stack == 0 {
 		return nil
 	}
 
 	var actions []ValidAction
-
-	// Can always fold (unless no bet to call)
 	actions = append(actions, ValidAction{Type: ActionFold})
 
 	amountToCall := gs.CurrentBet - player.CurrentBet
 
 	if amountToCall == 0 {
-		// Can check
 		actions = append(actions, ValidAction{Type: ActionCheck})
 	} else if amountToCall > 0 && amountToCall < player.Stack {
-		// Can call
 		actions = append(actions, ValidAction{Type: ActionCall, MinAmount: amountToCall})
 	}
-
-	// Can raise if we have more than the call amount
 	minRaiseTotal := gs.CurrentBet + gs.MinRaise
 	if player.Stack > amountToCall {
 		if player.Stack >= minRaiseTotal-player.CurrentBet {
@@ -52,7 +46,6 @@ func (gs *GameState) GetValidActions() []ValidAction {
 		}
 	}
 
-	// Can always go all-in
 	if player.Stack > 0 {
 		actions = append(actions, ValidAction{
 			Type:      ActionAllIn,
@@ -64,7 +57,6 @@ func (gs *GameState) GetValidActions() []ValidAction {
 	return actions
 }
 
-// ProcessAction processes a player's action and updates game state
 func (gs *GameState) ProcessAction(action Action) error {
 	if gs.CurrentPlayerIdx != action.PlayerIdx {
 		return fmt.Errorf("not player %d's turn, current player is %d", action.PlayerIdx, gs.CurrentPlayerIdx)
@@ -75,20 +67,29 @@ func (gs *GameState) ProcessAction(action Action) error {
 		return fmt.Errorf("player %d cannot act (status: %s)", action.PlayerIdx, player.Status)
 	}
 
+	var err error
 	switch action.Type {
 	case ActionFold:
-		return gs.processFold(player, action)
+		err = gs.processFold(player, action)
 	case ActionCheck:
-		return gs.processCheck(player, action)
+		err = gs.processCheck(player, action)
 	case ActionCall:
-		return gs.processCall(player, action)
+		err = gs.processCall(player, action)
 	case ActionRaise:
-		return gs.processRaise(player, action)
+		err = gs.processRaise(player, action)
 	case ActionAllIn:
-		return gs.processAllIn(player, action)
+		err = gs.processAllIn(player, action)
 	default:
 		return fmt.Errorf("unknown action type: %d", action.Type)
 	}
+
+	if err != nil {
+		return err
+	}
+
+	gs.RecordActionForLLMs(player.Name, action.Type.String(), action.Amount)
+
+	return nil
 }
 
 func (gs *GameState) processFold(player *Player, action Action) error {
@@ -165,14 +166,7 @@ func (gs *GameState) processRaise(player *Player, action Action) error {
 	gs.MinRaise = raiseAmount
 	gs.CurrentBet = raiseToAmount
 	gs.actionsThisRound++
-
-	// Reset other players' acted status (they need to respond to raise)
-	for i := range gs.Players {
-		if i != action.PlayerIdx && gs.Players[i].Status == PlayerActive {
-			gs.Players[i].HasActedThisRound = false
-		}
-	}
-
+	gs.resetActedExcept(action.PlayerIdx)
 	gs.advanceToNextPlayer()
 	return nil
 }
@@ -196,13 +190,7 @@ func (gs *GameState) processAllIn(player *Player, action Action) error {
 			gs.LastRaiseAmount = raiseAmount
 		}
 		gs.CurrentBet = totalBet
-
-		// Reset other players' acted status
-		for i := range gs.Players {
-			if i != action.PlayerIdx && gs.Players[i].Status == PlayerActive {
-				gs.Players[i].HasActedThisRound = false
-			}
-		}
+		gs.resetActedExcept(action.PlayerIdx)
 	}
 
 	gs.actionsThisRound++
@@ -210,21 +198,25 @@ func (gs *GameState) processAllIn(player *Player, action Action) error {
 	return nil
 }
 
-// advanceToNextPlayer moves to the next active player
+func (gs *GameState) resetActedExcept(playerIdx int) {
+	for i := range gs.Players {
+		if i != playerIdx && gs.Players[i].Status == PlayerActive {
+			gs.Players[i].HasActedThisRound = false
+		}
+	}
+}
+
 func (gs *GameState) advanceToNextPlayer() {
-	// Check if betting round is complete
 	if gs.IsBettingRoundComplete() {
-		gs.CurrentPlayerIdx = -1 // No current player
+		gs.CurrentPlayerIdx = -1
 		return
 	}
 
-	// Find next active player who hasn't matched the bet
 	startIdx := gs.CurrentPlayerIdx
 	for {
 		gs.CurrentPlayerIdx = (gs.CurrentPlayerIdx + 1) % len(gs.Players)
 		player := &gs.Players[gs.CurrentPlayerIdx]
 
-		// Skip folded, all-in, and eliminated players
 		if player.Status == PlayerActive && !player.HasActedThisRound {
 			return
 		}
@@ -232,7 +224,6 @@ func (gs *GameState) advanceToNextPlayer() {
 			return
 		}
 
-		// Prevent infinite loop
 		if gs.CurrentPlayerIdx == startIdx {
 			gs.CurrentPlayerIdx = -1
 			return
@@ -240,11 +231,10 @@ func (gs *GameState) advanceToNextPlayer() {
 	}
 }
 
-// IsBettingRoundComplete checks if the betting round is complete
 func (gs *GameState) IsBettingRoundComplete() bool {
 	activePlayers := 0
 	playersToAct := 0
-	playersInHand := 0 // Active + AllIn (not folded)
+	playersInHand := 0
 
 	for i := range gs.Players {
 		player := &gs.Players[i]
@@ -253,31 +243,23 @@ func (gs *GameState) IsBettingRoundComplete() bool {
 		}
 		if player.Status == PlayerActive {
 			activePlayers++
-			// Player needs to act if they haven't acted or haven't matched the bet
 			if !player.HasActedThisRound || player.CurrentBet < gs.CurrentBet {
 				playersToAct++
 			}
 		}
 	}
 
-	// If only one player remains in the hand (everyone else folded), betting is complete
-	// This handles the case where everyone folds - last player wins without acting
 	if playersInHand <= 1 {
 		return true
 	}
 
-	// If any active player still needs to act (call, fold, or hasn't acted), betting continues
 	if playersToAct > 0 {
 		return false
 	}
 
-	// Betting is complete if:
-	// 1. All active players have acted and matched the current bet
-	// 2. No active players remain who need to act (everyone is all-in or matched)
 	return true
 }
 
-// CountActivePlayers returns the number of players still in the hand
 func (gs *GameState) CountActivePlayers() int {
 	count := 0
 	for _, p := range gs.Players {
@@ -288,7 +270,6 @@ func (gs *GameState) CountActivePlayers() int {
 	return count
 }
 
-// CountActiveNonAllInPlayers returns players who can still bet
 func (gs *GameState) CountActiveNonAllInPlayers() int {
 	count := 0
 	for _, p := range gs.Players {
@@ -299,7 +280,6 @@ func (gs *GameState) CountActiveNonAllInPlayers() int {
 	return count
 }
 
-// ResetBettingRound resets state for a new betting round
 func (gs *GameState) ResetBettingRound() {
 	for i := range gs.Players {
 		gs.Players[i].CurrentBet = 0
@@ -311,24 +291,18 @@ func (gs *GameState) ResetBettingRound() {
 	gs.actionsThisRound = 0
 }
 
-// GetFirstToAct returns the index of the first player to act for the current street
 func (gs *GameState) GetFirstToAct() int {
 	if gs.Street == StreetPreflop {
-		// Preflop: action starts left of big blind (UTG)
-		// First find the SB (first active player after button)
+		// Preflop: UTG (left of BB) acts first
 		sbIdx := gs.getNextActivePlayer(gs.ButtonIdx)
-		// Then find BB (first active player after SB)
 		bbIdx := gs.getNextActivePlayer(sbIdx)
-		// UTG is the first active player after BB
 		utgIdx := gs.getNextActivePlayer(bbIdx)
 
-		// Make sure UTG can actually act (is Active, not AllIn)
 		for i := 0; i < len(gs.Players); i++ {
 			idx := (utgIdx + i) % len(gs.Players)
 			if gs.Players[idx].Status == PlayerActive {
 				return idx
 			}
-			// Wrapped around back to BB, so BB acts (everyone else is all-in or folded)
 			if idx == bbIdx {
 				if gs.Players[bbIdx].Status == PlayerActive {
 					return bbIdx
@@ -339,10 +313,8 @@ func (gs *GameState) GetFirstToAct() int {
 		return -1
 	}
 
-	// Postflop: action starts left of button
+	// Postflop: first active player left of button acts first
 	startIdx := (gs.ButtonIdx + 1) % len(gs.Players)
-
-	// Find first active player from that position
 	for i := 0; i < len(gs.Players); i++ {
 		idx := (startIdx + i) % len(gs.Players)
 		if gs.Players[idx].Status == PlayerActive {
@@ -352,4 +324,3 @@ func (gs *GameState) GetFirstToAct() int {
 
 	return -1
 }
-

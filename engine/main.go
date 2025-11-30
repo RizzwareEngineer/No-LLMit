@@ -1,3 +1,4 @@
+// Entry point. Starts the WebSocket server (api/server.go) on port 8080.
 package main
 
 import (
