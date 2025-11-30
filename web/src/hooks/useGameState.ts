@@ -38,10 +38,11 @@ interface DisplayState {
   phaseStartTime: number;
 }
 
-// Timing constants (in ms)
-const THINKING_DURATION = 3000;      // 3s "Thinking..."
-const MIN_REASONING_DURATION = 10000; // 10s minimum to read reasoning
-const SETTLE_DURATION = 5000;         // 5s after action revealed
+import {
+  THINKING_DURATION_MS,
+  MIN_REASONING_DURATION_MS,
+  SETTLE_DURATION_MS,
+} from '@/lib/timing';
 
 interface UseGameStateReturn {
   gameState: GameState | null;
@@ -126,8 +127,8 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
       phaseStartTime: now,
     });
     
-    // After 3s, transition to "reasoning" phase
-    phaseTimerRef.current = setTimeout(() => {
+      // After THINKING_DURATION, transition to "reasoning" phase
+      phaseTimerRef.current = setTimeout(() => {
       if (!currentDecisionRef.current) return;
       
       const reasoningStartTime = Date.now();
@@ -138,7 +139,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
         phaseStartTime: reasoningStartTime,
       } : null);
       
-      // After 10s of reasoning, reveal the action
+      // After MIN_REASONING_DURATION, reveal the action
       phaseTimerRef.current = setTimeout(() => {
         if (!currentDecisionRef.current) return;
         
@@ -151,15 +152,15 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
           phaseStartTime: revealTime,
         } : null);
         
-        // After 5s settle time, move to next
+        // After SETTLE_DURATION, move to next
         phaseTimerRef.current = setTimeout(() => {
           currentDecisionRef.current = null;
           processQueue();
-        }, SETTLE_DURATION);
+        }, SETTLE_DURATION_MS);
         
-      }, MIN_REASONING_DURATION);
+      }, MIN_REASONING_DURATION_MS);
       
-    }, THINKING_DURATION);
+      }, THINKING_DURATION_MS);
     
   }, [isPaused]);
 
@@ -269,10 +270,6 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
       ws.on('resumed', () => {
         setIsPaused(false);
         setIsPausePending(false);
-      });
-
-      ws.on('pause_pending', () => {
-        setIsPausePending(true);
       });
 
       await ws.connect();

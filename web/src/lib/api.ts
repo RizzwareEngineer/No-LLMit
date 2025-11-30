@@ -15,8 +15,6 @@ export type MessageType =
   | 'action_required'
   | 'street_change'
   | 'hand_complete'
-  | 'pot_awarded'
-  | 'shot_clock'
   | 'llm_thinking'
   | 'llm_action'
   | 'paused'

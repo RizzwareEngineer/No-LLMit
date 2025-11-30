@@ -23,7 +23,7 @@ interface PokerTableProps {
   currentPlayerIdx: number;
   buttonIdx: number;
   communityCards: string[];
-    pot: number;
+  pot: number;
   winnersByIdx?: Record<number, WinnerInfo>;
 }
 
@@ -45,7 +45,6 @@ function getPosition(playerIdx: number, buttonIdx: number, totalPlayers: number)
   if (seatsFromButton === 2) return 'BB';
   
   // Remaining positions depend on table size
-  const remainingSeats = totalPlayers - 3; // Exclude BTN, SB, BB
   const posFromUTG = seatsFromButton - 3; // 0 = UTG
   
   if (totalPlayers === 9) {
@@ -70,12 +69,12 @@ function getPosition(playerIdx: number, buttonIdx: number, totalPlayers: number)
 }
 
 export default function PokerTable({
-    players,
+  players,
   layout,
   currentPlayerIdx,
   buttonIdx,
   communityCards,
-    pot,
+  pot,
   winnersByIdx = {},
 }: PokerTableProps) {
   const totalPlayers = players.length;

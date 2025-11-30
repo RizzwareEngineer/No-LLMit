@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import CornerBorders from "@/components/CornerBorders";
 import TypewriterText from "@/components/TypewriterText";
+import {
+  THINKING_DURATION_S,
+  MIN_REASONING_DURATION_S,
+  SETTLE_DURATION_S,
+} from "@/lib/timing";
 
 type DisplayPhase = 'idle' | 'thinking' | 'reasoning' | 'revealed' | 'settling';
 
@@ -20,11 +25,6 @@ interface ReasoningPanelProps {
   displayState: DisplayState | null;
   isPaused?: boolean;
 }
-
-// Timing constants (must match useGameState)
-const THINKING_DURATION = 3;        // 3s
-const MIN_REASONING_DURATION = 10;  // 10s
-const SETTLE_DURATION = 5;          // 5s
 
 export default function ReasoningPanel({
   displayState,
@@ -44,14 +44,14 @@ export default function ReasoningPanel({
       
       switch (displayState.phase) {
         case 'thinking':
-          setCountdown(Math.max(0, THINKING_DURATION - elapsed));
+          setCountdown(Math.max(0, THINKING_DURATION_S - elapsed));
           break;
         case 'reasoning':
-          setCountdown(Math.max(0, MIN_REASONING_DURATION - elapsed));
+          setCountdown(Math.max(0, MIN_REASONING_DURATION_S - elapsed));
           break;
         case 'revealed':
         case 'settling':
-          setCountdown(Math.max(0, SETTLE_DURATION - elapsed));
+          setCountdown(Math.max(0, SETTLE_DURATION_S - elapsed));
           break;
         default:
           setCountdown(null);
