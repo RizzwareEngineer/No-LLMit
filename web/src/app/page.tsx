@@ -370,7 +370,7 @@ export default function Home() {
 
             {/* Action Panel - shown in play/test modes */}
             {showActionPanel && (
-              <div className="flex w-full justify-start">
+              <div className="mt-4 flex w-full justify-start">
                 <ActionPanel
                   currentPlayer={canAct ? players[currentPlayerIdx] : null}
                   currentBet={currentBet}
