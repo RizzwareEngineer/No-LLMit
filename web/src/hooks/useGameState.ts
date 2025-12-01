@@ -250,10 +250,6 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
         // Street changed - don't clear display, let current action finish
       });
 
-      ws.on('shot_clock', () => {
-        // No longer used - frontend handles timing
-      });
-
       ws.on('llm_thinking', (payload) => {
         handleLLMThinking(payload as { playerIdx: number; playerName: string });
       });
