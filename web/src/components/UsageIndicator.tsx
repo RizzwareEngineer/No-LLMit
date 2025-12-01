@@ -119,14 +119,9 @@ export default function UsageIndicator({ isPaused = false, inline = false, refre
                 <Heart size={12} weight="fill" style={{ color: 'rgb(235, 87, 87)' }} />
                 Support No-LLMit
               </div>
-              <p className="mb-2" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+              <p className="mb-3" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
                 Running 9 LLMs costs real money! Help me keep this project free and running.
               </p>
-              {usage && (
-                <p className="text-[10px] mb-2" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
-                  ~{usage.estimated_total_tokens.toLocaleString()} tokens used this month
-                </p>
-              )}
               <a 
                 href="https://github.com/sponsors/RizzwareEngineer" 
                 target="_blank"

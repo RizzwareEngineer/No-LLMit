@@ -10,12 +10,26 @@ interface WinnerDisplay {
   handDesc: string;
 }
 
+interface ButtonCard {
+  playerIdx: number;
+  playerName: string;
+  card: string;
+}
+
+interface ButtonDetermination {
+  cards: ButtonCard[];
+  winnerIdx: number | null;
+  winnerName: string | null;
+  isComplete: boolean;
+}
+
 interface TableFeltProps {
   cards: string[];
   pot: number;
   winners?: WinnerDisplay[];
   nextHandCountdown?: number | null;
   onSkipCountdown?: () => void;
+  buttonDetermination?: ButtonDetermination | null;
 }
 
 export default function TableFelt({ 
@@ -24,7 +38,10 @@ export default function TableFelt({
   winners = [],
   nextHandCountdown,
   onSkipCountdown,
+  buttonDetermination,
 }: TableFeltProps) {
+  // Show button determination if in progress
+  const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
   return (
     <div 
       className="flex flex-col items-center justify-center gap-3 w-full h-full py-2"
@@ -61,9 +78,27 @@ export default function TableFelt({
         )}
       </div>
 
-      {/* Community cards - THE MAIN FOCUS */}
+      {/* Community cards or Button Determination */}
       <div className="flex gap-2 min-h-[70px] items-center">
-        {cards.length > 0 ? (
+        {showButtonDetermination ? (
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex gap-1 justify-center">
+              {buttonDetermination.cards.map((bc, i) => (
+                <div key={i} className="flex flex-col items-center gap-0.5">
+                  <Card value={bc.card} className="w-7 h-10" />
+                  <span className="text-[7px] text-gray-600 truncate max-w-[40px]">{bc.playerName.split(' ')[0]}</span>
+                </div>
+              ))}
+            </div>
+            {buttonDetermination.isComplete && buttonDetermination.winnerName && (
+              <div className="bg-amber-100 border border-amber-500 px-3 py-1 rounded animate-pulse">
+                <span className="text-amber-700 font-bold text-xs">
+                  🎯 {buttonDetermination.winnerName} gets the button!
+                </span>
+              </div>
+            )}
+          </div>
+        ) : cards.length > 0 ? (
           cards.map((card, i) => (
             <Card key={`${card}-${i}`} value={card} className="w-11 h-16" />
           ))

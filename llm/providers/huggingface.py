@@ -46,8 +46,16 @@ def parse_response(text: str) -> dict:
         result["action"] = match.group(1).upper()
     if match := re.search(r"AMOUNT:\s*(\d+)", text, re.I):
         result["amount"] = int(match.group(1))
-    if match := re.search(r"REASON:\s*(.+)", text, re.I):
+    
+    # Extract REASON - can be multiline, so grab everything after REASON:
+    if match := re.search(r"REASON:\s*(.+?)(?=\n\n|ACTION:|AMOUNT:|$)", text, re.I | re.S):
         result["reason"] = match.group(1).strip()
+    elif match := re.search(r"REASON:\s*(.+)", text, re.I):
+        result["reason"] = match.group(1).strip()
+    
+    # Fallback: if still no reason, use a generic one
+    if not result["reason"]:
+        result["reason"] = "Decision based on hand strength and position."
     
     # Handle alternate format: "RAISE: 150" (action as line prefix)
     if result["action"] == "FOLD" and not re.search(r"ACTION:", text, re.I):

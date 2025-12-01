@@ -17,6 +17,19 @@ interface WinnerInfo {
   handDesc: string;
 }
 
+interface ButtonCard {
+  playerIdx: number;
+  playerName: string;
+  card: string;
+}
+
+interface ButtonDetermination {
+  cards: ButtonCard[];
+  winnerIdx: number | null;
+  winnerName: string | null;
+  isComplete: boolean;
+}
+
 interface PokerTableProps {
   players: PlayerState[];
   layout: PlayerLayout;
@@ -27,6 +40,9 @@ interface PokerTableProps {
   winnersByIdx?: Record<number, WinnerInfo>;
   nextHandCountdown?: number | null;
   onSkipCountdown?: () => void;
+  thinkingPlayerIdx?: number;
+  buttonDetermination?: ButtonDetermination | null;
+  hidePositions?: boolean;
 }
 
 // Calculate position name based on seat relative to button
@@ -80,6 +96,9 @@ export default function PokerTable({
   winnersByIdx = {},
   nextHandCountdown,
   onSkipCountdown,
+  thinkingPlayerIdx,
+  buttonDetermination,
+  hidePositions = false,
 }: PokerTableProps) {
   const totalPlayers = players.length;
   
@@ -126,10 +145,11 @@ export default function PokerTable({
                 <Player 
                   player={players[idx]} 
                   active={idx === currentPlayerIdx}
-                  position={getPosition(idx, buttonIdx, totalPlayers)}
+                  position={hidePositions ? '' : getPosition(idx, buttonIdx, totalPlayers)}
                   folded={players[idx]?.status === 'folded'}
                   winAmount={winnersByIdx[idx]?.amount}
                   winDesc={winnersByIdx[idx]?.handDesc}
+                  isThinking={idx === thinkingPlayerIdx}
                 />
               </td>
             ))}
@@ -148,10 +168,11 @@ export default function PokerTable({
                       <Player 
                         player={players[layout.left[rowIdx]]} 
                         active={layout.left[rowIdx] === currentPlayerIdx}
-                        position={getPosition(layout.left[rowIdx], buttonIdx, totalPlayers)}
+                        position={hidePositions ? '' : getPosition(layout.left[rowIdx], buttonIdx, totalPlayers)}
                         folded={players[layout.left[rowIdx]]?.status === 'folded'}
                         winAmount={winnersByIdx[layout.left[rowIdx]]?.amount}
                         winDesc={winnersByIdx[layout.left[rowIdx]]?.handDesc}
+                        isThinking={layout.left[rowIdx] === thinkingPlayerIdx}
                       />
                     )}
                   </div>
@@ -175,6 +196,7 @@ export default function PokerTable({
                       }))}
                       nextHandCountdown={nextHandCountdown}
                       onSkipCountdown={onSkipCountdown}
+                      buttonDetermination={buttonDetermination}
                     />
                   </div>
                 </td>
@@ -187,10 +209,11 @@ export default function PokerTable({
                       <Player 
                         player={players[layout.right[rowIdx]]} 
                         active={layout.right[rowIdx] === currentPlayerIdx}
-                        position={getPosition(layout.right[rowIdx], buttonIdx, totalPlayers)}
+                        position={hidePositions ? '' : getPosition(layout.right[rowIdx], buttonIdx, totalPlayers)}
                         folded={players[layout.right[rowIdx]]?.status === 'folded'}
                         winAmount={winnersByIdx[layout.right[rowIdx]]?.amount}
                         winDesc={winnersByIdx[layout.right[rowIdx]]?.handDesc}
+                        isThinking={layout.right[rowIdx] === thinkingPlayerIdx}
                       />
                     )}
                   </div>
@@ -216,10 +239,11 @@ export default function PokerTable({
                       <Player 
                         player={players[playerIdx]} 
                         active={playerIdx === currentPlayerIdx}
-                        position={getPosition(playerIdx, buttonIdx, totalPlayers)}
+                        position={hidePositions ? '' : getPosition(playerIdx, buttonIdx, totalPlayers)}
                         folded={players[playerIdx]?.status === 'folded'}
                         winAmount={winnersByIdx[playerIdx]?.amount}
                         winDesc={winnersByIdx[playerIdx]?.handDesc}
+                        isThinking={playerIdx === thinkingPlayerIdx}
                       />
                     )}
                   </div>

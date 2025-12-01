@@ -9,6 +9,8 @@ import {
   ErrorPayload,
   NewGamePayload,
   ActionPayload,
+  ButtonCardPayload,
+  ButtonWinnerPayload,
 } from '@/lib/api';
 
 import {
@@ -45,6 +47,20 @@ interface DisplayState {
   turnStartTime: number; // For shot clock countdown
 }
 
+// Button determination state
+interface ButtonCard {
+  playerIdx: number;
+  playerName: string;
+  card: string;
+}
+
+interface ButtonDetermination {
+  cards: ButtonCard[];
+  winnerIdx: number | null;
+  winnerName: string | null;
+  isComplete: boolean;
+}
+
 interface UseGameStateReturn {
   gameState: GameState | null;
   isConnected: boolean;
@@ -54,8 +70,12 @@ interface UseGameStateReturn {
   lastHandResult: HandCompletePayload | null;
   displayState: DisplayState | null;
   isPaused: boolean;
-  isPausePending: boolean;
+  syncMode: boolean;
+  setSyncMode: (enabled: boolean) => void;
+  stepNext: () => void;
+  queueLength: number;
   shotClockRemaining: number; // Seconds remaining on shot clock
+  buttonDetermination: ButtonDetermination | null;
   connect: () => Promise<void>;
   disconnect: () => void;
   newGame: (payload: NewGamePayload) => void;
@@ -87,9 +107,10 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   const [actionRequired, setActionRequired] = useState<ActionRequiredPayload | null>(null);
   const [lastHandResult, setLastHandResult] = useState<HandCompletePayload | null>(null);
   const [isPaused, setIsPaused] = useState(false);
-  const [isPausePending, setIsPausePending] = useState(false);
   const [displayState, setDisplayState] = useState<DisplayState | null>(null);
   const [shotClockRemaining, setShotClockRemaining] = useState(30);
+  const [syncMode, setSyncMode] = useState(false); // Dev mode: step through actions manually
+  const [buttonDetermination, setButtonDetermination] = useState<ButtonDetermination | null>(null);
   
   const wsRef = useRef<PokerWebSocket | null>(null);
   
@@ -104,13 +125,13 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   const shotClockTimerRef = useRef<NodeJS.Timeout | null>(null);
   const shotClockIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Calculate reasoning duration based on text length (5-10 seconds)
+  // Calculate reasoning duration based on actual typing speed
+  // TypewriterText types at 25ms per character, so match that + small buffer
   const getReasoningDuration = (reason: string): number => {
     const length = reason?.length || 0;
-    // Scale from 5s (short) to 10s (long) based on text length
-    // Assume ~50 chars = 5s, ~200+ chars = 10s
-    const scale = Math.min(1, Math.max(0, (length - 50) / 150));
-    return MIN_REASONING_DURATION_MS + (scale * (MAX_REASONING_DURATION_MS - MIN_REASONING_DURATION_MS));
+    const typingDuration = length * 25; // Match TypewriterText speed
+    // Clamp between MIN and MAX, add 200ms buffer for render delays
+    return Math.max(MIN_REASONING_DURATION_MS, Math.min(MAX_REASONING_DURATION_MS, typingDuration + 200));
   };
 
   // Clear all timers
@@ -178,7 +199,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     });
     
     phaseTimerRef.current = setTimeout(() => {
-      // PHASE 2: Reasoning (5-10 seconds based on length)
+      // PHASE 2: Reasoning - show action AND reason together (5-10 seconds based on length)
       const reasoningDuration = getReasoningDuration(decision.reason);
       
       setDisplayState({
@@ -186,13 +207,15 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
         playerIdx: decision.playerIdx,
         playerName: decision.playerName,
         reason: decision.reason,
-        action: null,
-        amount: 0,
+        action: decision.action,  // Show action immediately with reasoning
+        amount: decision.amount,
         turnStartTime,
       });
       
       phaseTimerRef.current = setTimeout(() => {
-        // PHASE 3: Revealed - show action
+        // PHASE 3: Reasoning done - mark as revealed, apply game state immediately
+        // Game state updates player actions (FOLD, etc) and pot
+        // Highlight stays on current player because page.tsx uses displayState.playerIdx
         setDisplayState({
           phase: 'revealed',
           playerIdx: decision.playerIdx,
@@ -203,32 +226,42 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
           turnStartTime,
         });
         
-        // Apply the corresponding game state update
+        // Apply game state NOW (updates player actions, pot, etc)
+        // Highlight won't move because displayState.playerIdx overrides it
         const nextGameState = gameStateQueueRef.current.shift();
         if (nextGameState) {
           setGameState(nextGameState);
         }
         
-        // Stop shot clock interval
-        if (shotClockIntervalRef.current) {
-          clearInterval(shotClockIntervalRef.current);
-          shotClockIntervalRef.current = null;
-        }
-        
-        // PHASE 4: Wait POST_ACTION_DELAY then move to next
+        // PHASE 4: Wait POST_ACTION_DELAY (counter still going), then move to next
         phaseTimerRef.current = setTimeout(() => {
+          // Stop shot clock
+          if (shotClockIntervalRef.current) {
+            clearInterval(shotClockIntervalRef.current);
+            shotClockIntervalRef.current = null;
+          }
+          
           isProcessingRef.current = false;
           phaseTimerRef.current = null;
+          setDisplayState(null); // Clear display - now highlight moves to next player
           
-          // Process next decision
-          processNextDecision();
+          // If paused, stop processing queue (current player is fully done)
+          if (isPaused) {
+            return;
+          }
+          
+          // In sync mode, don't auto-advance - wait for stepNext()
+          // Otherwise, process next decision automatically
+          if (!syncMode) {
+            processNextDecision();
+          }
         }, POST_ACTION_DELAY_MS);
         
       }, reasoningDuration);
       
     }, THINKING_DURATION_MS);
     
-  }, [isPaused, startShotClockDisplay]);
+  }, [isPaused, syncMode, startShotClockDisplay]);
 
   // Handle shot clock timeout (auto-fold)
   const handleShotClockTimeout = useCallback(() => {
@@ -271,6 +304,9 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     setDisplayState(null);
     setShotClockRemaining(30);
   }, [clearTimers]);
+
+  // When paused, we DON'T clear timers - let current player finish their turn
+  // The pause takes effect after the current player's turn is fully displayed
 
   // Resume processing when unpaused
   useEffect(() => {
@@ -321,6 +357,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
       ws.on('hand_start', () => {
         setLastHandResult(null);
         setActionRequired(null);
+        setButtonDetermination(null); // Clear button determination when hand starts
         clearQueues();
       });
 
@@ -338,12 +375,30 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
 
       ws.on('paused', () => {
         setIsPaused(true);
-        setIsPausePending(false);
       });
 
       ws.on('resumed', () => {
         setIsPaused(false);
-        setIsPausePending(false);
+      });
+
+      ws.on('button_card', (payload) => {
+        const bc = payload as ButtonCardPayload;
+        setButtonDetermination(prev => ({
+          cards: [...(prev?.cards || []), { playerIdx: bc.playerIdx, playerName: bc.playerName, card: bc.card }],
+          winnerIdx: null,
+          winnerName: null,
+          isComplete: false,
+        }));
+      });
+
+      ws.on('button_winner', (payload) => {
+        const bw = payload as ButtonWinnerPayload;
+        setButtonDetermination(prev => prev ? {
+          ...prev,
+          winnerIdx: bw.playerIdx,
+          winnerName: bw.playerName,
+          isComplete: true,
+        } : null);
       });
 
       await ws.connect();
@@ -422,7 +477,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     if (!wsRef.current?.isConnected()) {
       return;
     }
-    setIsPausePending(true);
+    // Pause is immediate now - backend will respond with 'paused' message
     wsRef.current.send({ type: 'pause' });
   }, []);
 
@@ -432,6 +487,13 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     }
     wsRef.current.send({ type: 'resume' });
   }, []);
+
+  // Step to next action (used in sync mode)
+  const stepNext = useCallback(() => {
+    if (!isProcessingRef.current && decisionQueueRef.current.length > 0) {
+      processNextDecision();
+    }
+  }, [processNextDecision]);
 
   // Auto-connect if option is set
   useEffect(() => {
@@ -458,8 +520,12 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     lastHandResult,
     displayState,
     isPaused,
-    isPausePending,
+    syncMode,
+    setSyncMode,
+    stepNext,
+    queueLength: decisionQueueRef.current.length,
     shotClockRemaining,
+    buttonDetermination,
     connect,
     disconnect,
     newGame,

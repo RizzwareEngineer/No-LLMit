@@ -21,6 +21,15 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 	}
 
 	for !gs.IsHandComplete() && gs.IsWaitingForAction() {
+		// Check for pending pause - stop before starting next LLM query
+		if s.isPendingPause(gs.ID) {
+			s.mu.Lock()
+			s.paused[gs.ID] = true
+			s.pendingPause[gs.ID] = false
+			s.mu.Unlock()
+			log.Printf("Game %s paused (stopped before next LLM)", gs.ID)
+		}
+
 		// Wait if paused
 		for s.isPaused(gs.ID) {
 			time.Sleep(100 * time.Millisecond)
@@ -154,11 +163,7 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 		// Send updated game state
 		s.sendGameState(conn, gs)
 
-		// Check if pause was requested
-		if s.activatePendingPause(gs.ID) {
-			log.Printf("Game %s paused (pending pause activated)", gs.ID)
-			s.send(conn, ServerMessage{Type: MsgPaused})
-		}
+		// Pending pause is checked at the start of the loop before next LLM query
 
 		// No delay here - continue to next player immediately
 		// Frontend handles all display timing

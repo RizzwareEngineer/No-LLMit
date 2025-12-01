@@ -108,6 +108,47 @@ func NewGame(config GameConfig) *GameState {
 	return gs
 }
 
+type ButtonCard struct {
+	PlayerIdx  int    `json:"playerIdx"`
+	PlayerName string `json:"playerName"`
+	Card       string `json:"card"`
+}
+
+// DetermineButton deals one card to each player and returns them in order.
+// Also sets ButtonIdx to the player with the highest card.
+// Caller should display these one at a time with delays.
+func (gs *GameState) DetermineButton() []ButtonCard {
+	gs.deck.Reset()
+	cards := make([]ButtonCard, len(gs.Players))
+
+	highestIdx := 0
+	var highestCard Card
+
+	for i, p := range gs.Players {
+		card := gs.deck.Deal(1)[0]
+		cards[i] = ButtonCard{
+			PlayerIdx:  i,
+			PlayerName: p.Name,
+			Card:       card.String(),
+		}
+
+		if i == 0 || card.CompareForButton(highestCard) > 0 {
+			highestCard = card
+			highestIdx = i
+		}
+	}
+
+	gs.ButtonIdx = highestIdx
+	gs.deck.Reset() // Reset deck for actual play
+
+	return cards
+}
+
+// GetButtonWinner returns the index of the player who won the button
+func (gs *GameState) GetButtonWinner() int {
+	return gs.ButtonIdx
+}
+
 func (gs *GameState) StartHand() error {
 	gs.EliminateBrokePlayers()
 
@@ -136,7 +177,10 @@ func (gs *GameState) StartHand() error {
 		}
 	}
 
-	gs.rotateButton()
+	// Only rotate button after the first hand (first hand uses button from DetermineButton)
+	if gs.HandNumber > 1 {
+		gs.rotateButton()
+	}
 	if err := gs.postBlinds(); err != nil {
 		return err
 	}

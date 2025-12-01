@@ -15,34 +15,54 @@ export default function TypewriterText({
 }: TypewriterTextProps) {
   const [displayedText, setDisplayedText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const prevTextRef = useRef<string>("");
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Always reset and animate when text changes
-    if (text === prevTextRef.current && text !== "") return;
-    
-    prevTextRef.current = text;
-    setIsTyping(true);
-    setDisplayedText("");
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
 
-    if (!text) {
+    // Trim and validate text
+    const trimmedText = text?.trim() || "";
+    
+    if (!trimmedText) {
+      setDisplayedText("");
       setIsTyping(false);
       return;
     }
 
+    // Start typing
+    setIsTyping(true);
+    setDisplayedText("");
+    
     let currentIndex = 0;
-    const interval = setInterval(() => {
-      if (currentIndex < text.length) {
-        setDisplayedText(text.slice(0, currentIndex + 1));
+    intervalRef.current = setInterval(() => {
+      if (currentIndex < trimmedText.length) {
         currentIndex++;
+        setDisplayedText(trimmedText.slice(0, currentIndex));
       } else {
         setIsTyping(false);
-        clearInterval(interval);
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
       }
     }, speed);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
   }, [text, speed]);
+
+  // Fallback: if no text to show
+  if (!text?.trim()) {
+    return <span className={className}>...</span>;
+  }
 
   return (
     <span className={className}>

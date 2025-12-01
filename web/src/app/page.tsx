@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer, Brain, Info } from "@phosphor-icons/react";
+import { CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer, Brain } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
@@ -21,8 +21,12 @@ export default function Home() {
     lastHandResult,
     displayState,
     isPaused,
-    isPausePending,
+    syncMode,
+    setSyncMode,
+    stepNext,
+    queueLength,
     shotClockRemaining,
+    buttonDetermination,
     connect,
     newGame,
     startHand,
@@ -91,12 +95,22 @@ export default function Home() {
     }
   }, [isConnected, gameState?.id, isLoading, gameMode, selectedLLMs]);
 
-  // Auto-start first hand when game is created
+  // Auto-start first hand when game is created AND button determination is complete
   useEffect(() => {
     if (isConnected && gameState?.id && gameState?.handNumber === 0 && !isLoading) {
-      startHand();
+      // If button determination is in progress, wait for it to complete
+      if (buttonDetermination && !buttonDetermination.isComplete) {
+        return; // Still determining button
+      }
+      // If button determination is complete, wait 5 seconds so user can read who got the button
+      if (buttonDetermination?.isComplete) {
+        const timer = setTimeout(() => {
+          startHand();
+        }, 5000);
+        return () => clearTimeout(timer);
+      }
     }
-  }, [isConnected, gameState?.id, gameState?.handNumber, isLoading]);
+  }, [isConnected, gameState?.id, gameState?.handNumber, isLoading, buttonDetermination, startHand]);
 
   // Refresh usage stats when an LLM action is revealed
   useEffect(() => {
@@ -137,7 +151,9 @@ export default function Home() {
   const pot = gameState?.pot || 0;
   const communityCards = gameState?.communityCards || [];
   const street = gameState?.street || 'preflop';
-  const currentPlayerIdx = gameState?.currentPlayerIdx ?? -1;
+  // Use displayState.playerIdx for highlight when actively displaying a player's turn
+  // This keeps the highlight on the current player during reasoning + 5s wait
+  const currentPlayerIdx = displayState?.playerIdx ?? (gameState?.currentPlayerIdx ?? -1);
   const validActions = gameState?.validActions || [];
   const stakes = gameState?.stakes || { smallBlind: 5, bigBlind: 10 };
   const handNumber = gameState?.handNumber || 0;
@@ -229,11 +245,10 @@ export default function Home() {
             Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
             <Link 
               href="/about" 
-              className="inline-flex items-center gap-1 hover:underline"
+              className="hover:underline"
               style={{ color: 'rgb(35, 131, 226)' }}
             >
-              <Info size={12} weight="bold" />
-              Learn more
+              ⓘ About
             </Link>
           </p>
         </div>
@@ -341,6 +356,9 @@ export default function Home() {
                   setNextHandCountdown(null);
                   startHand();
                 }}
+                thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
+                buttonDetermination={buttonDetermination}
+                hidePositions={!!buttonDetermination}
               />
 
               {/* Right sidebar column - API Usage above Winnings */}
@@ -392,23 +410,15 @@ export default function Home() {
           {!isHandComplete && (
             <button
               onClick={() => isPaused ? resume() : pause()}
-              disabled={isPausePending}
               className={`${
-                isPaused ? 'bg-green-500 hover:bg-green-600' : 
-                isPausePending ? 'bg-amber-500 cursor-wait' : 
-                'bg-gray-500 hover:bg-gray-600'
+                isPaused ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 hover:bg-gray-600'
               } text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold`}
-              title={isPaused ? 'Resume Game' : isPausePending ? 'Waiting for current action...' : 'Pause Game'}
+              title={isPaused ? 'Resume Game' : 'Pause Game'}
             >
               {isPaused ? (
                 <>
                   <ArrowClockwise size={14} weight="bold" />
                   RESUME
-                </>
-              ) : isPausePending ? (
-                <>
-                  <CircleNotch size={14} weight="bold" className="animate-spin" />
-                  PAUSING...
                 </>
               ) : (
                 <>
@@ -438,6 +448,39 @@ export default function Home() {
               <Bug size={14} weight="bold" />
               EXIT TEST
             </button>
+          )}
+
+          {/* Sync mode toggle (spectate dev mode only) */}
+          {gameMode === 'spectate' && (
+            <>
+              <button
+                onClick={() => setSyncMode(!syncMode)}
+                className={`px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold ${
+                  syncMode 
+                    ? 'bg-purple-600 hover:bg-purple-700 text-white' 
+                    : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                }`}
+                title="Sync Mode: Step through actions manually"
+              >
+                <Wrench size={14} weight="bold" />
+                SYNC {syncMode ? 'ON' : 'OFF'}
+              </button>
+              
+              {syncMode && (
+                <button
+                  onClick={stepNext}
+                  disabled={queueLength === 0}
+                  className={`px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold ${
+                    queueLength > 0
+                      ? 'bg-green-500 hover:bg-green-600 text-white'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                  title={`Next action (${queueLength} queued)`}
+                >
+                  STEP ({queueLength})
+                </button>
+              )}
+            </>
           )}
         </div>
       )}

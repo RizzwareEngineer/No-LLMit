@@ -4,6 +4,7 @@ package api
 
 import (
 	"log"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
@@ -51,7 +52,67 @@ func (s *Server) handleNewGame(conn *websocket.Conn, payload interface{}) {
 
 	log.Printf("Created new game: %s with %d players in %s mode", gs.ID, len(gs.Players), gs.Mode.String())
 
+	// Send initial game state immediately so UI shows players
 	s.sendGameState(conn, gs)
+
+	// Determine button by dealing cards to each player
+	buttonCards := gs.DetermineButton()
+	
+	// Send each card with 2 second delay
+	go func() {
+		for _, bc := range buttonCards {
+			// Check if connection is still valid
+			s.mu.RLock()
+			_, connected := s.clients[conn]
+			s.mu.RUnlock()
+			if !connected {
+				log.Printf("Connection closed during button determination, stopping")
+				return
+			}
+			
+			s.send(conn, ServerMessage{
+				Type: MsgButtonCard,
+				Payload: ButtonCardPayload{
+					PlayerIdx:  bc.PlayerIdx,
+					PlayerName: bc.PlayerName,
+					Card:       bc.Card,
+				},
+			})
+			time.Sleep(2 * time.Second)
+		}
+		
+		// Check if still connected
+		s.mu.RLock()
+		_, connected := s.clients[conn]
+		s.mu.RUnlock()
+		if !connected {
+			return
+		}
+		
+		// Announce the winner
+		winnerName := gs.Players[gs.ButtonIdx].Name
+		log.Printf("Button goes to: %s (seat %d)", winnerName, gs.ButtonIdx)
+		
+		s.send(conn, ServerMessage{
+			Type: MsgButtonWinner,
+			Payload: ButtonWinnerPayload{
+				PlayerIdx:  gs.ButtonIdx,
+				PlayerName: winnerName,
+			},
+		})
+		
+		// Wait 5 seconds for user to read who gets the button
+		time.Sleep(5 * time.Second)
+		
+		s.mu.RLock()
+		_, connected = s.clients[conn]
+		s.mu.RUnlock()
+		if !connected {
+			return
+		}
+		
+		s.sendGameState(conn, gs)
+	}()
 }
 
 func (s *Server) handleStartHand(conn *websocket.Conn) {
@@ -156,13 +217,15 @@ func (s *Server) handlePause(conn *websocket.Conn) {
 		return
 	}
 
-	// Set pending pause - will take effect after current action completes
+	// Set pending pause - backend will stop after current LLM completes
+	// Frontend will finish displaying current player, then pause
 	s.mu.Lock()
 	s.pendingPause[gs.ID] = true
 	s.mu.Unlock()
 
-	log.Printf("Game %s pause requested (will pause after current action)", gs.ID)
-	// Don't send MsgPaused yet - it will be sent when pause actually activates
+	log.Printf("Game %s pause requested", gs.ID)
+	// Send paused immediately so frontend knows to stop after current player
+	s.send(conn, ServerMessage{Type: MsgPaused})
 }
 
 func (s *Server) handleResume(conn *websocket.Conn) {

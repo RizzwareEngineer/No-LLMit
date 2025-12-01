@@ -11,6 +11,7 @@ interface PlayerProps {
   folded?: boolean;
   winAmount?: number;
   winDesc?: string;
+  isThinking?: boolean;
 }
 
 // Position badge colors
@@ -42,7 +43,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false }: PlayerProps) {
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-400 text-white' : '';
   const isWinner = winAmount !== undefined && winAmount > 0;
@@ -118,10 +119,11 @@ export default function Player({ player, active, position, folded = false, winAm
                 <div className="text-[11px] shrink-0" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.currentBet.toLocaleString()}</div>
               </div>
             ) : (
-              <div className="text-[11px] font-mono uppercase truncate" style={{ color: 'rgba(55, 53, 47, 0.35)' }}>
+              <div className="text-[11px] font-mono uppercase truncate" style={{ color: isThinking ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.35)' }}>
                 {player.status === 'folded' ? 'FOLD' : 
                  player.status === 'all-in' ? 'ALL-IN' :
-                 player.status === 'eliminated' ? 'OUT' : 'WAITING'}
+                 player.status === 'eliminated' ? 'OUT' : 
+                 isThinking ? 'THINKING' : 'WAITING'}
               </div>
             )}
           </div>

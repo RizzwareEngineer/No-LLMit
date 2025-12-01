@@ -50,8 +50,11 @@ export default function ReasoningPanel({
   const action = displayState?.action;
   const amount = displayState?.amount || 0;
   const isIdle = !displayState || phase === 'idle';
-  const showReason = phase === 'reasoning' || phase === 'revealed';
-  const showAction = phase === 'revealed';
+  const isThinking = phase === 'thinking';
+  const isReasoning = phase === 'reasoning';
+  const isRevealed = phase === 'revealed';
+  const showReason = isReasoning || isRevealed;
+  const showShotClock = isThinking || isReasoning; // Hide after action is revealed
 
   // Dynamic font size based on reason length
   const getReasonFontSize = (text: string | null | undefined) => {
@@ -75,32 +78,22 @@ export default function ReasoningPanel({
           className={`w-[120px] shrink-0 flex flex-col items-center justify-center border-r border-notion`}
           style={{ 
             background: isPaused ? 'rgba(203, 145, 47, 0.1)' : 
-                        phase === 'thinking' ? 'rgba(55, 53, 47, 0.03)' :
-                        phase === 'reasoning' ? 'rgba(35, 131, 226, 0.06)' :
-                        showAction ? 'rgba(15, 123, 108, 0.06)' :
+                        !isIdle ? 'rgba(35, 131, 226, 0.06)' :
                         'rgba(55, 53, 47, 0.02)'
           }}
         >
-          <span className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
-            {isIdle ? 'Waiting' : 
-             phase === 'thinking' ? 'Thinking' :
-             phase === 'reasoning' ? 'Reading' :
-             'Acted'}
-          </span>
           <span className="text-xs font-bold truncate max-w-[100px] px-2" style={{ color: 'rgb(55, 53, 47)' }}>
             {playerName}
           </span>
           
-          {/* Shot clock countdown */}
-          {!isIdle && (
+          {/* Shot clock countdown - visible during thinking and reasoning only */}
+          {showShotClock && (
             <div className="flex items-center gap-1 mt-1">
               <span 
                 className="font-mono text-lg font-bold"
                 style={{ 
                   color: shotClockRemaining <= 5 ? 'rgb(235, 87, 87)' : 
                          isPaused ? 'rgb(203, 145, 47)' : 
-                         phase === 'thinking' ? 'rgba(55, 53, 47, 0.5)' :
-                         showAction ? 'rgb(15, 123, 108)' :
                          'rgb(35, 131, 226)'
                 }}
               >
@@ -109,18 +102,11 @@ export default function ReasoningPanel({
               {isPaused && <span style={{ color: 'rgb(203, 145, 47)' }} className="text-xs">⏸</span>}
             </div>
           )}
-          
-          {/* Show action in left panel when revealed */}
-          {showAction && action && (
-            <div className="mt-1 text-[10px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
-              {formatAction(action, amount)}
-            </div>
-          )}
         </div>
 
-        {/* Right section - Reasoning text */}
+        {/* Right section - Thinking or Reasoning text */}
         <div className="flex-1 flex flex-col justify-center px-4 min-w-0">
-          {phase === 'thinking' && (
+          {isThinking && (
             <div className="text-sm italic flex items-center gap-2" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
               <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'rgba(55, 53, 47, 0.4)' }} />
               Thinking...
@@ -129,9 +115,10 @@ export default function ReasoningPanel({
           
           {showReason && reason && (
             <>
+              {/* Reasoning label with action */}
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-[10px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
-                {showAction && action && (
+                {action && (
                   <span className="text-[10px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
                     → {formatAction(action, amount)}
                   </span>

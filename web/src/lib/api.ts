@@ -18,7 +18,9 @@ export type MessageType =
   | 'llm_thinking'
   | 'llm_action'
   | 'paused'
-  | 'resumed';
+  | 'resumed'
+  | 'button_card'
+  | 'button_winner';
 
 export interface ClientMessage {
   type: MessageType;
@@ -43,6 +45,17 @@ export interface ActionPayload {
   playerIdx: number;
   action: 'fold' | 'check' | 'call' | 'raise' | 'all-in';
   amount?: number;
+}
+
+export interface ButtonCardPayload {
+  playerIdx: number;
+  playerName: string;
+  card: string;
+}
+
+export interface ButtonWinnerPayload {
+  playerIdx: number;
+  playerName: string;
 }
 
 export interface PlayerState {

@@ -18,16 +18,18 @@ const (
 	MsgResume    MessageType = "resume"
 
 	// Server → Client
-	MsgGameState    MessageType = "game_state"
-	MsgError        MessageType = "error"
-	MsgHandStart    MessageType = "hand_start"
-	MsgActionReq    MessageType = "action_required"
-	MsgStreetChange MessageType = "street_change"
-	MsgHandComplete MessageType = "hand_complete"
-	MsgLLMThinking  MessageType = "llm_thinking"
-	MsgLLMAction    MessageType = "llm_action"
-	MsgPaused       MessageType = "paused"
-	MsgResumed      MessageType = "resumed"
+	MsgGameState      MessageType = "game_state"
+	MsgError          MessageType = "error"
+	MsgHandStart      MessageType = "hand_start"
+	MsgActionReq      MessageType = "action_required"
+	MsgStreetChange   MessageType = "street_change"
+	MsgHandComplete   MessageType = "hand_complete"
+	MsgLLMThinking    MessageType = "llm_thinking"
+	MsgLLMAction      MessageType = "llm_action"
+	MsgPaused         MessageType = "paused"
+	MsgResumed        MessageType = "resumed"
+	MsgButtonCard     MessageType = "button_card"     // Card dealt for button determination
+	MsgButtonWinner   MessageType = "button_winner"   // Who won the button
 )
 
 type ClientMessage struct {
@@ -134,6 +136,17 @@ type LLMActionPayload struct {
 	Action     string `json:"action"`
 	Amount     int    `json:"amount"`
 	Reason     string `json:"reason"`
+}
+
+type ButtonCardPayload struct {
+	PlayerIdx  int    `json:"playerIdx"`
+	PlayerName string `json:"playerName"`
+	Card       string `json:"card"`
+}
+
+type ButtonWinnerPayload struct {
+	PlayerIdx  int    `json:"playerIdx"`
+	PlayerName string `json:"playerName"`
 }
 
 func ConvertGameState(gs *game.GameState, showAllCards bool) GameStatePayload {
