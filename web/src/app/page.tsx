@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer, Brain } from "@phosphor-icons/react";
+import Link from "next/link";
+import { CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer, Brain, Info } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
@@ -214,7 +215,15 @@ export default function Home() {
         <div className="mb-1 text-center">
           <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
           <p className="text-[12px] mt-0.5" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
-            Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game (or, soon, tournament)!
+            Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
+            <Link 
+              href="/about" 
+              className="inline-flex items-center gap-1 hover:underline"
+              style={{ color: 'rgb(35, 131, 226)' }}
+            >
+              <Info size={12} weight="bold" />
+              Learn more
+            </Link>
           </p>
         </div>
 

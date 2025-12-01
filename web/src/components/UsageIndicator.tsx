@@ -122,7 +122,7 @@ export default function UsageIndicator({ isPaused = false, inline = false }: Usa
                 Support No-LLMit
               </div>
               <p className="mb-2" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
-                Running 9 LLMs costs real money! Help keep this project free and running.
+                Running 9 LLMs costs real money! Help me keep this project free and running.
               </p>
               {usage && (
                 <p className="text-[10px] mb-2" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
@@ -130,13 +130,13 @@ export default function UsageIndicator({ isPaused = false, inline = false }: Usa
                 </p>
               )}
               <a 
-                href="https://github.com/sponsors/YOUR_GITHUB" 
+                href="https://github.com/sponsors/RizzwareEngineer" 
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block w-full text-white text-center py-2 rounded text-[10px] font-bold"
                 style={{ background: 'rgb(235, 87, 87)' }}
               >
-                ❤️ Become a Sponsor
+                Donate 
               </a>
             </div>
           </div>
