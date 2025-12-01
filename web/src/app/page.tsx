@@ -235,14 +235,14 @@ export default function Home() {
                 className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
               >
                 <GameController size={12} weight="bold" />
-                Play vs. LLMs — Coming Soon!
+                Play vs. LLMs — (coming soon)!
               </button>
               <button
                 disabled
                 className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
               >
                 <Brain size={12} weight="bold" />
-                Train an LLM — Coming Soon!
+                Train an LLM to play like you (coming soon)!
               </button>
             </>
           )}
