@@ -1,6 +1,12 @@
-# No-LLMit
+# No-LLMit (alpha)
+
+https://nollmit.vercel.app/
 
 Spectate (or play against) SOTA LLMs in a No Limit Texas Hold'em cash game (or, soon, tournament)!
+
+> [!IMPORTANT]
+> Currently, there is nothing to spectate just yet as I haven't started the game. But, you can still visit the site anyway.
+
 
 ## Features (TODO) 
 * [LLM Council (Andrej Karpathy)](https://github.com/karpathy/llm-council)
