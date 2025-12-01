@@ -81,12 +81,15 @@ export default function PokerTable({
   
   if (players.length === 0) {
     return (
-      <div className="relative border border-gray-300 bg-stone-50 shadow-sm">
+      <div 
+        className="relative bg-white rounded overflow-hidden"
+        style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
+      >
         <CornerBorders />
-        <div className="w-[600px] h-[300px] flex items-center justify-center text-gray-400 text-sm">
+        <div className="w-[600px] h-[300px] flex items-center justify-center text-sm italic" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
           Start a new game to begin
-                    </div>
-            </div>
+        </div>
+      </div>
     );
   }
 
@@ -95,19 +98,26 @@ export default function PokerTable({
   const tableWidth = numCols * 200;
 
   return (
-    <div className="relative border border-gray-300 bg-stone-50 shadow-sm shrink-0 self-stretch" style={{ width: tableWidth }}>
+    <div 
+      className="relative bg-white shrink-0 self-stretch rounded"
+      style={{ width: tableWidth, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
+    >
       <CornerBorders />
-      <table className="border-collapse table-fixed w-full h-full" style={{ borderSpacing: 0 }}>
+      <table className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
         <tbody>
           {/* TOP ROW */}
           <tr>
             {layout.left.length > 0 && (
-              <td className="border-r border-b border-gray-700/20 w-[200px] h-[100px]" />
+              <td className="w-[200px] h-[100px]" style={{ borderRight: '1px solid rgba(55, 53, 47, 0.09)', borderBottom: '1px solid rgba(55, 53, 47, 0.09)' }} />
             )}
             {layout.top.map((idx, i) => (
               <td 
                 key={`top-${idx}`} 
-                className={`border-b border-gray-700/20 w-[200px] h-[100px] overflow-hidden ${i < layout.top.length - 1 ? 'border-r' : ''}`}
+                className="w-[200px] h-[100px]"
+                style={{ 
+                  borderBottom: '1px solid rgba(55, 53, 47, 0.09)',
+                  borderRight: i < layout.top.length - 1 ? '1px solid rgba(55, 53, 47, 0.09)' : undefined
+                }}
               >
                 <Player 
                   player={players[idx]} 
@@ -120,7 +130,7 @@ export default function PokerTable({
               </td>
             ))}
             {layout.right.length > 0 && (
-              <td className="border-l border-b border-gray-700/20 w-[200px] h-[100px]" />
+              <td className="w-[200px] h-[100px]" style={{ borderLeft: '1px solid rgba(55, 53, 47, 0.09)', borderBottom: '1px solid rgba(55, 53, 47, 0.09)' }} />
             )}
           </tr>
 
@@ -128,7 +138,7 @@ export default function PokerTable({
           {Array.from({ length: Math.max(layout.left.length, layout.right.length) }).map((_, rowIdx) => (
             <tr key={`middle-${rowIdx}`}>
               {layout.left.length > 0 && (
-                <td className="border-r border-b border-gray-700/20 w-[200px] h-[100px] overflow-hidden">
+                <td className="w-[200px] h-[100px]" style={{ borderRight: '1px solid rgba(55, 53, 47, 0.09)', borderBottom: '1px solid rgba(55, 53, 47, 0.09)' }}>
                   <div className="flex justify-end h-full">
                     {layout.left[rowIdx] !== undefined && players[layout.left[rowIdx]] && (
                       <Player 
@@ -148,7 +158,7 @@ export default function PokerTable({
                 <td 
                   colSpan={layout.top.length}
                   rowSpan={Math.max(layout.left.length, layout.right.length)}
-                  className="border-b border-gray-700/20"
+                  style={{ borderBottom: '1px solid rgba(55, 53, 47, 0.09)' }}
                 >
                   <div className="flex items-center justify-center h-full">
                     <TableFelt 
@@ -165,7 +175,7 @@ export default function PokerTable({
               )}
 
               {layout.right.length > 0 && (
-                <td className="border-l border-b border-gray-700/20 w-[200px] h-[100px] overflow-hidden">
+                <td className="w-[200px] h-[100px]" style={{ borderLeft: '1px solid rgba(55, 53, 47, 0.09)', borderBottom: '1px solid rgba(55, 53, 47, 0.09)' }}>
                   <div className="flex justify-start h-full">
                     {layout.right[rowIdx] !== undefined && players[layout.right[rowIdx]] && (
                       <Player 
@@ -186,14 +196,15 @@ export default function PokerTable({
           {/* BOTTOM ROW */}
           <tr>
             {layout.left.length > 0 && (
-              <td className="border-r border-gray-700/20 w-[200px] h-[100px] overflow-hidden" />
+              <td className="w-[200px] h-[100px]" style={{ borderRight: '1px solid rgba(55, 53, 47, 0.09)' }} />
             )}
             <td colSpan={layout.top.length} className="h-[100px] p-0">
               <div className="flex h-full">
                 {layout.bottom.map((playerIdx, i) => (
                   <div 
                     key={`bottom-${playerIdx}`}
-                    className={`flex-1 ${i < layout.bottom.length - 1 ? 'border-r border-gray-700/20' : ''}`}
+                    className="flex-1"
+                    style={{ borderRight: i < layout.bottom.length - 1 ? '1px solid rgba(55, 53, 47, 0.09)' : undefined }}
                   >
                     {players[playerIdx] && (
                       <Player 
@@ -210,13 +221,13 @@ export default function PokerTable({
               </div>
             </td>
             {layout.right.length > 0 && (
-              <td className="border-l border-gray-700/20 w-[200px] h-[100px] overflow-hidden" />
+              <td className="w-[200px] h-[100px]" style={{ borderLeft: '1px solid rgba(55, 53, 47, 0.09)' }} />
             )}
           </tr>
         </tbody>
       </table>
-        </div>
-    );
+    </div>
+  );
 }
 
 // Helper function to get player layout based on count (6-9 players)
@@ -234,4 +245,3 @@ export function getPlayerLayout(count: number): PlayerLayout {
       return { top: [], left: [], right: [], bottom: [] };
   }
 }
-

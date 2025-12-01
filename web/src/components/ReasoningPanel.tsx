@@ -100,46 +100,55 @@ export default function ReasoningPanel({
   const reasonFontSize = getReasonFontSize(reason);
 
   return (
-    <div className="relative border border-gray-300 bg-stone-50 shadow-sm h-[100px]">
+    <div 
+      className="relative bg-white h-[100px] rounded overflow-hidden"
+      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
+    >
       <CornerBorders />
       <div className="flex h-full">
         {/* Left section - Player name + countdown */}
-        <div className={`w-[120px] shrink-0 flex flex-col items-center justify-center border-r border-gray-300 ${
-          isPaused ? 'bg-amber-50' : 
-          phase === 'thinking' ? 'bg-gray-100' :
-          showReason && !showAction ? 'bg-blue-50' :
-          showAction ? 'bg-green-50' :
-          'bg-gray-50'
-        }`}>
-          <span className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">
+        <div 
+          className={`w-[120px] shrink-0 flex flex-col items-center justify-center border-r border-notion`}
+          style={{ 
+            background: isPaused ? 'rgba(203, 145, 47, 0.1)' : 
+                        phase === 'thinking' ? 'rgba(55, 53, 47, 0.03)' :
+                        showReason && !showAction ? 'rgba(35, 131, 226, 0.06)' :
+                        showAction ? 'rgba(15, 123, 108, 0.06)' :
+                        'rgba(55, 53, 47, 0.02)'
+          }}
+        >
+          <span className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
             {isIdle ? 'Waiting' : 
              phase === 'thinking' ? 'Thinking' :
              phase === 'reasoning' ? 'Reading' :
              'Acted'}
           </span>
-          <span className="text-xs font-bold text-gray-700 truncate max-w-[100px] px-2">
+          <span className="text-xs font-bold truncate max-w-[100px] px-2" style={{ color: 'rgb(55, 53, 47)' }}>
             {playerName}
           </span>
           
           {/* Countdown display */}
           {countdown !== null && countdown > 0 && (
             <div className="flex items-center gap-1 mt-1">
-              <span className={`font-mono text-lg font-bold ${
-                countdown <= 3 ? 'text-red-600' : 
-                isPaused ? 'text-amber-600' : 
-                phase === 'thinking' ? 'text-gray-500' :
-                showAction ? 'text-green-600' :
-                'text-blue-600'
-              }`}>
+              <span 
+                className="font-mono text-lg font-bold"
+                style={{ 
+                  color: countdown <= 3 ? 'rgb(235, 87, 87)' : 
+                         isPaused ? 'rgb(203, 145, 47)' : 
+                         phase === 'thinking' ? 'rgba(55, 53, 47, 0.5)' :
+                         showAction ? 'rgb(15, 123, 108)' :
+                         'rgb(35, 131, 226)'
+                }}
+              >
                 {countdown}s
               </span>
-              {isPaused && <span className="text-amber-600 text-xs">⏸</span>}
+              {isPaused && <span style={{ color: 'rgb(203, 145, 47)' }} className="text-xs">⏸</span>}
             </div>
           )}
           
           {/* Show action in left panel when revealed */}
           {showAction && action && (
-            <div className="mt-1 text-[10px] font-bold text-green-700">
+            <div className="mt-1 text-[10px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
               {formatAction(action, amount)}
             </div>
           )}
@@ -148,8 +157,8 @@ export default function ReasoningPanel({
         {/* Right section - Reasoning text */}
         <div className="flex-1 flex flex-col justify-center px-4 min-w-0">
           {phase === 'thinking' && (
-            <div className="text-gray-500 text-sm italic flex items-center gap-2">
-              <span className="inline-block w-2 h-2 bg-gray-400 rounded-full animate-pulse" />
+            <div className="text-sm italic flex items-center gap-2" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
+              <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'rgba(55, 53, 47, 0.4)' }} />
               Thinking...
             </div>
           )}
@@ -157,21 +166,21 @@ export default function ReasoningPanel({
           {showReason && reason && (
             <>
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] uppercase tracking-wider text-blue-500">Reasoning</span>
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
                 {showAction && action && (
-                  <span className="text-[10px] font-bold text-green-600">
+                  <span className="text-[10px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
                     → {formatAction(action, amount)}
                   </span>
                 )}
               </div>
-              <p className={`${reasonFontSize} text-gray-700 italic line-clamp-3 leading-snug`}>
+              <p className={`${reasonFontSize} italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
                 <TypewriterText text={reason} speed={15} />
               </p>
             </>
           )}
           
           {isIdle && (
-            <div className="text-gray-400 text-xs italic">
+            <div className="text-xs italic" style={{ color: 'rgba(55, 53, 47, 0.4)' }}>
               Waiting for next action...
             </div>
           )}

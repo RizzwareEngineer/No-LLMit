@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { Eye, CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer } from "@phosphor-icons/react";
+import { Eye, CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer, Brain } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
@@ -12,7 +11,6 @@ import { useGameState } from "@/hooks/useGameState";
 import { ALL_LLMS, DEFAULT_GAME_CONFIG } from "@/lib/constants";
 
 export default function Home() {
-  const router = useRouter();
   const {
     gameState,
     isConnected,
@@ -24,7 +22,6 @@ export default function Home() {
     isPaused,
     isPausePending,
     connect,
-    disconnect,
     newGame,
     startHand,
     submitAction,
@@ -211,37 +208,67 @@ export default function Home() {
     : {};
 
   return (
-    <div className="flex flex-col min-h-screen p-4 lg:p-8 overflow-auto bg-stone-100">
-      <div className="text-gray-700 flex-1 flex flex-col items-center">
+    <div className="flex flex-col min-h-screen p-3 lg:p-4 overflow-auto" style={{ background: '#FFFFFF' }}>
+      <div className="flex-1 flex flex-col items-center">
         
       {/* Header - Title centered */}
-        <div className="mb-2 text-center">
-          <h1 className="text-2xl font-bold tracking-wider">No-LLMit</h1>
-          <p className="text-[11px] text-gray-500 mt-1">
-          Spectate (or play against) SOTA LLMs in a No Limit Texas Hold'em cash game (or, soon, tournament)!
+        <div className="mb-1 text-center">
+          <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
+          <p className="text-[12px] mt-0.5" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+            Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game (or, soon, tournament)!
           </p>
         </div>
 
-        {/* Subheader - Controls row */}
-        <div className="mb-4 flex items-center gap-4">
+        {/* Action buttons row */}
+        <div className="mb-2 flex items-center justify-center gap-3">
+          {gameMode === 'play' ? (
+            <button
+              onClick={handleBackToSpectate}
+              className="btn-brutal px-3 py-1 text-[11px] flex items-center gap-2"
+            >
+              <Television size={12} weight="bold" />
+              Back to Spectate
+            </button>
+          ) : (
+            <>
+              <button
+                disabled
+                className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
+              >
+                <GameController size={12} weight="bold" />
+                Play vs. LLMs — Coming Soon!
+              </button>
+              <button
+                disabled
+                className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
+              >
+                <Brain size={12} weight="bold" />
+                Train an LLM — Coming Soon!
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Status row - Mode indicator, hand counter, blinds, timer */}
+        <div className="mb-3 flex items-center gap-4">
           {/* Mode indicator */}
           <div className="flex items-center gap-2">
             {gameMode === 'spectate' && (
               <>
-                <Television size={14} weight="bold" className="text-blue-500" />
-                <span className="text-[10px] text-blue-500 uppercase font-bold">Spectating</span>
+                <Television size={14} weight="bold" style={{ color: 'rgb(35, 131, 226)' }} />
+                <span className="text-[12px] font-medium" style={{ color: 'rgb(35, 131, 226)' }}>Spectating</span>
               </>
             )}
             {gameMode === 'play' && (
               <>
-                <GameController size={14} weight="bold" className="text-green-500" />
-                <span className="text-[10px] text-green-500 uppercase font-bold">Playing</span>
+                <GameController size={14} weight="bold" style={{ color: 'rgb(15, 123, 108)' }} />
+                <span className="text-[12px] font-medium" style={{ color: 'rgb(15, 123, 108)' }}>Playing</span>
               </>
             )}
             {gameMode === 'test' && (
               <>
-                <Wrench size={14} weight="bold" className="text-amber-500" />
-                <span className="text-[10px] text-amber-500 uppercase font-bold">Test Mode</span>
+                <Wrench size={14} weight="bold" style={{ color: 'rgb(203, 145, 47)' }} />
+                <span className="text-[12px] font-medium" style={{ color: 'rgb(203, 145, 47)' }}>Test Mode</span>
               </>
             )}
           </div>
@@ -249,29 +276,30 @@ export default function Home() {
           {/* Hand counter, blinds, timer */}
           {handNumber > 0 && (
             <>
-              <div className="h-4 w-px bg-gray-300" />
-              <span className="text-[10px] text-gray-500 uppercase">Hand #{handNumber}</span>
-              <div className="h-4 w-px bg-gray-300" />
-              <span className="text-[10px] text-gray-500">¤{stakes.smallBlind}/{stakes.bigBlind}</span>
-              <div className="h-4 w-px bg-gray-300" />
-              <span className="text-[10px] text-gray-500 font-mono">{elapsedTime}</span>
+              <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+              <span className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber}</span>
+              <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+              <span className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{stakes.smallBlind}/{stakes.bigBlind}</span>
+              <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+              <span className="text-[12px] font-mono" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
             </>
           )}
 
           {/* Next hand countdown/button */}
           {isHandComplete && (
             <>
-              <div className="h-4 w-px bg-gray-300" />
+              <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
               {nextHandCountdown !== null && nextHandCountdown > 0 ? (
-                <div className="flex items-center gap-2 text-[10px] text-gray-500">
-                  <CircleNotch size={12} className="animate-spin text-gray-400" />
+                <div className="flex items-center gap-2 text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+                  <CircleNotch size={12} className="animate-spin" style={{ color: 'rgba(55, 53, 47, 0.4)' }} />
                   <span>Next hand in {nextHandCountdown}s</span>
                   <button
                     onClick={() => {
                       setNextHandCountdown(null);
                       startHand();
                     }}
-                    className="text-blue-500 hover:underline"
+                    className="hover:underline"
+                    style={{ color: 'rgb(35, 131, 226)' }}
                   >
                     Skip
                   </button>
@@ -280,36 +308,13 @@ export default function Home() {
                 <button
                   onClick={handleStartHand}
                   disabled={isLoading}
-                  className="btn-brutal px-3 py-1 text-[10px] flex items-center gap-2"
+                  className="btn-brutal px-3 py-1 text-[12px] flex items-center gap-2"
                 >
                   {isLoading ? <CircleNotch size={12} className="animate-spin" /> : <ArrowClockwise size={12} weight="bold" />}
-                  NEXT HAND
+                  Next Hand
                 </button>
               )}
             </>
-          )}
-
-          <div className="flex-1" />
-
-          {/* Play / Spectate buttons */}
-          {gameMode === 'play' ? (
-            <button
-              onClick={handleBackToSpectate}
-              className="btn-brutal px-3 py-1 text-[10px] flex items-center gap-2"
-              style={{ textTransform: 'none' }}
-            >
-              <Television size={12} weight="bold" />
-              Back to Spectate
-            </button>
-          ) : (
-            <button
-              onClick={() => router.push('/play')}
-              className="btn-brutal btn-brutal-success px-3 py-1 text-[10px] flex items-center gap-2"
-              style={{ textTransform: 'none' }}
-            >
-              <GameController size={12} weight="bold" />
-              Play vs. LLMs
-            </button>
           )}
         </div>
 
@@ -349,7 +354,8 @@ export default function Home() {
                 {!showWinnings && (
                   <button
                     onClick={() => setShowWinnings(true)}
-                    className="mt-4 flex items-center justify-center w-10 h-10 border border-gray-300 bg-stone-50 shadow-sm text-gray-400 hover:text-gray-700 transition-colors"
+                    className="mt-4 flex items-center justify-center w-10 h-10 bg-white rounded transition-colors"
+                    style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', color: 'rgba(55, 53, 47, 0.4)' }}
                     title="Show winnings"
                   >
                     <Eye size={18} weight="bold" />
@@ -446,7 +452,7 @@ export default function Home() {
 
       {/* Fixed notification bar for connection status/errors */}
       {(!isConnected || error) && (
-        <div className="fixed bottom-0 left-0 right-0 bg-amber-500 text-white px-4 py-2 flex items-center justify-center gap-4 z-50 shadow-lg">
+        <div className="fixed bottom-0 left-0 right-0 px-4 py-2 flex items-center justify-center gap-4 z-50" style={{ background: 'rgb(203, 145, 47)', color: '#ffffff' }}>
           <div className="flex items-center gap-2">
             {!isConnected && (
               <>

@@ -81,25 +81,28 @@ export default function ActionPanel({
   };
 
   return (
-    <div className={`w-[557px] h-[100px] border border-gray-300 bg-stone-50 shadow-sm relative ${isWaiting ? 'opacity-60' : ''}`}>
+    <div 
+      className={`w-[557px] h-[100px] bg-white relative rounded overflow-hidden ${isWaiting ? 'opacity-60' : ''}`}
+      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
+    >
       <CornerBorders />
       <div className="p-3 h-full flex flex-col justify-between">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="text-[10px] uppercase tracking-wider text-gray-700/50">Action for:</div>
-            <div className="text-xs font-bold text-gray-700">
+            <div className="text-[11px] uppercase tracking-wider" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>Action for:</div>
+            <div className="text-[13px] font-semibold" style={{ color: 'rgb(55, 53, 47)' }}>
               {currentPlayer?.name || '—'}
             </div>
             {actionRequired && !isWaiting && (
-              <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'rgb(35, 131, 226)' }} />
             )}
             {isWaiting && (
-              <span className="text-[10px] text-gray-400 uppercase">Waiting...</span>
+              <span className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.4)' }}>Waiting...</span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wider text-gray-700/50">To Call:</span>
-            <span className="text-xs font-bold text-gray-700">¤{isWaiting ? '—' : toCall}</span>
+            <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>To Call:</span>
+            <span className="text-[13px] font-semibold" style={{ color: 'rgb(55, 53, 47)' }}>¤{isWaiting ? '—' : toCall}</span>
           </div>
         </div>
         
@@ -107,25 +110,25 @@ export default function ActionPanel({
           <button 
             onClick={() => onAction('fold')}
             disabled={!canDoAction('fold')}
-            className="btn-brutal btn-brutal-danger w-[80px] h-8 text-[10px] disabled:opacity-50 flex items-center justify-center"
+            className="btn-brutal-danger w-[80px] h-8 text-[11px] font-medium disabled:opacity-50 flex items-center justify-center rounded"
           >
-            FOLD
+            Fold
           </button>
           
           {canDoAction('check') ? (
             <button 
               onClick={() => onAction('check')}
-              className="btn-brutal w-[80px] h-8 text-[10px] flex items-center justify-center"
+              className="btn-brutal-primary w-[80px] h-8 text-[11px] font-medium flex items-center justify-center rounded"
             >
-              CHECK
+              Check
             </button>
           ) : (
             <button 
               onClick={handleCall}
               disabled={!canCall}
-              className="btn-brutal w-[80px] h-8 text-[10px] flex items-center justify-center disabled:opacity-50"
+              className="btn-brutal-primary w-[80px] h-8 text-[11px] font-medium flex items-center justify-center disabled:opacity-50 rounded"
             >
-              CALL {!isWaiting && `¤${Math.min(toCall, currentPlayerStack)}`}
+              Call ¤{!isWaiting ? Math.min(toCall, currentPlayerStack) : '—'}
             </button>
           )}
           
@@ -133,12 +136,15 @@ export default function ActionPanel({
             <button 
               onClick={handleRaise}
               disabled={!canDoAction('raise')}
-              className="btn-brutal btn-brutal-warning w-[70px] h-8 text-[10px] flex items-center justify-center disabled:opacity-50 rounded-r-none border-r-0"
+              className="btn-brutal-warning w-[70px] h-8 text-[11px] font-medium flex items-center justify-center disabled:opacity-50 rounded-l rounded-r-none"
             >
-              {currentBet === 0 ? 'BET' : 'RAISE'}
+              {currentBet === 0 ? 'Bet' : 'Raise'}
             </button>
-            <div className={`relative border-2 ${canDoAction('raise') ? 'border-black' : 'border-gray-300'} bg-white h-8 w-[70px] rounded-r ${!canDoAction('raise') ? 'opacity-50' : ''}`}>
-              <span className="absolute left-1 top-1/2 -translate-y-1/2 text-amber-600 text-xs font-bold pointer-events-none">¤</span>
+            <div 
+              className={`relative bg-white h-8 w-[70px] rounded-r ${!canDoAction('raise') ? 'opacity-50' : ''}`}
+              style={{ border: '1px solid rgb(203, 145, 47)', borderLeft: 'none' }}
+            >
+              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] font-medium pointer-events-none" style={{ color: 'rgb(203, 145, 47)' }}>¤</span>
               <input
                 type="text"
                 inputMode="numeric"
@@ -146,7 +152,8 @@ export default function ActionPanel({
                 onChange={(e) => setRaiseInputValue(e.target.value.replace(/[^0-9]/g, ''))}
                 onBlur={() => setRaiseInputValue(String(getRoundedRaiseAmount()))}
                 disabled={isWaiting || !canDoAction('raise')}
-                className="w-full h-full pl-3 pr-1 text-xs text-right bg-transparent text-amber-700 font-bold focus:outline-none disabled:opacity-50"
+                className="w-full h-full pl-4 pr-1 text-[11px] text-right bg-transparent font-medium focus:outline-none disabled:opacity-50"
+                style={{ color: 'rgb(180, 120, 40)' }}
               />
             </div>
           </div>
@@ -154,15 +161,15 @@ export default function ActionPanel({
           <button 
             onClick={() => onAction('all-in')}
             disabled={!canDoAction('all-in')}
-            className="btn-brutal btn-brutal-success h-8 px-3 text-[10px] ml-auto flex items-center justify-center disabled:opacity-50"
+            className="btn-brutal-success h-8 px-3 text-[11px] font-medium ml-auto flex items-center justify-center disabled:opacity-50 rounded"
           >
-            ALL-IN {!isWaiting && currentPlayerStack > 0 && `¤${currentPlayerStack}`}
+            All-In ¤{!isWaiting && currentPlayerStack > 0 ? currentPlayerStack : '—'}
           </button>
         </div>
         
         {/* Always show slider - disabled when raise not available */}
         <div className={`flex items-center gap-2 ${!canAffordRaise || !canDoAction('raise') ? 'opacity-40' : ''}`}>
-          <span className="text-[10px] text-gray-500">¤{effectiveMinRaise || 0}</span>
+          <span className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>¤{effectiveMinRaise || 0}</span>
           <input
             type="range"
             min={effectiveMinRaise || 0}
@@ -171,9 +178,9 @@ export default function ActionPanel({
             value={parseInt(raiseInputValue) || effectiveMinRaise || 0}
             onChange={(e) => setRaiseInputValue(e.target.value)}
             disabled={isWaiting || !canAffordRaise || !canDoAction('raise')}
-            className="flex-1 h-1.5 bg-gray-300 rounded appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-gray-700 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:disabled:bg-gray-400"
+            className="flex-1 h-1 bg-gray-200 rounded appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-gray-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:disabled:bg-gray-300"
           />
-          <span className="text-[10px] text-gray-500">¤{maxRaise || 0}</span>
+          <span className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>¤{maxRaise || 0}</span>
         </div>
       </div>
     </div>

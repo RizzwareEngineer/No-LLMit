@@ -2,13 +2,24 @@
 
 @theme {
   --font-jetbrains-mono: var(--font-jetbrains-mono);
-  
-  /* Brutalist color palette - white background with space gray */
-  --color-space-gray: #374151;
-  --color-accent-primary: #374151;
-  --color-accent-warning: #d97706;
-  --color-accent-danger: #dc2626;
-  --color-accent-success: #16a34a;
+}
+
+/* Notion divider border */
+.border-notion {
+  border-color: rgba(55, 53, 47, 0.09);
+}
+
+/* Notion text colors */
+.text-notion {
+  color: rgb(55, 53, 47);
+}
+
+.text-notion-secondary {
+  color: rgba(55, 53, 47, 0.65);
+}
+
+.text-notion-tertiary {
+  color: rgba(55, 53, 47, 0.5);
 }
 
 /* Fixed layout container */
@@ -18,105 +29,140 @@
   max-width: 1200px;
 }
 
-/* Active player - brutalist stark border */
+/* Active player - More prominent blue highlight using outline (no layout shift) */
 .border-animation {
-  border: 2px solid #374151 !important;
-  animation: brutal-blink 1s step-end infinite;
+  outline: 3px solid rgb(35, 131, 226) !important;
+  outline-offset: -3px;
+  animation: notion-pulse 1.2s ease-in-out infinite;
+  position: relative;
+  z-index: 10;
 }
 
-@keyframes brutal-blink {
-  0%, 100% { border-color: #374151; }
-  50% { border-color: #dc2626; }
+@keyframes notion-pulse {
+  0%, 100% { 
+    outline-color: rgb(35, 131, 226);
+    background-color: rgba(35, 131, 226, 0.04);
+  }
+  50% { 
+    outline-color: rgb(55, 131, 226);
+    background-color: rgba(35, 131, 226, 0.08);
+  }
 }
 
-/* Raw grid pattern - brutalist exposed structure (light version) */
-.bg-pattern {
-  background-color: #f5f5f5;
-  background-image: 
-    linear-gradient(90deg, #e0e0e0 1px, transparent 1px),
-    linear-gradient(0deg, #e0e0e0 1px, transparent 1px);
-  background-size: 24px 24px;
-}
-
-/* Brutalist scrollbar - raw, stark */
+/* Notion-style scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #ffffff;
-  border-left: 1px solid #cccccc;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: rgba(55, 53, 47, 0.16);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+  background: rgba(55, 53, 47, 0.3);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
-/* Focus styles - space gray */
+/* Notion-style focus */
 button:focus-visible {
-  outline: 2px solid #374151;
-  outline-offset: 0px;
+  outline: none;
+  box-shadow: rgb(35, 131, 226) 0px 0px 0px 2px;
 }
 
 input:focus-visible {
-  outline: 2px solid #374151;
-  outline-offset: 0px;
+  outline: none;
+  box-shadow: rgb(35, 131, 226) 0px 0px 0px 1px inset, rgb(35, 131, 226) 0px 0px 0px 2px;
 }
 
-/* Brutalist button styles - space gray */
+/* Notion-style outline button (default) */
 .btn-brutal {
-  background: #ffffff;
-  color: #374151;
-  border: 2px solid #374151;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  transition: all 0.1s;
+  background: transparent;
+  color: rgb(55, 53, 47);
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: background 20ms ease-in;
   cursor: pointer;
 }
 
 .btn-brutal:hover {
-  background: #374151;
-  color: #ffffff;
+  background: rgba(55, 53, 47, 0.04);
 }
 
 .btn-brutal:active {
-  transform: translate(2px, 2px);
+  background: rgba(55, 53, 47, 0.08);
 }
 
+/* Danger outline button */
 .btn-brutal-danger {
-  border-color: #ff0000;
-  color: #ff0000;
+  background: transparent;
+  color: rgb(235, 87, 87);
+  border: 1px solid rgb(235, 87, 87);
 }
 
 .btn-brutal-danger:hover {
-  background: #ff0000;
-  color: #ffffff;
+  background: rgba(235, 87, 87, 0.04);
+  color: rgb(235, 87, 87);
 }
 
+/* Success outline button */
 .btn-brutal-success {
-  border-color: #16a34a;
-  color: #16a34a;
+  background: transparent;
+  color: rgb(15, 123, 108);
+  border: 1px solid rgb(15, 123, 108);
 }
 
 .btn-brutal-success:hover {
-  background: #16a34a;
-  color: #ffffff;
+  background: rgba(15, 123, 108, 0.04);
+  color: rgb(15, 123, 108);
 }
 
+/* Warning outline button */
 .btn-brutal-warning {
-  border-color: #f59e0b;
-  color: #f59e0b;
+  background: transparent;
+  color: rgb(203, 145, 47);
+  border: 1px solid rgb(203, 145, 47);
 }
 
 .btn-brutal-warning:hover {
-  background: #f59e0b;
+  background: rgba(203, 145, 47, 0.04);
+  color: rgb(203, 145, 47);
+}
+
+/* Primary filled button (blue) */
+.btn-brutal-primary {
+  background: rgb(35, 131, 226);
   color: #ffffff;
+  border: 1px solid rgb(35, 131, 226);
+}
+
+.btn-brutal-primary:hover {
+  background: rgb(0, 117, 211);
+  border-color: rgb(0, 117, 211);
+  color: #ffffff;
+}
+
+/* Disabled button */
+.btn-brutal-disabled {
+  background: transparent;
+  color: rgba(55, 53, 47, 0.35);
+  border: 1px solid rgba(55, 53, 47, 0.09);
+  cursor: not-allowed;
+}
+
+.btn-brutal-disabled:hover {
+  background: transparent;
 }
 
 /* Number input hide spinners */
@@ -129,11 +175,21 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
-/* Brutalist input - space gray */
+/* Notion-style input */
 .input-brutal {
-  background: #ffffff;
-  color: #374151;
-  border: 2px solid #374151;
+  background: rgba(242, 241, 238, 0.6);
+  color: rgb(55, 53, 47);
+  border: none;
+  border-radius: 4px;
   font-family: inherit;
-  font-weight: 700;
+  font-weight: 400;
+  box-shadow: rgba(15, 15, 15, 0.1) 0px 0px 0px 1px inset;
+}
+
+.input-brutal:hover {
+  background: rgba(242, 241, 238, 1);
+}
+
+.input-brutal:focus {
+  background: #ffffff;
 }

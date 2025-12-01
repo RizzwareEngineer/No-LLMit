@@ -19,9 +19,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="bg-stone-100">
+    <html lang="en" style={{ background: '#FFFFFF' }}>
       <body
-        className={`antialiased h-full ${jetbrainsMono.variable} font-mono flex flex-col`}
+        className={`h-full ${jetbrainsMono.variable} flex flex-col`}
+        style={{ 
+          fontFamily: "ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif",
+          color: 'rgb(55, 53, 47)',
+          WebkitFontSmoothing: 'auto'
+        }}
       >
         {children}
       </body>

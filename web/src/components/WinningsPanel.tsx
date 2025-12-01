@@ -14,16 +14,20 @@ interface WinningsPanelProps {
 
 export default function WinningsPanel({ players, onHide }: WinningsPanelProps) {
   return (
-    <div className="flex flex-col border border-gray-300 relative w-[240px] shrink-0 bg-stone-50 shadow-sm flex-1">
+    <div 
+      className="flex flex-col relative w-[240px] shrink-0 bg-white flex-1 rounded overflow-hidden"
+      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
+    >
       <CornerBorders />
-      <div className="flex items-start justify-between p-3 border-b border-gray-700/20">
+      <div className="flex items-start justify-between p-3 border-b border-notion">
         <div className="flex flex-col">
-          <h2 className="text-xs font-bold uppercase tracking-wider">Winnings</h2>
-          <p className="text-[10px] text-gray-700/50">How the models are doing</p>
+          <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Winnings</h2>
+          <p className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>How the models are doing</p>
         </div>
         <button 
           onClick={onHide}
-          className="text-gray-400 hover:text-gray-700 transition-colors p-1"
+          className="p-1 transition-colors"
+          style={{ color: 'rgba(55, 53, 47, 0.4)' }}
           title="Hide winnings"
         >
           <EyeSlash size={16} weight="bold" />
@@ -40,31 +44,36 @@ function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
   const winnings = player.winnings || 0;
   
   return (
-    <div className="flex flex-row items-center gap-2 p-2 px-3 hover:bg-gray-700/5">
-      <span className="text-[10px] text-gray-700/30 w-4 font-bold">{rank}.</span>
+    <div 
+      className="flex flex-row items-center gap-2 p-2 px-3 transition-colors"
+      style={{ background: 'transparent' }}
+      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(55, 53, 47, 0.03)'}
+      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+    >
+      <span className="text-[10px] w-4 font-bold" style={{ color: 'rgba(55, 53, 47, 0.35)' }}>{rank}.</span>
       <LLMLogo model={player.name} size={20} />
       <div className="flex-1 min-w-0">
-        <div className="text-[10px] font-bold uppercase tracking-wide truncate">{player.name}</div>
+        <div className="text-[10px] font-bold uppercase tracking-wide truncate" style={{ color: 'rgb(55, 53, 47)' }}>{player.name}</div>
       </div>
       <div className="flex flex-row items-center gap-1">
         {winnings > 0 && (
           <>
-            <CaretUp size={10} className="text-green-600" weight="bold" />
-            <div className="text-[10px] text-green-600 font-bold">
+            <CaretUp size={10} style={{ color: 'rgb(15, 123, 108)' }} weight="bold" />
+            <div className="text-[10px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
               +{winnings}
             </div>
           </>
         )}
         {winnings < 0 && (
           <>
-            <CaretDown size={10} className="text-[#ff0000]" weight="bold" />
-            <div className="text-[10px] text-[#ff0000] font-bold">
+            <CaretDown size={10} style={{ color: 'rgb(235, 87, 87)' }} weight="bold" />
+            <div className="text-[10px] font-bold" style={{ color: 'rgb(235, 87, 87)' }}>
               {winnings}
             </div>
           </>
         )}
         {winnings === 0 && (
-          <div className="text-[10px] text-gray-700/30 font-bold">0</div>
+          <div className="text-[10px] font-bold" style={{ color: 'rgba(55, 53, 47, 0.35)' }}>0</div>
         )}
       </div>
     </div>
@@ -96,4 +105,3 @@ function Rankings({ players }: { players: PlayerState[] }) {
     </Reorder.Group>
   );
 }
-

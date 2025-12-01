@@ -58,41 +58,50 @@ export default function UsageIndicator({ isPaused = false, inline = false }: Usa
   const content = (
     <div className="relative">
       <div 
-        className="relative border border-gray-300 bg-stone-50 shadow-sm cursor-pointer"
+        className="relative bg-white cursor-pointer rounded overflow-hidden"
+        style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
         onClick={() => setShowDonate(!showDonate)}
       >
         <CornerBorders />
         <div className="px-3 py-2">
-          <div className="flex items-center gap-2 text-[10px] text-gray-500 mb-1">
-            <Lightning size={10} weight="bold" className={error ? "text-gray-400" : isCritical ? "text-red-500" : isLow ? "text-amber-500" : "text-green-500"} />
+          <div className="flex items-center gap-2 text-[10px] mb-1" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
+            <Lightning 
+              size={10} 
+              weight="bold" 
+              style={{ color: error ? 'rgba(55, 53, 47, 0.4)' : isCritical ? 'rgb(235, 87, 87)' : isLow ? 'rgb(203, 145, 47)' : 'rgb(15, 123, 108)' }} 
+            />
             <span className="uppercase font-bold">API Usage</span>
-            {error && <Warning size={10} weight="bold" className="text-amber-500" />}
-            {!error && isCritical && <Warning size={10} weight="bold" className="text-red-500" />}
+            {error && <Warning size={10} weight="bold" style={{ color: 'rgb(203, 145, 47)' }} />}
+            {!error && isCritical && <Warning size={10} weight="bold" style={{ color: 'rgb(235, 87, 87)' }} />}
           </div>
           
           <div className="flex items-center gap-2">
-            <span className="text-[9px] text-gray-400">Tokens:</span>
+            <span className="text-[9px]" style={{ color: 'rgba(55, 53, 47, 0.4)' }}>Tokens:</span>
             <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
               <div 
-                className={`h-full rounded-full transition-all ${
-                  error ? 'bg-gray-400' : isCritical ? 'bg-red-500' : isLow ? 'bg-amber-500' : 'bg-green-500'
-                }`}
-                style={{ width: error ? '0%' : `${Math.min(100, tokensUsedPct)}%` }}
+                className="h-full rounded-full transition-all"
+                style={{ 
+                  width: error ? '0%' : `${Math.min(100, tokensUsedPct)}%`,
+                  background: error ? 'rgba(55, 53, 47, 0.4)' : isCritical ? 'rgb(235, 87, 87)' : isLow ? 'rgb(203, 145, 47)' : 'rgb(15, 123, 108)'
+                }}
               />
             </div>
-            <span className={`text-[10px] font-mono font-bold ${error ? 'text-gray-400' : isCritical ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-gray-600'}`}>
+            <span 
+              className="text-[10px] font-mono font-bold"
+              style={{ color: error ? 'rgba(55, 53, 47, 0.4)' : isCritical ? 'rgb(235, 87, 87)' : isLow ? 'rgb(203, 145, 47)' : 'rgb(55, 53, 47)' }}
+            >
               {error ? '???' : `${tokensUsedPct.toFixed(0)}%`}
             </span>
           </div>
           
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[9px] text-gray-400">Reqs/day:</span>
-            <span className="text-[10px] font-mono text-gray-600">
+            <span className="text-[9px]" style={{ color: 'rgba(55, 53, 47, 0.4)' }}>Reqs/day:</span>
+            <span className="text-[10px] font-mono" style={{ color: 'rgb(55, 53, 47)' }}>
               {error ? '???' : `${(usage?.daily_requests ?? 0).toLocaleString()} / 1,000`}
             </span>
           </div>
 
-          <div className="mt-2 pt-2 border-t border-gray-200 flex items-center gap-1 text-[9px] text-pink-500">
+          <div className="mt-2 pt-2 border-t border-notion flex items-center gap-1 text-[9px]" style={{ color: 'rgb(235, 87, 87)' }}>
             <Heart size={10} weight="fill" />
             <span>Click to support this project</span>
           </div>
@@ -102,18 +111,21 @@ export default function UsageIndicator({ isPaused = false, inline = false }: Usa
       {/* Donate popup - opens upward */}
       {showDonate && (
         <div className="absolute bottom-full left-0 right-0 mb-2 z-50">
-          <div className="relative border border-gray-300 bg-white shadow-lg p-3">
+          <div 
+            className="relative bg-white p-3 rounded"
+            style={{ boxShadow: 'rgba(15, 15, 15, 0.05) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 3px 6px, rgba(15, 15, 15, 0.2) 0px 9px 24px' }}
+          >
             <CornerBorders />
-            <div className="text-xs text-gray-700">
+            <div className="text-xs" style={{ color: 'rgb(55, 53, 47)' }}>
               <div className="font-bold mb-2 flex items-center gap-1">
-                <Heart size={12} weight="fill" className="text-pink-500" />
+                <Heart size={12} weight="fill" style={{ color: 'rgb(235, 87, 87)' }} />
                 Support No-LLMit
               </div>
-              <p className="text-gray-600 mb-2">
+              <p className="mb-2" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
                 Running 9 LLMs costs real money! Help keep this project free and running.
               </p>
               {usage && (
-                <p className="text-[10px] text-gray-500 mb-2">
+                <p className="text-[10px] mb-2" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
                   ~{usage.estimated_total_tokens.toLocaleString()} tokens used this month
                 </p>
               )}
@@ -121,7 +133,8 @@ export default function UsageIndicator({ isPaused = false, inline = false }: Usa
                 href="https://github.com/sponsors/YOUR_GITHUB" 
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block w-full bg-pink-500 hover:bg-pink-600 text-white text-center py-2 rounded text-[10px] font-bold"
+                className="block w-full text-white text-center py-2 rounded text-[10px] font-bold"
+                style={{ background: 'rgb(235, 87, 87)' }}
               >
                 ❤️ Become a Sponsor
               </a>

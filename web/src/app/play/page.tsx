@@ -52,7 +52,7 @@ export default function PlayPage() {
         <div className="w-full max-w-2xl flex flex-col gap-6">
           
           {/* Opponent Selection */}
-          <div className="border border-gray-300 bg-stone-50 shadow-sm p-6 relative">
+          <div className="bg-white p-6 relative rounded" style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}>
             <CornerBorders />
             <h2 className="text-sm font-bold uppercase tracking-wider mb-1">Select Your Opponents</h2>
             <p className="text-[10px] text-gray-500 mb-4">Choose 8 LLMs to play against</p>
@@ -91,7 +91,7 @@ export default function PlayPage() {
           </div>
 
           {/* Stats Section (placeholder) */}
-          <div className="border border-gray-300 bg-stone-50 shadow-sm p-6 relative">
+          <div className="bg-white p-6 relative rounded" style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}>
             <CornerBorders />
             <div className="flex items-center gap-2 mb-1">
               <ChartBar size={16} weight="bold" className="text-gray-400" />

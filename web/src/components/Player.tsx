@@ -48,14 +48,25 @@ export default function Player({ player, active, position, folded = false, winAm
   const isWinner = winAmount !== undefined && winAmount > 0;
   
   return (
-    <div className={`p-px overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors ${isWinner ? "bg-green-400" : "bg-stone-300"}`}>
-      <div className="relative bg-stone-50 hover:bg-stone-100 flex-1 flex flex-col overflow-hidden">
+    <div 
+      className={`overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`}
+      style={{ 
+        boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px',
+        background: isWinner ? 'rgb(237, 253, 244)' : '#ffffff'
+      }}
+    >
+      <div 
+        className="relative flex-1 flex flex-col overflow-hidden transition-colors"
+        style={{ background: 'inherit' }}
+        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(55, 53, 47, 0.03)'}
+        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'inherit'}
+      >
         <div className="flex flex-col lg:flex-row items-start gap-3 justify-between p-3 overflow-hidden">
           <div className="flex items-center gap-2 min-w-0 overflow-hidden">
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
-              <div className="text-[11px] font-bold uppercase tracking-wide truncate">{player.name}</div>
-              <div className="text-[11px] text-gray-700/60">¤{player.stack.toLocaleString()}</div>
+              <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }}>{player.name}</div>
+              <div className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.stack.toLocaleString()}</div>
             </div>
           </div>
           <div className="flex flex-row items-center gap-1 shrink-0">
@@ -87,27 +98,27 @@ export default function Player({ player, active, position, folded = false, winAm
             {/* Winner display */}
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
-                <span className="text-green-600 font-bold text-[11px] shrink-0">+¤{winAmount.toLocaleString()}</span>
-                <span className="text-green-600/60 text-[9px] truncate min-w-0">({winDesc})</span>
+                <span className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+¤{winAmount.toLocaleString()}</span>
+                <span className="text-[9px] truncate min-w-0" style={{ color: 'rgba(15, 123, 108, 0.7)' }}>({winDesc})</span>
               </div>
             ) : player.lastAction ? (
               <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
-                <div className="text-[11px] text-gray-700 font-mono uppercase font-bold tracking-wider shrink-0">
+                <div className="text-[11px] font-mono uppercase font-bold tracking-wider shrink-0" style={{ color: 'rgb(55, 53, 47)' }}>
                   {player.lastAction}
                 </div>
                 {(player.lastAmount ?? 0) > 0 && (
                   <div className="flex flex-row items-center shrink-0">
-                    <div className="text-[11px] text-gray-700/60">¤{player.lastAmount?.toLocaleString()}</div>
+                    <div className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.lastAmount?.toLocaleString()}</div>
                   </div>
                 )}
               </div>
             ) : player.currentBet > 0 ? (
               <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
-                <div className="text-[11px] text-gray-700/50 font-mono uppercase tracking-wider shrink-0">BET</div>
-                <div className="text-[11px] text-gray-700/60 shrink-0">¤{player.currentBet.toLocaleString()}</div>
+                <div className="text-[11px] font-mono uppercase tracking-wider shrink-0" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>BET</div>
+                <div className="text-[11px] shrink-0" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.currentBet.toLocaleString()}</div>
               </div>
             ) : (
-              <div className="text-[11px] text-gray-700/30 font-mono uppercase truncate">
+              <div className="text-[11px] font-mono uppercase truncate" style={{ color: 'rgba(55, 53, 47, 0.35)' }}>
                 {player.status === 'folded' ? 'FOLD' : 
                  player.status === 'all-in' ? 'ALL-IN' :
                  player.status === 'eliminated' ? 'OUT' : 'WAITING'}
@@ -119,4 +130,3 @@ export default function Player({ player, active, position, folded = false, winAm
     </div>
   );
 }
-
