@@ -90,7 +90,7 @@ export default function ReasoningPanel({
   const showAction = phase === 'revealed' || phase === 'settling';
 
   // Dynamic font size based on reason length
-  const getReasonFontSize = (text: string | null) => {
+  const getReasonFontSize = (text: string | null | undefined) => {
     if (!text) return 'text-sm';
     const len = text.length;
     if (len < 100) return 'text-sm';
