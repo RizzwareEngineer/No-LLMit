@@ -70,7 +70,8 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 
 		// Call LLM API (blocking - compute as fast as possible)
 		startTime := time.Now()
-		decision, err := client.GetLLMDecision(playerName, payload)
+		modeStr := gs.Mode.String()
+		decision, err := client.GetLLMDecision(playerName, payload, modeStr)
 		apiDuration := time.Since(startTime)
 
 		if err != nil {

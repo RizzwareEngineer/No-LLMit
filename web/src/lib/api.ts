@@ -115,12 +115,33 @@ export class PokerWebSocket {
   private ws: WebSocket | null = null;
   private messageHandlers: Map<MessageType, ((payload: unknown) => void)[]> = new Map();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 1000;
+  private maxReconnectAttempts = 10;
+  private reconnectDelay = 2000;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
 
   constructor(private url: string = WS_URL) {}
 
   connect(): Promise<void> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return Promise.resolve();
+    }
+    if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+      return new Promise((resolve, reject) => {
+        const checkInterval = setInterval(() => {
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            clearInterval(checkInterval);
+            resolve();
+          } else if (this.ws?.readyState === WebSocket.CLOSED) {
+            clearInterval(checkInterval);
+            reject(new Error('Connection closed during connect'));
+          }
+        }, 100);
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          reject(new Error('Connection timeout'));
+        }, 5000);
+      });
+    }
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(this.url);
@@ -132,8 +153,13 @@ export class PokerWebSocket {
         };
 
         this.ws.onclose = (event) => {
-          console.log('WebSocket closed:', event.code, event.reason);
-          this.handleReconnect();
+          if (event.code === 1000 || event.code === 1001) {
+            // Normal closure - don't reconnect
+            console.log('WebSocket closed normally:', event.code, event.reason);
+          } else {
+            console.log('WebSocket closed:', event.code, event.reason);
+            this.handleReconnect();
+          }
         };
 
         this.ws.onerror = (error) => {
@@ -156,10 +182,20 @@ export class PokerWebSocket {
   }
 
   private handleReconnect() {
+    if (this.reconnectTimeout) {
+      return;
+    }
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
-      console.log(`Reconnecting... attempt ${this.reconnectAttempts}`);
-      setTimeout(() => this.connect(), this.reconnectDelay * this.reconnectAttempts);
+      console.log(`Reconnecting... attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+      this.reconnectTimeout = setTimeout(() => {
+        this.reconnectTimeout = null;
+        this.connect().catch(err => {
+          console.error('Reconnection failed:', err);
+        });
+      }, this.reconnectDelay * this.reconnectAttempts);
+    } else {
+      console.error('Max reconnection attempts reached');
     }
   }
 
@@ -213,10 +249,15 @@ export class PokerWebSocket {
   }
 
   disconnect() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, 'Client disconnect');
       this.ws = null;
     }
+    this.reconnectAttempts = 0;
   }
 
   isConnected(): boolean {

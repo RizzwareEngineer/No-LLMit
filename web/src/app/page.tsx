@@ -22,6 +22,7 @@ export default function Home() {
     displayState,
     isPaused,
     isPausePending,
+    shotClockRemaining,
     connect,
     newGame,
     startHand,
@@ -35,6 +36,7 @@ export default function Home() {
   const [selectedLLMs, setSelectedLLMs] = useState<string[]>([]);
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
+  const [usageRefreshTrigger, setUsageRefreshTrigger] = useState(0);
   
   // Check for test mode via URL param (?test=true) or play mode via sessionStorage
   useEffect(() => {
@@ -64,6 +66,8 @@ export default function Home() {
         console.error('Failed to auto-connect:', err);
       });
     }
+    // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-start game when connected but no game exists
@@ -93,6 +97,13 @@ export default function Home() {
       startHand();
     }
   }, [isConnected, gameState?.id, gameState?.handNumber, isLoading]);
+
+  // Refresh usage stats when an LLM action is revealed
+  useEffect(() => {
+    if (displayState?.phase === 'revealed') {
+      setUsageRefreshTrigger(prev => prev + 1);
+    }
+  }, [displayState?.phase]);
 
   // Timer effect - update elapsed time every second using server's gameStartTime
   useEffect(() => {
@@ -335,7 +346,7 @@ export default function Home() {
               {/* Right sidebar column - API Usage above Winnings */}
               <div className="flex flex-col w-[240px] shrink-0">
                 {/* API Usage - static, above winnings */}
-                <UsageIndicator isPaused={isPaused} inline />
+                <UsageIndicator isPaused={isPaused} inline refreshTrigger={usageRefreshTrigger} />
                 
                 {/* Winnings panel */}
                 <div className="mt-4 flex-1 flex flex-col min-h-0">
@@ -349,6 +360,7 @@ export default function Home() {
               <div className="mt-4" style={{ width: '50vw', maxWidth: '700px', minWidth: '500px' }}>
                 <ReasoningPanel
                   displayState={displayState}
+                  shotClockRemaining={shotClockRemaining}
                   isPaused={isPaused}
                 />
               </div>

@@ -18,8 +18,8 @@ export default function TypewriterText({
   const prevTextRef = useRef<string>("");
 
   useEffect(() => {
-    // Only animate if text changed
-    if (text === prevTextRef.current) return;
+    // Always reset and animate when text changes
+    if (text === prevTextRef.current && text !== "") return;
     
     prevTextRef.current = text;
     setIsTyping(true);

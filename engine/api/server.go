@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
@@ -95,25 +96,37 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WebSocket upgrade error: %v", err)
 		return
 	}
-	defer conn.Close()
+	defer func() {
+		s.mu.Lock()
+		delete(s.clients, conn)
+		s.mu.Unlock()
+		conn.Close()
+	}()
 
 	log.Printf("New WebSocket connection from %s", conn.RemoteAddr())
+
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
 
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("WebSocket error: %v", err)
+			} else if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				log.Printf("WebSocket closed normally: %v", err)
+			} else {
+				log.Printf("WebSocket closed: %v", err)
 			}
 			break
 		}
 
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		s.handleMessage(conn, message)
 	}
-
-	s.mu.Lock()
-	delete(s.clients, conn)
-	s.mu.Unlock()
 }
 
 func (s *Server) handleMessage(conn *websocket.Conn, message []byte) {
@@ -241,6 +254,7 @@ func (s *Server) send(conn *websocket.Conn, msg ServerMessage) {
 		return
 	}
 
+	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		log.Printf("Error sending message: %v", err)
 	}

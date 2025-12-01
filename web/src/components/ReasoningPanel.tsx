@@ -1,15 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import CornerBorders from "@/components/CornerBorders";
 import TypewriterText from "@/components/TypewriterText";
-import {
-  THINKING_DURATION_S,
-  MIN_REASONING_DURATION_S,
-  SETTLE_DURATION_S,
-} from "@/lib/timing";
 
-type DisplayPhase = 'idle' | 'thinking' | 'reasoning' | 'revealed' | 'settling';
+type DisplayPhase = 'idle' | 'waiting' | 'thinking' | 'reasoning' | 'revealed';
 
 interface DisplayState {
   phase: DisplayPhase;
@@ -18,50 +12,20 @@ interface DisplayState {
   reason: string | null;
   action: string | null;
   amount: number;
-  phaseStartTime: number;
+  turnStartTime: number;
 }
 
 interface ReasoningPanelProps {
   displayState: DisplayState | null;
+  shotClockRemaining: number;
   isPaused?: boolean;
 }
 
 export default function ReasoningPanel({
   displayState,
+  shotClockRemaining,
   isPaused = false,
 }: ReasoningPanelProps) {
-  const [countdown, setCountdown] = useState<number | null>(null);
-
-  // Calculate countdown based on phase
-  useEffect(() => {
-    if (!displayState || isPaused) {
-      setCountdown(null);
-      return;
-    }
-
-    const updateCountdown = () => {
-      const elapsed = Math.floor((Date.now() - displayState.phaseStartTime) / 1000);
-      
-      switch (displayState.phase) {
-        case 'thinking':
-          setCountdown(Math.max(0, THINKING_DURATION_S - elapsed));
-          break;
-        case 'reasoning':
-          setCountdown(Math.max(0, MIN_REASONING_DURATION_S - elapsed));
-          break;
-        case 'revealed':
-        case 'settling':
-          setCountdown(Math.max(0, SETTLE_DURATION_S - elapsed));
-          break;
-        default:
-          setCountdown(null);
-      }
-    };
-
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 100);
-    return () => clearInterval(interval);
-  }, [displayState, isPaused]);
 
   // Format action for display
   const formatAction = (action: string, amount: number) => {
@@ -86,8 +50,8 @@ export default function ReasoningPanel({
   const action = displayState?.action;
   const amount = displayState?.amount || 0;
   const isIdle = !displayState || phase === 'idle';
-  const showReason = phase === 'reasoning' || phase === 'revealed' || phase === 'settling';
-  const showAction = phase === 'revealed' || phase === 'settling';
+  const showReason = phase === 'reasoning' || phase === 'revealed';
+  const showAction = phase === 'revealed';
 
   // Dynamic font size based on reason length
   const getReasonFontSize = (text: string | null | undefined) => {
@@ -112,7 +76,7 @@ export default function ReasoningPanel({
           style={{ 
             background: isPaused ? 'rgba(203, 145, 47, 0.1)' : 
                         phase === 'thinking' ? 'rgba(55, 53, 47, 0.03)' :
-                        showReason && !showAction ? 'rgba(35, 131, 226, 0.06)' :
+                        phase === 'reasoning' ? 'rgba(35, 131, 226, 0.06)' :
                         showAction ? 'rgba(15, 123, 108, 0.06)' :
                         'rgba(55, 53, 47, 0.02)'
           }}
@@ -127,20 +91,20 @@ export default function ReasoningPanel({
             {playerName}
           </span>
           
-          {/* Countdown display */}
-          {countdown !== null && countdown > 0 && (
+          {/* Shot clock countdown */}
+          {!isIdle && (
             <div className="flex items-center gap-1 mt-1">
               <span 
                 className="font-mono text-lg font-bold"
                 style={{ 
-                  color: countdown <= 3 ? 'rgb(235, 87, 87)' : 
+                  color: shotClockRemaining <= 5 ? 'rgb(235, 87, 87)' : 
                          isPaused ? 'rgb(203, 145, 47)' : 
                          phase === 'thinking' ? 'rgba(55, 53, 47, 0.5)' :
                          showAction ? 'rgb(15, 123, 108)' :
                          'rgb(35, 131, 226)'
                 }}
               >
-                {countdown}s
+                {shotClockRemaining}s
               </span>
               {isPaused && <span style={{ color: 'rgb(203, 145, 47)' }} className="text-xs">⏸</span>}
             </div>
@@ -174,7 +138,7 @@ export default function ReasoningPanel({
                 )}
               </div>
               <p className={`${reasonFontSize} italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
-                <TypewriterText text={reason} speed={15} />
+                <TypewriterText text={reason} speed={25} />
               </p>
             </>
           )}

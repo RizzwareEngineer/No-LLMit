@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from schemas import DecisionRequest, DecisionResponse
 from providers.huggingface import get_decision
-from usage import tracker
+from usage import tracker, SPECTATE_DAILY_REQUESTS
 
 load_dotenv()
 
@@ -58,6 +58,16 @@ def decide(request: DecisionRequest):
     logger.info("")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(f"🎯 {request.player_name}")
+    
+    mode = request.mode or "simulate"
+    if mode == "simulate":
+        daily_requests = tracker.daily_requests
+        if daily_requests >= SPECTATE_DAILY_REQUESTS:
+            logger.warning(f"⚠️ Daily API limit reached for spectate mode: {daily_requests}/{SPECTATE_DAILY_REQUESTS}")
+            raise HTTPException(
+                status_code=429,
+                detail=f"Daily API limit reached for spectate mode ({SPECTATE_DAILY_REQUESTS} requests/day). Please try again tomorrow."
+            )
     
     start = time.time()
     

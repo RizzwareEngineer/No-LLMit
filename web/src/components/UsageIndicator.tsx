@@ -21,35 +21,33 @@ interface UsageData {
 interface UsageIndicatorProps {
   isPaused?: boolean;
   inline?: boolean;
+  refreshTrigger?: number; // Increment this to trigger a refresh
 }
 
-export default function UsageIndicator({ isPaused = false, inline = false }: UsageIndicatorProps) {
+export default function UsageIndicator({ isPaused = false, inline = false, refreshTrigger }: UsageIndicatorProps) {
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [error, setError] = useState(false);
   const [showDonate, setShowDonate] = useState(false);
 
-  useEffect(() => {
-    if (isPaused) return;
-
-    const fetchUsage = async () => {
-      try {
-        const res = await fetch("http://localhost:5001/usage");
-        if (res.ok) {
-          const data = await res.json();
-          setUsage(data);
-          setError(false);
-        } else {
-          setError(true);
-        }
-      } catch {
+  const fetchUsage = async () => {
+    try {
+      const res = await fetch("http://localhost:5001/usage");
+      if (res.ok) {
+        const data = await res.json();
+        setUsage(data);
+        setError(false);
+      } else {
         setError(true);
       }
-    };
+    } catch {
+      setError(true);
+    }
+  };
 
+  useEffect(() => {
+    if (isPaused) return;
     fetchUsage();
-    const interval = setInterval(fetchUsage, 30000);
-    return () => clearInterval(interval);
-  }, [isPaused]);
+  }, [isPaused, refreshTrigger]);
 
   const tokensUsedPct = usage?.limits?.free?.tokens_used_pct ?? 0;
   const isLow = tokensUsedPct > 50;
