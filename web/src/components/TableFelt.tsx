@@ -2,6 +2,7 @@
 
 import Card from "@/components/Card";
 import NumberFlow from '@number-flow/react';
+import { CircleNotch } from "@phosphor-icons/react";
 
 interface WinnerDisplay {
   name: string;
@@ -13,12 +14,16 @@ interface TableFeltProps {
   cards: string[];
   pot: number;
   winners?: WinnerDisplay[];
+  nextHandCountdown?: number | null;
+  onSkipCountdown?: () => void;
 }
 
 export default function TableFelt({ 
   cards, 
   pot, 
   winners = [],
+  nextHandCountdown,
+  onSkipCountdown,
 }: TableFeltProps) {
   return (
     <div 
@@ -66,6 +71,28 @@ export default function TableFelt({
           <div className="text-[10px] text-gray-400 uppercase">No cards dealt</div>
         )}
       </div>
+
+      {/* Next hand countdown - displayed on the felt */}
+      {nextHandCountdown !== null && nextHandCountdown !== undefined && nextHandCountdown > 0 && (
+        <div 
+          className="flex items-center gap-2 bg-white px-4 py-2 rounded"
+          style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
+        >
+          <CircleNotch size={14} className="animate-spin" style={{ color: 'rgb(35, 131, 226)' }} />
+          <span className="text-[12px]" style={{ color: 'rgb(55, 53, 47)' }}>
+            Next hand in <span className="font-bold">{nextHandCountdown}s</span>
+          </span>
+          {onSkipCountdown && (
+            <button
+              onClick={onSkipCountdown}
+              className="text-[11px] hover:underline ml-1"
+              style={{ color: 'rgb(35, 131, 226)' }}
+            >
+              Skip
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

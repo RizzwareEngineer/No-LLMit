@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Eye, CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer, Brain } from "@phosphor-icons/react";
+import { CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer, Brain } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
@@ -30,7 +30,6 @@ export default function Home() {
     resume,
   } = useGameState();
 
-  const [showWinnings, setShowWinnings] = useState(true);
   const [gameMode, setGameMode] = useState<'spectate' | 'play' | 'test'>('spectate');
   const [selectedLLMs, setSelectedLLMs] = useState<string[]>([]);
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
@@ -285,35 +284,18 @@ export default function Home() {
             </>
           )}
 
-          {/* Next hand countdown/button */}
-          {isHandComplete && (
+          {/* Next hand button (countdown now shown on felt) */}
+          {isHandComplete && nextHandCountdown !== null && nextHandCountdown <= 0 && (
             <>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              {nextHandCountdown !== null && nextHandCountdown > 0 ? (
-                <div className="flex items-center gap-2 text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
-                  <CircleNotch size={12} className="animate-spin" style={{ color: 'rgba(55, 53, 47, 0.4)' }} />
-                  <span>Next hand in {nextHandCountdown}s</span>
-                  <button
-                    onClick={() => {
-                      setNextHandCountdown(null);
-                      startHand();
-                    }}
-                    className="hover:underline"
-                    style={{ color: 'rgb(35, 131, 226)' }}
-                  >
-                    Skip
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={handleStartHand}
-                  disabled={isLoading}
-                  className="btn-brutal px-3 py-1 text-[12px] flex items-center gap-2"
-                >
-                  {isLoading ? <CircleNotch size={12} className="animate-spin" /> : <ArrowClockwise size={12} weight="bold" />}
-                  Next Hand
-                </button>
-              )}
+              <button
+                onClick={handleStartHand}
+                disabled={isLoading}
+                className="btn-brutal px-3 py-1 text-[12px] flex items-center gap-2"
+              >
+                {isLoading ? <CircleNotch size={12} className="animate-spin" /> : <ArrowClockwise size={12} weight="bold" />}
+                Next Hand
+              </button>
             </>
           )}
         </div>
@@ -334,6 +316,11 @@ export default function Home() {
                 communityCards={communityCards}
                 pot={pot}
                 winnersByIdx={winnersByIdx}
+                nextHandCountdown={nextHandCountdown}
+                onSkipCountdown={() => {
+                  setNextHandCountdown(null);
+                  startHand();
+                }}
               />
 
               {/* Right sidebar column - API Usage above Winnings */}
@@ -342,25 +329,9 @@ export default function Home() {
                 <UsageIndicator isPaused={isPaused} inline />
                 
                 {/* Winnings panel */}
-                {showWinnings && (
-                  <div className="mt-4 flex-1 flex flex-col min-h-0">
-                    <WinningsPanel 
-                      players={players} 
-                      onHide={() => setShowWinnings(false)} 
-                    />
-                  </div>
-                )}
-                
-                {!showWinnings && (
-                  <button
-                    onClick={() => setShowWinnings(true)}
-                    className="mt-4 flex items-center justify-center w-10 h-10 bg-white rounded transition-colors"
-                    style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', color: 'rgba(55, 53, 47, 0.4)' }}
-                    title="Show winnings"
-                  >
-                    <Eye size={18} weight="bold" />
-                  </button>
-                )}
+                <div className="mt-4 flex-1 flex flex-col min-h-0">
+                  <WinningsPanel players={players} />
+                </div>
               </div>
             </div>
 

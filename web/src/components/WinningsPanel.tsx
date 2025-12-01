@@ -2,17 +2,16 @@
 
 import { useState, useEffect } from "react";
 import { Reorder } from "motion/react";
-import { CaretDown, CaretUp, EyeSlash } from "@phosphor-icons/react";
+import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import CornerBorders from "@/components/CornerBorders";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
 
 interface WinningsPanelProps {
   players: PlayerState[];
-  onHide: () => void;
 }
 
-export default function WinningsPanel({ players, onHide }: WinningsPanelProps) {
+export default function WinningsPanel({ players }: WinningsPanelProps) {
   return (
     <div 
       className="flex flex-col relative w-[240px] shrink-0 bg-white flex-1 rounded overflow-hidden"
@@ -21,17 +20,8 @@ export default function WinningsPanel({ players, onHide }: WinningsPanelProps) {
       <CornerBorders />
       <div className="flex items-start justify-between p-3 border-b border-notion">
         <div className="flex flex-col">
-          <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Winnings</h2>
-          <p className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>How the models are doing</p>
+          <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
         </div>
-        <button 
-          onClick={onHide}
-          className="p-1 transition-colors"
-          style={{ color: 'rgba(55, 53, 47, 0.4)' }}
-          title="Hide winnings"
-        >
-          <EyeSlash size={16} weight="bold" />
-        </button>
       </div>
       <div className="flex-1 overflow-auto">
         {players.length > 0 && <Rankings players={players} />}

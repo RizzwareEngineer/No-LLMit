@@ -25,6 +25,8 @@ interface PokerTableProps {
   communityCards: string[];
   pot: number;
   winnersByIdx?: Record<number, WinnerInfo>;
+  nextHandCountdown?: number | null;
+  onSkipCountdown?: () => void;
 }
 
 // Calculate position name based on seat relative to button
@@ -76,6 +78,8 @@ export default function PokerTable({
   communityCards,
   pot,
   winnersByIdx = {},
+  nextHandCountdown,
+  onSkipCountdown,
 }: PokerTableProps) {
   const totalPlayers = players.length;
   
@@ -169,6 +173,8 @@ export default function PokerTable({
                         amount: info.amount,
                         handDesc: info.handDesc,
                       }))}
+                      nextHandCountdown={nextHandCountdown}
+                      onSkipCountdown={onSkipCountdown}
                     />
                   </div>
                 </td>
