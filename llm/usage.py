@@ -134,3 +134,4 @@ class UsageTracker:
 # Singleton instance
 tracker = UsageTracker()
 
+

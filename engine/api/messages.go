@@ -24,8 +24,6 @@ const (
 	MsgActionReq    MessageType = "action_required"
 	MsgStreetChange MessageType = "street_change"
 	MsgHandComplete MessageType = "hand_complete"
-	MsgPotAwarded   MessageType = "pot_awarded"
-	MsgShotClock    MessageType = "shot_clock"
 	MsgLLMThinking  MessageType = "llm_thinking"
 	MsgLLMAction    MessageType = "llm_action"
 	MsgPaused       MessageType = "paused"
@@ -122,12 +120,6 @@ type ActionRequiredPayload struct {
 type HandCompletePayload struct {
 	Winners    []WinnerPayload `json:"winners"`
 	HandNumber int             `json:"handNumber"`
-}
-
-type ShotClockPayload struct {
-	PlayerIdx   int    `json:"playerIdx"`
-	PlayerName  string `json:"playerName"`
-	SecondsLeft int    `json:"secondsLeft"`
 }
 
 type LLMThinkingPayload struct {
