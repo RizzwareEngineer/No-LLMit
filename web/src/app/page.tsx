@@ -238,6 +238,30 @@ export default function Home() {
     <div className="flex flex-col min-h-screen p-3 lg:p-4 overflow-auto" style={{ background: '#FFFFFF' }}>
       <div className="flex-1 flex flex-col items-center">
         
+      {/* API Credits Exhausted Banner */}
+        <div 
+          className="w-full max-w-3xl mb-4 p-4 rounded-lg border-2 text-center"
+          style={{ 
+            background: 'rgb(253, 245, 230)', 
+            borderColor: 'rgb(203, 145, 47)',
+            color: 'rgb(55, 53, 47)'
+          }}
+        >
+          <p className="text-[14px] font-semibold mb-1">⚠️ HuggingFace API Credits Exhausted</p>
+          <p className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.8)' }}>
+            We&apos;ve hit our monthly API limit. The game will resume when credits reset or when we receive donations.{' '}
+            <a 
+              href="https://github.com/sponsors/RizzwareEngineer" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="underline font-medium"
+              style={{ color: 'rgb(35, 131, 226)' }}
+            >
+              Support this project →
+            </a>
+          </p>
+        </div>
+
       {/* Header - Title centered */}
         <div className="mb-1 text-center">
           <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
