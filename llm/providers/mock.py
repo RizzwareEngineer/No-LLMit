@@ -30,7 +30,7 @@ def get_decision(player_name: str, prompt: str, valid_actions: list[dict]) -> di
         amount = random.randint(low, min(high, low * 3))
 
     raw = f"ACTION: {action}\nAMOUNT: {amount}\nREASON: {REASON}"
-    return {"action": "RAISE" if action == "BET" else action, "amount": amount, "reason": REASON, "raw": raw}
+    return {"action": "RAISE" if action == "BET" else action, "amount": amount, "reason": REASON, "raw": raw, "model": "mock"}
 
 
 def get_spend() -> dict | None:

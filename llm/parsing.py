@@ -5,11 +5,13 @@ import re
 
 def parse_response(text: str) -> dict:
     """Parse LLM response into structured action."""
-    result = {"action": "FOLD", "amount": 0, "reason": "", "raw": text}
+    result = {"action": "FOLD", "amount": 0, "reason": "", "raw": text, "status": "ok"}
+    found_action = False
     
     # Extract standard fields (ACTION: X, AMOUNT: N, REASON: ...)
     if match := re.search(r"ACTION:\s*(\w+)", text, re.I):
         result["action"] = match.group(1).upper()
+        found_action = True
     if match := re.search(r"AMOUNT:\s*(\d+)", text, re.I):
         result["amount"] = int(match.group(1))
     
@@ -28,6 +30,7 @@ def parse_response(text: str) -> dict:
         for action in ["FOLD", "CHECK", "CALL", "BET", "RAISE", "ALL_IN", "ALL-IN", "ALLIN"]:
             if match := re.search(rf"^{action}[:\s]*(\d*)", text, re.I | re.M):
                 result["action"] = action.replace("-", "_").upper()
+                found_action = True
                 if match.group(1):
                     result["amount"] = int(match.group(1))
                 break
@@ -40,6 +43,11 @@ def parse_response(text: str) -> dict:
         result["action"] = "RAISE"
     elif action not in ["FOLD", "CHECK", "CALL", "RAISE", "ALL_IN"]:
         result["action"] = "FOLD"
+        found_action = False
+
+    # The fold above is our fallback, not the model's choice
+    if not found_action:
+        result["status"] = "unparseable"
     
     return result
 

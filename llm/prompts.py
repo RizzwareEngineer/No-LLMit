@@ -4,6 +4,8 @@ The About page shows a copy of this from web/src/lib/systemPrompt.ts. If you cha
 change the other.
 """
 
+import hashlib
+
 system_prompt = """
 You are an expert No Limit Texas Hold'em poker player in a cash game against other players.
 
@@ -35,3 +37,6 @@ Where action_type is EXACTLY one of the legal actions listed: FOLD, CHECK, CALL,
 - Choose ONLY from the legal actions provided to you
 - Be concise in your reasoning
 """
+
+# Identifies this exact system prompt in saved hands.
+prompt_version = hashlib.sha256(system_prompt.encode()).hexdigest()[:7]
