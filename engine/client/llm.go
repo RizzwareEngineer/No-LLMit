@@ -36,6 +36,16 @@ type LLMDecisionResponse struct {
 	Reason    string `json:"reason"`
 	Raw       string `json:"raw"`
 	LatencyMs int    `json:"latency_ms"`
+
+	// Status is ok, unparseable, timeout or api_error. Anything but ok means the
+	// action is a fallback fold, not the model's choice.
+	Status        string   `json:"status"`
+	Provider      string   `json:"provider"`
+	Model         string   `json:"model"`
+	TokensIn      *int     `json:"tokens_in"`
+	TokensOut     *int     `json:"tokens_out"`
+	CostUSD       *float64 `json:"cost_usd"`
+	PromptVersion string   `json:"prompt_version"`
 }
 
 func GetLLMDecision(playerName, prompt string, validActions interface{}, mode string) (*LLMDecisionResponse, error) {
@@ -107,4 +117,27 @@ func GetLLMUsage() (json.RawMessage, error) {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 	return raw, nil
+}
+
+// GetSystemPrompt returns the system prompt every model receives, for the given version.
+func GetSystemPrompt() (version, prompt string, err error) {
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	resp, err := httpClient.Get(fmt.Sprintf("%s/prompt", llmServiceURL))
+	if err != nil {
+		return "", "", fmt.Errorf("LLM service not reachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("LLM service returned status %d", resp.StatusCode)
+	}
+
+	var body struct {
+		PromptVersion string `json:"prompt_version"`
+		SystemPrompt  string `json:"system_prompt"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", "", fmt.Errorf("failed to decode response: %w", err)
+	}
+	return body.PromptVersion, body.SystemPrompt, nil
 }

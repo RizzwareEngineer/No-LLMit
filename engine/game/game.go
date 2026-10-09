@@ -383,13 +383,31 @@ func (gs *GameState) EliminateBrokePlayers() {
 
 // RebuyBrokePlayers tops any player with no chips back up to the given stack so a cash
 // game never runs out of players. Winnings are untouched, so the loss stays on record.
-func (gs *GameState) RebuyBrokePlayers(stack int) {
+// It returns the indices of the players who rebought.
+func (gs *GameState) RebuyBrokePlayers(stack int) []int {
+	var rebought []int
 	for i := range gs.Players {
 		if gs.Players[i].Stack == 0 {
 			gs.Players[i].Stack = stack
 			gs.Players[i].Status = PlayerActive
+			rebought = append(rebought, i)
 		}
 	}
+	return rebought
+}
+
+// DeckOrder returns this hand's full shuffled deck, in the order cards are dealt.
+func (gs *GameState) DeckOrder() []string {
+	order := make([]string, len(gs.deck.cards))
+	for i, c := range gs.deck.cards {
+		order[i] = c.String()
+	}
+	return order
+}
+
+// PositionName returns a player's position this hand (BTN, SB, BB, UTG, ...).
+func (gs *GameState) PositionName(playerIdx int) string {
+	return gs.getPositionName(playerIdx)
 }
 
 func (gs *GameState) RecordActionForLLMs(playerName, action string, amount int) {
