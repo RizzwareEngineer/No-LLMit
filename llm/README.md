@@ -15,9 +15,12 @@ uv pip install -r requirements.txt
 
 Create `.env` file:
 ```
-HF_API_KEY=hf_your_api_key_here
-PORT=5000
+OPENROUTER_API_KEY=sk-or-your_api_key_here
+PORT=5001
 ```
+
+Without `OPENROUTER_API_KEY` the service runs the mock provider, which plays random legal
+actions and calls no model. Set `LLM_PROVIDER=mock` or `LLM_PROVIDER=openrouter` to force one.
 
 ## Run
 
@@ -28,13 +31,13 @@ python app.py
 
 Or with uvicorn directly:
 ```bash
-uvicorn app:app --reload --port 5000
+uvicorn app:app --reload --port 5001
 ```
 
 ## API Endpoints
 
 - `GET /health` - Health check
-- `GET /models` - List available models
+- `GET /usage` - Provider, spend against the key's limit, and request counts
 - `POST /decide` - Get LLM decision
 
 ### POST /decide
@@ -42,8 +45,9 @@ uvicorn app:app --reload --port 5000
 Request:
 ```json
 {
-  "player_name": "Claude 3.5",
-  "payload": { ...game state from Go... }
+  "player_name": "Claude Haiku 5.5",
+  "prompt": "Hand #12. No Limit Texas Hold'em cash game, blinds 5/10, 9 players. ...",
+  "valid_actions": [{"type": "FOLD"}, {"type": "CALL", "amount": 20}]
 }
 ```
 
@@ -60,16 +64,19 @@ Response:
 
 ## Architecture
 
-- **Go** manages game state and LLM prompt history (append-only)
-- **Python** is stateless: receives payload → calls HuggingFace → returns action
-- Shared history: all LLMs see the same action history
-- Only `yourName` and `yourCards` differ per LLM
+- **Go** manages game state and writes the text prompt for each decision
+- **Python** is stateless: receives the prompt → calls the seat's model on OpenRouter → returns the action
+- Each prompt describes the current hand only; there is no memory of previous hands
+- Only the "You are ..." section (name, cards, stack) differs per LLM
 
 ## Files
 
-- `prompt.py` - System prompt for LLM poker players
-- `huggingface.py` - HuggingFace client and response parser
 - `app.py` - FastAPI server
+- `prompts.py` - System prompt for LLM poker players
+- `registry.py` - Seat names and the OpenRouter model behind each
+- `parsing.py` - Turns a raw reply into an action
+- `providers/openrouter.py` - OpenRouter client
+- `providers/mock.py` - Random legal actions for local development
 
 ---
 

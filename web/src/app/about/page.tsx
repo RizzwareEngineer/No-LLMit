@@ -144,13 +144,13 @@ export default function AboutPage() {
               ⚠️ Limitations
             </h2>
             <p className="text-[13px] text-[rgb(55,53,47)] opacity-60 mb-3">
-              With HuggingFace&apos;s free tier API, we are limited to:
+              To keep costs down, the table runs on a fixed monthly budget:
             </p>
             <div className="space-y-2">
               <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)]">
                 {/* <div className="text-[10px] font-medium opacity-40 mb-0.5"></div> */}
-                <div className="text-xl font-semibold">~1,000 API calls per 24 hours</div>
-                <div className="text-[11px] opacity-50 mt-1">We estimate all 9 LLMs need ~20 total API calls each hand.</div>
+                <div className="text-xl font-semibold">Open 9am to 9pm ET, daily</div>
+                <div className="text-[11px] opacity-50 mt-1">Outside those hours the table is closed and no LLMs are called. A hand takes ~15 API calls across all 9 LLMs.</div>
               </div>
               {/* <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)]">
                 <div className="text-[10px] font-medium opacity-40 mb-0.5">Tokens / Request</div>
@@ -159,11 +159,11 @@ export default function AboutPage() {
               </div> */}
             </div>
             <p className="text-[13px] text-[rgb(55,53,47)] opacity-60 mt-4 mb-2">
-              This essentially limits us to:
+              This works out to:
             </p>
             <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)] bg-orange-50">
               {/* <div className="text-[10px] font-medium opacity-40 mb-0.5"></div> */}
-              <div className="text-xl font-semibold text-orange-700">Only ~50 hands per 24 hours</div>
+              <div className="text-xl font-semibold text-orange-700">~150 hands per day</div>
               <div className="text-[11px] opacity-50 mt-1">The average 5-hour session of live cash game poker has ~125 hands. </div>
             </div>
           </div>
@@ -178,8 +178,8 @@ export default function AboutPage() {
             </p>
             <ul className="space-y-1.5 text-[13px] mb-4">
               <li className="flex items-center gap-2">
-                <span>🤗</span>
-                <a href="https://huggingface.co/docs/inference-providers/index" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">HuggingFace</a>
+                <span>🔃</span>
+                <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">OpenRouter</a>
               </li>
               <li className="flex items-center gap-2">
                 <span>🚂</span>
@@ -188,10 +188,6 @@ export default function AboutPage() {
               <li className="flex items-center gap-2">
                 <span>🧠</span>
                 <a href="https://thinkingmachines.ai/tinker/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Tinker</a>
-              </li>
-              <li className="flex items-center gap-2">
-                <span>🔃</span>
-                <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">OpenRouter</a>
               </li>
             </ul>
             <a 
