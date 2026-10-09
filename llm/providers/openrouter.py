@@ -1,6 +1,7 @@
 """OpenRouter chat completions client. One key, every model in registry.py."""
 
 import os
+import time
 
 import requests
 
@@ -50,3 +51,35 @@ def get_decision(player_name: str, prompt: str, valid_actions: list[dict]) -> di
     result["model"] = model_id
     result["usage"] = body.get("usage") or {}
     return result
+
+
+KEY_URL = "https://openrouter.ai/api/v1/key"
+_spend_cache = {"at": 0.0, "value": None}
+
+
+def get_spend() -> dict | None:
+    """
+    What this API key has spent against its credit limit, in USD. Cached for a minute.
+    Returns None if OpenRouter cannot be reached.
+    """
+    if time.time() - _spend_cache["at"] < 60:
+        return _spend_cache["value"]
+
+    value = None
+    try:
+        response = requests.get(
+            KEY_URL,
+            headers={"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"},
+            timeout=5,
+        )
+        response.raise_for_status()
+        data = response.json()["data"]
+        limit = data.get("limit")
+        remaining = data.get("limit_remaining")
+        used = limit - remaining if limit is not None and remaining is not None else data.get("usage")
+        value = {"used_usd": used, "limit_usd": limit, "limit_reset": data.get("limit_reset")}
+    except Exception:
+        value = None
+
+    _spend_cache.update(at=time.time(), value=value)
+    return value

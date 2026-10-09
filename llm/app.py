@@ -17,12 +17,15 @@ from usage import tracker
 load_dotenv()
 
 # LLM_PROVIDER=openrouter calls real models and needs OPENROUTER_API_KEY.
-# LLM_PROVIDER=mock (the default) plays random legal actions without calling any model.
-PROVIDER = os.getenv("LLM_PROVIDER", "mock")
+# LLM_PROVIDER=mock plays random legal actions without calling any model.
+# Unset or "auto" picks openrouter when a key is configured and mock otherwise.
+PROVIDER = os.getenv("LLM_PROVIDER", "auto")
+if PROVIDER == "auto":
+    PROVIDER = "openrouter" if os.getenv("OPENROUTER_API_KEY") else "mock"
 if PROVIDER == "openrouter":
-    from providers.openrouter import get_decision
+    from providers.openrouter import get_decision, get_spend
 elif PROVIDER == "mock":
-    from providers.mock import get_decision
+    from providers.mock import get_decision, get_spend
 else:
     raise RuntimeError(f"Unknown LLM_PROVIDER: {PROVIDER}")
 
@@ -62,8 +65,8 @@ def health():
 
 @app.get("/usage")
 def get_usage():
-    """Get usage stats (monthly tokens + daily requests)."""
-    return tracker.get_summary()
+    """Provider, what it has spent, and local request counts."""
+    return {"provider": PROVIDER, "spend": get_spend(), **tracker.get_summary()}
 
 
 @app.post("/usage/reset")
