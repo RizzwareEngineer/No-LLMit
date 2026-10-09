@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+# From Amazon's public mirror of the official image; Docker Hub rate-limits pulls.
+FROM public.ecr.aws/docker/library/python:3.11-slim
 
 WORKDIR /app
 COPY requirements.txt .
