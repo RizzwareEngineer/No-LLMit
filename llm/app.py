@@ -4,6 +4,7 @@ import os
 import json
 import time
 import logging
+import requests
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -11,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from schemas import DecisionRequest, DecisionResponse
-from prompts import system_prompt
+from prompts import system_prompt, prompt_version
 from usage import tracker
 
 load_dotenv()
@@ -69,6 +70,12 @@ def get_usage():
     return {"provider": PROVIDER, "spend": get_spend(), **tracker.get_summary()}
 
 
+@app.get("/prompt")
+def get_prompt():
+    """The system prompt every model receives, and the version that identifies it."""
+    return {"prompt_version": prompt_version, "system_prompt": system_prompt}
+
+
 @app.post("/usage/reset")
 def reset_usage():
     """Manually reset all usage stats."""
@@ -98,9 +105,13 @@ def decide(request: DecisionRequest):
             reason=f"Error: {str(e)}",
             raw="",
             latency_ms=int((time.time() - start) * 1000),
+            status="timeout" if isinstance(e, requests.Timeout) else "api_error",
+            provider=PROVIDER,
+            prompt_version=prompt_version,
         )
     
     latency_ms = int((time.time() - start) * 1000)
+    usage = result.get("usage") or {}
     est_output = len(result.get("raw", "")) // 4
     
     # Track usage
@@ -133,6 +144,13 @@ def decide(request: DecisionRequest):
         reason=result["reason"],
         raw=result["raw"],
         latency_ms=latency_ms,
+        status=result.get("status", "ok"),
+        provider=PROVIDER,
+        model=result.get("model"),
+        tokens_in=usage.get("prompt_tokens"),
+        tokens_out=usage.get("completion_tokens"),
+        cost_usd=usage.get("cost"),
+        prompt_version=prompt_version,
     )
 
 
