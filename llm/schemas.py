@@ -2,7 +2,8 @@ from pydantic import BaseModel
 
 class DecisionRequest(BaseModel):
     player_name: str
-    payload: dict
+    prompt: str
+    valid_actions: list[dict] = []
     mode: str | None = None
 
 

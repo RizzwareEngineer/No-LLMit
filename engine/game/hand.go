@@ -270,7 +270,7 @@ func FindWinners(players []Player, communityCards []Card, eligibleIndices []int)
 
 	if EvaluatorDebug {
 		fmt.Printf("\nWinners: %v\n", winners)
-		fmt.Println("=====================================\n")
+		fmt.Print("=====================================\n\n")
 	}
 
 	return winners

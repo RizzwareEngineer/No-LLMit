@@ -105,6 +105,7 @@ export interface GameState {
     bigBlind: number;
   };
   gameStartTime: string; // ISO8601 timestamp from server
+  nextHandInMs?: number; // Shared table: time until the server deals the next hand
 }
 
 export interface ActionRequiredPayload {

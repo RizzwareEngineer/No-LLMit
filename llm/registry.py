@@ -1,33 +1,29 @@
 """
-Model registry mapping player display names to HuggingFace model IDs.
+Seat names and the OpenRouter model behind each one.
 
-For testing, all players use the same model (Llama 3.1-8B).
+These are the cheapest sensible model from each family, chosen to get the table running
+at low cost. The names must match tablePlayers in engine/api/table.go.
 """
 
-TEST_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
-
-# Player name -> HuggingFace model ID
+# Seat name -> OpenRouter model ID
 MODELS = {
-    "GPT-4o": TEST_MODEL,
-    "Claude 3.5": TEST_MODEL,
-    "Gemini Pro": TEST_MODEL,
-    "Llama 3": TEST_MODEL,
-    "Mistral Large": TEST_MODEL,
-    "DeepSeek V3": TEST_MODEL,
-    "Grok 2": TEST_MODEL,
-    "Qwen 2.5": TEST_MODEL,
-    "Cohere R+": TEST_MODEL,
+    "GPT-OSS 20B": "openai/gpt-oss-20b",
+    "Claude Haiku 5.5": "anthropic/claude-haiku-5.5",
+    "Gemma 3 12B": "google/gemma-3-12b-it",
+    "Llama 3.1 8B": "meta-llama/llama-3.1-8b-instruct",
+    "Mistral Nemo": "mistralai/mistral-nemo",
+    "DeepSeek V4 Flash": "deepseek/deepseek-v4-flash",
+    "Phi-4": "microsoft/phi-4",
+    "Qwen 3.7 Flash": "qwen/qwen3.7-flash",
+    "Cohere Command R7B": "cohere/command-r7b-12-2024",
 }
-
-DEFAULT_MODEL = TEST_MODEL
 
 
 def get_model_id(display_name: str) -> str:
-    """Get HuggingFace model ID from display name."""
-    return MODELS.get(display_name, DEFAULT_MODEL)
+    """Get the OpenRouter model ID for a seat. Raises KeyError for an unknown seat."""
+    return MODELS[display_name]
 
 
 def list_models() -> list[str]:
-    """List available model display names."""
+    """List seat names."""
     return list(MODELS.keys())
-

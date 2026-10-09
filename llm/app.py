@@ -4,15 +4,36 @@ import os
 import json
 import time
 import logging
+from datetime import datetime
+from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from schemas import DecisionRequest, DecisionResponse
-from providers.huggingface import get_decision
-from usage import tracker, SPECTATE_DAILY_REQUESTS
+from prompts import system_prompt
+from usage import tracker
 
 load_dotenv()
+
+# LLM_PROVIDER=openrouter calls real models and needs OPENROUTER_API_KEY.
+# LLM_PROVIDER=mock (the default) plays random legal actions without calling any model.
+PROVIDER = os.getenv("LLM_PROVIDER", "mock")
+if PROVIDER == "openrouter":
+    from providers.openrouter import get_decision
+elif PROVIDER == "mock":
+    from providers.mock import get_decision
+else:
+    raise RuntimeError(f"Unknown LLM_PROVIDER: {PROVIDER}")
+
+# Every prompt and response is appended here, one JSON object per line.
+DECISION_LOG = Path(__file__).parent / "logs" / "decisions.jsonl"
+
+
+def log_decision(record: dict):
+    DECISION_LOG.parent.mkdir(exist_ok=True)
+    with DECISION_LOG.open("a") as f:
+        f.write(json.dumps(record) + "\n")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,7 +46,7 @@ app = FastAPI(title="No-LLMit LLM Service")
 # Allow frontend to call /usage directly
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3100"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -34,9 +55,9 @@ app.add_middleware(
 @app.get("/health")
 def health():
     """Verify API key is configured."""
-    if not os.getenv("HF_API_KEY"):
-        raise HTTPException(status_code=503, detail="HF_API_KEY not configured")
-    return {"status": "ok"}
+    if PROVIDER == "openrouter" and not os.getenv("OPENROUTER_API_KEY"):
+        raise HTTPException(status_code=503, detail="OPENROUTER_API_KEY not configured")
+    return {"status": "ok", "provider": PROVIDER}
 
 
 @app.get("/usage")
@@ -59,24 +80,13 @@ def decide(request: DecisionRequest):
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(f"🎯 {request.player_name}")
     
-    mode = request.mode or "simulate"
-    if mode == "simulate":
-        daily_requests = tracker.daily_requests
-        if daily_requests >= SPECTATE_DAILY_REQUESTS:
-            logger.warning(f"⚠️ Daily API limit reached for spectate mode: {daily_requests}/{SPECTATE_DAILY_REQUESTS}")
-            raise HTTPException(
-                status_code=429,
-                detail=f"Daily API limit reached for spectate mode ({SPECTATE_DAILY_REQUESTS} requests/day). Please try again tomorrow."
-            )
-    
     start = time.time()
     
     # Estimate input tokens (~4 chars per token)
-    input_text = json.dumps(request.payload)
-    est_input = len(input_text) // 4
+    est_input = (len(system_prompt) + len(request.prompt)) // 4
     
     try:
-        result = get_decision(request.player_name, request.payload)
+        result = get_decision(request.player_name, request.prompt, request.valid_actions)
     except Exception as e:
         logger.error(f"❌ Error: {e}")
         return DecisionResponse(
@@ -92,6 +102,20 @@ def decide(request: DecisionRequest):
     
     # Track usage
     tracker.record(est_input, est_output)
+
+    log_decision({
+        "time": datetime.now().isoformat(timespec="seconds"),
+        "provider": PROVIDER,
+        "model": result.get("model"),
+        "usage": result.get("usage"),
+        "player": request.player_name,
+        "prompt": request.prompt,
+        "raw": result["raw"],
+        "action": result["action"],
+        "amount": result["amount"],
+        "reason": result["reason"],
+        "latency_ms": latency_ms,
+    })
     
     # Log result
     emoji = {"FOLD": "🃏", "CHECK": "✋", "CALL": "📞", "RAISE": "⬆️", "ALL_IN": "🔥"}.get(result["action"], "❓")

@@ -68,7 +68,7 @@ type GameState struct {
 	GameStartTime      time.Time         `json:"gameStartTime"`
 	deck               *Deck             `json:"-"`
 	actionsThisRound   int               `json:"-"`
-	LLMActionsThisHand []map[string]any  `json:"-"`
+	LLMActionsThisHand []LLMAction       `json:"-"`
 	LLMPreviousHands   []LLMPreviousHand `json:"-"`
 }
 
@@ -101,7 +101,7 @@ func NewGame(config GameConfig) *GameState {
 		HandNumber:         0,
 		GameStartTime:      time.Now(), // Server timestamp for game start
 		deck:               NewDeck(),
-		LLMActionsThisHand: []map[string]any{},
+		LLMActionsThisHand: []LLMAction{},
 		LLMPreviousHands:   []LLMPreviousHand{},
 	}
 
@@ -381,12 +381,29 @@ func (gs *GameState) EliminateBrokePlayers() {
 	}
 }
 
-func (gs *GameState) RecordActionForLLMs(playerName, action string, amount int) {
-	a := map[string]any{"player": playerName, "action": action}
-	if amount > 0 {
-		a["amount"] = amount
+// RebuyBrokePlayers tops any player with no chips back up to the given stack so a cash
+// game never runs out of players. Winnings are untouched, so the loss stays on record.
+func (gs *GameState) RebuyBrokePlayers(stack int) {
+	for i := range gs.Players {
+		if gs.Players[i].Stack == 0 {
+			gs.Players[i].Stack = stack
+			gs.Players[i].Status = PlayerActive
+		}
 	}
-	gs.LLMActionsThisHand = append(gs.LLMActionsThisHand, a)
+}
+
+func (gs *GameState) RecordActionForLLMs(playerName, action string, amount int) {
+	street := gs.Street
+	if action == "post" {
+		street = StreetPreflop // blinds are posted before StartHand resets the street
+	}
+	gs.LLMActionsThisHand = append(gs.LLMActionsThisHand, LLMAction{
+		Player: playerName,
+		Action: action,
+		Amount: amount,
+		Street: street.String(),
+		Pot:    gs.SimplifiedPotCalculation(),
+	})
 }
 
 func (gs *GameState) ArchiveHandForLLMs() {
@@ -418,7 +435,7 @@ func (gs *GameState) ArchiveHandForLLMs() {
 		Winners:        winners,
 	}
 	gs.LLMPreviousHands = append(gs.LLMPreviousHands, hand)
-	gs.LLMActionsThisHand = []map[string]any{}
+	gs.LLMActionsThisHand = []LLMAction{}
 }
 
 func (gs *GameState) GetLLMPlayers() []LLMPlayer {
@@ -482,30 +499,6 @@ func (gs *GameState) GetLLMHoleCards(playerIdx int) []string {
 		cards[i] = c.String()
 	}
 	return cards
-}
-
-func (gs *GameState) GetLLMPromptPayload(playerName string, validActions []LLMValidAction) *LLMPromptPayload {
-	playerIdx := -1
-	for i, p := range gs.Players {
-		if p.Name == playerName {
-			playerIdx = i
-			break
-		}
-	}
-	if playerIdx < 0 {
-		return nil
-	}
-
-	return &LLMPromptPayload{
-		YourName:        playerName,
-		YourCards:       gs.GetLLMHoleCards(playerIdx),
-		Players:         gs.GetLLMPlayers(),
-		CommunityCards:  gs.GetLLMCommunityCards(),
-		Pot:             gs.GetTotalPot(),
-		ActionsThisHand: gs.LLMActionsThisHand,
-		PreviousHands:   gs.LLMPreviousHands,
-		ValidActions:    validActions,
-	}
 }
 
 func generateGameID() string {

@@ -1,11 +1,7 @@
-"""System prompt for LLM poker players.
+// The system prompt every LLM receives, shown on the About page.
+// This is a copy of llm/prompts.py. If you change one, change the other.
 
-The About page shows a copy of this from web/src/lib/systemPrompt.ts. If you change one,
-change the other.
-"""
-
-system_prompt = """
-You are an expert No Limit Texas Hold'em poker player in a cash game against other players.
+export const SYSTEM_PROMPT = `You are an expert No Limit Texas Hold'em poker player in a cash game against other players.
 
 ## INFORMATION YOU WILL RECEIVE
 Each time it is your turn you will be given the current hand in plain text:
@@ -33,5 +29,4 @@ Where action_type is EXACTLY one of the legal actions listed: FOLD, CHECK, CALL,
 
 ## CONSTRAINTS
 - Choose ONLY from the legal actions provided to you
-- Be concise in your reasoning
-"""
+- Be concise in your reasoning`;

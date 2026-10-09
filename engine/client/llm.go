@@ -24,9 +24,10 @@ func getEnv(key, fallback string) string {
 }
 
 type LLMDecisionRequest struct {
-	PlayerName string      `json:"player_name"`
-	Payload    interface{} `json:"payload"`
-	Mode       string      `json:"mode,omitempty"`
+	PlayerName   string      `json:"player_name"`
+	Prompt       string      `json:"prompt"`
+	ValidActions interface{} `json:"valid_actions"`
+	Mode         string      `json:"mode,omitempty"`
 }
 
 type LLMDecisionResponse struct {
@@ -37,11 +38,12 @@ type LLMDecisionResponse struct {
 	LatencyMs int    `json:"latency_ms"`
 }
 
-func GetLLMDecision(playerName string, payload interface{}, mode string) (*LLMDecisionResponse, error) {
+func GetLLMDecision(playerName, prompt string, validActions interface{}, mode string) (*LLMDecisionResponse, error) {
 	reqBody := LLMDecisionRequest{
-		PlayerName: playerName,
-		Payload:    payload,
-		Mode:       mode,
+		PlayerName:   playerName,
+		Prompt:       prompt,
+		ValidActions: validActions,
+		Mode:         mode,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)

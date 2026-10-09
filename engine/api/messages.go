@@ -73,6 +73,7 @@ type GameStatePayload struct {
 	Mode             string               `json:"mode"`
 	Stakes           StakesPayload        `json:"stakes"`
 	GameStartTime    string               `json:"gameStartTime"`
+	NextHandInMs     int                  `json:"nextHandInMs,omitempty"` // Shared table: time until the next hand is dealt
 }
 
 type PlayerStatePayload struct {

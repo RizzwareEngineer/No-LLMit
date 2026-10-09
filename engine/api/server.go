@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -31,6 +32,10 @@ type Server struct {
 	paused       map[string]bool            // gameID -> isPaused
 	pendingPause map[string]bool            // gameID -> pause requested (takes effect after current action)
 	mu           sync.RWMutex
+
+	// The shared spectator table everyone watches. Nil when PRIVATE_GAMES=1, a dev-only
+	// mode where each connection creates and controls its own game instead.
+	table *Table
 }
 
 func NewServer() *Server {
@@ -43,6 +48,13 @@ func NewServer() *Server {
 }
 
 func (s *Server) Start(port int) error {
+	if os.Getenv("PRIVATE_GAMES") == "1" {
+		log.Printf("PRIVATE_GAMES=1: each connection controls its own game (dev only)")
+	} else {
+		s.table = NewTable()
+		go s.table.Run()
+	}
+
 	http.HandleFunc("/ws", s.handleWebSocket)
 	http.HandleFunc("/health", s.handleHealth)
 	http.HandleFunc("/api/games", s.handleCORS(s.handleListGames))
@@ -97,11 +109,18 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() {
+		if s.table != nil {
+			s.table.Leave(conn)
+		}
 		s.mu.Lock()
 		delete(s.clients, conn)
 		s.mu.Unlock()
 		conn.Close()
 	}()
+
+	if s.table != nil {
+		s.table.Join(conn)
+	}
 
 	log.Printf("New WebSocket connection from %s", conn.RemoteAddr())
 
@@ -132,7 +151,21 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleMessage(conn *websocket.Conn, message []byte) {
 	var msg ClientMessage
 	if err := json.Unmarshal(message, &msg); err != nil {
-		s.sendError(conn, "Invalid message format")
+		if s.table != nil {
+			s.table.Reject(conn, "Invalid message format")
+		} else {
+			s.sendError(conn, "Invalid message format")
+		}
+		return
+	}
+
+	// Spectators of the shared table can ask for the current state and nothing else.
+	if s.table != nil {
+		if msg.Type == MsgGetState {
+			s.table.Resend(conn)
+		} else {
+			s.table.Reject(conn, "This table is spectate-only")
+		}
 		return
 	}
 

@@ -69,18 +69,18 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 			},
 		})
 
-		validActions := s.buildLLMValidActions(gs)
-		payload := gs.GetLLMPromptPayload(playerName, validActions)
-		if payload == nil {
-			log.Printf("Failed to build LLM payload for %s", playerName)
-			s.sendError(conn, "Failed to build LLM payload")
+		validActions := buildLLMValidActions(gs)
+		prompt := gs.GetLLMPrompt(playerName, validActions)
+		if prompt == "" {
+			log.Printf("Failed to build LLM prompt for %s", playerName)
+			s.sendError(conn, "Failed to build LLM prompt")
 			return
 		}
 
 		// Call LLM API (blocking - compute as fast as possible)
 		startTime := time.Now()
 		modeStr := gs.Mode.String()
-		decision, err := client.GetLLMDecision(playerName, payload, modeStr)
+		decision, err := client.GetLLMDecision(playerName, prompt, validActions, modeStr)
 		apiDuration := time.Since(startTime)
 
 		if err != nil {
@@ -171,7 +171,7 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 }
 
 // buildLLMValidActions converts game valid actions to LLM-friendly format
-func (s *Server) buildLLMValidActions(gs *game.GameState) []game.LLMValidAction {
+func buildLLMValidActions(gs *game.GameState) []game.LLMValidAction {
 	validActions := gs.GetValidActions()
 	var llmActions []game.LLMValidAction
 

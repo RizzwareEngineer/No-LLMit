@@ -1,40 +1,6 @@
-"""HuggingFace Inference API client."""
+"""Turns an LLM's raw text reply into an action the engine understands."""
 
-import os
 import re
-import json
-from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
-
-from prompts import system_prompt
-from registry import get_model_id
-
-load_dotenv()
-
-client = InferenceClient(token=os.getenv("HF_API_KEY"))
-
-
-def get_decision(player_name: str, payload: dict) -> dict:
-    """
-    Ask LLM for their decision/action given the current game state.
-    """
-    model_id = get_model_id(player_name)
-    
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": json.dumps(payload, indent=2)},
-    ]
-    
-    response = client.chat_completion(
-        model=model_id,
-        messages=messages,
-        max_tokens=512,
-    )
-    
-    raw_text = response.choices[0].message.content
-    result = parse_response(raw_text)
-    
-    return result
 
 
 def parse_response(text: str) -> dict:

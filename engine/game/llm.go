@@ -1,7 +1,6 @@
-// This file defines the JSON structures sent to LLMs when asking for their next action.
-// LLMPromptPayload contains everything an LLM needs: their cards, valid actions, pot size,
-// all previous actions this hand, and full history of previous hands. game.go builds these
-// payloads, and api/llm_handlers.go sends them to the Python LLM service.
+// This file defines the structures used to record a hand for LLMs. game.go appends an
+// LLMAction for every action, and prompt.go turns the current hand into the text prompt
+// that api/llm_handlers.go sends to the Python LLM service.
 package game
 
 type LLMPlayer struct {
@@ -19,22 +18,21 @@ type LLMValidAction struct {
 	Description string `json:"description,omitempty"`
 }
 
+// One recorded action. Amount is what the player put in for a blind or call, and the
+// total bet on that street for a raise or all-in. Pot is the pot after the action.
+type LLMAction struct {
+	Player string `json:"player"`
+	Action string `json:"action"`
+	Amount int    `json:"amount,omitempty"`
+	Street string `json:"street"`
+	Pot    int    `json:"pot"`
+}
+
 // Shared across all LLMs - they see the same hand history
 type LLMPreviousHand struct {
 	Players        []LLMPlayer      `json:"players"`
 	CommunityCards []string         `json:"communityCards"`
-	Actions        []map[string]any `json:"actions"`
+	Actions        []LLMAction      `json:"actions"`
 	Showdown       []map[string]any `json:"showdown"`
 	Winners        []map[string]any `json:"winners"`
-}
-
-type LLMPromptPayload struct {
-	YourName        string            `json:"yourName"`
-	YourCards       []string          `json:"yourCards"`
-	Players         []LLMPlayer       `json:"players"`
-	CommunityCards  []string          `json:"communityCards"`
-	Pot             int               `json:"pot"`
-	ActionsThisHand []map[string]any  `json:"actionsThisHand"`
-	PreviousHands   []LLMPreviousHand `json:"previousHands"`
-	ValidActions    []LLMValidAction  `json:"validActions"`
 }

@@ -13,3 +13,7 @@ __pycache__/
 .idea/
 *.swp
 *.swo
+
+# Prompt/response logs
+logs/
+.venv/

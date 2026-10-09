@@ -2,15 +2,15 @@
 
 // All available LLM players
 export const ALL_LLMS = [
-  "GPT-4o",
-  "Claude 3.5",
-  "Gemini Pro",
-  "Llama 3",
-  "Mistral Large",
-  "DeepSeek V3",
-  "Grok 2",
-  "Qwen 2.5",
-  "Cohere R+",
+  "GPT-OSS 20B",
+  "Claude Haiku 5.5",
+  "Gemma 3 12B",
+  "Llama 3.1 8B",
+  "Mistral Nemo",
+  "DeepSeek V4 Flash",
+  "Phi-4",
+  "Qwen 3.7 Flash",
+  "Cohere Command R7B",
 ] as const;
 
 export type LLMName = (typeof ALL_LLMS)[number];

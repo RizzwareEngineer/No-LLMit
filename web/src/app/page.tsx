@@ -7,7 +7,6 @@ import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
-import UsageIndicator from "@/components/UsageIndicator";
 import { useGameState } from "@/hooks/useGameState";
 import { ALL_LLMS, DEFAULT_GAME_CONFIG } from "@/lib/constants";
 
@@ -21,10 +20,6 @@ export default function Home() {
     lastHandResult,
     displayState,
     isPaused,
-    syncMode,
-    setSyncMode,
-    stepNext,
-    queueLength,
     shotClockRemaining,
     buttonDetermination,
     connect,
@@ -40,7 +35,6 @@ export default function Home() {
   const [selectedLLMs, setSelectedLLMs] = useState<string[]>([]);
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
-  const [usageRefreshTrigger, setUsageRefreshTrigger] = useState(0);
   
   // Check for test mode via URL param (?test=true) or play mode via sessionStorage
   useEffect(() => {
@@ -74,8 +68,10 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-start game when connected but no game exists
+  // Spectators just watch the shared table the server is running. Only the private
+  // play/test modes create a game of their own.
   useEffect(() => {
+    if (gameMode === 'spectate') return;
     if (isConnected && !gameState?.id && !isLoading) {
       if (gameMode === 'play' && selectedLLMs.length === 8) {
         // Play mode: user vs selected LLMs
@@ -85,11 +81,11 @@ export default function Home() {
           mode: 'play',
         });
       } else {
-        // Spectate or test mode: all LLMs
+        // Test mode: all LLM seats, controlled by hand
         newGame({
           playerNames: [...ALL_LLMS],
           ...DEFAULT_GAME_CONFIG,
-          mode: gameMode === 'test' ? 'test' : 'simulate',
+          mode: 'test',
         });
       }
     }
@@ -97,6 +93,7 @@ export default function Home() {
 
   // Auto-start first hand when game is created AND button determination is complete
   useEffect(() => {
+    if (gameMode === 'spectate') return; // the server deals the shared table
     if (isConnected && gameState?.id && gameState?.handNumber === 0 && !isLoading) {
       // If button determination is in progress, wait for it to complete
       if (buttonDetermination && !buttonDetermination.isComplete) {
@@ -110,14 +107,7 @@ export default function Home() {
         return () => clearTimeout(timer);
       }
     }
-  }, [isConnected, gameState?.id, gameState?.handNumber, isLoading, buttonDetermination, startHand]);
-
-  // Refresh usage stats when an LLM action is revealed
-  useEffect(() => {
-    if (displayState?.phase === 'revealed') {
-      setUsageRefreshTrigger(prev => prev + 1);
-    }
-  }, [displayState?.phase]);
+  }, [isConnected, gameState?.id, gameState?.handNumber, isLoading, buttonDetermination, startHand, gameMode]);
 
   // Timer effect - update elapsed time every second using server's gameStartTime
   useEffect(() => {
@@ -161,33 +151,38 @@ export default function Home() {
   const winners = gameState?.winners || lastHandResult?.winners || [];
   const isHandComplete = street === 'complete';
 
-  // Auto-start next hand countdown (5 seconds after hand completes)
+  // Next hand countdown. On the shared table the server deals the next hand and tells
+  // us how long is left; in private modes we count down and start it ourselves.
+  const nextHandInMs = gameState?.nextHandInMs;
   useEffect(() => {
-    if (isHandComplete && nextHandCountdown === null) {
-      setNextHandCountdown(7);
-    } else if (!isHandComplete && nextHandCountdown !== null) {
-      // Hand started, clear countdown
+    if (!isHandComplete) {
       setNextHandCountdown(null);
+    } else if (gameMode === 'spectate') {
+      if (nextHandInMs) setNextHandCountdown(Math.ceil(nextHandInMs / 1000));
+    } else if (nextHandCountdown === null) {
+      setNextHandCountdown(7);
     }
-  }, [isHandComplete]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHandComplete, nextHandInMs, gameMode]);
 
   useEffect(() => {
     if (nextHandCountdown === null) return;
-    
+
     if (nextHandCountdown <= 0) {
+      if (gameMode === 'spectate') return; // wait for the server's next hand
       // Start next hand
       setNextHandCountdown(null);
       clearError(); // Clear any previous errors
       startHand();
       return;
     }
-    
+
     const timer = setTimeout(() => {
       setNextHandCountdown(prev => prev !== null ? prev - 1 : null);
     }, 1000);
-    
+
     return () => clearTimeout(timer);
-  }, [nextHandCountdown, startHand, clearError]);
+  }, [nextHandCountdown, startHand, clearError, gameMode]);
 
   const handleStartHand = () => {
     clearError();
@@ -238,30 +233,6 @@ export default function Home() {
     <div className="flex flex-col min-h-screen p-3 lg:p-4 overflow-auto" style={{ background: '#FFFFFF' }}>
       <div className="flex-1 flex flex-col items-center">
         
-      {/* API Credits Exhausted Banner */}
-        <div 
-          className="w-full max-w-3xl mb-4 p-4 rounded-lg border-2 text-center"
-          style={{ 
-            background: 'rgb(253, 245, 230)', 
-            borderColor: 'rgb(203, 145, 47)',
-            color: 'rgb(55, 53, 47)'
-          }}
-        >
-          <p className="text-[14px] font-semibold mb-1">⚠️ HuggingFace API Credits Exhausted</p>
-          <p className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.8)' }}>
-            We&apos;ve hit our monthly API limit. The game will resume when credits reset or when we receive donations.{' '}
-            <a 
-              href="https://github.com/sponsors/RizzwareEngineer" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="underline font-medium"
-              style={{ color: 'rgb(35, 131, 226)' }}
-            >
-              Support this project →
-            </a>
-          </p>
-        </div>
-
       {/* Header - Title centered */}
         <div className="mb-1 text-center">
           <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
@@ -344,7 +315,7 @@ export default function Home() {
           )}
 
           {/* Next hand button (countdown now shown on felt) */}
-          {isHandComplete && nextHandCountdown !== null && nextHandCountdown <= 0 && (
+          {gameMode !== 'spectate' && isHandComplete && nextHandCountdown !== null && nextHandCountdown <= 0 && (
             <>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
               <button
@@ -376,7 +347,7 @@ export default function Home() {
                 pot={pot}
                 winnersByIdx={winnersByIdx}
                 nextHandCountdown={nextHandCountdown}
-                onSkipCountdown={() => {
+                onSkipCountdown={gameMode === 'spectate' ? undefined : () => {
                   setNextHandCountdown(null);
                   startHand();
                 }}
@@ -385,13 +356,9 @@ export default function Home() {
                 hidePositions={!!buttonDetermination}
               />
 
-              {/* Right sidebar column - API Usage above Winnings */}
+              {/* Right sidebar column - Winnings */}
               <div className="flex flex-col w-[240px] shrink-0">
-                {/* API Usage - static, above winnings */}
-                <UsageIndicator isPaused={isPaused} inline refreshTrigger={usageRefreshTrigger} />
-                
-                {/* Winnings panel */}
-                <div className="mt-4 flex-1 flex flex-col min-h-0">
+                <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />
                 </div>
               </div>
@@ -431,7 +398,7 @@ export default function Home() {
       {process.env.NODE_ENV === 'development' && (
         <div className="fixed top-4 left-4 flex flex-col gap-2 z-50">
           {/* Pause/Resume button */}
-          {!isHandComplete && (
+          {gameMode !== 'spectate' && !isHandComplete && (
             <button
               onClick={() => isPaused ? resume() : pause()}
               className={`${
@@ -458,7 +425,7 @@ export default function Home() {
             <button
               onClick={() => { window.location.href = '/?test=true'; }}
               className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold"
-              title="Enter Test Mode (Dev Only)"
+              title="Enter Test Mode (dev only, needs the engine started with PRIVATE_GAMES=1)"
             >
               <Bug size={14} weight="bold" />
               TEST MODE
@@ -472,39 +439,6 @@ export default function Home() {
               <Bug size={14} weight="bold" />
               EXIT TEST
             </button>
-          )}
-
-          {/* Sync mode toggle (spectate dev mode only) */}
-          {gameMode === 'spectate' && (
-            <>
-              <button
-                onClick={() => setSyncMode(!syncMode)}
-                className={`px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold ${
-                  syncMode 
-                    ? 'bg-purple-600 hover:bg-purple-700 text-white' 
-                    : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-                }`}
-                title="Sync Mode: Step through actions manually"
-              >
-                <Wrench size={14} weight="bold" />
-                SYNC {syncMode ? 'ON' : 'OFF'}
-              </button>
-              
-              {syncMode && (
-                <button
-                  onClick={stepNext}
-                  disabled={queueLength === 0}
-                  className={`px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold ${
-                    queueLength > 0
-                      ? 'bg-green-500 hover:bg-green-600 text-white'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
-                  title={`Next action (${queueLength} queued)`}
-                >
-                  STEP ({queueLength})
-                </button>
-              )}
-            </>
           )}
         </div>
       )}

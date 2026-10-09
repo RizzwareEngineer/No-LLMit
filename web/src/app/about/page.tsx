@@ -3,40 +3,31 @@
 import Link from 'next/link';
 import { ArrowLeft, CaretRight } from '@phosphor-icons/react';
 import { useState } from 'react';
+import { SYSTEM_PROMPT } from '@/lib/systemPrompt';
 
-const EXAMPLE_INPUT = {
-  yourName: "Qwen",
-  yourCards: ["Ks", "Qh"],
-  players: [
-    { name: "Claude", seat: 1, stack: 470, position: "SB" },
-    { name: "GPT-4", seat: 2, stack: 470, position: "BB" },
-    { name: "Qwen", seat: 3, stack: 470, position: "BTN" }
-  ],
-  communityCards: ["Kd", "7c", "2s"],
-  pot: 90,
-  actionsThisHand: [
-    { player: "Claude", action: "post", amount: 5 },
-    { player: "GPT-4", action: "post", amount: 10 },
-    { player: "Qwen", action: "RAISE", amount: 30 },
-    { player: "Claude", action: "CALL", amount: 25 },
-    { player: "GPT-4", action: "CALL", amount: 20 },
-    { player: "Claude", action: "CHECK" },
-    { player: "GPT-4", action: "CHECK" }
-  ],
-  previousHands: [],
-  validActions: [
-    { type: "FOLD" },
-    { type: "CHECK" },
-    { type: "BET", min: 10, max: 470 },
-    { type: "ALL_IN", amount: 470 }
-  ]
-};
+const EXAMPLE_INPUT = `Hand #12. No Limit Texas Hold'em cash game, blinds 5/10, 3 players.
 
-const EXAMPLE_OUTPUT = {
-  action: "BET",
-  amount: 40,
-  reason: "Top pair with a strong kicker. Betting for value."
-};
+Seats (stack at start of hand):
+SB: Claude (500)
+BB: GPT-4 (500)
+BTN: Qwen (500)
+
+Preflop: Claude posts small blind 5, GPT-4 posts big blind 10, Qwen raises to 30, Claude calls 25, GPT-4 calls 20
+Flop [Kd 7c 2s] (pot 90): Claude checks, GPT-4 checks
+
+You are Qwen, in the BTN. Your hole cards: Ks Qh.
+Pot: 90. To call: 0. Your stack: 470.
+Still in the hand: Claude (SB, 470 behind), GPT-4 (BB, 470 behind).
+
+Legal actions:
+- FOLD
+- CHECK
+- BET: AMOUNT is your total bet this street, between 10 and 470
+- ALL_IN (470 total this street)`;
+
+const EXAMPLE_OUTPUT = `ACTION: BET
+AMOUNT: 40
+REASON: Top pair with a strong kicker. Betting for value.`;
 
 function Toggle({ title, children }: { title: string; children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -95,34 +86,51 @@ export default function AboutPage() {
 
         <div className="border-b border-[rgba(55,53,47,0.09)] mb-8" />
 
-        {/* ROW 2: Technical - What LLMs See */}
+        {/* ROW 2: Technical - What is inside each LLM call */}
+        <div className="mb-6">
+          <Toggle title="The system prompt (identical for every LLM)">
+            <p className="text-[12px] mb-2 text-[rgb(55,53,47)] opacity-70">
+              Every call starts with this exact system prompt. No LLM gets different instructions, a persona, or strategy hints.
+            </p>
+            <pre
+              className="p-3 rounded-lg text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap border border-[rgba(55,53,47,0.09)] bg-[rgba(55,53,47,0.02)]"
+              style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+            >
+              {SYSTEM_PROMPT}
+            </pre>
+          </Toggle>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div>
-            <Toggle title="What each LLM receives">
+            <Toggle title="What's inside each LLM call">
               <p className="text-[12px] mb-2 text-[rgb(55,53,47)] opacity-70">
-                Each LLM receives a JSON object containing their hole cards, all players&apos; stacks and positions, community cards, pot size, all actions taken this hand, previous hand history, and valid actions they can take.
+                Every time it is an LLM&apos;s turn, we make one fresh call containing the current hand in plain text: all players&apos; positions and starting stacks, every action so far on every street, the board, the LLM&apos;s own hole cards, the pot, the amount to call, and its legal actions. Every LLM gets the same system prompt.
               </p>
               <pre 
-                className="p-3 rounded-lg text-[11px] leading-relaxed overflow-x-auto border border-[rgba(55,53,47,0.09)] bg-[rgba(55,53,47,0.02)]" 
+                className="p-3 rounded-lg text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap border border-[rgba(55,53,47,0.09)] bg-[rgba(55,53,47,0.02)]" 
                 style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
               >
-                {JSON.stringify(EXAMPLE_INPUT, null, 2)}
+                {EXAMPLE_INPUT}
               </pre>
             </Toggle>
           </div>
           <div>
-            <Toggle title="What each LLM outputs">
+            <Toggle title="What each LLM call outputs">
               <p className="text-[12px] mb-2 text-[rgb(55,53,47)] opacity-70">
-                Each LLM responds with a JSON object containing their chosen action (FOLD, CHECK, CALL, BET, RAISE, or ALL_IN), the amount (if applicable), and a brief reason explaining their decision.
+                Each call returns three lines of text: the chosen action (FOLD, CHECK, CALL, BET, RAISE, or ALL_IN), the amount (if applicable), and a brief reason explaining the decision.
               </p>
               <pre 
-                className="p-3 rounded-lg text-[11px] leading-relaxed overflow-x-auto border border-[rgba(55,53,47,0.09)] bg-[rgba(55,53,47,0.02)]" 
+                className="p-3 rounded-lg text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap border border-[rgba(55,53,47,0.09)] bg-[rgba(55,53,47,0.02)]" 
                 style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
               >
-                {JSON.stringify(EXAMPLE_OUTPUT, null, 2)}
+                {EXAMPLE_OUTPUT}
               </pre>
             </Toggle>
           </div>
+        </div>
+
+        <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)] bg-orange-50 text-[13px] text-orange-800 mb-8">
+          <strong>No memory between calls.</strong> Each call stands alone: an LLM does not remember previous hands, how its opponents have played, or even its own earlier decisions in the same hand. Everything it knows is in the text of that one call.
         </div>
 
         <div className="border-b border-[rgba(55,53,47,0.09)] mb-8" />
