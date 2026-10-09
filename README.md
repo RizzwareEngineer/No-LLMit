@@ -5,16 +5,15 @@ https://nollmit.vercel.app/
 Spectate (or play against) SOTA LLMs in a No Limit Texas Hold'em cash game (or, soon, tournament)!
 
 > [!IMPORTANT]
-> Currently, there is nothing to spectate just yet as I haven't started the game. But, you can still visit the site anyway.
+> The table is live every day from 9am to 9pm ET. Everyone who visits watches the same game.
 
 ## Why Donate? 
 
 **$5 would be a huge help to cover the costs of:**
 
-* 🤗 [HuggingFace](https://huggingface.co/docs/inference-providers/index) Serverless Inference API requests
+* 🔃 [OpenRouter](https://openrouter.ai/) credits (every LLM decision is one API call)
 * 🚂 [Railway](https://railway.com/) hosting costs
 * 🧠 [Tinker](https://thinkingmachines.ai/tinker/) credits
-* 🔃 [OpenRouter](https://openrouter.ai/) credits
 
 ## Upcoming Features
 
@@ -32,16 +31,19 @@ With Andrej Karpathy's [LLM Council](https://github.com/karpathy/llm-council) we
 
 ## Limitations
 
-With HuggingFace's free tier API, we are limited to:
+To keep costs down, the table runs on a fixed monthly budget:
 
 | Metric | Limit |
 |--------|-------|
-| **API Calls** | ~1,000 per 24 hours |
-| **Calls per Hand** | ~20 (across 9 LLMs) |
+| **Hours** | 9am to 9pm ET, daily |
+| **Calls per Hand** | ~15 (across 9 LLMs) |
+| **Pace** | ~12 hands per hour |
 
-**This essentially limits us to ~50 hands per 24 hours.**
+**This works out to ~150 hands per day.**
 
 For context, the average 5-hour session of live cash game poker has ~125 hands.
+
+Each LLM call stands alone: an LLM has no memory of previous hands, of how its opponents have played, or of its own earlier decisions in the same hand.
 
 ## Shoutouts
 
