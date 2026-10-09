@@ -31,3 +31,8 @@ def get_decision(player_name: str, prompt: str, valid_actions: list[dict]) -> di
 
     raw = f"ACTION: {action}\nAMOUNT: {amount}\nREASON: {REASON}"
     return {"action": "RAISE" if action == "BET" else action, "amount": amount, "reason": REASON, "raw": raw}
+
+
+def get_spend() -> dict | None:
+    """The mock provider costs nothing."""
+    return None
