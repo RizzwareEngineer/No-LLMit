@@ -1,0 +1,1153 @@
+{
+  "hand": {
+    "schema": 1,
+    "hand_id": "tbl_684679-000002",
+    "table_id": "tbl_684679",
+    "hand_number": 2,
+    "started_at": "2026-10-09T21:29:21.244622Z",
+    "ended_at": "2026-10-09T21:29:24.001082Z",
+    "config": {
+      "small_blind": 5,
+      "big_blind": 10,
+      "provider": "mock",
+      "prompt_version": "d7fd8ae",
+      "memory": "none"
+    },
+    "button_seat": 6,
+    "seats": [
+      {
+        "seat": 0,
+        "name": "GPT-OSS 20B",
+        "model": "mock",
+        "position": "UTG",
+        "stack_start": 2057,
+        "hole_cards": [
+          "Ks",
+          "4d"
+        ]
+      },
+      {
+        "seat": 1,
+        "name": "Claude Haiku 5.5",
+        "model": "mock",
+        "position": "UTG+1",
+        "stack_start": 2000,
+        "hole_cards": [
+          "Ah",
+          "As"
+        ]
+      },
+      {
+        "seat": 2,
+        "name": "Gemma 3 12B",
+        "model": "mock",
+        "position": "MP",
+        "stack_start": 2000,
+        "hole_cards": [
+          "2s",
+          "2c"
+        ]
+      },
+      {
+        "seat": 3,
+        "name": "Llama 3.1 8B",
+        "model": "mock",
+        "position": "MP+1",
+        "stack_start": 2000,
+        "hole_cards": [
+          "Ad",
+          "Kh"
+        ]
+      },
+      {
+        "seat": 4,
+        "name": "Mistral Nemo",
+        "model": "mock",
+        "position": "HJ",
+        "stack_start": 2000,
+        "hole_cards": [
+          "4h",
+          "2h"
+        ]
+      },
+      {
+        "seat": 5,
+        "name": "DeepSeek V4 Flash",
+        "model": "mock",
+        "position": "CO",
+        "stack_start": 1990,
+        "hole_cards": [
+          "Jd",
+          "6s"
+        ]
+      },
+      {
+        "seat": 6,
+        "name": "Phi-4",
+        "model": "mock",
+        "position": "BTN",
+        "stack_start": 1995,
+        "hole_cards": [
+          "4s",
+          "8s"
+        ]
+      },
+      {
+        "seat": 7,
+        "name": "Qwen 3.7 Flash",
+        "model": "mock",
+        "position": "SB",
+        "stack_start": 1958,
+        "hole_cards": [
+          "Kd",
+          "6d"
+        ]
+      },
+      {
+        "seat": 8,
+        "name": "Cohere Command R7B",
+        "model": "mock",
+        "position": "BB",
+        "stack_start": 2000,
+        "hole_cards": [
+          "5c",
+          "9h"
+        ]
+      }
+    ],
+    "blinds": [
+      {
+        "seat": 7,
+        "amount": 5
+      },
+      {
+        "seat": 8,
+        "amount": 10
+      }
+    ],
+    "deck": [
+      "Kd",
+      "5c",
+      "Ks",
+      "Ah",
+      "2s",
+      "Ad",
+      "4h",
+      "Jd",
+      "4s",
+      "6d",
+      "9h",
+      "4d",
+      "As",
+      "2c",
+      "Kh",
+      "2h",
+      "6s",
+      "8s",
+      "4c",
+      "3s",
+      "6c",
+      "Td",
+      "Qs",
+      "7c",
+      "6h",
+      "Tc",
+      "7s",
+      "2d",
+      "3c",
+      "8h",
+      "3h",
+      "9s",
+      "Js",
+      "Th",
+      "8d",
+      "8c",
+      "5h",
+      "3d",
+      "Jc",
+      "5s",
+      "5d",
+      "Qd",
+      "9d",
+      "Jh",
+      "9c",
+      "Kc",
+      "Ac",
+      "7h",
+      "Qc",
+      "Ts",
+      "7d",
+      "Qh"
+    ],
+    "board": [
+      "3s",
+      "6c",
+      "Td",
+      "7c",
+      "Tc"
+    ],
+    "actions": [
+      {
+        "n": 1,
+        "street": "preflop",
+        "seat": 0,
+        "player": "GPT-OSS 20B",
+        "pot_before": 15,
+        "to_call": 10,
+        "stack_before": 2057,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 10,
+            "description": "match the current bet of 10"
+          },
+          {
+            "type": "RAISE",
+            "min": 20,
+            "max": 2057,
+            "description": "choose ANY amount between 20 and 2057"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 2057,
+            "description": "put all 2057 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-01",
+        "parsed": {
+          "action": "FOLD",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "FOLD"
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 2,
+        "street": "preflop",
+        "seat": 1,
+        "player": "Claude Haiku 5.5",
+        "pot_before": 15,
+        "to_call": 10,
+        "stack_before": 2000,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 10,
+            "description": "match the current bet of 10"
+          },
+          {
+            "type": "RAISE",
+            "min": 20,
+            "max": 2000,
+            "description": "choose ANY amount between 20 and 2000"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 2000,
+            "description": "put all 2000 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-02",
+        "parsed": {
+          "action": "FOLD",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "FOLD"
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 3,
+        "street": "preflop",
+        "seat": 2,
+        "player": "Gemma 3 12B",
+        "pot_before": 15,
+        "to_call": 10,
+        "stack_before": 2000,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 10,
+            "description": "match the current bet of 10"
+          },
+          {
+            "type": "RAISE",
+            "min": 20,
+            "max": 2000,
+            "description": "choose ANY amount between 20 and 2000"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 2000,
+            "description": "put all 2000 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-03",
+        "parsed": {
+          "action": "RAISE",
+          "amount": 22,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "RAISE",
+          "amount": 22
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 4,
+        "street": "preflop",
+        "seat": 3,
+        "player": "Llama 3.1 8B",
+        "pot_before": 37,
+        "to_call": 22,
+        "stack_before": 2000,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 22,
+            "description": "match the current bet of 22"
+          },
+          {
+            "type": "RAISE",
+            "min": 34,
+            "max": 2000,
+            "description": "choose ANY amount between 34 and 2000"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 2000,
+            "description": "put all 2000 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-04",
+        "parsed": {
+          "action": "RAISE",
+          "amount": 100,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "RAISE",
+          "amount": 100
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 5,
+        "street": "preflop",
+        "seat": 4,
+        "player": "Mistral Nemo",
+        "pot_before": 137,
+        "to_call": 100,
+        "stack_before": 2000,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 100,
+            "description": "match the current bet of 100"
+          },
+          {
+            "type": "RAISE",
+            "min": 178,
+            "max": 2000,
+            "description": "choose ANY amount between 178 and 2000"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 2000,
+            "description": "put all 2000 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-05",
+        "parsed": {
+          "action": "FOLD",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "FOLD"
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 6,
+        "street": "preflop",
+        "seat": 5,
+        "player": "DeepSeek V4 Flash",
+        "pot_before": 137,
+        "to_call": 100,
+        "stack_before": 1990,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 100,
+            "description": "match the current bet of 100"
+          },
+          {
+            "type": "RAISE",
+            "min": 178,
+            "max": 1990,
+            "description": "choose ANY amount between 178 and 1990"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1990,
+            "description": "put all 1990 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-06",
+        "parsed": {
+          "action": "CALL",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "CALL",
+          "amount": 100
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 7,
+        "street": "preflop",
+        "seat": 6,
+        "player": "Phi-4",
+        "pot_before": 237,
+        "to_call": 100,
+        "stack_before": 1995,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 100,
+            "description": "match the current bet of 100"
+          },
+          {
+            "type": "RAISE",
+            "min": 178,
+            "max": 1995,
+            "description": "choose ANY amount between 178 and 1995"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1995,
+            "description": "put all 1995 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-07",
+        "parsed": {
+          "action": "FOLD",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "FOLD"
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 8,
+        "street": "preflop",
+        "seat": 7,
+        "player": "Qwen 3.7 Flash",
+        "pot_before": 237,
+        "to_call": 95,
+        "stack_before": 1953,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 95,
+            "description": "match the current bet of 95"
+          },
+          {
+            "type": "RAISE",
+            "min": 178,
+            "max": 1958,
+            "description": "choose ANY amount between 178 and 1958"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1958,
+            "description": "put all 1958 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-08",
+        "parsed": {
+          "action": "FOLD",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "FOLD"
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 9,
+        "street": "preflop",
+        "seat": 8,
+        "player": "Cohere Command R7B",
+        "pot_before": 237,
+        "to_call": 90,
+        "stack_before": 1990,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 90,
+            "description": "match the current bet of 90"
+          },
+          {
+            "type": "RAISE",
+            "min": 178,
+            "max": 2000,
+            "description": "choose ANY amount between 178 and 2000"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 2000,
+            "description": "put all 2000 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-09",
+        "parsed": {
+          "action": "CALL",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "CALL",
+          "amount": 90
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 10,
+        "street": "preflop",
+        "seat": 2,
+        "player": "Gemma 3 12B",
+        "pot_before": 327,
+        "to_call": 78,
+        "stack_before": 1978,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 78,
+            "description": "match the current bet of 78"
+          },
+          {
+            "type": "RAISE",
+            "min": 178,
+            "max": 2000,
+            "description": "choose ANY amount between 178 and 2000"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 2000,
+            "description": "put all 2000 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-10",
+        "parsed": {
+          "action": "FOLD",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "FOLD"
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 11,
+        "street": "flop",
+        "seat": 8,
+        "player": "Cohere Command R7B",
+        "pot_before": 327,
+        "to_call": 0,
+        "stack_before": 1900,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CHECK",
+            "description": "pass without betting"
+          },
+          {
+            "type": "BET",
+            "min": 10,
+            "max": 1900,
+            "description": "choose ANY amount between 10 and 1900"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1900,
+            "description": "put all 1900 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-11",
+        "parsed": {
+          "action": "RAISE",
+          "amount": 12,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "BET",
+          "amount": 12
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 12,
+        "street": "flop",
+        "seat": 3,
+        "player": "Llama 3.1 8B",
+        "pot_before": 339,
+        "to_call": 12,
+        "stack_before": 1900,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 12,
+            "description": "match the current bet of 12"
+          },
+          {
+            "type": "RAISE",
+            "min": 24,
+            "max": 1900,
+            "description": "choose ANY amount between 24 and 1900"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1900,
+            "description": "put all 1900 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-12",
+        "parsed": {
+          "action": "CALL",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "CALL",
+          "amount": 12
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 13,
+        "street": "flop",
+        "seat": 5,
+        "player": "DeepSeek V4 Flash",
+        "pot_before": 351,
+        "to_call": 12,
+        "stack_before": 1890,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 12,
+            "description": "match the current bet of 12"
+          },
+          {
+            "type": "RAISE",
+            "min": 24,
+            "max": 1890,
+            "description": "choose ANY amount between 24 and 1890"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1890,
+            "description": "put all 1890 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-13",
+        "parsed": {
+          "action": "CALL",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "CALL",
+          "amount": 12
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 14,
+        "street": "turn",
+        "seat": 8,
+        "player": "Cohere Command R7B",
+        "pot_before": 363,
+        "to_call": 0,
+        "stack_before": 1888,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CHECK",
+            "description": "pass without betting"
+          },
+          {
+            "type": "BET",
+            "min": 10,
+            "max": 1888,
+            "description": "choose ANY amount between 10 and 1888"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1888,
+            "description": "put all 1888 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-14",
+        "parsed": {
+          "action": "RAISE",
+          "amount": 12,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "BET",
+          "amount": 12
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 15,
+        "street": "turn",
+        "seat": 3,
+        "player": "Llama 3.1 8B",
+        "pot_before": 375,
+        "to_call": 12,
+        "stack_before": 1888,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 12,
+            "description": "match the current bet of 12"
+          },
+          {
+            "type": "RAISE",
+            "min": 24,
+            "max": 1888,
+            "description": "choose ANY amount between 24 and 1888"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1888,
+            "description": "put all 1888 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-15",
+        "parsed": {
+          "action": "CALL",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "CALL",
+          "amount": 12
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 16,
+        "street": "turn",
+        "seat": 5,
+        "player": "DeepSeek V4 Flash",
+        "pot_before": 387,
+        "to_call": 12,
+        "stack_before": 1878,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CALL",
+            "amount": 12,
+            "description": "match the current bet of 12"
+          },
+          {
+            "type": "RAISE",
+            "min": 24,
+            "max": 1878,
+            "description": "choose ANY amount between 24 and 1878"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1878,
+            "description": "put all 1878 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-16",
+        "parsed": {
+          "action": "FOLD",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "FOLD"
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 17,
+        "street": "river",
+        "seat": 8,
+        "player": "Cohere Command R7B",
+        "pot_before": 387,
+        "to_call": 0,
+        "stack_before": 1876,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CHECK",
+            "description": "pass without betting"
+          },
+          {
+            "type": "BET",
+            "min": 10,
+            "max": 1876,
+            "description": "choose ANY amount between 10 and 1876"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1876,
+            "description": "put all 1876 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-17",
+        "parsed": {
+          "action": "CHECK",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "CHECK"
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      },
+      {
+        "n": 18,
+        "street": "river",
+        "seat": 3,
+        "player": "Llama 3.1 8B",
+        "pot_before": 387,
+        "to_call": 0,
+        "stack_before": 1876,
+        "legal_actions": [
+          {
+            "type": "FOLD",
+            "description": "give up your hand"
+          },
+          {
+            "type": "CHECK",
+            "description": "pass without betting"
+          },
+          {
+            "type": "BET",
+            "min": 10,
+            "max": 1876,
+            "description": "choose ANY amount between 10 and 1876"
+          },
+          {
+            "type": "ALL-IN",
+            "amount": 1876,
+            "description": "put all 1876 chips in"
+          }
+        ],
+        "prompt_id": "tbl_684679-000002-18",
+        "parsed": {
+          "action": "CHECK",
+          "amount": 0,
+          "reason": "Mock provider: random legal action, no model was called."
+        },
+        "status": "ok",
+        "applied": {
+          "type": "CHECK"
+        },
+        "latency_ms": 0,
+        "tokens_in": null,
+        "tokens_out": null,
+        "cost_usd": null
+      }
+    ],
+    "result": {
+      "pots": [
+        {
+          "amount": 387,
+          "winner_seat": 3,
+          "eligible_seats": [
+            3,
+            8
+          ],
+          "pot_number": 1
+        }
+      ],
+      "showdown": [
+        {
+          "seat": 3,
+          "hole_cards": [
+            "Ad",
+            "Kh"
+          ]
+        },
+        {
+          "seat": 8,
+          "hole_cards": [
+            "5c",
+            "9h"
+          ]
+        }
+      ],
+      "net": {
+        "2": -22,
+        "3": 263,
+        "5": -112,
+        "7": -5,
+        "8": -124
+      }
+    }
+  },
+  "prompts": [
+    {
+      "prompt_id": "tbl_684679-000002-01",
+      "n": 1,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10\n\nYou are GPT-OSS 20B, in the UTG. Your hole cards: Ks 4d.\nPot: 15. To call: 10. Your stack: 2057.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Claude Haiku 5.5 (UTG+1, 2000 behind), Gemma 3 12B (MP, 2000 behind), Llama 3.1 8B (MP+1, 2000 behind), Mistral Nemo (HJ, 2000 behind), DeepSeek V4 Flash (CO, 1990 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 10\n- RAISE: AMOUNT is your total bet this street, between 20 and 2057\n- ALL_IN (2057 total this street)\n",
+      "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-02",
+      "n": 2,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds\n\nYou are Claude Haiku 5.5, in the UTG+1. Your hole cards: Ah As.\nPot: 15. To call: 10. Your stack: 2000.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 2000 behind), Llama 3.1 8B (MP+1, 2000 behind), Mistral Nemo (HJ, 2000 behind), DeepSeek V4 Flash (CO, 1990 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 10\n- RAISE: AMOUNT is your total bet this street, between 20 and 2000\n- ALL_IN (2000 total this street)\n",
+      "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-03",
+      "n": 3,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds\n\nYou are Gemma 3 12B, in the MP. Your hole cards: 2s 2c.\nPot: 15. To call: 10. Your stack: 2000.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Llama 3.1 8B (MP+1, 2000 behind), Mistral Nemo (HJ, 2000 behind), DeepSeek V4 Flash (CO, 1990 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 10\n- RAISE: AMOUNT is your total bet this street, between 20 and 2000\n- ALL_IN (2000 total this street)\n",
+      "raw_reply": "ACTION: RAISE\nAMOUNT: 22\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-04",
+      "n": 4,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22\n\nYou are Llama 3.1 8B, in the MP+1. Your hole cards: Ad Kh.\nPot: 37. To call: 22. Your stack: 2000.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 1978 behind), Mistral Nemo (HJ, 2000 behind), DeepSeek V4 Flash (CO, 1990 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 22\n- RAISE: AMOUNT is your total bet this street, between 34 and 2000\n- ALL_IN (2000 total this street)\n",
+      "raw_reply": "ACTION: RAISE\nAMOUNT: 100\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-05",
+      "n": 5,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100\n\nYou are Mistral Nemo, in the HJ. Your hole cards: 4h 2h.\nPot: 137. To call: 100. Your stack: 2000.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 1978 behind), Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1990 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 100\n- RAISE: AMOUNT is your total bet this street, between 178 and 2000\n- ALL_IN (2000 total this street)\n",
+      "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-06",
+      "n": 6,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds\n\nYou are DeepSeek V4 Flash, in the CO. Your hole cards: Jd 6s.\nPot: 137. To call: 100. Your stack: 1990.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 1978 behind), Llama 3.1 8B (MP+1, 1900 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 100\n- RAISE: AMOUNT is your total bet this street, between 178 and 1990\n- ALL_IN (1990 total this street)\n",
+      "raw_reply": "ACTION: CALL\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-07",
+      "n": 7,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100\n\nYou are Phi-4, in the BTN. Your hole cards: 4s 8s.\nPot: 237. To call: 100. Your stack: 1995.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 1978 behind), Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CALL 100\n- RAISE: AMOUNT is your total bet this street, between 178 and 1995\n- ALL_IN (1995 total this street)\n",
+      "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-08",
+      "n": 8,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds\n\nYou are Qwen 3.7 Flash, in the SB. Your hole cards: Kd 6d.\nPot: 237. To call: 95. Your stack: 1953.\nStill in the hand: Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 1978 behind), Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CALL 95\n- RAISE: AMOUNT is your total bet this street, between 178 and 1958\n- ALL_IN (1958 total this street)\n",
+      "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-09",
+      "n": 9,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds\n\nYou are Cohere Command R7B, in the BB. Your hole cards: 5c 9h.\nPot: 237. To call: 90. Your stack: 1990.\nStill in the hand: Gemma 3 12B (MP, 1978 behind), Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CALL 90\n- RAISE: AMOUNT is your total bet this street, between 178 and 2000\n- ALL_IN (2000 total this street)\n",
+      "raw_reply": "ACTION: CALL\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-10",
+      "n": 10,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90\n\nYou are Gemma 3 12B, in the MP. Your hole cards: 2s 2c.\nPot: 327. To call: 78. Your stack: 1978.\nStill in the hand: Cohere Command R7B (BB, 1900 behind), Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CALL 78\n- RAISE: AMOUNT is your total bet this street, between 178 and 2000\n- ALL_IN (2000 total this street)\n",
+      "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-11",
+      "n": 11,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): no action yet\n\nYou are Cohere Command R7B, in the BB. Your hole cards: 5c 9h.\nPot: 327. To call: 0. Your stack: 1900.\nStill in the hand: Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET: AMOUNT is your total bet this street, between 10 and 1900\n- ALL_IN (1900 total this street)\n",
+      "raw_reply": "ACTION: BET\nAMOUNT: 12\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-12",
+      "n": 12,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12\n\nYou are Llama 3.1 8B, in the MP+1. Your hole cards: Ad Kh.\nPot: 339. To call: 12. Your stack: 1900.\nStill in the hand: Cohere Command R7B (BB, 1888 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CALL 12\n- RAISE: AMOUNT is your total bet this street, between 24 and 1900\n- ALL_IN (1900 total this street)\n",
+      "raw_reply": "ACTION: CALL\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-13",
+      "n": 13,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12\n\nYou are DeepSeek V4 Flash, in the CO. Your hole cards: Jd 6s.\nPot: 351. To call: 12. Your stack: 1890.\nStill in the hand: Cohere Command R7B (BB, 1888 behind), Llama 3.1 8B (MP+1, 1888 behind).\n\nLegal actions:\n- FOLD\n- CALL 12\n- RAISE: AMOUNT is your total bet this street, between 24 and 1890\n- ALL_IN (1890 total this street)\n",
+      "raw_reply": "ACTION: CALL\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-14",
+      "n": 14,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash calls 12\nTurn [3s 6c Td 7c] (pot 363): no action yet\n\nYou are Cohere Command R7B, in the BB. Your hole cards: 5c 9h.\nPot: 363. To call: 0. Your stack: 1888.\nStill in the hand: Llama 3.1 8B (MP+1, 1888 behind), DeepSeek V4 Flash (CO, 1878 behind).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET: AMOUNT is your total bet this street, between 10 and 1888\n- ALL_IN (1888 total this street)\n",
+      "raw_reply": "ACTION: BET\nAMOUNT: 12\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-15",
+      "n": 15,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash calls 12\nTurn [3s 6c Td 7c] (pot 363): Cohere Command R7B bets 12\n\nYou are Llama 3.1 8B, in the MP+1. Your hole cards: Ad Kh.\nPot: 375. To call: 12. Your stack: 1888.\nStill in the hand: Cohere Command R7B (BB, 1876 behind), DeepSeek V4 Flash (CO, 1878 behind).\n\nLegal actions:\n- FOLD\n- CALL 12\n- RAISE: AMOUNT is your total bet this street, between 24 and 1888\n- ALL_IN (1888 total this street)\n",
+      "raw_reply": "ACTION: CALL\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-16",
+      "n": 16,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash calls 12\nTurn [3s 6c Td 7c] (pot 363): Cohere Command R7B bets 12, Llama 3.1 8B calls 12\n\nYou are DeepSeek V4 Flash, in the CO. Your hole cards: Jd 6s.\nPot: 387. To call: 12. Your stack: 1878.\nStill in the hand: Cohere Command R7B (BB, 1876 behind), Llama 3.1 8B (MP+1, 1876 behind).\n\nLegal actions:\n- FOLD\n- CALL 12\n- RAISE: AMOUNT is your total bet this street, between 24 and 1878\n- ALL_IN (1878 total this street)\n",
+      "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-17",
+      "n": 17,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash calls 12\nTurn [3s 6c Td 7c] (pot 363): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash folds\nRiver [3s 6c Td 7c Tc] (pot 387): no action yet\n\nYou are Cohere Command R7B, in the BB. Your hole cards: 5c 9h.\nPot: 387. To call: 0. Your stack: 1876.\nStill in the hand: Llama 3.1 8B (MP+1, 1876 behind).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET: AMOUNT is your total bet this street, between 10 and 1876\n- ALL_IN (1876 total this street)\n",
+      "raw_reply": "ACTION: CHECK\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    },
+    {
+      "prompt_id": "tbl_684679-000002-18",
+      "n": 18,
+      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash calls 12\nTurn [3s 6c Td 7c] (pot 363): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash folds\nRiver [3s 6c Td 7c Tc] (pot 387): Cohere Command R7B checks\n\nYou are Llama 3.1 8B, in the MP+1. Your hole cards: Ad Kh.\nPot: 387. To call: 0. Your stack: 1876.\nStill in the hand: Cohere Command R7B (BB, 1876 behind).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET: AMOUNT is your total bet this street, between 10 and 1876\n- ALL_IN (1876 total this street)\n",
+      "raw_reply": "ACTION: CHECK\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
+    }
+  ]
+}
