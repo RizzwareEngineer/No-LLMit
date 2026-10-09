@@ -6,6 +6,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -59,13 +60,109 @@ type Table struct {
 	calls        int
 	callsDay     string
 	pace         float64
+
+	// Daily opening hours, e.g. 9 to 21 in America/New_York. hoursZone is nil when the
+	// table is always open.
+	openHour  int
+	closeHour int
+	hoursZone *time.Location
 }
 
 func NewTable() *Table {
-	return &Table{
+	t := &Table{
 		spectators:   make(map[*websocket.Conn]*spectator),
 		dailyCallCap: envInt("DAILY_CALL_CAP", 5000),
 		pace:         envFloat("TABLE_PACE", 1),
+		openHour:     envInt("TABLE_OPEN_HOUR", 0),
+		closeHour:    envInt("TABLE_CLOSE_HOUR", 24),
+	}
+	if zone := os.Getenv("TABLE_TIMEZONE"); zone != "" && t.closeHour > t.openHour {
+		loc, err := time.LoadLocation(zone)
+		if err != nil {
+			log.Printf("Ignoring table hours: unknown TABLE_TIMEZONE %q", zone)
+		} else {
+			t.hoursZone = loc
+			log.Printf("Table hours: %s", t.hoursLabel())
+		}
+	}
+	return t
+}
+
+func hourLabel(h int) string {
+	switch {
+	case h == 0 || h == 24:
+		return "12am"
+	case h == 12:
+		return "12pm"
+	case h < 12:
+		return fmt.Sprintf("%dam", h)
+	default:
+		return fmt.Sprintf("%dpm", h-12)
+	}
+}
+
+// hoursLabel describes the opening hours, or "" when the table is always open.
+func (t *Table) hoursLabel() string {
+	if t.hoursZone == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s to %s %s", hourLabel(t.openHour), hourLabel(t.closeHour), time.Now().In(t.hoursZone).Format("MST"))
+}
+
+func (t *Table) isOpen() bool {
+	if t.hoursZone == nil {
+		return true
+	}
+	h := time.Now().In(t.hoursZone).Hour()
+	return h >= t.openHour && h < t.closeHour
+}
+
+// waitForOpenHours blocks between hands while the table is closed for the day.
+func (t *Table) waitForOpenHours() {
+	closedNotice := ""
+	for !t.isOpen() {
+		if closedNotice == "" {
+			closedNotice = fmt.Sprintf("The table is closed. It is open daily from %s.", t.hoursLabel())
+			log.Printf("Table closed for the day (%s)", t.hoursLabel())
+			t.mu.Lock()
+			t.notice = closedNotice
+			t.broadcast(ServerMessage{Type: MsgError, Payload: ErrorPayload{Message: t.notice}})
+			t.mu.Unlock()
+		}
+		time.Sleep(10 * time.Second)
+	}
+	if closedNotice != "" {
+		log.Printf("Table open")
+		t.mu.Lock()
+		if t.notice == closedNotice {
+			t.notice = ""
+		}
+		t.mu.Unlock()
+	}
+}
+
+// TableUsage is what the frontend's usage widget shows.
+type TableUsage struct {
+	CallsToday   int    `json:"callsToday"`
+	DailyCallCap int    `json:"dailyCallCap"`
+	Open         bool   `json:"open"`
+	Hours        string `json:"hours,omitempty"`
+	Spectators   int    `json:"spectators"`
+}
+
+func (t *Table) Usage() TableUsage {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	calls := t.calls
+	if t.callsDay != time.Now().UTC().Format("2006-01-02") {
+		calls = 0
+	}
+	return TableUsage{
+		CallsToday:   calls,
+		DailyCallCap: t.dailyCallCap,
+		Open:         t.isOpen(),
+		Hours:        t.hoursLabel(),
+		Spectators:   len(t.spectators),
 	}
 }
 
@@ -296,6 +393,7 @@ func (t *Table) startGame() {
 }
 
 func (t *Table) playHand() {
+	t.waitForOpenHours()
 	t.waitForSpectators()
 
 	t.mu.Lock()

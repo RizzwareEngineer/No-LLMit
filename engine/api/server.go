@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
 )
 
@@ -58,6 +59,7 @@ func (s *Server) Start(port int) error {
 	http.HandleFunc("/ws", s.handleWebSocket)
 	http.HandleFunc("/health", s.handleHealth)
 	http.HandleFunc("/api/games", s.handleCORS(s.handleListGames))
+	http.HandleFunc("/api/usage", s.handleCORS(s.handleUsage))
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("Starting server on %s", addr)
@@ -82,6 +84,23 @@ func (s *Server) handleCORS(next http.HandlerFunc) http.HandlerFunc {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleUsage reports the shared table's call count and hours, plus the LLM service's
+// provider and spend, for the frontend's usage widget.
+func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
+	out := map[string]interface{}{}
+	if s.table != nil {
+		out["table"] = s.table.Usage()
+	}
+	if llm, err := client.GetLLMUsage(); err != nil {
+		log.Printf("Usage: %v", err)
+	} else {
+		out["llm"] = llm
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleListGames(w http.ResponseWriter, r *http.Request) {

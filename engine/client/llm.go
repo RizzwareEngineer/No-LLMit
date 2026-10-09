@@ -88,3 +88,23 @@ func CheckLLMServiceHealth() error {
 
 	return nil
 }
+
+// GetLLMUsage returns the LLM service's usage report (provider and spend) as raw JSON.
+func GetLLMUsage() (json.RawMessage, error) {
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	resp, err := httpClient.Get(fmt.Sprintf("%s/usage", llmServiceURL))
+	if err != nil {
+		return nil, fmt.Errorf("LLM service not reachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("LLM service returned status %d", resp.StatusCode)
+	}
+
+	var raw json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return raw, nil
+}
