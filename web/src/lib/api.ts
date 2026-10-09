@@ -2,6 +2,9 @@
 
 export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws';
 
+// The engine's HTTP address, derived from its WebSocket address
+export const API_URL = WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, '');
+
 export type MessageType = 
   | 'new_game'
   | 'start_hand'
