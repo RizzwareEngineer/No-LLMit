@@ -8,6 +8,6 @@ COPY . .
 # Railway provides PORT env var, default to 5001 locally
 ENV PORT=5001
 EXPOSE $PORT
-# "::" listens on IPv4 and IPv6; Railway private networking needs IPv6
-CMD uvicorn app:app --host :: --port $PORT
+# An empty host listens on both IPv4 (Railway healthcheck) and IPv6 (private networking)
+CMD uvicorn app:app --host "" --port $PORT
 
