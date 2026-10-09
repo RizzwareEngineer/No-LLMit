@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	_ "time/tzdata" // TABLE_TIMEZONE must resolve inside the minimal container image
 
 	"github.com/rizzwareengineer/no-LLMit/engine/api"
 )
