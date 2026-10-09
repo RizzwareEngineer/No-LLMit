@@ -7,6 +7,7 @@ import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
+import UsageIndicator from "@/components/UsageIndicator";
 import { useGameState } from "@/hooks/useGameState";
 import { ALL_LLMS, DEFAULT_GAME_CONFIG } from "@/lib/constants";
 
@@ -35,6 +36,7 @@ export default function Home() {
   const [selectedLLMs, setSelectedLLMs] = useState<string[]>([]);
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
+  const [usageRefreshTrigger, setUsageRefreshTrigger] = useState(0);
   
   // Check for test mode via URL param (?test=true) or play mode via sessionStorage
   useEffect(() => {
@@ -108,6 +110,13 @@ export default function Home() {
       }
     }
   }, [isConnected, gameState?.id, gameState?.handNumber, isLoading, buttonDetermination, startHand, gameMode]);
+
+  // Refresh usage stats when an LLM action is revealed
+  useEffect(() => {
+    if (displayState?.phase === 'revealed') {
+      setUsageRefreshTrigger(prev => prev + 1);
+    }
+  }, [displayState?.phase]);
 
   // Timer effect - update elapsed time every second using server's gameStartTime
   useEffect(() => {
@@ -356,9 +365,13 @@ export default function Home() {
                 hidePositions={!!buttonDetermination}
               />
 
-              {/* Right sidebar column - Winnings */}
+              {/* Right sidebar column - API Usage above Winnings */}
               <div className="flex flex-col w-[240px] shrink-0">
-                <div className="flex-1 flex flex-col min-h-0">
+                {/* API Usage - static, above winnings */}
+                <UsageIndicator isPaused={isPaused} inline refreshTrigger={usageRefreshTrigger} />
+
+                {/* Winnings panel */}
+                <div className="mt-4 flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />
                 </div>
               </div>
