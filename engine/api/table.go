@@ -5,6 +5,8 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -61,6 +63,13 @@ type Table struct {
 	callsDay     string
 	pace         float64
 
+	// Hand history: every finished hand is recorded and saved
+	id           string
+	store        *HandStore
+	recorder     *handRecorder
+	promptVer    string // version of the cached system prompt
+	systemPrompt string
+
 	// Daily opening hours, e.g. 9 to 21 in America/New_York. hoursZone is nil when the
 	// table is always open.
 	openHour  int
@@ -69,7 +78,11 @@ type Table struct {
 }
 
 func NewTable() *Table {
+	idBytes := make([]byte, 3)
+	rand.Read(idBytes)
 	t := &Table{
+		id:           "tbl_" + hex.EncodeToString(idBytes),
+		store:        NewHandStore(),
 		spectators:   make(map[*websocket.Conn]*spectator),
 		dailyCallCap: envInt("DAILY_CALL_CAP", 5000),
 		pace:         envFloat("TABLE_PACE", 1),
@@ -397,13 +410,14 @@ func (t *Table) playHand() {
 	t.waitForSpectators()
 
 	t.mu.Lock()
-	t.gs.RebuyBrokePlayers(tableStartingStack)
+	rebought := t.gs.RebuyBrokePlayers(tableStartingStack)
 	if err := t.gs.StartHand(); err != nil {
 		t.mu.Unlock()
 		log.Printf("Could not start hand: %v", err)
 		time.Sleep(5 * time.Second)
 		return
 	}
+	t.recorder = newHandRecorder(t.gs, t.id, rebought)
 	t.buttonCards = nil
 	t.buttonWinner = nil
 	t.turn = nil
@@ -428,12 +442,41 @@ func (t *Table) playHand() {
 	t.mu.Lock()
 	if !t.gs.IsHandComplete() {
 		log.Printf("Hand #%d stalled on %s with nobody to act; dealing a new hand", t.gs.HandNumber, t.gs.Street)
+	} else {
+		t.saveHand()
 	}
 	wait := time.Until(t.nextHandAt)
 	t.mu.Unlock()
 	if wait > 0 {
 		time.Sleep(wait)
 	}
+}
+
+// saveHand hands the finished hand to the store. Hands played by the mock provider are
+// only kept locally; they are not real model decisions. Callers hold t.mu.
+func (t *Table) saveHand() {
+	record, prompts := t.recorder.finish(t.gs)
+	t.recorder = nil
+	if len(record.Actions) == 0 {
+		return
+	}
+	if _, toSupabase := t.store.saver.(*supabaseSaver); toSupabase && record.Config.Provider == "mock" {
+		return
+	}
+
+	if record.Config.PromptVersion != t.promptVer {
+		version, prompt, err := client.GetSystemPrompt()
+		if err != nil {
+			log.Printf("Could not fetch system prompt: %v", err)
+		} else {
+			t.promptVer, t.systemPrompt = version, prompt
+		}
+	}
+	systemPrompt := ""
+	if record.Config.PromptVersion == t.promptVer {
+		systemPrompt = t.systemPrompt
+	}
+	t.store.Save(savedHand{Record: record, Prompts: prompts, SystemPrompt: systemPrompt})
 }
 
 // settleStreets advances past any street where the betting is already finished.
@@ -467,6 +510,7 @@ func (t *Table) playTurn() {
 	playerName := t.gs.Players[playerIdx].Name
 	validActions := buildLLMValidActions(t.gs)
 	prompt := t.gs.GetLLMPrompt(playerName, validActions)
+	t.recorder.beginDecision(t.gs, validActions, prompt)
 	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{PlayerIdx: playerIdx, PlayerName: playerName}}
 	t.turn = &thinking
 	t.broadcast(thinking)
@@ -475,7 +519,8 @@ func (t *Table) playTurn() {
 
 	start := time.Now()
 	decision, err := client.GetLLMDecision(playerName, prompt, validActions, game.ModeSimulate.String())
-	if err != nil {
+	serviceErr := err != nil
+	if serviceErr {
 		log.Printf("❌ LLM ERROR for %s: %v", playerName, err)
 		decision = &client.LLMDecisionResponse{Action: "FOLD", Reason: "LLM service error, auto-fold"}
 	}
@@ -501,10 +546,13 @@ func (t *Table) playTurn() {
 
 	t.mu.Lock()
 	action := game.Action{Type: ParseActionType(decision.Action), Amount: decision.Amount, PlayerIdx: playerIdx}
+	illegal := false
 	if err := t.gs.ProcessAction(action); err != nil {
 		log.Printf("Error processing LLM action: %v", err)
+		illegal = true
 		t.gs.ProcessAction(game.Action{Type: game.ActionFold, PlayerIdx: playerIdx})
 	}
+	t.recorder.endDecision(t.gs, decision, serviceErr, illegal)
 	if t.gs.NeedToAdvanceStreet() {
 		t.advanceStreet()
 	}
