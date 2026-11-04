@@ -4,14 +4,19 @@ import { useState, useEffect } from "react";
 import { Lightning, Heart, Warning } from "@phosphor-icons/react";
 import CornerBorders from "@/components/CornerBorders";
 import { API_URL } from "@/lib/api";
+import { localHoursLabel } from "@/lib/time";
 
 // What the engine's /api/usage reports
-interface UsageData {
+export interface UsageData {
   table?: {
     callsToday: number;
     dailyCallCap: number;
     open: boolean;
     hours?: string;
+    openHour?: number;
+    closeHour?: number;
+    timezone?: string;
+    spectators: number;
   };
   llm?: {
     provider: string;
@@ -19,154 +24,116 @@ interface UsageData {
   };
 }
 
-interface UsageIndicatorProps {
-  isPaused?: boolean;
-  inline?: boolean;
-  refreshTrigger?: number; // Increment this to trigger a refresh
-}
+const USAGE_POLL_MS = 30_000;
 
-export default function UsageIndicator({ isPaused = false, inline = false, refreshTrigger }: UsageIndicatorProps) {
+// Polls /api/usage on an interval and whenever refreshTrigger changes.
+export function useUsage(refreshTrigger?: number, isPaused = false) {
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [error, setError] = useState(false);
-  const [showDonate, setShowDonate] = useState(false);
-
-  const fetchUsage = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/usage`);
-      if (res.ok) {
-        const data = await res.json();
-        setUsage(data);
-        setError(false);
-      } else {
-        setError(true);
-      }
-    } catch {
-      setError(true);
-    }
-  };
 
   useEffect(() => {
     if (isPaused) return;
+    const fetchUsage = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/usage`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setUsage(await res.json());
+        setError(false);
+      } catch {
+        setError(true);
+      }
+    };
     fetchUsage();
+    const interval = setInterval(fetchUsage, USAGE_POLL_MS);
+    return () => clearInterval(interval);
   }, [isPaused, refreshTrigger]);
 
+  return { usage, error };
+}
+
+const MUTED = 'rgba(55, 53, 47, 0.65)';
+const WARN_TEXT = 'rgb(140, 95, 20)'; // darker mustard, readable on white
+
+export default function UsageIndicator({ usage, error }: { usage: UsageData | null; error: boolean }) {
   const table = usage?.table;
   const spend = usage?.llm?.spend;
   const isMock = usage?.llm?.provider === 'mock';
   const usedUsd = spend?.used_usd ?? 0;
   const limitUsd = spend?.limit_usd ?? null;
-  // Bar shows spend against the monthly limit, or today's calls against the cap
-  const usedPct = limitUsd
-    ? (usedUsd / limitUsd) * 100
+  const showSpend = !!spend && !isMock;
+  // Bar shows spend against the monthly limit when there is one, else today's calls against the cap
+  const barIsSpend = showSpend && !!limitUsd;
+  const usedPct = barIsSpend
+    ? (usedUsd / limitUsd!) * 100
     : table ? (table.callsToday / table.dailyCallCap) * 100 : 0;
   const isLow = usedPct > 50;
   const isCritical = usedPct > 80;
+  const barColor = error ? MUTED : isCritical ? 'rgb(235, 87, 87)' : isLow ? 'rgb(203, 145, 47)' : 'rgb(15, 123, 108)';
+  const hours = localHoursLabel(table);
+  const calls = error || !table ? '???' : `${table.callsToday.toLocaleString()} / ${table.dailyCallCap.toLocaleString()}`;
 
-  const content = (
-    <div className="relative">
-      <div 
-        className="relative bg-white cursor-pointer rounded overflow-hidden"
-        style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
-        onClick={() => setShowDonate(!showDonate)}
-      >
-        <CornerBorders />
-        <div className="px-3 py-2">
-          <div className="flex items-center gap-2 text-[10px] mb-1" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
-            <Lightning 
-              size={10} 
-              weight="bold" 
-              style={{ color: error ? 'rgba(55, 53, 47, 0.4)' : isCritical ? 'rgb(235, 87, 87)' : isLow ? 'rgb(203, 145, 47)' : 'rgb(15, 123, 108)' }} 
-            />
-            <span className="uppercase font-bold">API Usage</span>
-            {error && <Warning size={10} weight="bold" style={{ color: 'rgb(203, 145, 47)' }} />}
-            {!error && isCritical && <Warning size={10} weight="bold" style={{ color: 'rgb(235, 87, 87)' }} />}
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <span className="text-[9px]" style={{ color: 'rgba(55, 53, 47, 0.4)' }}>Spend:</span>
-            <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div 
-                className="h-full rounded-full transition-all"
-                style={{ 
-                  width: error ? '0%' : `${Math.min(100, usedPct)}%`,
-                  background: error ? 'rgba(55, 53, 47, 0.4)' : isCritical ? 'rgb(235, 87, 87)' : isLow ? 'rgb(203, 145, 47)' : 'rgb(15, 123, 108)'
-                }}
-              />
-            </div>
-            <span 
-              className="text-[10px] font-mono font-bold"
-              style={{ color: error ? 'rgba(55, 53, 47, 0.4)' : isCritical ? 'rgb(235, 87, 87)' : isLow ? 'rgb(203, 145, 47)' : 'rgb(55, 53, 47)' }}
-            >
-              {error ? '???' : isMock ? 'none' : limitUsd ? `$${usedUsd.toFixed(2)} / $${limitUsd.toFixed(0)}` : `$${usedUsd.toFixed(2)}`}
-            </span>
-          </div>
-          
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-[9px]" style={{ color: 'rgba(55, 53, 47, 0.4)' }}>Calls today:</span>
-            <span className="text-[10px] font-mono" style={{ color: 'rgb(55, 53, 47)' }}>
-              {error || !table ? '???' : `${table.callsToday.toLocaleString()} / ${table.dailyCallCap.toLocaleString()}`}
-            </span>
-          </div>
-
-          {isMock && (
-            <div className="mt-1 text-[9px]" style={{ color: 'rgb(203, 145, 47)' }}>
-              Test mode: random actions, no models called
-            </div>
-          )}
-
-          {table?.hours && (
-            <div className="mt-1 text-[9px]" style={{ color: table.open ? 'rgba(55, 53, 47, 0.5)' : 'rgb(203, 145, 47)' }}>
-              {table.open ? 'Open' : 'Closed. Open'} daily {table.hours}
-            </div>
-          )}
-
-          <div className="mt-2 pt-2 border-t border-notion flex items-center gap-1 text-[9px]" style={{ color: 'rgb(235, 87, 87)' }}>
-            <Heart size={10} weight="fill" />
-            <span>Click to support this project</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Donate popup - opens upward */}
-      {showDonate && (
-        <div className="absolute bottom-full left-0 right-0 mb-2 z-50">
-          <div 
-            className="relative bg-white p-3 rounded"
-            style={{ boxShadow: 'rgba(15, 15, 15, 0.05) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 3px 6px, rgba(15, 15, 15, 0.2) 0px 9px 24px' }}
-          >
-            <CornerBorders />
-            <div className="text-xs" style={{ color: 'rgb(55, 53, 47)' }}>
-              <div className="font-bold mb-2 flex items-center gap-1">
-                <Heart size={12} weight="fill" style={{ color: 'rgb(235, 87, 87)' }} />
-                Support No-LLMit
-              </div>
-              <p className="mb-3" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
-                Running 9 LLMs costs real money! Help me keep this project free and running.
-              </p>
-              <a 
-                href="https://github.com/sponsors/RizzwareEngineer" 
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full text-white text-center py-2 rounded text-[10px] font-bold"
-                style={{ background: 'rgb(235, 87, 87)' }}
-              >
-                Donate 
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  if (inline) {
-    return content;
-  }
-
-  // Fixed position: matches page padding (p-4 lg:p-8) so it aligns with content
   return (
-    <div className="fixed z-40 top-4 right-4 lg:top-8 lg:right-8 w-[240px]">
-      {content}
+    <div
+      className="relative bg-white rounded overflow-hidden"
+      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
+    >
+      <CornerBorders />
+      <div className="px-3 py-2">
+        <div className="flex items-center gap-2 text-[11px] mb-1" style={{ color: MUTED }}>
+          <Lightning size={11} weight="bold" style={{ color: barColor }} aria-hidden />
+          <span className="uppercase font-bold">API Usage</span>
+          {(error || isCritical) && <Warning size={11} weight="bold" style={{ color: error ? WARN_TEXT : 'rgb(235, 87, 87)' }} aria-hidden />}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] shrink-0" style={{ color: MUTED }}>{barIsSpend ? 'Spend:' : 'Calls today'}</span>
+          <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{ width: error ? '0%' : `${Math.min(100, usedPct)}%`, background: barColor }}
+            />
+          </div>
+          <span className="text-[11px] font-mono font-bold tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
+            {error ? '???' : barIsSpend ? `$${usedUsd.toFixed(2)} / $${limitUsd!.toFixed(0)}` : calls}
+          </span>
+        </div>
+
+        {barIsSpend && (
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[11px]" style={{ color: MUTED }}>Calls today:</span>
+            <span className="text-[11px] font-mono tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>{calls}</span>
+          </div>
+        )}
+        {showSpend && !limitUsd && (
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[11px]" style={{ color: MUTED }}>Spend:</span>
+            <span className="text-[11px] font-mono tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>${usedUsd.toFixed(2)}</span>
+          </div>
+        )}
+
+        {isMock && (
+          <div className="mt-1 text-[11px]" style={{ color: WARN_TEXT }}>
+            Test mode: random actions, no models called
+          </div>
+        )}
+
+        {hours && (
+          <div className="mt-1 text-[11px]" style={{ color: table?.open ? MUTED : WARN_TEXT }}>
+            {table?.open ? 'Open' : 'Closed. Open'} daily {hours} your time
+          </div>
+        )}
+
+        <a
+          href="https://github.com/sponsors/RizzwareEngineer"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 pt-2 border-t border-notion flex items-center gap-1 text-[11px] hover:underline"
+          style={{ color: 'rgb(200, 50, 50)' }}
+        >
+          <Heart size={11} weight="fill" aria-hidden />
+          Support this project
+        </a>
+      </div>
     </div>
   );
 }
