@@ -3,7 +3,7 @@
 import CornerBorders from "@/components/CornerBorders";
 import Player from "@/components/Player";
 import TableFelt from "@/components/TableFelt";
-import { PlayerState } from "@/lib/api";
+import { PlayerState, TableNoticePayload } from "@/lib/api";
 
 interface PlayerLayout {
   top: number[];
@@ -43,6 +43,7 @@ interface PokerTableProps {
   thinkingPlayerIdx?: number;
   buttonDetermination?: ButtonDetermination | null;
   hidePositions?: boolean;
+  notice?: TableNoticePayload | null;
 }
 
 // Calculate position name based on seat relative to button
@@ -99,6 +100,7 @@ export default function PokerTable({
   thinkingPlayerIdx,
   buttonDetermination,
   hidePositions = false,
+  notice,
 }: PokerTableProps) {
   const totalPlayers = players.length;
   
@@ -109,154 +111,144 @@ export default function PokerTable({
         style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
       >
         <CornerBorders />
-        <div className="w-[600px] h-[300px] flex items-center justify-center text-sm italic" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
-          Start a new game to begin
+        <div className="w-full md:w-[600px] h-[300px] flex items-center justify-center text-sm italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+          Connecting to the table…
         </div>
       </div>
     );
   }
 
+  const seat = (idx: number) => players[idx] && (
+    <Player
+      player={players[idx]}
+      active={idx === currentPlayerIdx}
+      position={hidePositions ? '' : getPosition(idx, buttonIdx, totalPlayers)}
+      folded={players[idx]?.status === 'folded'}
+      winAmount={winnersByIdx[idx]?.amount}
+      winDesc={winnersByIdx[idx]?.handDesc}
+      isThinking={idx === thinkingPlayerIdx}
+    />
+  );
+
+  const felt = (
+    <TableFelt
+      cards={communityCards}
+      pot={pot}
+      winners={Object.entries(winnersByIdx).map(([idx, info]) => ({
+        name: players[Number(idx)]?.name || `Player ${idx}`,
+        amount: info.amount,
+        handDesc: info.handDesc,
+      }))}
+      nextHandCountdown={nextHandCountdown}
+      onSkipCountdown={onSkipCountdown}
+      buttonDetermination={buttonDetermination}
+      notice={notice}
+    />
+  );
+
+  const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
+
   // Calculate fixed width based on layout
   const numCols = layout.top.length + (layout.left.length > 0 ? 1 : 0) + (layout.right.length > 0 ? 1 : 0);
   const tableWidth = numCols * 200;
+  const line = '1px solid rgba(55, 53, 47, 0.09)';
+  const rows = Math.max(layout.left.length, layout.right.length);
 
   return (
-    <div 
-      className="relative bg-white shrink-0 self-stretch rounded"
-      style={{ width: tableWidth, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
-    >
-      <CornerBorders />
-      <table className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
-        <tbody>
-          {/* TOP ROW */}
-          <tr>
-            {layout.left.length > 0 && (
-              <td className="w-[200px] h-[100px]" style={{ borderRight: '1px solid rgba(55, 53, 47, 0.09)', borderBottom: '1px solid rgba(55, 53, 47, 0.09)' }} />
-            )}
-            {layout.top.map((idx, i) => (
-              <td 
-                key={`top-${idx}`} 
-                className="w-[200px] h-[100px]"
-                style={{ 
-                  borderBottom: '1px solid rgba(55, 53, 47, 0.09)',
-                  borderRight: i < layout.top.length - 1 ? '1px solid rgba(55, 53, 47, 0.09)' : undefined
-                }}
-              >
-                <Player 
-                  player={players[idx]} 
-                  active={idx === currentPlayerIdx}
-                  position={hidePositions ? '' : getPosition(idx, buttonIdx, totalPlayers)}
-                  folded={players[idx]?.status === 'folded'}
-                  winAmount={winnersByIdx[idx]?.amount}
-                  winDesc={winnersByIdx[idx]?.handDesc}
-                  isThinking={idx === thinkingPlayerIdx}
-                />
-              </td>
-            ))}
-            {layout.right.length > 0 && (
-              <td className="w-[200px] h-[100px]" style={{ borderLeft: '1px solid rgba(55, 53, 47, 0.09)', borderBottom: '1px solid rgba(55, 53, 47, 0.09)' }} />
-            )}
-          </tr>
+    <>
+      {/* Phones: felt on top, seats in a 3-column grid in seat order */}
+      <div className="md:hidden flex flex-col gap-2 w-full">
+        <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
+          <CornerBorders />
+          {felt}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {players.map((p, idx) => (
+            <div key={p.id} className="h-[150px]">{seat(idx)}</div>
+          ))}
+        </div>
+      </div>
 
-          {/* MIDDLE ROWS */}
-          {Array.from({ length: Math.max(layout.left.length, layout.right.length) }).map((_, rowIdx) => (
-            <tr key={`middle-${rowIdx}`}>
+      {/* md and up: seats around the felt. The table is only for layout. */}
+      <div
+        className="hidden md:block relative bg-white shrink-0 self-stretch rounded"
+        style={{ width: tableWidth, ...cardStyle }}
+      >
+        <CornerBorders />
+        <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
+          <tbody>
+            {/* TOP ROW */}
+            <tr>
               {layout.left.length > 0 && (
-                <td className="w-[200px] h-[100px]" style={{ borderRight: '1px solid rgba(55, 53, 47, 0.09)', borderBottom: '1px solid rgba(55, 53, 47, 0.09)' }}>
-                  <div className="flex justify-end h-full">
-                    {layout.left[rowIdx] !== undefined && players[layout.left[rowIdx]] && (
-                      <Player 
-                        player={players[layout.left[rowIdx]]} 
-                        active={layout.left[rowIdx] === currentPlayerIdx}
-                        position={hidePositions ? '' : getPosition(layout.left[rowIdx], buttonIdx, totalPlayers)}
-                        folded={players[layout.left[rowIdx]]?.status === 'folded'}
-                        winAmount={winnersByIdx[layout.left[rowIdx]]?.amount}
-                        winDesc={winnersByIdx[layout.left[rowIdx]]?.handDesc}
-                        isThinking={layout.left[rowIdx] === thinkingPlayerIdx}
-                      />
-                    )}
-                  </div>
-                </td>
+                <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }} />
               )}
-
-              {rowIdx === 0 && (
-                <td 
-                  colSpan={layout.top.length}
-                  rowSpan={Math.max(layout.left.length, layout.right.length)}
-                  style={{ borderBottom: '1px solid rgba(55, 53, 47, 0.09)' }}
+              {layout.top.map((idx, i) => (
+                <td
+                  key={`top-${idx}`}
+                  className="w-[200px] h-[100px]"
+                  style={{ borderBottom: line, borderRight: i < layout.top.length - 1 ? line : undefined }}
                 >
-                  <div className="flex items-center justify-center h-full">
-                    <TableFelt 
-                      cards={communityCards} 
-                      pot={pot} 
-                      winners={Object.entries(winnersByIdx).map(([idx, info]) => ({
-                        name: players[Number(idx)]?.name || `Player ${idx}`,
-                        amount: info.amount,
-                        handDesc: info.handDesc,
-                      }))}
-                      nextHandCountdown={nextHandCountdown}
-                      onSkipCountdown={onSkipCountdown}
-                      buttonDetermination={buttonDetermination}
-                    />
-                  </div>
+                  {seat(idx)}
                 </td>
-              )}
-
+              ))}
               {layout.right.length > 0 && (
-                <td className="w-[200px] h-[100px]" style={{ borderLeft: '1px solid rgba(55, 53, 47, 0.09)', borderBottom: '1px solid rgba(55, 53, 47, 0.09)' }}>
-                  <div className="flex justify-start h-full">
-                    {layout.right[rowIdx] !== undefined && players[layout.right[rowIdx]] && (
-                      <Player 
-                        player={players[layout.right[rowIdx]]} 
-                        active={layout.right[rowIdx] === currentPlayerIdx}
-                        position={hidePositions ? '' : getPosition(layout.right[rowIdx], buttonIdx, totalPlayers)}
-                        folded={players[layout.right[rowIdx]]?.status === 'folded'}
-                        winAmount={winnersByIdx[layout.right[rowIdx]]?.amount}
-                        winDesc={winnersByIdx[layout.right[rowIdx]]?.handDesc}
-                        isThinking={layout.right[rowIdx] === thinkingPlayerIdx}
-                      />
-                    )}
-                  </div>
-                </td>
+                <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }} />
               )}
             </tr>
-          ))}
 
-          {/* BOTTOM ROW */}
-          <tr>
-            {layout.left.length > 0 && (
-              <td className="w-[200px] h-[100px]" style={{ borderRight: '1px solid rgba(55, 53, 47, 0.09)' }} />
-            )}
-            <td colSpan={layout.top.length} className="h-[100px] p-0">
-              <div className="flex h-full">
-                {layout.bottom.map((playerIdx, i) => (
-                  <div 
-                    key={`bottom-${playerIdx}`}
-                    className="flex-1"
-                    style={{ borderRight: i < layout.bottom.length - 1 ? '1px solid rgba(55, 53, 47, 0.09)' : undefined }}
-                  >
-                    {players[playerIdx] && (
-                      <Player 
-                        player={players[playerIdx]} 
-                        active={playerIdx === currentPlayerIdx}
-                        position={hidePositions ? '' : getPosition(playerIdx, buttonIdx, totalPlayers)}
-                        folded={players[playerIdx]?.status === 'folded'}
-                        winAmount={winnersByIdx[playerIdx]?.amount}
-                        winDesc={winnersByIdx[playerIdx]?.handDesc}
-                        isThinking={playerIdx === thinkingPlayerIdx}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </td>
-            {layout.right.length > 0 && (
-              <td className="w-[200px] h-[100px]" style={{ borderLeft: '1px solid rgba(55, 53, 47, 0.09)' }} />
-            )}
-          </tr>
-        </tbody>
-      </table>
-    </div>
+            {/* MIDDLE ROWS */}
+            {Array.from({ length: rows }).map((_, rowIdx) => (
+              <tr key={`middle-${rowIdx}`}>
+                {layout.left.length > 0 && (
+                  <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }}>
+                    <div className="flex justify-end h-full">
+                      {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx])}
+                    </div>
+                  </td>
+                )}
+
+                {rowIdx === 0 && (
+                  <td colSpan={layout.top.length} rowSpan={rows} style={{ borderBottom: line }}>
+                    <div className="flex items-center justify-center h-full">{felt}</div>
+                  </td>
+                )}
+
+                {layout.right.length > 0 && (
+                  <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }}>
+                    <div className="flex justify-start h-full">
+                      {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx])}
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+
+            {/* BOTTOM ROW */}
+            <tr>
+              {layout.left.length > 0 && (
+                <td className="w-[200px] h-[100px]" style={{ borderRight: line }} />
+              )}
+              <td colSpan={layout.top.length} className="h-[100px] p-0">
+                <div className="flex h-full">
+                  {layout.bottom.map((playerIdx, i) => (
+                    <div
+                      key={`bottom-${playerIdx}`}
+                      className="flex-1"
+                      style={{ borderRight: i < layout.bottom.length - 1 ? line : undefined }}
+                    >
+                      {seat(playerIdx)}
+                    </div>
+                  ))}
+                </div>
+              </td>
+              {layout.right.length > 0 && (
+                <td className="w-[200px] h-[100px]" style={{ borderLeft: line }} />
+              )}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
