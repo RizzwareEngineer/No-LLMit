@@ -49,10 +49,11 @@ func NewServer() *Server {
 }
 
 func (s *Server) Start(port int) error {
+	stats := newStatsCache()
 	if os.Getenv("PRIVATE_GAMES") == "1" {
 		log.Printf("PRIVATE_GAMES=1: each connection controls its own game (dev only)")
 	} else {
-		s.table = NewTable()
+		s.table = NewTable(stats.Add)
 		go s.table.Run()
 	}
 
@@ -60,6 +61,7 @@ func (s *Server) Start(port int) error {
 	http.HandleFunc("/health", s.handleHealth)
 	http.HandleFunc("/api/games", s.handleCORS(s.handleListGames))
 	http.HandleFunc("/api/usage", s.handleCORS(s.handleUsage))
+	http.HandleFunc("/api/stats", s.handleCORS(stats.handle))
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("Starting server on %s", addr)

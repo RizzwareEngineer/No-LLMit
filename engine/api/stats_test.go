@@ -1,9 +1,14 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
@@ -154,4 +159,61 @@ func deref(p *float64) any {
 		return nil
 	}
 	return *p
+}
+
+func TestStatsEndpoint(t *testing.T) {
+	hands := statsHands(t)
+	c := &statsCache{dirty: make(chan struct{}, 1), seen: map[string]bool{},
+		load: func() ([]history.HandRecord, error) { return hands[:4], nil }}
+	get := func(url string) (int, stats.Stats) {
+		w := httptest.NewRecorder()
+		c.handle(w, httptest.NewRequest("GET", url, nil))
+		var s stats.Stats
+		json.Unmarshal(w.Body.Bytes(), &s)
+		return w.Code, s
+	}
+	if code, _ := get("/api/stats"); code != http.StatusServiceUnavailable {
+		t.Errorf("before the first load: %d", code)
+	}
+
+	go c.run()
+	c.Add(hands[4]) // a hand saved while loading is kept
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, s := get("/api/stats"); s.Scope.Hands == 5 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("stats never reached 5 hands")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if code, s := get("/api/stats?session=tbl_test"); code != 200 || s.Scope.Hands != 5 || s.GeneratedAt.IsZero() {
+		t.Errorf("session: %d %+v", code, s.Scope)
+	}
+	if code, _ := get("/api/stats?session=nope"); code != http.StatusNotFound {
+		t.Errorf("unknown session: %d", code)
+	}
+}
+
+func TestLoadSupabaseHandsPages(t *testing.T) {
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		n := 1000
+		if r.URL.Query().Get("offset") == "1000" {
+			n = 1
+		}
+		rows := make([]string, n)
+		for i := range rows {
+			rows[i] = `{"doc":{"hand_id":"h"}}`
+		}
+		w.Write([]byte("[" + strings.Join(rows, ",") + "]"))
+	}))
+	defer srv.Close()
+
+	hands, err := loadSupabaseHands(srv.URL, "k")
+	if err != nil || len(hands) != 1001 || len(queries) != 2 || queries[1] != "select=doc&order=started_at,hand_id&limit=1000&offset=1000" {
+		t.Errorf("%d hands, %v, queries %v", len(hands), err, queries)
+	}
 }

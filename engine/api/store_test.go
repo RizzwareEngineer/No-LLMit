@@ -35,7 +35,9 @@ func hand(id string) savedHand {
 
 func TestFailedSaveSpillsAndReplays(t *testing.T) {
 	saver := &fakeSaver{down: true}
-	s := &HandStore{saver: saver, spillPath: filepath.Join(t.TempDir(), "unsaved.jsonl"), retryWait: time.Millisecond}
+	var notified []string
+	s := &HandStore{saver: saver, spillPath: filepath.Join(t.TempDir(), "unsaved.jsonl"), retryWait: time.Millisecond,
+		onSaved: func(h history.HandRecord) { notified = append(notified, h.HandID) }}
 
 	s.saveWithRetry(hand("h1"))
 	s.saveWithRetry(hand("h2"))
@@ -56,6 +58,9 @@ func TestFailedSaveSpillsAndReplays(t *testing.T) {
 	want := "h3|sys-h3,h1|sys-h1,h2|sys-h2"
 	if got := strings.Join(saver.saved, ","); got != want {
 		t.Errorf("saved %s, want %s", got, want)
+	}
+	if got := strings.Join(notified, ","); got != "h3,h1,h2" {
+		t.Errorf("onSaved should see each hand once it is saved, got %s", got)
 	}
 	if _, err := os.Stat(s.spillPath); !os.IsNotExist(err) {
 		t.Errorf("spill file should be removed once replayed: %v", err)
