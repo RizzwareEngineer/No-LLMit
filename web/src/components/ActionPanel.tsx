@@ -89,7 +89,7 @@ export default function ActionPanel({
       <div className="p-3 h-full flex flex-col justify-between">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="text-[11px] uppercase tracking-wider" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>Action for:</div>
+            <div className="text-[11px] uppercase tracking-wider" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Action for:</div>
             <div className="text-[13px] font-semibold" style={{ color: 'rgb(55, 53, 47)' }}>
               {currentPlayer?.name || '—'}
             </div>
@@ -97,11 +97,11 @@ export default function ActionPanel({
               <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'rgb(35, 131, 226)' }} />
             )}
             {isWaiting && (
-              <span className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.4)' }}>Waiting...</span>
+              <span className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Waiting…</span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>To Call:</span>
+            <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>To Call:</span>
             <span className="text-[13px] font-semibold" style={{ color: 'rgb(55, 53, 47)' }}>¤{isWaiting ? '—' : toCall}</span>
           </div>
         </div>
@@ -169,7 +169,7 @@ export default function ActionPanel({
         
         {/* Always show slider - disabled when raise not available */}
         <div className={`flex items-center gap-2 ${!canAffordRaise || !canDoAction('raise') ? 'opacity-40' : ''}`}>
-          <span className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>¤{effectiveMinRaise || 0}</span>
+          <span className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{effectiveMinRaise || 0}</span>
           <input
             type="range"
             min={effectiveMinRaise || 0}
@@ -180,7 +180,7 @@ export default function ActionPanel({
             disabled={isWaiting || !canAffordRaise || !canDoAction('raise')}
             className="flex-1 h-1 bg-gray-200 rounded appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-gray-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:disabled:bg-gray-300"
           />
-          <span className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>¤{maxRaise || 0}</span>
+          <span className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{maxRaise || 0}</span>
         </div>
       </div>
     </div>

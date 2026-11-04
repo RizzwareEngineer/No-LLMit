@@ -65,6 +65,9 @@ export default function ReasoningPanel({
     return 'text-[11px]';
   };
   const reasonFontSize = getReasonFontSize(reason);
+  // Full text for screen readers, announced once per action (not the typewriter partials)
+  const spokenAction = action ? `${action.toLowerCase().replace('_', '-')}${amount > 0 ? ` ${amount}` : ''}` : '';
+  const announcement = showReason && reason ? `${playerName}: ${spokenAction}. ${reason}` : '';
 
   return (
     <div 
@@ -72,6 +75,7 @@ export default function ReasoningPanel({
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
       <CornerBorders />
+      <p className="sr-only" aria-live="polite">{announcement}</p>
       <div className="flex h-full">
         {/* Left section - Player name + countdown */}
         <div 
@@ -107,9 +111,9 @@ export default function ReasoningPanel({
         {/* Right section - Thinking or Reasoning text */}
         <div className="flex-1 flex flex-col justify-center px-4 min-w-0">
           {isThinking && (
-            <div className="text-sm italic flex items-center gap-2" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>
-              <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'rgba(55, 53, 47, 0.4)' }} />
-              Thinking...
+            <div className="text-sm italic flex items-center gap-2" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+              <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'rgba(55, 53, 47, 0.65)' }} />
+              Thinking…
             </div>
           )}
           
@@ -117,9 +121,9 @@ export default function ReasoningPanel({
             <>
               {/* Reasoning label with action */}
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
+                <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
                 {action && (
-                  <span className="text-[10px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
+                  <span className="text-[11px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
                     → {formatAction(action, amount)}
                   </span>
                 )}
@@ -131,8 +135,8 @@ export default function ReasoningPanel({
           )}
           
           {isIdle && (
-            <div className="text-xs italic" style={{ color: 'rgba(55, 53, 47, 0.4)' }}>
-              Waiting for next action...
+            <div className="text-xs italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+              Waiting for next action…
             </div>
           )}
         </div>

@@ -27,8 +27,8 @@ export default function TypewriterText({
     // Trim and validate text
     const trimmedText = text?.trim() || "";
     
-    if (!trimmedText) {
-      setDisplayedText("");
+    if (!trimmedText || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setDisplayedText(trimmedText);
       setIsTyping(false);
       return;
     }
@@ -61,7 +61,7 @@ export default function TypewriterText({
 
   // Fallback: if no text to show
   if (!text?.trim()) {
-    return <span className={className}>...</span>;
+    return <span className={className}>…</span>;
   }
 
   return (

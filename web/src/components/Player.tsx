@@ -16,15 +16,15 @@ interface PlayerProps {
 
 // Position badge colors
 const POSITION_COLORS: Record<string, string> = {
-  'BTN': 'bg-amber-500 text-white',
-  'SB': 'bg-blue-500 text-white',
-  'BB': 'bg-blue-600 text-white',
-  'UTG': 'bg-red-500 text-white',
-  'UTG+1': 'bg-red-400 text-white',
-  'UTG+2': 'bg-red-300 text-white',
-  'LJ': 'bg-purple-500 text-white',
-  'HJ': 'bg-purple-400 text-white',
-  'CO': 'bg-green-500 text-white',
+  'BTN': 'bg-amber-700 text-white',
+  'SB': 'bg-blue-600 text-white',
+  'BB': 'bg-blue-700 text-white',
+  'UTG': 'bg-red-700 text-white',
+  'UTG+1': 'bg-red-600 text-white',
+  'UTG+2': 'bg-orange-700 text-white',
+  'LJ': 'bg-purple-700 text-white',
+  'HJ': 'bg-purple-600 text-white',
+  'CO': 'bg-green-700 text-white',
 };
 
 // Full position names for tooltips
@@ -45,7 +45,7 @@ function getPositionFullName(pos: string): string {
 
 export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false }: PlayerProps) {
   const cards = player.holeCards || [];
-  const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-400 text-white' : '';
+  const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const isWinner = winAmount !== undefined && winAmount > 0;
   
   return (
@@ -66,8 +66,8 @@ export default function Player({ player, active, position, folded = false, winAm
           <div className="flex items-center gap-2 min-w-0 overflow-hidden">
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
-              <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }}>{player.name}</div>
-              <div className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.stack.toLocaleString()}</div>
+              <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
+              <div className="text-[11px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.stack.toLocaleString()}</div>
             </div>
           </div>
           <div className="flex flex-row items-center gap-1 shrink-0">
@@ -89,7 +89,7 @@ export default function Player({ player, active, position, folded = false, winAm
             {/* Position Badge */}
             {position && (
               <div 
-                className={`w-8 py-0.5 rounded text-[8px] font-bold shrink-0 text-center ${positionColor}`}
+                className={`min-w-8 px-1 py-0.5 rounded text-[11px] font-bold shrink-0 text-center ${positionColor}`}
                 title={getPositionFullName(position)}
               >
                 {position}
@@ -100,7 +100,7 @@ export default function Player({ player, active, position, folded = false, winAm
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
                 <span className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+¤{winAmount.toLocaleString()}</span>
-                <span className="text-[9px] truncate min-w-0" style={{ color: 'rgba(15, 123, 108, 0.7)' }}>({winDesc})</span>
+                <span className="text-[11px] truncate min-w-0" style={{ color: 'rgb(15, 123, 108)' }}>({winDesc})</span>
               </div>
             ) : player.lastAction ? (
               <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
@@ -115,11 +115,11 @@ export default function Player({ player, active, position, folded = false, winAm
               </div>
             ) : player.currentBet > 0 ? (
               <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
-                <div className="text-[11px] font-mono uppercase tracking-wider shrink-0" style={{ color: 'rgba(55, 53, 47, 0.5)' }}>BET</div>
+                <div className="text-[11px] font-mono uppercase tracking-wider shrink-0" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>BET</div>
                 <div className="text-[11px] shrink-0" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.currentBet.toLocaleString()}</div>
               </div>
             ) : (
-              <div className="text-[11px] font-mono uppercase truncate" style={{ color: isThinking ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.35)' }}>
+              <div className="text-[11px] font-mono uppercase truncate" style={{ color: isThinking ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)' }}>
                 {player.status === 'folded' ? 'FOLD' : 
                  player.status === 'all-in' ? 'ALL-IN' :
                  player.status === 'eliminated' ? 'OUT' : 

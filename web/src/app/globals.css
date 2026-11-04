@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: light;
+}
+
 @theme {
   --font-jetbrains-mono: var(--font-jetbrains-mono);
 }
@@ -46,6 +50,15 @@
   50% { 
     outline-color: rgb(55, 131, 226);
     background-color: rgba(35, 131, 226, 0.08);
+  }
+}
+
+/* Respect reduced motion: no pulsing seat, pulse dots, or spinners */
+@media (prefers-reduced-motion: reduce) {
+  .border-animation,
+  .animate-pulse,
+  .animate-spin {
+    animation: none !important;
   }
 }
 
