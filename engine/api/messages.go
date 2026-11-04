@@ -30,6 +30,7 @@ const (
 	MsgResumed        MessageType = "resumed"
 	MsgButtonCard     MessageType = "button_card"     // Card dealt for button determination
 	MsgButtonWinner   MessageType = "button_winner"   // Who won the button
+	MsgTableNotice    MessageType = "table_notice"    // Table closed or capped; an empty kind clears it
 )
 
 type ClientMessage struct {
@@ -107,6 +108,14 @@ type WinnerPayload struct {
 type StakesPayload struct {
 	SmallBlind int `json:"smallBlind"`
 	BigBlind   int `json:"bigBlind"`
+}
+
+// TableNoticePayload says why the shared table is stopped. Kind is "closed", "cap",
+// or "" when the table reopens.
+type TableNoticePayload struct {
+	Kind      string `json:"kind"`
+	Message   string `json:"message"`
+	ReopensAt string `json:"reopensAt,omitempty"` // RFC3339
 }
 
 type ErrorPayload struct {
