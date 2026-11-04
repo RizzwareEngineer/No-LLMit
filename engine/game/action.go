@@ -99,6 +99,14 @@ func (gs *GameState) ProcessAction(action Action) error {
 	return nil
 }
 
+// CheckAction reports whether ProcessAction would accept the action, without changing the game.
+func (gs *GameState) CheckAction(action Action) error {
+	trial := *gs
+	trial.Players = append([]Player(nil), gs.Players...)
+	trial.LLMActionsThisHand = nil
+	return trial.ProcessAction(action)
+}
+
 func (gs *GameState) processFold(player *Player, action Action) error {
 	player.Status = PlayerFolded
 	player.LastAction = &action

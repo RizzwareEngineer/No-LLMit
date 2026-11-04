@@ -80,17 +80,11 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 		// Call LLM API (blocking - compute as fast as possible)
 		startTime := time.Now()
 		modeStr := gs.Mode.String()
-		decision, err := client.GetLLMDecision(playerName, prompt, validActions, modeStr)
+		turn := decideLLMTurn(gs, prompt, func(prompt string) (*client.LLMDecisionResponse, error) {
+			return client.GetLLMDecision(playerName, prompt, validActions, modeStr)
+		})
+		decision := turn.decision
 		apiDuration := time.Since(startTime)
-
-		if err != nil {
-			log.Printf("❌ LLM ERROR for %s: %v", playerName, err)
-			decision = &client.LLMDecisionResponse{
-				Action: "FOLD",
-				Amount: 0,
-				Reason: "LLM service error, auto-fold",
-			}
-		}
 
 		actionEmoji := map[string]string{
 			"FOLD": "🚫", "CHECK": "✋", "CALL": "📞",
@@ -110,29 +104,25 @@ func (s *Server) handleLLMTurns(conn *websocket.Conn, gs *game.GameState) {
 
 		// Send complete decision to frontend (action + reasoning together)
 		// Frontend will handle timing for display
+		shownAction, shownAmount := decision.Action, decision.Amount
+		if turn.fallback {
+			shownAction, shownAmount = turn.action.Type.String(), 0
+		}
 		s.send(conn, ServerMessage{
 			Type: MsgLLMAction,
 			Payload: LLMActionPayload{
 				PlayerIdx:  playerIdx,
 				PlayerName: playerName,
-				Action:     decision.Action,
-				Amount:     decision.Amount,
+				Action:     shownAction,
+				Amount:     shownAmount,
 				Reason:     decision.Reason,
 			},
 		})
 
 		// Process action immediately (compute ahead)
-		action := game.Action{
-			Type:      ParseActionType(decision.Action),
-			Amount:    decision.Amount,
-			PlayerIdx: playerIdx,
-		}
-
-		if err := gs.ProcessAction(action); err != nil {
+		if err := gs.ProcessAction(turn.action); err != nil {
 			log.Printf("Error processing LLM action: %v", err)
-			action.Type = game.ActionFold
-			action.Amount = 0
-			gs.ProcessAction(action)
+			gs.ProcessAction(game.Action{Type: game.ActionFold, PlayerIdx: playerIdx})
 		}
 
 		if gs.NeedToAdvanceStreet() {
