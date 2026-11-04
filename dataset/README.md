@@ -27,18 +27,19 @@ From Supabase, with `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` set:
 .venv/bin/python export.py --out out --day yesterday   # or --day 2026-11-03, or no --day for every hand
 ```
 
-Days are America/New_York dates, so one table day (9am to 9pm ET) is one `day=YYYY-MM-DD/` partition.
-Re-exporting a day replaces that partition.
+Days are America/New_York dates the hand started; the live table plays during its configured hours.
+Re-exporting a day replaces that partition, so `--back 3` safely re-exports the three days before `--day` too.
 
 To publish, set `HF_TOKEN` (write token) and `HF_REPO` (for example `user/no-llmit-hands`):
 
 ```sh
 .venv/bin/python upload.py --out out --pull   # first, so the card covers days already published
-.venv/bin/python export.py --out out --day yesterday
+.venv/bin/python export.py --out out --day yesterday --back 3
 .venv/bin/python upload.py --out out
 ```
 
-`.github/workflows/dataset.yml` runs those three steps nightly at 09:17 UTC.
+`.github/workflows/dataset.yml` runs those three steps nightly at 09:17 UTC, re-exporting the three days before
+yesterday as well so hands saved late (replayed after an outage) or a failed night still get published.
 It needs the repo secrets `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HF_TOKEN` and `HF_REPO`, and skips until all four are set.
 
 ## PokerStars hand histories
@@ -53,10 +54,15 @@ Where it differs from a real PokerStars file:
 - Side pots are not itemized: each winner gets one `collected N from pot` line with their total,
   and the summary is `Total pot N | Rake 0` without `Main pot` / `Side pot` amounts.
 - Uncalled bets are derived from the actions and printed as `Uncalled bet (N) returned to X`, as PokerStars does.
+- When a short all-in wins because everyone else folds, the engine pays it the whole pot, unmatched chips included.
+  Those hands follow the engine's payout (no uncalled-bet line) and end with a `#note <hand_id>: ...` line.
+  `hh.py` never fails on a hand: one it cannot write is left out and named on stderr.
 
 ## Tests
 
 `tests/fixtures/generated/` holds 40 hands played through the engine's real recorder with scripted random replies
 (short stacks for all-ins and side pots, fallbacks of every status, hands spanning midnight UTC).
+`tests/fixtures/repro_hands.jsonl` holds two engine hands whose payout differs from poker rules
+(a short all-in paid unmatched chips; a side pot with dead money missing from `result.pots`).
 The tests export them with `docs/hand-record-example.json`, reload the Parquet, check row counts, that each
 hand's net sums to zero and every `prompt_id` resolves, and parse the PokerStars text back into the same actions.

@@ -39,6 +39,13 @@ def _cards(cards: list) -> str:
 
 
 def hand_to_text(hand: dict) -> str:
+    return render(hand)[0]
+
+
+def render(hand: dict) -> tuple:
+    """(PokerStars text, total pot, note). The pot is every chip put in, less uncalled bets
+    returned. note is set when the engine's payout differs from poker rules; the text then
+    follows the engine, since that is how the chips actually moved."""
     seats = {s["seat"]: s for s in hand["seats"]}
     name = {s: v["name"] for s, v in seats.items()}
     pos = {s: v["position"] for s, v in seats.items()}
@@ -57,6 +64,7 @@ def hand_to_text(hand: dict) -> str:
     stack = {s: seats[s]["stack_start"] for s in seats}
     folded_on = {}
     returned = {}
+    uncalled_lines = []
 
     def put(s, chips):
         contrib[s] += chips
@@ -75,13 +83,12 @@ def hand_to_text(hand: dict) -> str:
 
     def return_uncalled():
         # A bet nobody matched goes back to the bettor before the next street.
-        if len(street_in) < 2:
-            return
         top, second = sorted(street_in.values(), reverse=True)[:2]
         if top > second:
             s = next(s for s, v in street_in.items() if v == top)
             put(s, second - top)
             returned[s] = returned.get(s, 0) + top - second
+            uncalled_lines.append(len(out))
             out.append(f"Uncalled bet ({top - second}) returned to {name[s]}")
 
     by_street = {st: [a for a in hand["actions"] if a["street"] == st] for st in STREETS}
@@ -104,10 +111,21 @@ def hand_to_text(hand: dict) -> str:
 
     # What each seat took from the pot follows from its net result and what it put in.
     net = {int(k): v for k, v in hand["result"]["net"].items()}
+    note = None
     collected = {s: net.get(s, 0) + contrib[s] for s in seats if net.get(s, 0) + contrib[s] > 0}
+    if sum(collected.values()) != sum(contrib.values()):
+        # The engine pays a short all-in that everyone folded to the whole pot, unmatched
+        # chips included, instead of returning them. Follow the engine.
+        for i in reversed(uncalled_lines):
+            del out[i]
+        for s, chips in returned.items():
+            contrib[s] += chips
+        collected = {s: net.get(s, 0) + contrib[s] for s in seats if net.get(s, 0) + contrib[s] > 0}
+        note = (f"engine payout: uncalled chips ({sum(returned.values())}) were not returned; "
+                f"collected amounts follow the engine")
+        if sum(collected.values()) != sum(contrib.values()):
+            note = f"net results do not balance: collected {sum(collected.values())}, put in {sum(contrib.values())}"
     total = sum(contrib.values())
-    if sum(collected.values()) != total:
-        raise ValueError(f"{hand['hand_id']}: pot {total} != collected {sum(collected.values())}")
 
     if showdown:
         out.append("*** SHOW DOWN ***")
@@ -142,7 +160,9 @@ def hand_to_text(hand: dict) -> str:
         else:
             line += "mucked"
         out.append(line)
-    return "\n".join(out)
+    if note:
+        out.append(f"#note {hand['hand_id']}: {note}")
+    return "\n".join(out), total, note
 
 
 def _action_line(a: dict, who: str, street_in: dict, put, stack: dict) -> str:
@@ -171,9 +191,27 @@ def _action_line(a: dict, who: str, street_in: dict, put, stack: dict) -> str:
 
 
 def hands_to_text(hands: list) -> str:
-    """One PokerStars file: hands in start order, separated by blank lines."""
-    hands = sorted(hands, key=lambda h: (h["started_at"], h["hand_id"]))
-    return "\n\n\n".join(hand_to_text(h) for h in hands) + "\n\n\n"
+    """One PokerStars file: hands in start order, separated by blank lines. Never raises on a
+    hand: one that cannot be written is left out and reported on stderr."""
+    texts, noted, skipped = [], 0, []
+    for h in sorted(hands, key=start_order):
+        try:
+            text, _, note = render(h)
+        except Exception as e:  # noqa: BLE001 - one bad hand must not stop the day's file
+            skipped.append(f"{h.get('hand_id')}: {e!r}")
+            continue
+        noted += bool(note)
+        texts.append(text)
+    if noted:
+        print(f"pokerstars: {noted} hand(s) carry a #note (engine payout differs from poker rules)", file=sys.stderr)
+    for s in skipped:
+        print(f"pokerstars: left out {s}", file=sys.stderr)
+    return "\n\n\n".join(texts) + "\n\n\n" if texts else ""
+
+
+def start_order(hand: dict):
+    # Go trims trailing zeros in timestamps, so compare times, not strings.
+    return datetime.fromisoformat(hand["started_at"]), hand["table_id"], hand["hand_number"]
 
 
 if __name__ == "__main__":

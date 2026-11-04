@@ -30,6 +30,7 @@ import pyarrow.parquet as pq
 import hh
 
 PAGE = 500  # rows per Supabase request
+EXPORTED = ".exported-days"  # the days the last export wrote
 
 TS = pa.timestamp("us", tz="UTC")
 HANDS = pa.schema([
@@ -89,11 +90,13 @@ def _paged(base, key, path, params, order):
         offset += PAGE
 
 
-def load_supabase(base, key, day=None):
-    """Hands (optionally only those that started on one ET day), their prompts, and all system prompts."""
+def load_supabase(base, key, day=None, back=0):
+    """Hands (optionally only those that started on ET day `day` or the `back` days before it),
+    their prompts, and all system prompts."""
     params = {"select": "doc"}
     if day:
-        start, end = (datetime.combine(d, time(), hh.ET).astimezone(timezone.utc) for d in (day, day + timedelta(days=1)))
+        start, end = (datetime.combine(d, time(), hh.ET).astimezone(timezone.utc)
+                      for d in (day - timedelta(days=back), day + timedelta(days=1)))
         params["and"] = f"(started_at.gte.{start.isoformat()},started_at.lt.{end.isoformat()})"
     hands = [r["doc"] for r in _paged(base, key, "hands", params, "hand_id")]
     prompts = []
@@ -116,6 +119,20 @@ def _ts(iso):
     return datetime.fromisoformat(iso)
 
 
+def _kind(action):
+    """One spelling for all-in: the engine offers ALL-IN but applies ALL_IN."""
+    return "ALL_IN" if action in ("ALL-IN", "all-in", "allin") else action
+
+
+def _pot(hand):
+    """Every chip put in, less uncalled bets returned. result.pots can miss a side pot the
+    engine treated as an uncalled bet although it held dead money."""
+    try:
+        return hh.render(hand)[1]
+    except Exception:  # noqa: BLE001 - a hand hh cannot replay keeps a null pot
+        return None
+
+
 def flatten(hands, prompts):
     """Rows for the three tables. Raises if a decision's prompt is missing."""
     by_id = {p["prompt_id"]: p for p in prompts}
@@ -132,7 +149,7 @@ def flatten(hands, prompts):
             "big_blind": cfg["big_blind"], "provider": cfg["provider"], "prompt_version": cfg["prompt_version"],
             "memory": cfg.get("memory"), "button_seat": h["button_seat"], "n_players": len(h["seats"]),
             "board": h["board"], "deck": h["deck"], "n_decisions": len(h["actions"]),
-            "pot": sum(p["amount"] for p in res["pots"]), "showdown": bool(shown),
+            "pot": _pot(h), "showdown": bool(shown),
         })
         for s in h["seats"]:
             seat_rows.append({
@@ -149,8 +166,11 @@ def flatten(hands, prompts):
                 **common, "n": a["n"], "street": a["street"], "seat": a["seat"], "player": a["player"],
                 "model": seat.get("model"), "position": seat["position"], "prompt_version": cfg["prompt_version"],
                 "pot_before": a["pot_before"], "to_call": a["to_call"], "stack_before": a["stack_before"],
-                "legal_actions": [{k: la.get(k) for k in ("type", "amount", "min", "max")} for la in a["legal_actions"]],
-                "parsed_action": parsed.get("action"), "parsed_amount": parsed.get("amount"),
+                "legal_actions": [{**{k: la.get(k) for k in ("amount", "min", "max")}, "type": _kind(la["type"])}
+                                  for la in a["legal_actions"]],
+                "parsed_action": _kind(parsed.get("action")),
+                # The engine stores 0 when a reply had no amount; only a raise or bet carries one.
+                "parsed_amount": parsed.get("amount") if _kind(parsed.get("action")) in ("RAISE", "BET") else None,
                 "parsed_reason": parsed.get("reason"), "status": a["status"], "retried": a.get("retried", False),
                 "applied_action": applied["type"], "applied_amount": applied.get("amount"),
                 "latency_ms": a.get("latency_ms"), "tokens_in": a.get("tokens_in"), "tokens_out": a.get("tokens_out"),
@@ -165,18 +185,20 @@ def flatten(hands, prompts):
 def export(hands, prompts, systems, out):
     """Writes one partition per day present in hands, replacing it if it exists, then the card."""
     os.makedirs(out, exist_ok=True)
-    days = defaultdict(list)
+    days, prompts_by_day = defaultdict(list), defaultdict(list)
     for h in hands:
         days[hand_day(h)].append(h)
+    day_of = {h["hand_id"]: hand_day(h) for h in hands}
+    for p in prompts:
+        prompts_by_day[day_of.get(p["prompt_id"].rsplit("-", 1)[0])].append(p)
     for day, day_hands in sorted(days.items()):
-        day_hands.sort(key=lambda h: (h["started_at"], h["hand_id"]))
-        ids = {h["hand_id"] for h in day_hands}
-        day_prompts = [p for p in prompts if p["prompt_id"].rsplit("-", 1)[0] in ids]
+        day_hands.sort(key=hh.start_order)
+        day_prompts = prompts_by_day[day]
+        rows = flatten(day_hands, day_prompts)  # raises before anything of the day is written
         d = os.path.join(out, f"day={day}")
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "hands.jsonl"), "w") as f:
             f.writelines(json.dumps(h, separators=(",", ":")) + "\n" for h in day_hands)
-        rows = flatten(day_hands, day_prompts)
         for name, schema, table_rows in zip(("hands", "seats", "decisions"), (HANDS, SEATS, DECISIONS), rows):
             pq.write_table(pa.Table.from_pylist(table_rows, schema=schema), os.path.join(d, f"{name}.parquet"),
                            compression="zstd")
@@ -190,6 +212,8 @@ def export(hands, prompts, systems, out):
         with open(path, "w") as f:
             f.writelines(json.dumps(s) + "\n" for _, s in sorted(known.items()))
     write_card(out)
+    with open(os.path.join(out, EXPORTED), "w") as f:  # read by upload.py for its commit message
+        f.write("\n".join(sorted(days)) + "\n")
     return sorted(days)
 
 
@@ -206,12 +230,12 @@ def _schema_md(schema, notes):
 
 HAND_NOTES = {
     "session": "table id; a new one starts each time the engine restarts, with stacks reset to 2000",
-    "day": "America/New_York date the hand started (the table runs 9am to 9pm ET)",
+    "day": "America/New_York date the hand started; the live table plays during its configured hours",
     "prompt_version": "hash of the system prompt; text in `system_prompts.jsonl`",
     "memory": "what models are told about earlier hands; `none` = nothing",
     "button_seat": "0-based seat index",
     "deck": "full shuffled deck in deal order",
-    "pot": "sum of all pots awarded (includes any uncalled bet returned on a fold)",
+    "pot": "every chip put in (blinds and actions) less uncalled bets returned; computed from the actions, not `result.pots`, which can omit a side pot holding dead money",
     "showdown": "the hand reached showdown",
 }
 SEAT_NOTES = {
@@ -226,8 +250,9 @@ DECISION_NOTES = {
     "street": "preflop, flop, turn or river",
     "pot_before": "pot before this decision, all streets",
     "to_call": "chips needed to call",
-    "legal_actions": "what the model was offered",
-    "parsed_action": "what we read from the reply (`RAISE` also means a first bet)",
+    "legal_actions": "what the model was offered; all-in is spelled `ALL_IN` (the engine's raw records say `ALL-IN`)",
+    "parsed_action": "what we read from the reply (`RAISE` also means a first bet); all-in normalised to `ALL_IN`",
+    "parsed_amount": "the reply's amount for `RAISE`/`BET`; null otherwise (the engine stores 0 when there was none)",
     "status": "`ok`, or why the applied action is a fallback: `unparseable`, `illegal`, `timeout`, `api_error`, `service_error`",
     "retried": "the first reply was unparseable or illegal and the model was asked once more",
     "applied_action": "what the engine did: FOLD, CHECK, CALL, BET, RAISE, ALL_IN",
@@ -276,6 +301,7 @@ configs:
 # No-LLMit: LLMs playing No Limit Hold'em
 
 Every hand from the shared 9-handed cash game at https://nollmit.vercel.app/, where LLMs play each other.
+Code: https://github.com/RizzwareEngineer/No-LLMit
 {len(hands)} hands over {len(days)} days ({span}).
 Each decision row holds the exact prompt the model saw and its raw reply.
 
@@ -285,7 +311,7 @@ Each decision row holds the exact prompt the model saw and its raw reply.
 Those actions are engine fallbacks (check if free, else fold), not the model's choice.
 `net` and the hand results still include them, since the chips really moved.
 
-Each model call stands alone: a model has no memory of earlier hands or of its own earlier decisions in the hand.
+Models have no memory between hands; each prompt retells the current hand, including the model's own earlier actions.
 The prompt names opponents by model, so a model may carry priors about the others.
 
 ## Files
@@ -295,7 +321,7 @@ One directory per day, `day=YYYY-MM-DD/` (America/New_York date the hand started
 - `decisions.parquet`: one row per decision, joined with its prompt and raw reply.
 - `hands.parquet`: one row per hand.
 - `seats.parquet`: one row per seat dealt into a hand.
-- `hands.jsonl`: the raw hand records, exactly as the engine saved them.
+- `hands.jsonl`: the full hand records (same content as the engine saved; key order may differ).
 - `pokerstars.txt`: PokerStars-format hand histories for PokerTracker, Hold'em Manager or Hand2Note.
 
 `system_prompts.jsonl` at the top level holds each system prompt once, keyed by `prompt_version`.
@@ -346,10 +372,10 @@ CC BY 4.0. Model replies are the output of the listed models, used under their p
 ```bibtex
 @misc{{nollmit_hands,
   title  = {{No-LLMit: LLMs playing No Limit Hold'em}},
-  author = {{TODO}},
+  author = {{RizzwareEngineer}},
   year   = {{{date.today().year}}},
-  url    = {{https://nollmit.vercel.app/}},
-  note   = {{Hugging Face dataset, TODO link}}
+  url    = {{https://github.com/RizzwareEngineer/No-LLMit}},
+  note   = {{Live table: https://nollmit.vercel.app/}}
 }}
 ```
 """
@@ -362,6 +388,8 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     ap.add_argument("--from-jsonl", nargs=2, metavar=("HANDS", "PROMPTS"))
     ap.add_argument("--day", help="YYYY-MM-DD or 'yesterday' (ET); Supabase only, default all hands")
+    ap.add_argument("--back", type=int, default=0,
+                    help="also re-export this many days before --day (late or replayed hands)")
     args = ap.parse_args(argv)
 
     if args.from_jsonl:
@@ -375,7 +403,7 @@ def main(argv=None):
             day = datetime.now(hh.ET).date() - timedelta(days=1)
         elif args.day:
             day = date.fromisoformat(args.day)
-        hands, prompts, systems = load_supabase(base.rstrip("/"), key, day)
+        hands, prompts, systems = load_supabase(base.rstrip("/"), key, day, args.back)
     days = export(hands, prompts, systems, args.out)
     print(f"{len(hands)} hands, {len(prompts)} prompts -> {args.out} ({', '.join(days) or 'no days'})")
 

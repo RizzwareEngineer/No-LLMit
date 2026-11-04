@@ -15,8 +15,8 @@ import export
 HERE = Path(__file__).parent
 ROOT = HERE.parent.parent
 GENERATED = HERE / "fixtures" / "generated"  # 40 hands played through the engine's recorder
-# Local engine output, if this machine has some.
-PREVIEW = Path("/private/tmp/claude-501/-Users-rizzwareengineer/9e855f1b-560f-48a1-9090-bd698d74fc31/scratchpad/preview-hands")
+# Two engine hands where its payout differs from poker rules (from a 2400-hand fuzz run).
+REPRO = HERE / "fixtures" / "repro_hands.jsonl"
 
 
 def example_source(tmp_path):
@@ -27,11 +27,20 @@ def example_source(tmp_path):
     return hands, prompts
 
 
+def repro_source(tmp_path):
+    """The repro hands carry no prompts, so give each decision a stand-in."""
+    hands = [json.loads(line) for line in REPRO.read_text().splitlines()]
+    prompts = [{"prompt_id": a["prompt_id"], "n": a["n"], "prompt": "P", "raw_reply": "R"}
+               for h in hands for a in h["actions"]]
+    p = tmp_path / "repro_prompts.jsonl"
+    p.write_text("".join(json.dumps(x) + "\n" for x in prompts))
+    return REPRO, p
+
+
 def sources(tmp_path):
     yield example_source(tmp_path)
     yield GENERATED / "hands.jsonl", GENERATED / "prompts.jsonl"
-    if (PREVIEW / "hands.jsonl").exists():
-        yield PREVIEW / "hands.jsonl", PREVIEW / "prompts.jsonl"
+    yield repro_source(tmp_path)
 
 
 @pytest.fixture
@@ -53,6 +62,10 @@ def _write(tmp_path, hands, prompts):
     return h, p
 
 
+def read_day(out, day, name):
+    return pq.read_table(out / f"day={day}" / f"{name}.parquet").to_pylist()
+
+
 def read(out, name):
     files = sorted(glob.glob(str(out / "day=*" / f"{name}.parquet")))
     assert files
@@ -65,10 +78,12 @@ def read(out, name):
 def test_files_and_row_counts(exported):
     out, hands, prompts = exported
     days = sorted(p.name for p in out.glob("day=*"))
-    assert {"day=2026-10-09", "day=2026-11-02"} <= set(days)
+    assert set(days) == {"day=2026-10-09", "day=2026-11-02", "day=2026-11-03"}
+    assert (out / ".exported-days").read_text().split() == [d[4:] for d in days]
     # The generated hands run past midnight UTC but not ET, so they stay in one day.
     gen_days = {json.loads(line)["started_at"][:10] for line in (GENERATED / "hands.jsonl").read_text().splitlines()}
-    assert gen_days == {"2026-11-02", "2026-11-03"} and "day=2026-11-03" not in days
+    assert gen_days == {"2026-11-02", "2026-11-03"}
+    assert len(read_day(out, "2026-11-03", "hands")) == 2  # only the repro hands
     for d in days:
         for f in ("hands.jsonl", "hands.parquet", "seats.parquet", "decisions.parquet", "pokerstars.txt"):
             assert (out / d / f).stat().st_size > 0, f"{d}/{f}"
@@ -216,6 +231,9 @@ def test_supabase_pagination(monkeypatch):
     assert len(hands) == len(hs) and len(prompts) == len(ps) and systems[0]["system_prompt"] == "S"
     first = calls[0][1]
     assert first["and"] == "(started_at.gte.2026-11-01T04:00:00+00:00,started_at.lt.2026-11-02T05:00:00+00:00)"
+    calls.clear()
+    export.load_supabase("https://x.supabase.co", "k", date(2026, 11, 4), back=3)
+    assert calls[0][1]["and"] == "(started_at.gte.2026-11-01T04:00:00+00:00,started_at.lt.2026-11-05T05:00:00+00:00)"
 
 
 def test_upload_dry_run_needs_no_token(exported, monkeypatch, capsys):
@@ -227,3 +245,45 @@ def test_upload_dry_run_needs_no_token(exported, monkeypatch, capsys):
     assert "README.md" in printed and "decisions.parquet" in printed
     with pytest.raises(SystemExit):
         upload.main(["--out", str(out)])
+
+
+def test_engine_payout_hands_are_written_with_a_note(exported, capsys):
+    import hh
+    out, _, _ = exported
+    text = (out / "day=2026-11-03" / "pokerstars.txt").read_text()
+    assert text.count("PokerStars Hand #") == 2
+    assert "#note tbl_a00000-000004: engine payout" in text
+    assert "P0 collected 23 from pot" in text and "returned to P2" not in text.split("000004")[1].split("PokerStars")[0]
+    hh.hands_to_text([json.loads(line) for line in REPRO.read_text().splitlines()])
+    assert "1 hand(s) carry a #note" in capsys.readouterr().err
+
+
+def test_bad_hand_is_left_out_not_raised(capsys):
+    import hh
+    hands = [json.loads(line) for line in REPRO.read_text().splitlines()]
+    hands[1]["actions"][0]["applied"]["type"] = "SHOVE"
+    text = hh.hands_to_text(hands)
+    assert text.count("PokerStars Hand #") == 1
+    assert "left out tbl_a00000-000020" in capsys.readouterr().err
+
+
+def test_pot_counts_every_chip(exported):
+    out, hands, _ = exported
+    pots = {h["hand_id"]: h["pot"] for h in read(out, "hands")}
+    # The engine's result.pots omits a single-eligible side pot holding a folded limper's 10 chips.
+    assert pots["tbl_a00000-000020"] == 23 and pots["tbl_a00000-000004"] == 23
+    assert pots["tbl_684679-000002"] == 387
+    for h in hands:  # every chip lost is in the pot, and the winners put something in too
+        assert pots[h["hand_id"]] > -sum(v for v in h["result"]["net"].values() if v < 0), h["hand_id"]
+
+
+def test_decision_value_normalisation(exported):
+    out, _, _ = exported
+    decisions = read(out, "decisions")
+    assert all(la["type"] != "ALL-IN" for d in decisions for la in d["legal_actions"])
+    assert any(la["type"] == "ALL_IN" for d in decisions for la in d["legal_actions"])
+    for d in decisions:
+        assert d["parsed_action"] != "ALL-IN"
+        if d["parsed_action"] not in ("RAISE", "BET"):
+            assert d["parsed_amount"] is None
+    assert any(d["parsed_amount"] for d in decisions)
