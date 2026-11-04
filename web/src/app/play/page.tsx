@@ -23,9 +23,7 @@ export default function PlayPage() {
       alert('Please select exactly 8 LLM opponents');
       return;
     }
-    // Store selected LLMs and redirect to game
-    sessionStorage.setItem('playMode', 'true');
-    sessionStorage.setItem('selectedLLMs', JSON.stringify(selectedLLMs));
+    // shortcut: play mode is not built yet, so this only returns to the shared table.
     router.push('/');
   };
 

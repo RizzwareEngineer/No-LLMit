@@ -13,15 +13,3 @@ export const ALL_LLMS = [
   "Cohere Command R7B",
 ] as const;
 
-export type LLMName = (typeof ALL_LLMS)[number];
-
-// Default game configuration
-export const DEFAULT_GAME_CONFIG = {
-  startingStack: 2000,
-  smallBlind: 5,
-  bigBlind: 10,
-} as const;
-
-// Game modes
-export type GameMode = 'simulate' | 'play' | 'test';
-

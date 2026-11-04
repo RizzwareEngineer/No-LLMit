@@ -6,22 +6,14 @@ export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws'
 export const API_URL = WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, '');
 
 export type MessageType = 
-  | 'new_game'
-  | 'start_hand'
-  | 'action'
   | 'get_state'
-  | 'pause'
-  | 'resume'
   | 'game_state'
   | 'error'
   | 'hand_start'
-  | 'action_required'
   | 'street_change'
   | 'hand_complete'
   | 'llm_thinking'
   | 'llm_action'
-  | 'paused'
-  | 'resumed'
   | 'button_card'
   | 'button_winner'
   | 'table_notice';
@@ -34,21 +26,6 @@ export interface ClientMessage {
 export interface ServerMessage {
   type: MessageType;
   payload?: unknown;
-}
-
-export interface NewGamePayload {
-  playerNames: string[];
-  startingStack: number;
-  smallBlind: number;
-  bigBlind: number;
-  mode: 'simulate' | 'play' | 'test';
-  userSeatIdx?: number;
-}
-
-export interface ActionPayload {
-  playerIdx: number;
-  action: 'fold' | 'check' | 'call' | 'raise' | 'all-in';
-  amount?: number;
 }
 
 export interface ButtonCardPayload {
@@ -104,20 +81,12 @@ export interface GameState {
   players: PlayerState[];
   validActions?: ValidAction[];
   winners?: Winner[];
-  mode: string;
   stakes: {
     smallBlind: number;
     bigBlind: number;
   };
   gameStartTime: string; // ISO8601 timestamp from server
   nextHandInMs?: number; // Shared table: time until the server deals the next hand
-}
-
-export interface ActionRequiredPayload {
-  playerIdx: number;
-  playerName: string;
-  validActions: ValidAction[];
-  timeoutMs?: number;
 }
 
 export interface HandCompletePayload {
@@ -273,19 +242,6 @@ export class PokerWebSocket {
     } else {
       console.error('WebSocket not connected');
     }
-  }
-
-  // Convenience methods
-  newGame(payload: NewGamePayload) {
-    this.send({ type: 'new_game', payload });
-  }
-
-  startHand() {
-    this.send({ type: 'start_hand' });
-  }
-
-  action(payload: ActionPayload) {
-    this.send({ type: 'action', payload });
   }
 
   getState() {
