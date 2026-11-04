@@ -17,3 +17,4 @@ __pycache__/
 # Prompt/response logs
 logs/
 .venv/
+.pytest_cache/
