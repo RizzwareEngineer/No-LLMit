@@ -8,8 +8,10 @@ Python service that handles LLM API calls for No-LLMit poker.
 cd llm
 uv venv
 source .venv/bin/activate
-uv pip install -r requirements.txt
+uv pip install -r requirements-dev.txt   # requirements.txt alone in production
 ```
+
+`requirements.txt` and the `Dockerfile` (Python 3.11) are the source of truth for dependencies.
 
 ## Environment
 
@@ -34,10 +36,17 @@ Or with uvicorn directly:
 uvicorn app:app --reload --port 5001
 ```
 
+## Test
+
+```bash
+.venv/bin/python -m pytest -q
+```
+
 ## API Endpoints
 
 - `GET /health` - Health check
-- `GET /usage` - Provider, spend against the key's limit, and request counts
+- `GET /usage` - `{"provider", "spend"}`: the provider and OpenRouter spend against the key's limit
+- `GET /prompt` - The system prompt and its version
 - `POST /decide` - Get LLM decision
 
 ### POST /decide
@@ -47,9 +56,13 @@ Request:
 {
   "player_name": "Claude Haiku 5.5",
   "prompt": "Hand #12. No Limit Texas Hold'em cash game, blinds 5/10, 9 players. ...",
-  "valid_actions": [{"type": "FOLD"}, {"type": "CALL", "amount": 20}]
+  "valid_actions": [{"type": "FOLD"}, {"type": "CALL", "amount": 20}],
+  "retry_note": null
 }
 ```
+
+`retry_note` is optional. When set, it is sent as a second user message
+("Your previous reply was invalid: ... Reply again in the required format.").
 
 Response:
 ```json
@@ -58,9 +71,29 @@ Response:
   "amount": 150,
   "reason": "Strong hand in position.",
   "raw": "ACTION: RAISE\nAMOUNT: 150\nREASON: Strong hand in position.",
-  "latency_ms": 1234
+  "latency_ms": 1234,
+  "status": "ok",
+  "provider": "openrouter",
+  "model": "microsoft/phi-4",
+  "tokens_in": 812,
+  "tokens_out": 41,
+  "cost_usd": 0.00002,
+  "prompt_version": "d7fd8ae",
+  "reasoning": null,
+  "reasoning_tokens": null,
+  "finish_reason": "stop",
+  "upstream_provider": "DeepInfra",
+  "generation_id": "gen-1730000000-abc",
+  "temperature": 0.7
 }
 ```
+
+- `status`: `ok`, `unparseable` (no action in the reply; the service folds), `truncated`
+  (hit `max_tokens`, usually while thinking, before a usable answer), `timeout` or `api_error`.
+- `reason` is empty when the model gave no REASON; it is never filled in for the model.
+- `reasoning` is the model's thinking text when the model returns one; `reasoning_tokens`,
+  `finish_reason`, `upstream_provider` (the host OpenRouter routed to), `generation_id` and
+  `temperature` come from OpenRouter. The mock provider leaves all six null.
 
 ## Architecture
 
@@ -77,82 +110,6 @@ Response:
 - `parsing.py` - Turns a raw reply into an action
 - `providers/openrouter.py` - OpenRouter client
 - `providers/mock.py` - Random legal actions for local development
+- `schemas.py` - `/decide` request and response
+- `tests/` - pytest tests for parsing, `/decide` with the mock provider, and the OpenRouter client
 
----
-
-## Future: Training Mode
-
-Allow users to train an LLM by playing 1000+ hands themselves.
-
-### Data Structure (reuses existing types)
-
-```go
-// Wraps LLMPreviousHand - no duplication
-type LLMTrainingRecord struct {
-    Hand      LLMPreviousHand   // REUSED - contains all hand context
-    YourName  string            // which player is being trained
-    YourCards []string          // trainee's cards (even if folded)
-    Decisions []LLMDecision     // trainee's decisions with reasoning
-}
-
-type LLMDecision struct {
-    ActionIdx  int      // index into Hand.Actions (which action was theirs)
-    Reasoning  string   // user's explanation (optional input)
-}
-```
-
-### What's Included via Reuse
-
-`LLMTrainingRecord.Hand` (type `LLMPreviousHand`) contains:
-
-| Field | What's in it |
-|-------|--------------|
-| `Players` | All player names, seats, **stack sizes**, positions |
-| `CommunityCards` | Final board (flop, turn, river) |
-| `Actions` | Every action: player, action type, amount |
-| `Showdown` | Cards revealed at showdown |
-| `Winners` | Who won, how much |
-
-### What Training Adds
-
-| Field | Why needed |
-|-------|------------|
-| `YourCards` | Trainee's hole cards (needed if they fold before showdown) |
-| `Decisions` | Links trainee's actions to their reasoning |
-
-**No parallel structures.** Training wraps the existing hand type.
-
-### Flow
-
-1. User enters "Training Mode" and selects base LLM to train
-2. User plays hands against other LLMs
-3. After each user action, optionally prompt for reasoning
-4. Each hand archived as `LLMTrainingRecord` to database
-5. After 1000+ hands, fine-tune the base LLM on collected data
-6. User gets their custom-trained LLM
-
-### Storage (future)
-
-```sql
-CREATE TABLE training_sessions (
-    id TEXT PRIMARY KEY,
-    user_id TEXT,
-    base_llm TEXT,
-    created_at TIMESTAMP
-);
-
-CREATE TABLE training_hands (
-    id TEXT PRIMARY KEY,
-    session_id TEXT REFERENCES training_sessions(id),
-    hand_data JSONB,        -- LLMPreviousHand (players, actions, etc.)
-    your_cards TEXT[],
-    decisions JSONB,        -- []LLMDecision
-    created_at TIMESTAMP
-);
-```
-
-### Fine-tuning Options
-
-1. **HuggingFace + Tinker** - User provides API key, we handle training
-2. **Custom training pipeline** - Export data, user trains locally
-3. **OpenAI fine-tuning API** - For GPT-based models
