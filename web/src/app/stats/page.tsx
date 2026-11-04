@@ -141,6 +141,9 @@ export default function StatsPage() {
             <SmallSampleNote>Models marked with a warning have fewer than {MIN_HANDS} hands, so their win rates are mostly luck so far. Read the ± first.</SmallSampleNote>
           )}
 
+          {data.partial && (
+            <p className="mb-2 text-[12px]" style={{ color: MUTED }} role="status">All-in EV still computing…</p>
+          )}
           <StatsPanel title="Every model" className="mb-6">
             <div className="relative overflow-x-auto -m-3">
               <table className="w-full text-[12px] tabular-nums">

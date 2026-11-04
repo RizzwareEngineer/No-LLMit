@@ -1441,6 +1441,7 @@
         }
       }
     ],
+    "partial": false,
     "definitions_url": "/docs/stats.md"
   },
   "tbl_xxxxxx-s002": {
@@ -2777,6 +2778,7 @@
         }
       }
     ],
+    "partial": false,
     "definitions_url": "/docs/stats.md"
   }
 }

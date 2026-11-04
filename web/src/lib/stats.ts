@@ -60,6 +60,7 @@ export interface StatsResponse {
   scope: { table_id: string; prompt_version: string; big_blind: number; hands: number; sessions: number };
   sessions: StatsSession[];
   models: ModelStats[];
+  partial: boolean; // all-in EV still computing in the background; aiev_bb100 is provisional
   definitions_url: string;
 }
 
@@ -73,6 +74,8 @@ export class StatsLoadingError extends Error {}
 
 // How long to wait before asking again while the engine answers 503.
 const LOADING_RETRY_MS = 10_000;
+// How often to refetch while all-in EV is still computing (partial: true).
+const PARTIAL_REFRESH_MS = 30_000;
 
 export async function fetchStats(session?: string): Promise<StatsResponse> {
   const query = session ? `?session=${encodeURIComponent(session)}` : '';
@@ -94,7 +97,8 @@ interface StatsState {
 
 type Settled = Omit<StatsState, 'current'> & { session?: string };
 
-// Fetches /api/stats, retrying every 10s while the engine answers 503.
+// Fetches /api/stats, retrying every 10s while the engine answers 503 and every 30s while
+// the response is partial.
 // In development any other failure falls back to the bundled sample for the same session.
 export function useStats(session?: string, enabled = true): StatsState {
   const [state, setState] = useState<Settled>({ data: null, sample: false, loading: false, error: null, session: '\0' }); // '\0': nothing settled yet
@@ -106,7 +110,10 @@ export function useStats(session?: string, enabled = true): StatsState {
       !cancelled && setState(s => ({ ...s, sample: false, loading: false, error: null, ...next, session }));
     const load = () =>
       fetchStats(session)
-        .then(data => settle({ data }))
+        .then(data => {
+          settle({ data });
+          if (data.partial && !cancelled) timer = setTimeout(load, PARTIAL_REFRESH_MS);
+        })
         .catch(err => {
           if (cancelled) return;
           if (err instanceof StatsLoadingError) {
