@@ -13,7 +13,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from schemas import DecisionRequest, DecisionResponse
 from prompts import system_prompt, prompt_version
-from usage import tracker
 
 load_dotenv()
 
@@ -66,21 +65,14 @@ def health():
 
 @app.get("/usage")
 def get_usage():
-    """Provider, what it has spent, and local request counts."""
-    return {"provider": PROVIDER, "spend": get_spend(), **tracker.get_summary()}
+    """Provider and what it has spent."""
+    return {"provider": PROVIDER, "spend": get_spend()}
 
 
 @app.get("/prompt")
 def get_prompt():
     """The system prompt every model receives, and the version that identifies it."""
     return {"prompt_version": prompt_version, "system_prompt": system_prompt}
-
-
-@app.post("/usage/reset")
-def reset_usage():
-    """Manually reset all usage stats."""
-    tracker.reset()
-    return {"status": "reset", "usage": tracker.get_summary()}
 
 
 @app.post("/decide", response_model=DecisionResponse)
@@ -91,10 +83,7 @@ def decide(request: DecisionRequest):
     logger.info(f"🎯 {request.player_name}")
     
     start = time.time()
-    
-    # Estimate input tokens (~4 chars per token)
-    est_input = (len(system_prompt) + len(request.prompt)) // 4
-    
+
     try:
         result = get_decision(request.player_name, request.prompt, request.valid_actions)
     except Exception as e:
@@ -112,10 +101,7 @@ def decide(request: DecisionRequest):
     
     latency_ms = int((time.time() - start) * 1000)
     usage = result.get("usage") or {}
-    est_output = len(result.get("raw", "")) // 4
-    
-    # Track usage
-    tracker.record(est_input, est_output)
+
 
     log_decision({
         "time": datetime.now().isoformat(timespec="seconds"),
@@ -135,7 +121,7 @@ def decide(request: DecisionRequest):
     emoji = {"FOLD": "🃏", "CHECK": "✋", "CALL": "📞", "RAISE": "⬆️", "ALL_IN": "🔥"}.get(result["action"], "❓")
     logger.info(f"{emoji} {result['action']}" + (f" ¤{result['amount']}" if result["amount"] else ""))
     logger.info(f"   {result['reason']}")
-    logger.info(f"   ⏱️ {latency_ms}ms | 📊 ~{est_input + est_output} tok | 📅 {tracker.daily_requests}/day {tracker.monthly_requests}/mo")
+    logger.info(f"   ⏱️ {latency_ms}ms | 📊 {usage.get('total_tokens')} tok")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     return DecisionResponse(
