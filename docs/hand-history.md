@@ -32,3 +32,8 @@ running the mock provider, with its prompts alongside.
 With `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` set, the engine saves to Supabase through the
 `save_hand` function. Without them it appends to `data/hands.jsonl` and `data/prompts.jsonl`.
 Hands played by the mock provider are never sent to Supabase.
+
+A hand that still fails after 5 attempts is appended to `unsaved.jsonl` in `HAND_LOG_DIR`
+(default `data/`), and that file is replayed at startup and after every successful save.
+The engine also reads one row from `hands` every 6 hours so a free Supabase project is
+never paused for inactivity.
