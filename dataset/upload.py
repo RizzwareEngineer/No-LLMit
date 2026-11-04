@@ -12,10 +12,12 @@ import os
 import sys
 from pathlib import Path
 
+from export import EXPORTED
+
 
 def files_to_upload(out):
     paths = (p.relative_to(out) for p in Path(out).rglob("*") if p.is_file())
-    return sorted(str(p) for p in paths if p.parts[0] != ".cache")  # .cache is snapshot_download's
+    return sorted(str(p) for p in paths if p.parts[0] not in (".cache", EXPORTED))  # .cache is snapshot_download's
 
 
 def main(argv=None):
@@ -43,9 +45,11 @@ def main(argv=None):
         snapshot_download(repo, repo_type="dataset", token=token, local_dir=args.out,
                           allow_patterns=["day=*/hands.parquet", "day=*/seats.parquet", "system_prompts.jsonl"])
         return
+    marker = Path(args.out, EXPORTED)
+    days = marker.read_text().split() if marker.exists() else []
     api.upload_folder(repo_id=repo, repo_type="dataset", folder_path=args.out,
-                      commit_message=f"Export {', '.join(sorted(p.name for p in Path(args.out).glob('day=*')))}",
-                      ignore_patterns=[".cache/**"])
+                      commit_message=f"Export {', '.join(days)}" if days else "Update dataset card",
+                      ignore_patterns=[".cache/**", EXPORTED])
     print(f"Uploaded {args.out} to https://huggingface.co/datasets/{repo}")
 
 
