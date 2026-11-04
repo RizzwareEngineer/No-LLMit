@@ -36,7 +36,7 @@ func (gs *GameState) GetValidActions() []ValidAction {
 		actions = append(actions, ValidAction{Type: ActionCall, MinAmount: amountToCall})
 	}
 	minRaiseTotal := gs.CurrentBet + gs.MinRaise
-	if player.Stack > amountToCall {
+	if player.Stack > amountToCall && !player.RaiseClosed {
 		if player.Stack >= minRaiseTotal-player.CurrentBet {
 			actions = append(actions, ValidAction{
 				Type:      ActionRaise,
@@ -46,7 +46,7 @@ func (gs *GameState) GetValidActions() []ValidAction {
 		}
 	}
 
-	if player.Stack > 0 {
+	if player.Stack > 0 && (!player.RaiseClosed || player.Stack <= amountToCall) {
 		actions = append(actions, ValidAction{
 			Type:      ActionAllIn,
 			MinAmount: player.Stack + player.CurrentBet,
@@ -147,6 +147,10 @@ func (gs *GameState) processRaise(player *Player, action Action) error {
 	raiseAmount := raiseToAmount - gs.CurrentBet
 	totalNeeded := raiseToAmount - player.CurrentBet
 
+	if player.RaiseClosed {
+		return fmt.Errorf("an all-in for less than a full raise does not reopen raising; call or fold")
+	}
+
 	// Validate minimum raise
 	if raiseAmount < gs.MinRaise && totalNeeded < player.Stack {
 		return fmt.Errorf("raise must be at least %d (minimum raise), you raised %d", gs.MinRaise, raiseAmount)
@@ -173,6 +177,7 @@ func (gs *GameState) processRaise(player *Player, action Action) error {
 	gs.MinRaise = raiseAmount
 	gs.CurrentBet = raiseToAmount
 	gs.actionsThisRound++
+	gs.reopenRaising()
 	gs.resetActedExcept(action.PlayerIdx)
 	gs.advanceToNextPlayer()
 	return nil
@@ -181,6 +186,9 @@ func (gs *GameState) processRaise(player *Player, action Action) error {
 func (gs *GameState) processAllIn(player *Player, action Action) error {
 	allInAmount := player.Stack
 	totalBet := player.CurrentBet + allInAmount
+	if player.RaiseClosed && totalBet > gs.CurrentBet {
+		return fmt.Errorf("an all-in for less than a full raise does not reopen raising; call or fold")
+	}
 
 	player.Stack = 0
 	player.CurrentBet = totalBet
@@ -195,6 +203,15 @@ func (gs *GameState) processAllIn(player *Player, action Action) error {
 		if raiseAmount >= gs.MinRaise {
 			gs.MinRaise = raiseAmount
 			gs.LastRaiseAmount = raiseAmount
+			gs.reopenRaising()
+		} else {
+			// Incomplete raise: players who already acted may only call or fold (TDA).
+			for i := range gs.Players {
+				p := &gs.Players[i]
+				if i != action.PlayerIdx && p.Status == PlayerActive && p.HasActedThisRound {
+					p.RaiseClosed = true
+				}
+			}
 		}
 		gs.CurrentBet = totalBet
 		gs.resetActedExcept(action.PlayerIdx)
@@ -203,6 +220,13 @@ func (gs *GameState) processAllIn(player *Player, action Action) error {
 	gs.actionsThisRound++
 	gs.advanceToNextPlayer()
 	return nil
+}
+
+// reopenRaising lets everyone raise again after a full raise.
+func (gs *GameState) reopenRaising() {
+	for i := range gs.Players {
+		gs.Players[i].RaiseClosed = false
+	}
 }
 
 func (gs *GameState) resetActedExcept(playerIdx int) {
@@ -291,6 +315,7 @@ func (gs *GameState) ResetBettingRound() {
 	for i := range gs.Players {
 		gs.Players[i].CurrentBet = 0
 		gs.Players[i].HasActedThisRound = false
+		gs.Players[i].RaiseClosed = false
 	}
 	gs.CurrentBet = 0
 	gs.MinRaise = gs.Stakes.BigBlind

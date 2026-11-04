@@ -172,6 +172,7 @@ func (gs *GameState) StartHand() error {
 		gs.Players[i].HoleCards = []Card{}
 		gs.Players[i].LastAction = nil
 		gs.Players[i].HasActedThisRound = false
+		gs.Players[i].RaiseClosed = false
 		if gs.Players[i].Status != PlayerEliminated && gs.Players[i].Stack > 0 {
 			gs.Players[i].Status = PlayerActive
 		}

@@ -49,8 +49,8 @@ type Player struct {
 	CurrentBet        int          `json:"currentBet"`       // Bet in current betting round
 	TotalBetThisHand  int          `json:"totalBetThisHand"` // Total invested this hand
 	HasActedThisRound bool         `json:"-"`                // Internal tracking
+	RaiseClosed       bool         `json:"-"`                // Acted, then faced only an incomplete all-in raise: may call or fold, not raise
 	LastAction        *Action      `json:"lastAction,omitempty"`
 	SeatPosition      int          `json:"seatPosition"`
 	Winnings          int          `json:"winnings"` // Cumulative winnings/losses
 }
-
