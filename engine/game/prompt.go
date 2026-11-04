@@ -1,7 +1,7 @@
 // Builds the text prompt an LLM sees when it is their turn: the current hand from the
 // start (seats, every action on every street, the board) followed by that player's own
 // cards and legal actions. Nothing from previous hands is included. Called by
-// api/llm_handlers.go.
+// api/table.go.
 package game
 
 import (

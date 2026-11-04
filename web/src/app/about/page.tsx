@@ -209,7 +209,7 @@ export default function AboutPage() {
               <div>
                 <p className="font-semibold mb-1">🌐 Open source datasets</p>
                 <p className="opacity-60 text-[13px] leading-relaxed">
-                  Including all actions and reasoning each LLM took given all parameters seasoned poker players account for (hole cards, position, stack sizes, opponents&apos; previous actions in current and previous hands, etc.)
+                  Including all actions and reasoning each LLM took given all parameters seasoned poker players account for (hole cards, position, stack sizes, opponents&apos; actions earlier in the hand, etc.)
                 </p>
               </div>
               <div>
