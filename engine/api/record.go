@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
 )
 
@@ -67,7 +66,10 @@ type ActionRecord struct {
 	Parsed       ParsedAction          `json:"parsed"`
 	// Status is ok, or why Applied is not the model's own choice: unparseable, timeout,
 	// api_error, service_error (LLM service unreachable) or illegal (move not allowed).
+	// After an unparseable or illegal reply the model is asked once more (Retried); if
+	// the retry is also bad, Applied is CHECK when that is legal and FOLD otherwise.
 	Status    string        `json:"status"`
+	Retried   bool          `json:"retried"`
 	Applied   AppliedAction `json:"applied"`
 	LatencyMs int           `json:"latency_ms"`
 	TokensIn  *int          `json:"tokens_in"`
@@ -179,9 +181,9 @@ func (r *handRecorder) beginDecision(gs *game.GameState, legal []game.LLMValidAc
 	r.prompts = append(r.prompts, HandPrompt{PromptID: r.pending.PromptID, N: n, Prompt: prompt})
 }
 
-// endDecision records the reply and what the engine applied. serviceErr is set when the
-// LLM service could not be reached; illegal when the engine rejected the model's move.
-func (r *handRecorder) endDecision(gs *game.GameState, decision *client.LLMDecisionResponse, serviceErr, illegal bool) {
+// endDecision records the reply and what the engine applied for it.
+func (r *handRecorder) endDecision(gs *game.GameState, turn llmTurn) {
+	decision := turn.decision
 	a := r.pending
 	if a == nil {
 		return
@@ -192,10 +194,11 @@ func (r *handRecorder) endDecision(gs *game.GameState, decision *client.LLMDecis
 	a.LatencyMs = decision.LatencyMs
 	a.TokensIn, a.TokensOut, a.CostUSD = decision.TokensIn, decision.TokensOut, decision.CostUSD
 	a.Status = decision.Status
+	a.Retried = turn.retried
 	switch {
-	case serviceErr:
+	case turn.serviceErr:
 		a.Status = "service_error"
-	case illegal:
+	case turn.fallback && (a.Status == "" || a.Status == "ok"):
 		a.Status = "illegal"
 	case a.Status == "":
 		a.Status = "ok"

@@ -514,27 +514,33 @@ func (t *Table) playTurn() {
 	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{PlayerIdx: playerIdx, PlayerName: playerName}}
 	t.turn = &thinking
 	t.broadcast(thinking)
-	t.calls++
 	t.mu.Unlock()
 
 	start := time.Now()
-	decision, err := client.GetLLMDecision(playerName, prompt, validActions, game.ModeSimulate.String())
-	serviceErr := err != nil
-	if serviceErr {
-		log.Printf("❌ LLM ERROR for %s: %v", playerName, err)
-		decision = &client.LLMDecisionResponse{Action: "FOLD", Reason: "LLM service error, auto-fold"}
+	ask := func(prompt string) (*client.LLMDecisionResponse, error) {
+		t.mu.Lock()
+		t.calls++
+		t.mu.Unlock()
+		return client.GetLLMDecision(playerName, prompt, validActions, game.ModeSimulate.String())
 	}
+	// Reading t.gs without the lock is safe here: only this goroutine changes it.
+	turn := decideLLMTurn(t.gs, prompt, ask)
+	decision := turn.decision
 	log.Printf("%s: %s %d (%dms)", playerName, decision.Action, decision.Amount, time.Since(start).Milliseconds())
 	if remaining := time.Duration(float64(thinkingDuration)*t.pace) - time.Since(start); remaining > 0 {
 		time.Sleep(remaining)
 	}
 
+	shownAction, shownAmount := decision.Action, decision.Amount
+	if turn.fallback {
+		shownAction, shownAmount = turn.action.Type.String(), 0
+	}
 	t.mu.Lock()
 	acted := ServerMessage{Type: MsgLLMAction, Payload: LLMActionPayload{
 		PlayerIdx:  playerIdx,
 		PlayerName: playerName,
-		Action:     decision.Action,
-		Amount:     decision.Amount,
+		Action:     shownAction,
+		Amount:     shownAmount,
 		Reason:     decision.Reason,
 	}}
 	t.turn = &acted
@@ -545,14 +551,13 @@ func (t *Table) playTurn() {
 	t.sleep(min(max(reasoning, minReasoning), maxReasoning))
 
 	t.mu.Lock()
-	action := game.Action{Type: ParseActionType(decision.Action), Amount: decision.Amount, PlayerIdx: playerIdx}
-	illegal := false
-	if err := t.gs.ProcessAction(action); err != nil {
+	if err := t.gs.ProcessAction(turn.action); err != nil {
+		// Not expected: decideLLMTurn already checked the action against this state.
 		log.Printf("Error processing LLM action: %v", err)
-		illegal = true
+		turn.fallback = true
 		t.gs.ProcessAction(game.Action{Type: game.ActionFold, PlayerIdx: playerIdx})
 	}
-	t.recorder.endDecision(t.gs, decision, serviceErr, illegal)
+	t.recorder.endDecision(t.gs, turn)
 	if t.gs.NeedToAdvanceStreet() {
 		t.advanceStreet()
 	}
@@ -561,4 +566,97 @@ func (t *Table) playTurn() {
 	t.mu.Unlock()
 
 	t.sleep(postActionDelay)
+}
+
+// llmTurn is one model decision and the move the engine will apply for it.
+type llmTurn struct {
+	decision   *client.LLMDecisionResponse // the reply to record (the retry's, if there was one)
+	action     game.Action
+	serviceErr bool // the LLM service could not be reached
+	retried    bool // the first reply was unparseable or illegal, so the model was asked again
+	fallback   bool // no usable reply: action is CHECK when legal, otherwise FOLD
+}
+
+// decideLLMTurn asks the current player's model for a move. An unparseable or illegal
+// reply is retried once with the engine's reason appended to the prompt; if the retry is
+// bad too, the player checks when checking is legal and folds otherwise. It only reads gs.
+func decideLLMTurn(gs *game.GameState, prompt string, ask func(prompt string) (*client.LLMDecisionResponse, error)) llmTurn {
+	idx := gs.CurrentPlayerIdx
+	name := gs.Players[idx].Name
+	d, err := ask(prompt)
+	if err != nil {
+		log.Printf("❌ LLM ERROR for %s: %v", name, err)
+		return llmTurn{
+			decision:   &client.LLMDecisionResponse{Action: "FOLD", Reason: "LLM service error"},
+			action:     fallbackAction(gs, idx),
+			serviceErr: true,
+			fallback:   true,
+		}
+	}
+
+	turn := llmTurn{}
+	action, reason := checkLLMDecision(gs, idx, d)
+	if reason != "" {
+		log.Printf("%s: invalid reply (%s), asking again", name, reason)
+		turn.retried = true
+		if retry, err := ask(prompt + "\n\nYour previous reply was invalid: " + reason + ". Reply again."); err != nil {
+			log.Printf("❌ LLM ERROR for %s on retry: %v", name, err)
+		} else {
+			d = combineRetry(d, retry)
+			action, reason = checkLLMDecision(gs, idx, d)
+		}
+	}
+	if reason != "" {
+		log.Printf("%s: invalid reply again (%s), falling back", name, reason)
+		action, turn.fallback = fallbackAction(gs, idx), true
+	}
+	turn.decision, turn.action = d, action
+	return turn
+}
+
+// checkLLMDecision turns a reply into an action, or says why the engine cannot apply it.
+func checkLLMDecision(gs *game.GameState, idx int, d *client.LLMDecisionResponse) (game.Action, string) {
+	if d.Status == "unparseable" {
+		return game.Action{}, "no ACTION line was found"
+	}
+	actionType, ok := ParseActionType(d.Action)
+	if !ok {
+		return game.Action{}, fmt.Sprintf("%q is not a legal action", d.Action)
+	}
+	action := game.Action{Type: actionType, Amount: d.Amount, PlayerIdx: idx}
+	if err := gs.CheckAction(action); err != nil {
+		return action, err.Error()
+	}
+	return action, ""
+}
+
+// fallbackAction is CHECK when checking is legal, otherwise FOLD.
+func fallbackAction(gs *game.GameState, idx int) game.Action {
+	check := game.Action{Type: game.ActionCheck, PlayerIdx: idx}
+	if gs.CheckAction(check) == nil {
+		return check
+	}
+	return game.Action{Type: game.ActionFold, PlayerIdx: idx}
+}
+
+// combineRetry keeps the retry's reply, with both raw replies and the cost of both calls.
+func combineRetry(first, retry *client.LLMDecisionResponse) *client.LLMDecisionResponse {
+	d := *retry
+	d.Raw = first.Raw + "\n\n--- retry ---\n" + retry.Raw
+	d.LatencyMs += first.LatencyMs
+	d.TokensIn = addPtr(first.TokensIn, retry.TokensIn)
+	d.TokensOut = addPtr(first.TokensOut, retry.TokensOut)
+	d.CostUSD = addPtr(first.CostUSD, retry.CostUSD)
+	return &d
+}
+
+func addPtr[T int | float64](a, b *T) *T {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	sum := *a + *b
+	return &sum
 }

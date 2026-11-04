@@ -17,8 +17,12 @@ running the mock provider, with its prompts alongside.
 
 - `parsed` is what we read from the model's reply; `applied` is what the engine did.
 - `status` is `ok` when they are the same decision. Otherwise the applied action is a
-  fallback fold and the status says why: `unparseable`, `illegal`, `timeout`, `api_error`
-  or `service_error`. Exclude these from playing-style statistics.
+  fallback and the status says why: `unparseable`, `illegal`, `timeout`, `api_error` or
+  `service_error`. Exclude these from playing-style statistics.
+- An `unparseable` or `illegal` reply is retried once, with the engine's reason added to
+  the prompt, and `retried` is true. `parsed` is then the retry's reply, and the prompt's
+  raw reply holds both, separated by `--- retry ---`. If the retry is also bad, the
+  fallback is `CHECK` when checking is legal and `FOLD` otherwise.
 - `result.net` is each seat's chips won or lost on the hand and sums to zero.
 - Amounts on `BET`, `RAISE` and `ALL_IN` are the player's total bet for that street; on
   `CALL` they are the chips added.

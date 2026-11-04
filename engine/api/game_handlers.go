@@ -154,8 +154,13 @@ func (s *Server) handleAction(conn *websocket.Conn, payload interface{}) {
 		return
 	}
 
+	actionType, ok := ParseActionType(ap.Action)
+	if !ok {
+		s.sendError(conn, "Unknown action: "+ap.Action)
+		return
+	}
 	action := game.Action{
-		Type:      ParseActionType(ap.Action),
+		Type:      actionType,
 		Amount:    ap.Amount,
 		PlayerIdx: ap.PlayerIdx,
 	}

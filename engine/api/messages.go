@@ -235,20 +235,22 @@ func ConvertGameState(gs *game.GameState, showAllCards bool) GameStatePayload {
 	}
 }
 
-func ParseActionType(s string) game.ActionType {
+// ParseActionType reads an action name. ok is false for anything it does not know, which
+// callers must treat as an illegal move rather than a fold.
+func ParseActionType(s string) (game.ActionType, bool) {
 	switch s {
 	case "FOLD", "fold":
-		return game.ActionFold
+		return game.ActionFold, true
 	case "CHECK", "check":
-		return game.ActionCheck
+		return game.ActionCheck, true
 	case "CALL", "call":
-		return game.ActionCall
+		return game.ActionCall, true
 	case "RAISE", "raise":
-		return game.ActionRaise
-	case "ALL-IN", "all-in", "allin":
-		return game.ActionAllIn
+		return game.ActionRaise, true
+	case "ALL_IN", "ALL-IN", "all-in", "allin":
+		return game.ActionAllIn, true
 	default:
-		return game.ActionFold
+		return game.ActionFold, false
 	}
 }
 
