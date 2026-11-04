@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 // fakeSaver records saved hand IDs and fails while down is set.
@@ -28,7 +30,7 @@ func (f *fakeSaver) save(h savedHand) error {
 func (f *fakeSaver) describe() string { return "fake" }
 
 func hand(id string) savedHand {
-	return savedHand{Record: HandRecord{HandID: id}, SystemPrompt: "sys-" + id}
+	return savedHand{Record: history.HandRecord{HandID: id}, SystemPrompt: "sys-" + id}
 }
 
 func TestFailedSaveSpillsAndReplays(t *testing.T) {

@@ -7,11 +7,12 @@ import (
 
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 // playRecorded drives a three-handed hand through the recorder the same way the table
 // does, with each step's reply scripted.
-func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (HandRecord, []HandPrompt) {
+func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
 	t.Helper()
 	gs := game.NewGame(game.GameConfig{
 		PlayerNames:   []string{"A", "B", "C"},
@@ -64,7 +65,7 @@ func reply(action string, amount int) client.LLMDecisionResponse {
 	return client.LLMDecisionResponse{Action: action, Amount: amount, Reason: "because", Raw: "ACTION: " + action, Status: "ok"}
 }
 
-func netSum(r HandRecord) int {
+func netSum(r history.HandRecord) int {
 	sum := 0
 	for _, n := range r.Result.Net {
 		sum += n
@@ -98,13 +99,13 @@ func TestHandRecordThroughShowdown(t *testing.T) {
 		t.Errorf("actions per street: %v", streets)
 	}
 
-	if got := record.Actions[0].Applied; got != (AppliedAction{Type: "RAISE", Amount: 30}) {
+	if got := record.Actions[0].Applied; got != (history.AppliedAction{Type: "RAISE", Amount: 30}) {
 		t.Errorf("preflop open: %+v", got)
 	}
-	if got := record.Actions[1].Applied; got != (AppliedAction{Type: "CALL", Amount: 25}) {
+	if got := record.Actions[1].Applied; got != (history.AppliedAction{Type: "CALL", Amount: 25}) {
 		t.Errorf("small blind call: %+v", got)
 	}
-	if got := record.Actions[4].Applied; got != (AppliedAction{Type: "BET", Amount: 40}) {
+	if got := record.Actions[4].Applied; got != (history.AppliedAction{Type: "BET", Amount: 40}) {
 		t.Errorf("flop bet should be recorded as BET: %+v", got)
 	}
 	if a := record.Actions[4]; a.PotBefore != 90 || a.ToCall != 0 || a.StackBefore != 1970 {

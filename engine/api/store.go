@@ -17,12 +17,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 type savedHand struct {
-	Record       HandRecord   `json:"hand"`
-	Prompts      []HandPrompt `json:"prompts"`
-	SystemPrompt string       `json:"system_prompt,omitempty"` // only written to the spill file
+	Record       history.HandRecord `json:"hand"`
+	Prompts      []HandPrompt       `json:"prompts"`
+	SystemPrompt string             `json:"system_prompt,omitempty"` // only written to the spill file
 }
 
 type handSaver interface {
