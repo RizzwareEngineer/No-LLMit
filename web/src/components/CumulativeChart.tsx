@@ -3,9 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
-import { ModelStats, ciHalf, signed } from '@/lib/stats';
+import { MUTED, ModelStats, ciHalf, signed } from '@/lib/stats';
 
-const MUTED = 'rgba(55, 53, 47, 0.65)';
 const GRID = 'rgba(55, 53, 47, 0.09)';
 const HEIGHT = 260;
 const PAD = { top: 12, right: 12, bottom: 24, left: 40 };
@@ -16,12 +15,18 @@ function band(m: ModelStats, n: number) {
   return ((ciHalf(m) ?? 0) * Math.sqrt(m.hands * n)) / 100; // no interval below 2 hands
 }
 
-function niceTicks(min: number, max: number, count = 4) {
+// Evenly spaced round ticks that cover [min, max]; the first and last tick bound the axis,
+// so a range that dips below zero always gets a negative label.
+export function niceTicks(min: number, max: number, count: number, integer = false) {
   const step0 = (max - min) / count || 1;
   const mag = 10 ** Math.floor(Math.log10(step0));
-  const step = [1, 2, 5, 10].map(f => f * mag).find(s => s >= step0) ?? step0;
+  let step = [1, 2, 2.5, 5, 10].map(f => f * mag).find(s => s >= step0) ?? step0;
+  if (integer) step = Math.max(1, Math.ceil(step));
   const ticks = [];
-  for (let t = Math.ceil(min / step) * step; t <= max; t += step) ticks.push(+t.toFixed(6));
+  for (let t = Math.floor(min / step) * step; t < max + step; t += step) {
+    ticks.push(+t.toFixed(6));
+    if (t >= max) break;
+  }
   return ticks;
 }
 
@@ -50,8 +55,9 @@ export default function CumulativeChart({
   const maxHand = Math.max(1, ...models.flatMap(m => m.cumulative_bb.map(p => p[0])));
   const ys = models.flatMap(m => m.cumulative_bb.map(p => p[1]));
   if (sel) sel.cumulative_bb.forEach(([n, v]) => ys.push(v + band(sel, n), v - band(sel, n)));
-  const yMin = Math.min(0, ...ys);
-  const yMax = Math.max(0, ...ys);
+  const yTicks = niceTicks(Math.min(0, ...ys), Math.max(0, ...ys), 5);
+  const yMin = yTicks[0];
+  const yMax = yTicks[yTicks.length - 1];
   const w = Math.max(width, 200);
   const x = (n: number) => PAD.left + (n / maxHand) * (w - PAD.left - PAD.right);
   const y = (v: number) => PAD.top + ((yMax - v) / (yMax - yMin || 1)) * (HEIGHT - PAD.top - PAD.bottom);
@@ -69,13 +75,13 @@ export default function CumulativeChart({
     <div>
       <div ref={ref} className="w-full">
         <svg width="100%" height={HEIGHT} viewBox={`0 0 ${w} ${HEIGHT}`} role="img" aria-label={`Cumulative big blinds won over hands. ${summary}. Shaded: 95% band for ${sel?.name}.`}>
-          {niceTicks(yMin, yMax).map(t => (
+          {yTicks.map(t => (
             <g key={t}>
               <line x1={PAD.left} x2={w - PAD.right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.35)' : GRID} />
               <text x={PAD.left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={11} fill={MUTED} className="tabular-nums">{t}</text>
             </g>
           ))}
-          {niceTicks(0, maxHand, 4).map(t => (
+          {niceTicks(0, maxHand, 4, true).filter(t => t <= maxHand).map(t => (
             <text key={t} x={x(t)} y={HEIGHT - 6} textAnchor="middle" fontSize={11} fill={MUTED} className="tabular-nums">{t}</text>
           ))}
           {sel && <path d={bandPath} fill={modelColor(sel.name)} opacity={0.14} />}
