@@ -31,6 +31,26 @@ function getModelKey(name: string): string {
   return '';
 }
 
+// One line color per model, taken from its logo; used on every chart. Blues differ in shade
+// because Gemma, Llama and DeepSeek all brand in blue.
+const LLM_COLORS: Record<string, string> = {
+  gpt: '#10A37F',
+  claude: '#D97757',
+  gemini: '#3186FF',
+  gemma: '#2E96FF',
+  llama: '#0050B3',
+  mistral: '#FA500F',
+  deepseek: '#6F84FF',
+  grok: '#1F1F1F',
+  phi: '#7FBA00',
+  qwen: '#6336E7',
+  cohere: '#39594D',
+};
+
+export function modelColor(name: string): string {
+  return LLM_COLORS[getModelKey(name)] || 'rgb(120, 119, 116)';
+}
+
 export default function LLMLogo({ model, size = 28, className = '' }: LLMLogoProps) {
   const key = getModelKey(model);
   const box = { width: size, height: size, minWidth: size, minHeight: size };
