@@ -2,7 +2,11 @@
 
 import Card from "@/components/Card";
 import NumberFlow from '@number-flow/react';
-import { CircleNotch } from "@phosphor-icons/react";
+import { CircleNotch, Moon } from "@phosphor-icons/react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { TableNoticePayload } from "@/lib/api";
+import { formatDuration, formatLocalTime } from "@/lib/time";
 
 interface WinnerDisplay {
   name: string;
@@ -30,6 +34,39 @@ interface TableFeltProps {
   nextHandCountdown?: number | null;
   onSkipCountdown?: () => void;
   buttonDetermination?: ButtonDetermination | null;
+  notice?: TableNoticePayload | null;
+}
+
+// Shown on the felt while the table is closed or at its daily call cap.
+function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const reopens = notice.reopensAt ? new Date(notice.reopensAt) : null;
+  const headline = notice.kind === 'closed' ? 'Table closed.' : notice.message;
+  return (
+    <div
+      role="status"
+      className="flex flex-col items-center gap-1 bg-white px-4 py-3 rounded text-center max-w-[360px]"
+      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', color: 'rgb(55, 53, 47)' }}
+    >
+      <div className="flex items-center gap-2 text-[13px] font-bold">
+        <Moon size={14} weight="bold" aria-hidden />
+        {headline}
+      </div>
+      <div className="text-[13px]">
+        {reopens
+          ? <>Reopens at {formatLocalTime(reopens)} your time (in {formatDuration(reopens.getTime() - now)}).</>
+          : notice.message}
+      </div>
+      <Link href="/about" className="text-[12px] hover:underline" style={{ color: 'rgb(35, 131, 226)' }}>
+        What is this? About No-LLMit
+      </Link>
+    </div>
+  );
 }
 
 export default function TableFelt({ 
@@ -39,6 +76,7 @@ export default function TableFelt({
   nextHandCountdown,
   onSkipCountdown,
   buttonDetermination,
+  notice,
 }: TableFeltProps) {
   // Show button determination if in progress
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
@@ -60,18 +98,18 @@ export default function TableFelt({
             {winners.slice(0, 1).map((w, i) => (
               <div key={i} className="text-center">
                 <span className="text-green-700 font-bold text-xs">{w.name}</span>
-                <span className="text-green-600 text-xs"> +¤{w.amount.toLocaleString()}</span>
-                <div className="text-green-600/70 text-[10px] truncate">{w.handDesc}</div>
+                <span className="text-green-700 text-xs"> +¤{w.amount.toLocaleString()}</span>
+                <div className="text-green-700 text-[11px] truncate">{w.handDesc}</div>
               </div>
             ))}
             {winners.length > 1 && (
-              <span className="text-green-600/70 text-[10px]">+{winners.length - 1} more</span>
+              <span className="text-green-700 text-[11px]">+{winners.length - 1} more</span>
             )}
           </div>
         ) : (
           <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm">
-            <div className="text-xs uppercase tracking-widest text-gray-700/50">POT</div>
-            <div className="text-lg text-gray-700 font-bold">
+            <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>
+            <div className="text-lg text-gray-700 font-bold tabular-nums">
               ¤<NumberFlow value={pot} />
             </div>
           </div>
@@ -80,13 +118,15 @@ export default function TableFelt({
 
       {/* Community cards or Button Determination */}
       <div className="flex gap-2 min-h-[70px] items-center">
-        {showButtonDetermination ? (
+        {notice ? (
+          <TableNoticeCard notice={notice} />
+        ) : showButtonDetermination ? (
           <div className="flex flex-col items-center gap-2">
             <div className="flex gap-1 justify-center">
               {buttonDetermination.cards.map((bc, i) => (
                 <div key={i} className="flex flex-col items-center gap-0.5">
                   <Card value={bc.card} className="w-7 h-10" />
-                  <span className="text-[7px] text-gray-600 truncate max-w-[40px]">{bc.playerName.split(' ')[0]}</span>
+                  <span className="text-[11px] text-gray-600 truncate max-w-[40px]">{bc.playerName.split(' ')[0]}</span>
                 </div>
               ))}
             </div>
@@ -103,7 +143,7 @@ export default function TableFelt({
             <Card key={`${card}-${i}`} value={card} className="w-11 h-16" />
           ))
         ) : (
-          <div className="text-[10px] text-gray-400 uppercase">No cards dealt</div>
+          <div className="text-[11px] text-gray-600 uppercase">No cards dealt</div>
         )}
       </div>
 

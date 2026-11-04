@@ -23,7 +23,8 @@ export type MessageType =
   | 'paused'
   | 'resumed'
   | 'button_card'
-  | 'button_winner';
+  | 'button_winner'
+  | 'table_notice';
 
 export interface ClientMessage {
   type: MessageType;
@@ -123,6 +124,15 @@ export interface HandCompletePayload {
   handNumber: number;
 }
 
+// Why the shared table is stopped. An empty kind means it is running again.
+export interface TableNoticePayload {
+  kind: 'closed' | 'cap' | '';
+  message: string;
+  reopensAt?: string; // RFC3339
+}
+
+export type ConnectionStatus = 'open' | 'reconnecting' | 'gave_up';
+
 export interface ErrorPayload {
   message: string;
 }
@@ -135,6 +145,7 @@ export class PokerWebSocket {
   private maxReconnectAttempts = 10;
   private reconnectDelay = 2000;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  onStatus?: (status: ConnectionStatus) => void;
 
   constructor(private url: string = WS_URL) {}
 
@@ -166,6 +177,7 @@ export class PokerWebSocket {
         this.ws.onopen = () => {
           console.log('WebSocket connected');
           this.reconnectAttempts = 0;
+          this.onStatus?.('open');
           resolve();
         };
 
@@ -213,7 +225,21 @@ export class PokerWebSocket {
       }, this.reconnectDelay * this.reconnectAttempts);
     } else {
       console.error('Max reconnection attempts reached');
+      this.onStatus?.('gave_up');
+      return;
     }
+    this.onStatus?.('reconnecting');
+  }
+
+  // Start over after giving up: a fresh round of reconnect attempts.
+  retry() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    this.reconnectAttempts = 0;
+    this.onStatus?.('reconnecting');
+    this.connect().catch(() => {}); // a failed attempt closes the socket, which schedules the next one
   }
 
   private handleMessage(message: ServerMessage) {
