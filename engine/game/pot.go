@@ -29,12 +29,14 @@ func (gs *GameState) CalculatePots() {
 	}
 
 	var activeContributions []contribution
+	var folded []int // each folded player's contribution, split across pot levels below
 	totalFromFolded := 0
 
 	for i, p := range gs.Players {
 		if p.TotalBetThisHand > 0 {
 			if p.Status == PlayerFolded || p.Status == PlayerEliminated {
 				totalFromFolded += p.TotalBetThisHand
+				folded = append(folded, p.TotalBetThisHand)
 			} else {
 				activeContributions = append(activeContributions, contribution{
 					playerIdx: i,
@@ -96,8 +98,9 @@ func (gs *GameState) CalculatePots() {
 		playersAtThisLevel := len(activeContributions) - i
 		potAmount := levelDiff * playersAtThisLevel
 
-		if i == 0 && totalFromFolded > 0 {
-			potAmount += totalFromFolded
+		// A folded player's chips count toward each level only up to what they put in.
+		for _, f := range folded {
+			potAmount += min(f, currentLevel) - min(f, prevLevel)
 		}
 
 		var eligible []int
@@ -113,6 +116,13 @@ func (gs *GameState) CalculatePots() {
 		}
 
 		prevLevel = currentLevel
+	}
+
+	// Folded chips above the highest level (not expected, but never lose chips) join the top pot.
+	for _, f := range folded {
+		if f > prevLevel && len(pots) > 0 {
+			pots[len(pots)-1].Amount += f - prevLevel
+		}
 	}
 
 	gs.Pots = pots
@@ -171,6 +181,11 @@ func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player
 		if len(potWinners) == 0 {
 			continue
 		}
+		// Seat order starting left of the button, so the odd chip goes to the first winner there.
+		n := len(gs.Players)
+		sort.Slice(potWinners, func(i, j int) bool {
+			return (potWinners[i]-gs.ButtonIdx-1+n)%n < (potWinners[j]-gs.ButtonIdx-1+n)%n
+		})
 
 		splitAmount := pot.Amount / len(potWinners)
 		remainder := pot.Amount % len(potWinners)
@@ -179,7 +194,7 @@ func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player
 
 		for i, winnerIdx := range potWinners {
 			amount := splitAmount
-			if i == 0 { // Remainder to first winner
+			if i == 0 { // Odd chip(s) to the first winner left of the button
 				amount += remainder
 			}
 
