@@ -11,6 +11,7 @@ import {
   ActionPayload,
   ButtonCardPayload,
   ButtonWinnerPayload,
+  TableNoticePayload,
 } from '@/lib/api';
 
 import { SHOT_CLOCK_MS } from '@/lib/timing';
@@ -58,6 +59,8 @@ interface ButtonDetermination {
 interface UseGameStateReturn {
   gameState: GameState | null;
   isConnected: boolean;
+  gaveUp: boolean; // reconnect attempts exhausted
+  tableNotice: TableNoticePayload | null; // table closed or capped
   isLoading: boolean;
   error: string | null;
   actionRequired: ActionRequiredPayload | null;
@@ -67,6 +70,7 @@ interface UseGameStateReturn {
   shotClockRemaining: number; // Seconds remaining on shot clock
   buttonDetermination: ButtonDetermination | null;
   connect: () => Promise<void>;
+  retry: () => void;
   disconnect: () => void;
   newGame: (payload: NewGamePayload) => void;
   startHand: () => void;
@@ -91,6 +95,8 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [gaveUp, setGaveUp] = useState(false);
+  const [tableNotice, setTableNotice] = useState<TableNoticePayload | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const connectingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -219,7 +225,13 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
         setActionRequired(null);
       });
 
+      ws.on('table_notice', (payload) => {
+        const notice = payload as TableNoticePayload;
+        setTableNotice(notice.kind ? notice : null);
+      });
+
       ws.on('hand_start', () => {
+        setTableNotice(null);
         setLastHandResult(null);
         setActionRequired(null);
         setButtonDetermination(null); // Clear button determination when hand starts
@@ -266,14 +278,25 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
         } : null);
       });
 
-      await ws.connect();
+      ws.onStatus = (status) => {
+        setIsConnected(status === 'open');
+        setGaveUp(status === 'gave_up');
+        // The server resends the current turn and any notice on join, so drop what we had
+        if (status === 'open') {
+          setTableNotice(null);
+          clearQueues();
+        }
+      };
+      try {
+        await ws.connect();
+      } catch {
+        // A failed first attempt closes the socket, which starts the reconnect loop;
+        // onStatus reports when it gives up.
+      }
+      // Set after the first attempt (not before) so a Strict Mode effect cleanup
+      // during the handshake does not close it.
       wsRef.current = ws;
-      setIsConnected(true);
-      setIsLoading(false);
-      connectingRef.current = false;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to connect');
-      setIsConnected(false);
+    } finally {
       setIsLoading(false);
       connectingRef.current = false;
     }
@@ -334,6 +357,11 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     wsRef.current.action(payload);
   }, [gameState]);
 
+  const retry = useCallback(() => {
+    if (wsRef.current) wsRef.current.retry();
+    else connect();
+  }, [connect]);
+
   const clearError = useCallback(() => {
     setError(null);
   }, []);
@@ -372,6 +400,8 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
   return {
     gameState,
     isConnected,
+    gaveUp,
+    tableNotice,
     isLoading,
     error,
     actionRequired,
@@ -381,6 +411,7 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     shotClockRemaining,
     buttonDetermination,
     connect,
+    retry,
     disconnect,
     newGame,
     startHand,
