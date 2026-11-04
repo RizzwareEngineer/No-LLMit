@@ -1,30 +1,16 @@
 "use client";
 
-import CornerBorders from "@/components/CornerBorders";
 import TypewriterText from "@/components/TypewriterText";
-
-type DisplayPhase = 'idle' | 'waiting' | 'thinking' | 'reasoning' | 'revealed';
-
-interface DisplayState {
-  phase: DisplayPhase;
-  playerIdx: number;
-  playerName: string;
-  reason: string | null;
-  action: string | null;
-  amount: number;
-  turnStartTime: number;
-}
+import type { DisplayState } from "@/hooks/useGameState";
 
 interface ReasoningPanelProps {
   displayState: DisplayState | null;
   shotClockRemaining: number;
-  isPaused?: boolean;
 }
 
 export default function ReasoningPanel({
   displayState,
   shotClockRemaining,
-  isPaused = false,
 }: ReasoningPanelProps) {
 
   // Format action for display
@@ -74,16 +60,13 @@ export default function ReasoningPanel({
       className="relative bg-white h-[100px] rounded overflow-hidden"
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
-      <CornerBorders />
       <p className="sr-only" aria-live="polite">{announcement}</p>
       <div className="flex h-full">
         {/* Left section - Player name + countdown */}
         <div 
           className={`w-[120px] shrink-0 flex flex-col items-center justify-center border-r border-notion`}
           style={{ 
-            background: isPaused ? 'rgba(203, 145, 47, 0.1)' : 
-                        !isIdle ? 'rgba(35, 131, 226, 0.06)' :
-                        'rgba(55, 53, 47, 0.02)'
+            background: !isIdle ? 'rgba(35, 131, 226, 0.06)' : 'rgba(55, 53, 47, 0.02)'
           }}
         >
           <span className="text-xs font-bold truncate max-w-[100px] px-2" style={{ color: 'rgb(55, 53, 47)' }}>
@@ -96,14 +79,11 @@ export default function ReasoningPanel({
               <span 
                 className="font-mono text-lg font-bold"
                 style={{ 
-                  color: shotClockRemaining <= 5 ? 'rgb(235, 87, 87)' : 
-                         isPaused ? 'rgb(203, 145, 47)' : 
-                         'rgb(35, 131, 226)'
+                  color: shotClockRemaining <= 5 ? 'rgb(235, 87, 87)' : 'rgb(35, 131, 226)'
                 }}
               >
                 {shotClockRemaining}s
               </span>
-              {isPaused && <span style={{ color: 'rgb(203, 145, 47)' }} className="text-xs">⏸</span>}
             </div>
           )}
         </div>

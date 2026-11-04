@@ -1,9 +1,9 @@
 "use client";
 
-import CornerBorders from "@/components/CornerBorders";
 import Player from "@/components/Player";
 import TableFelt from "@/components/TableFelt";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
+import type { ButtonDetermination } from "@/hooks/useGameState";
 
 interface PlayerLayout {
   top: number[];
@@ -17,19 +17,6 @@ interface WinnerInfo {
   handDesc: string;
 }
 
-interface ButtonCard {
-  playerIdx: number;
-  playerName: string;
-  card: string;
-}
-
-interface ButtonDetermination {
-  cards: ButtonCard[];
-  winnerIdx: number | null;
-  winnerName: string | null;
-  isComplete: boolean;
-}
-
 interface PokerTableProps {
   players: PlayerState[];
   layout: PlayerLayout;
@@ -39,7 +26,6 @@ interface PokerTableProps {
   pot: number;
   winnersByIdx?: Record<number, WinnerInfo>;
   nextHandCountdown?: number | null;
-  onSkipCountdown?: () => void;
   thinkingPlayerIdx?: number;
   buttonDetermination?: ButtonDetermination | null;
   hidePositions?: boolean;
@@ -96,7 +82,6 @@ export default function PokerTable({
   pot,
   winnersByIdx = {},
   nextHandCountdown,
-  onSkipCountdown,
   thinkingPlayerIdx,
   buttonDetermination,
   hidePositions = false,
@@ -110,7 +95,6 @@ export default function PokerTable({
         className="relative bg-white rounded overflow-hidden"
         style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
       >
-        <CornerBorders />
         <div className="w-full md:w-[600px] h-[300px] flex items-center justify-center text-sm italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
           Connecting to the table…
         </div>
@@ -140,7 +124,6 @@ export default function PokerTable({
         handDesc: info.handDesc,
       }))}
       nextHandCountdown={nextHandCountdown}
-      onSkipCountdown={onSkipCountdown}
       buttonDetermination={buttonDetermination}
       notice={notice}
     />
@@ -159,7 +142,6 @@ export default function PokerTable({
       {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
-          <CornerBorders />
           {felt}
         </div>
         <div className="grid grid-cols-3 gap-2">
@@ -174,7 +156,6 @@ export default function PokerTable({
         className="hidden md:block relative bg-white shrink-0 self-stretch rounded"
         style={{ width: tableWidth, ...cardStyle }}
       >
-        <CornerBorders />
         <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
           <tbody>
             {/* TOP ROW */}
