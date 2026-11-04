@@ -261,6 +261,13 @@ export default function Home() {
               style={{ color: 'rgb(35, 131, 226)' }}
             >
               About
+            </Link>{' · '}
+            <Link
+              href="/stats"
+              className="hover:underline whitespace-nowrap"
+              style={{ color: 'rgb(35, 131, 226)' }}
+            >
+              Stats
             </Link>
           </p>
         </div>
@@ -367,7 +374,7 @@ export default function Home() {
               {/* Right sidebar column - leaderboard, then API usage */}
               <div className="flex flex-col w-full md:w-[240px] shrink-0">
                 <div className="flex-1 flex flex-col min-h-0">
-                  <WinningsPanel players={players} />
+                  <WinningsPanel players={players} handNumber={handNumber} />
                 </div>
                 <div className="mt-4">
                   <UsageIndicator usage={usage} error={usageError} />
