@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 func cards(t *testing.T, ss ...string) []game.Card {
@@ -84,5 +85,35 @@ func TestBuildPotsWithSidePot(t *testing.T) {
 	pots := buildPots(map[int]float64{1: 100, 2: 300, 3: 300, 4: 50}, []int{1, 2, 3})
 	if len(pots) != 2 || pots[0].amount != 350 || len(pots[0].eligible) != 3 || pots[1].amount != 400 || len(pots[1].eligible) != 2 {
 		t.Errorf("pots = %+v", pots)
+	}
+}
+
+func TestAIEVWithSidePotTheRecordOmits(t *testing.T) {
+	// Seat 0 shoves 100 with Ah2h, seat 1 makes it 300 with TcJs, seat 2 calls, then folds
+	// to seat 1's flop bet. The 600 side pot only seat 1 can win is not in result.pots.
+	act := func(street string, seat int, kind string, amount int) history.ActionRecord {
+		return history.ActionRecord{Street: street, Seat: seat, Status: "ok", Applied: history.AppliedAction{Type: kind, Amount: amount}}
+	}
+	h := history.HandRecord{
+		HandID: "side-pot", Config: history.HandConfig{BigBlind: 10},
+		Seats:  []history.SeatRecord{{Seat: 0}, {Seat: 1}, {Seat: 2}},
+		Blinds: []history.BlindRecord{{Seat: 1, Amount: 5}, {Seat: 2, Amount: 10}},
+		Board:  []string{"9h", "8h", "7c", "3h", "4s"},
+		Actions: []history.ActionRecord{
+			act("preflop", 0, "ALL_IN", 100), act("preflop", 1, "RAISE", 300), act("preflop", 2, "CALL", 290),
+			act("flop", 1, "BET", 200), act("flop", 2, "FOLD", 0),
+		},
+		Result: history.HandResult{
+			Pots:     []history.PotRecord{{Amount: 300, WinnerSeat: 0, PotNumber: 1}},
+			Showdown: []history.ShowdownRecord{{Seat: 0, HoleCards: []string{"Ah", "2h"}}, {Seat: 1, HoleCards: []string{"Tc", "Js"}}},
+			Net:      map[string]int{"0": 200, "1": 100, "2": -300},
+		},
+	}
+	got := aievNet(h)
+	want := map[int]float64{0: 362.0/990*300 - 100, 1: 628.0/990*300 + 100, 2: -300}
+	for seat, w := range want {
+		if !near(got[seat], w) {
+			t.Errorf("seat %d aiev %v, want %v", seat, got[seat], w)
+		}
 	}
 }

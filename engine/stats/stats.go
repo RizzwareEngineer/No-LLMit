@@ -4,7 +4,9 @@ package stats
 
 import (
 	"math"
+	"runtime"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
@@ -138,6 +140,19 @@ func Compute(hands []history.HandRecord) Stats {
 		}
 		return accs[name]
 	}
+
+	// Fill the all-in EV cache on every core first; a multiway preflop all-in takes seconds.
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, runtime.NumCPU())
+	for _, h := range hands {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(h history.HandRecord) {
+			defer func() { <-sem; wg.Done() }()
+			aievNet(h)
+		}(h)
+	}
+	wg.Wait()
 
 	sessionIdx := map[string]int{}
 	for _, h := range hands {
@@ -307,9 +322,20 @@ func addHand(h history.HandRecord, get func(string) *acc) {
 			s.showdown, s.inPot = true, true
 		}
 	}
+	// The pot is every chip put in, less the part of the biggest bet nobody called.
+	var put []float64
+	for _, c := range contributions(h) {
+		put = append(put, c)
+	}
+	sort.Sort(sort.Reverse(sort.Float64Slice(put)))
 	totalPot, totalWon := 0, 0.0
+	for i, c := range put {
+		totalPot += int(c)
+		if i == 0 && len(put) > 1 {
+			totalPot -= int(c - put[1])
+		}
+	}
 	for _, p := range h.Result.Pots {
-		totalPot += p.Amount
 		if s := sh[p.WinnerSeat]; s != nil {
 			s.wonPot = true
 		}

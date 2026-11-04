@@ -45,13 +45,15 @@ func aievNet(h history.HandRecord) map[int]float64 {
 		return out // the last decision was on the river, so the result is what it was worth
 	}
 
-	// Chips each seat put in: what it won back minus its net.
-	contrib := map[int]float64{}
-	for _, s := range h.Seats {
-		contrib[s.Seat] = -float64(netOf(h, s.Seat))
+	contrib := contributions(h)
+	inShowdown := map[int]bool{}
+	for _, sd := range h.Result.Showdown {
+		inShowdown[sd.Seat] = true
 	}
-	for _, p := range h.Result.Pots {
-		contrib[p.WinnerSeat] += float64(p.Amount)
+	for seat, c := range contrib {
+		if !inShowdown[seat] && float64(netOf(h, seat)) != -c {
+			return out // the actions do not add up to the result; keep the actual nets
+		}
 	}
 
 	var holes [][]game.Card
@@ -74,6 +76,35 @@ func aievNet(h history.HandRecord) map[int]float64 {
 		out[seat] = won[i] - contrib[seat]
 	}
 	return out
+}
+
+// contributions is the chips each seat put in over the hand, from the blinds and the
+// applied actions (a call adds its amount; a bet, raise or all-in sets the street total).
+// result.pots cannot be used: a pot only one player is eligible for is not recorded.
+func contributions(h history.HandRecord) map[int]float64 {
+	total, street := map[int]float64{}, map[int]float64{}
+	for _, b := range h.Blinds {
+		street[b.Seat] = float64(b.Amount)
+	}
+	cur := "preflop"
+	for _, a := range h.Actions {
+		if a.Street != cur {
+			for seat, c := range street {
+				total[seat] += c
+			}
+			street, cur = map[int]float64{}, a.Street
+		}
+		switch a.Applied.Type {
+		case "CALL":
+			street[a.Seat] += float64(a.Applied.Amount)
+		case "BET", "RAISE", "ALL_IN":
+			street[a.Seat] = float64(a.Applied.Amount)
+		}
+	}
+	for seat, c := range street {
+		total[seat] += c
+	}
+	return total
 }
 
 // buildPots splits the chips into a main pot and side pots by contribution level. Only the
