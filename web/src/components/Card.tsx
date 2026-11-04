@@ -60,7 +60,7 @@ const Card = ({ value, className = "", faceDown = false }: CardProps) => {
       {(!faceDown || isHovered) ? (
         // Face up card
         <div aria-hidden className="flex flex-row gap-1 items-center justify-center w-full h-full" style={{ color: 'rgb(55, 53, 47)' }}>
-          <span className="text-xs sm:text-sm font-bold">{rankText}</span>
+          <span className={`font-bold ${rankText === '10' ? 'text-[10px] sm:text-[11px] -mr-0.5' : 'text-xs sm:text-sm'}`}>{rankText}</span>
           {suit === 'h' && <Heart className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
           {suit === 'd' && <Diamond className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
           {suit === 'c' && <Club className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}

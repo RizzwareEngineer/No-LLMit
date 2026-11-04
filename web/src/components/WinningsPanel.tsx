@@ -19,8 +19,7 @@ export default function WinningsPanel({ players }: WinningsPanelProps) {
       <CornerBorders />
       <div className="flex items-start justify-between p-3 border-b border-notion">
         <div className="flex flex-col">
-          <h2 className="text-[13px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>Leaderboard (chips won/lost)</h2>
-          <p className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤ = chips, not money</p>
+          <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
         </div>
       </div>
       <div className="flex-1 overflow-auto">

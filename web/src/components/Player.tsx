@@ -67,7 +67,7 @@ export default function Player({ player, active, position, folded = false, winAm
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
               <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-              <div className="text-[11px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.stack.toLocaleString()}</div>
+              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.stack.toLocaleString()}</div>
             </div>
           </div>
           <div className="flex flex-row items-center gap-1 shrink-0">
@@ -89,7 +89,7 @@ export default function Player({ player, active, position, folded = false, winAm
             {/* Position Badge */}
             {position && (
               <div 
-                className={`min-w-8 px-1 py-0.5 rounded text-[11px] font-bold shrink-0 text-center ${positionColor}`}
+                className={`w-8 py-0.5 rounded text-[8px] font-bold shrink-0 text-center ${positionColor}`}
                 title={getPositionFullName(position)}
               >
                 {position}
