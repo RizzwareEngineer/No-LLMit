@@ -1,5 +1,5 @@
-// WebSocket server that receives messages from the frontend (web/).
-// Routes messages to game_handlers.go (human actions) or llm_handlers.go (LLM turns).
+// WebSocket server for the frontend (web/). Every connection is a spectator of the shared
+// table in table.go.
 package api
 
 import (
@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -28,37 +26,20 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	games        map[string]*game.GameState
-	clients      map[*websocket.Conn]string // conn -> gameID
-	paused       map[string]bool            // gameID -> isPaused
-	pendingPause map[string]bool            // gameID -> pause requested (takes effect after current action)
-	mu           sync.RWMutex
-
-	// The shared spectator table everyone watches. Nil when PRIVATE_GAMES=1, a dev-only
-	// mode where each connection creates and controls its own game instead.
+	// The shared spectator table everyone watches.
 	table *Table
 }
 
 func NewServer() *Server {
-	return &Server{
-		games:        make(map[string]*game.GameState),
-		clients:      make(map[*websocket.Conn]string),
-		paused:       make(map[string]bool),
-		pendingPause: make(map[string]bool),
-	}
+	return &Server{}
 }
 
 func (s *Server) Start(port int) error {
-	if os.Getenv("PRIVATE_GAMES") == "1" {
-		log.Printf("PRIVATE_GAMES=1: each connection controls its own game (dev only)")
-	} else {
-		s.table = NewTable()
-		go s.table.Run()
-	}
+	s.table = NewTable()
+	go s.table.Run()
 
 	http.HandleFunc("/ws", s.handleWebSocket)
 	http.HandleFunc("/health", s.handleHealth)
-	http.HandleFunc("/api/games", s.handleCORS(s.handleListGames))
 	http.HandleFunc("/api/usage", s.handleCORS(s.handleUsage))
 
 	addr := fmt.Sprintf(":%d", port)
@@ -89,10 +70,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // handleUsage reports the shared table's call count and hours, plus the LLM service's
 // provider and spend, for the frontend's usage widget.
 func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
-	out := map[string]interface{}{}
-	if s.table != nil {
-		out["table"] = s.table.Usage()
-	}
+	out := map[string]interface{}{"table": s.table.Usage()}
 	if llm, err := client.GetLLMUsage(); err != nil {
 		log.Printf("Usage: %v", err)
 	} else {
@@ -103,24 +81,6 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
-func (s *Server) handleListGames(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	var games []map[string]interface{}
-	for id, gs := range s.games {
-		games = append(games, map[string]interface{}{
-			"id":         id,
-			"handNumber": gs.HandNumber,
-			"players":    len(gs.Players),
-			"street":     gs.Street.String(),
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(games)
-}
-
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -128,18 +88,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() {
-		if s.table != nil {
-			s.table.Leave(conn)
-		}
-		s.mu.Lock()
-		delete(s.clients, conn)
-		s.mu.Unlock()
+		s.table.Leave(conn)
 		conn.Close()
 	}()
 
-	if s.table != nil {
-		s.table.Join(conn)
-	}
+	s.table.Join(conn)
 
 	log.Printf("New WebSocket connection from %s", conn.RemoteAddr())
 
@@ -163,152 +116,17 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		s.handleMessage(conn, message)
-	}
-}
 
-func (s *Server) handleMessage(conn *websocket.Conn, message []byte) {
-	var msg ClientMessage
-	if err := json.Unmarshal(message, &msg); err != nil {
-		if s.table != nil {
+		// Spectators can ask for the current state and nothing else.
+		var msg ClientMessage
+		switch {
+		case json.Unmarshal(message, &msg) != nil:
 			s.table.Reject(conn, "Invalid message format")
-		} else {
-			s.sendError(conn, "Invalid message format")
-		}
-		return
-	}
-
-	// Spectators of the shared table can ask for the current state and nothing else.
-	if s.table != nil {
-		if msg.Type == MsgGetState {
+		case msg.Type == MsgGetState:
 			s.table.Resend(conn)
-		} else {
+		default:
 			s.table.Reject(conn, "This table is spectate-only")
 		}
-		return
-	}
-
-	log.Printf("Received message type: %s", msg.Type)
-
-	switch msg.Type {
-	case MsgNewGame:
-		s.handleNewGame(conn, msg.Payload)
-	case MsgStartHand:
-		s.handleStartHand(conn)
-	case MsgAction:
-		s.handleAction(conn, msg.Payload)
-	case MsgGetState:
-		s.handleGetState(conn)
-	case MsgPause:
-		s.handlePause(conn)
-	case MsgResume:
-		s.handleResume(conn)
-	default:
-		s.sendError(conn, fmt.Sprintf("Unknown message type: %s", msg.Type))
-	}
-}
-
-func parsePayload[T any](payload interface{}) (*T, error) {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	var result T
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (s *Server) isPaused(gameID string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.paused[gameID]
-}
-
-func (s *Server) isPendingPause(gameID string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.pendingPause[gameID]
-}
-
-func (s *Server) activatePendingPause(gameID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.pendingPause[gameID] {
-		s.paused[gameID] = true
-		s.pendingPause[gameID] = false
-		return true
-	}
-	return false
-}
-
-func (s *Server) getGameForConn(conn *websocket.Conn) *game.GameState {
-	s.mu.RLock()
-	gameID := s.clients[conn]
-	gs := s.games[gameID]
-	s.mu.RUnlock()
-	return gs
-}
-
-func (s *Server) sendGameState(conn *websocket.Conn, gs *game.GameState) {
-	showAllCards := gs.Mode == game.ModeTest
-	payload := ConvertGameState(gs, showAllCards)
-
-	s.send(conn, ServerMessage{
-		Type:    MsgGameState,
-		Payload: payload,
-	})
-}
-
-func (s *Server) sendActionRequiredIfNeeded(conn *websocket.Conn, gs *game.GameState) {
-	if !gs.IsWaitingForAction() {
-		return
-	}
-
-	player := gs.GetCurrentPlayer()
-	if player == nil {
-		return
-	}
-
-	validActions := gs.GetValidActions()
-	var vaPayloads []ValidActionPayload
-	for _, va := range validActions {
-		vaPayloads = append(vaPayloads, ValidActionPayload{
-			Type:      va.Type.String(),
-			MinAmount: va.MinAmount,
-			MaxAmount: va.MaxAmount,
-		})
-	}
-
-	s.send(conn, ServerMessage{
-		Type: MsgActionReq,
-		Payload: ActionRequiredPayload{
-			PlayerIdx:    gs.CurrentPlayerIdx,
-			PlayerName:   player.Name,
-			ValidActions: vaPayloads,
-		},
-	})
-}
-
-func (s *Server) sendError(conn *websocket.Conn, message string) {
-	log.Printf("Error: %s", message)
-	s.send(conn, ServerMessage{
-		Type:    MsgError,
-		Payload: ErrorPayload{Message: message},
-	})
-}
-
-func (s *Server) send(conn *websocket.Conn, msg ServerMessage) {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		log.Printf("Error marshaling message: %v", err)
-		return
-	}
-
-	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		log.Printf("Error sending message: %v", err)
 	}
 }
 

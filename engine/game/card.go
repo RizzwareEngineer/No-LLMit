@@ -18,10 +18,6 @@ func (s Suit) String() string {
 	return []string{"h", "d", "c", "s"}[s]
 }
 
-func (s Suit) Symbol() string {
-	return []string{"♥", "♦", "♣", "♠"}[s]
-}
-
 type Rank int
 
 const (

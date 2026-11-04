@@ -1,14 +1,7 @@
 // This file defines the structures used to record a hand for LLMs. game.go appends an
 // LLMAction for every action, and prompt.go turns the current hand into the text prompt
-// that api/llm_handlers.go sends to the Python LLM service.
+// that api/table.go sends to the Python LLM service.
 package game
-
-type LLMPlayer struct {
-	Name     string `json:"name"`
-	Seat     int    `json:"seat"`
-	Stack    int    `json:"stack"`
-	Position string `json:"position"`
-}
 
 type LLMValidAction struct {
 	Type        string `json:"type"`
@@ -26,13 +19,4 @@ type LLMAction struct {
 	Amount int    `json:"amount,omitempty"`
 	Street string `json:"street"`
 	Pot    int    `json:"pot"`
-}
-
-// Shared across all LLMs - they see the same hand history
-type LLMPreviousHand struct {
-	Players        []LLMPlayer      `json:"players"`
-	CommunityCards []string         `json:"communityCards"`
-	Actions        []LLMAction      `json:"actions"`
-	Showdown       []map[string]any `json:"showdown"`
-	Winners        []map[string]any `json:"winners"`
 }

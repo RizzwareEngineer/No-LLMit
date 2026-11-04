@@ -309,7 +309,7 @@ func (t *Table) broadcast(msg ServerMessage) {
 }
 
 func (t *Table) stateMessage() ServerMessage {
-	payload := ConvertGameState(t.gs, false)
+	payload := ConvertGameState(t.gs)
 	if t.gs.IsHandComplete() {
 		if ms := int(time.Until(t.nextHandAt).Milliseconds()); ms > 0 {
 			payload.NextHandInMs = ms
@@ -410,7 +410,6 @@ func (t *Table) startGame() {
 		PlayerNames:   tablePlayers,
 		StartingStack: tableStartingStack,
 		Stakes:        game.Stakes{SmallBlind: tableSmallBlind, BigBlind: tableBigBlind},
-		Mode:          game.ModeSimulate,
 	})
 	cards := t.gs.DetermineButton()
 	log.Printf("Shared table created: %s", t.gs.ID)
@@ -552,7 +551,7 @@ func (t *Table) playTurn() {
 		t.mu.Lock()
 		t.calls++
 		t.mu.Unlock()
-		return client.GetLLMDecision(playerName, prompt, validActions, game.ModeSimulate.String())
+		return client.GetLLMDecision(playerName, prompt, validActions)
 	}
 	// Reading t.gs without the lock is safe here: only this goroutine changes it.
 	turn := decideLLMTurn(t.gs, prompt, ask)
@@ -690,4 +689,44 @@ func addPtr[T int | float64](a, b *T) *T {
 	}
 	sum := *a + *b
 	return &sum
+}
+
+// buildLLMValidActions converts game valid actions to LLM-friendly format
+func buildLLMValidActions(gs *game.GameState) []game.LLMValidAction {
+	validActions := gs.GetValidActions()
+	var llmActions []game.LLMValidAction
+
+	for _, va := range validActions {
+		actionType := va.Type.String()
+
+		if va.Type == game.ActionRaise {
+			if gs.CurrentBet == 0 {
+				actionType = "BET"
+			} else {
+				actionType = "RAISE"
+			}
+		}
+
+		llmAction := game.LLMValidAction{
+			Type: actionType,
+		}
+		if va.Type == game.ActionCall {
+			llmAction.Amount = va.MinAmount
+			llmAction.Description = fmt.Sprintf("match the current bet of %d", va.MinAmount)
+		} else if va.Type == game.ActionRaise {
+			llmAction.Min = va.MinAmount
+			llmAction.Max = va.MaxAmount
+			llmAction.Description = fmt.Sprintf("choose ANY amount between %d and %d", va.MinAmount, va.MaxAmount)
+		} else if va.Type == game.ActionAllIn {
+			llmAction.Amount = va.MaxAmount
+			llmAction.Description = fmt.Sprintf("put all %d chips in", va.MaxAmount)
+		} else if va.Type == game.ActionFold {
+			llmAction.Description = "give up your hand"
+		} else if va.Type == game.ActionCheck {
+			llmAction.Description = "pass without betting"
+		}
+		llmActions = append(llmActions, llmAction)
+	}
+
+	return llmActions
 }

@@ -10,11 +10,10 @@ const (
 	PlayerFolded
 	PlayerAllIn
 	PlayerEliminated // Out of chips, out of game
-	PlayerSittingOut
 )
 
 func (ps PlayerStatus) String() string {
-	return []string{"active", "folded", "all-in", "eliminated", "sitting-out"}[ps]
+	return []string{"active", "folded", "all-in", "eliminated"}[ps]
 }
 
 // ActionType represents a player action
@@ -44,13 +43,12 @@ type Player struct {
 	ID                string       `json:"id"`
 	Name              string       `json:"name"`
 	Stack             int          `json:"stack"`
-	HoleCards         []Card       `json:"holeCards,omitempty"` // Hidden unless test mode or showdown
+	HoleCards         []Card       `json:"holeCards,omitempty"`
 	Status            PlayerStatus `json:"status"`
 	CurrentBet        int          `json:"currentBet"`       // Bet in current betting round
 	TotalBetThisHand  int          `json:"totalBetThisHand"` // Total invested this hand
 	HasActedThisRound bool         `json:"-"`                // Internal tracking
 	RaiseClosed       bool         `json:"-"`                // Acted, then faced only an incomplete all-in raise: may call or fold, not raise
 	LastAction        *Action      `json:"lastAction,omitempty"`
-	SeatPosition      int          `json:"seatPosition"`
 	Winnings          int          `json:"winnings"` // Cumulative winnings/losses
 }
