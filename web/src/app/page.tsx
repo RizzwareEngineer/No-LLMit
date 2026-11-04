@@ -87,7 +87,6 @@ export default function Home() {
   const currentPlayerIdx = displayState?.playerIdx ?? (gameState?.currentPlayerIdx ?? -1);
   const stakes = gameState?.stakes || { smallBlind: 5, bigBlind: 10 };
   const handNumber = gameState?.handNumber || 0;
-  const buttonIdx = gameState?.buttonIdx ?? -1;
   const winners = gameState?.winners || lastHandResult?.winners || [];
   const isHandComplete = street === 'complete';
 
@@ -180,7 +179,6 @@ export default function Home() {
                 players={players}
                 layout={layout}
                 currentPlayerIdx={currentPlayerIdx}
-                buttonIdx={buttonIdx}
                 communityCards={communityCards}
                 pot={pot}
                 winnersByIdx={winnersByIdx}

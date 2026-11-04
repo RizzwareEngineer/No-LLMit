@@ -72,6 +72,7 @@ export interface PlayerState {
   lastAction?: string;
   lastAmount?: number;
   isButton: boolean;
+  position: string; // from the engine, the same name the models see
   winnings: number;
 }
 

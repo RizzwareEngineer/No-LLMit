@@ -21,8 +21,8 @@ const POSITION_COLORS: Record<string, string> = {
   'BB': 'bg-blue-700 text-white',
   'UTG': 'bg-red-700 text-white',
   'UTG+1': 'bg-red-600 text-white',
-  'UTG+2': 'bg-orange-700 text-white',
-  'LJ': 'bg-purple-700 text-white',
+  'MP': 'bg-orange-700 text-white',
+  'MP+1': 'bg-purple-700 text-white',
   'HJ': 'bg-purple-600 text-white',
   'CO': 'bg-green-700 text-white',
 };
@@ -35,8 +35,8 @@ function getPositionFullName(pos: string): string {
     'BB': 'Big Blind',
     'UTG': 'Under The Gun',
     'UTG+1': 'Under The Gun +1',
-    'UTG+2': 'Under The Gun +2',
-    'LJ': 'Lojack',
+    'MP': 'Middle Position',
+    'MP+1': 'Middle Position +1',
     'HJ': 'Hijack',
     'CO': 'Cutoff',
   };

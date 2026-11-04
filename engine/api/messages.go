@@ -63,6 +63,7 @@ type PlayerStatePayload struct {
 	LastAction string   `json:"lastAction,omitempty"`
 	LastAmount int      `json:"lastAmount,omitempty"`
 	IsButton   bool     `json:"isButton"`
+	Position   string   `json:"position"` // BTN, SB, BB, UTG, ... as the models are told
 	Winnings   int      `json:"winnings"`
 }
 
@@ -154,6 +155,7 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 			LastAction: lastAction,
 			LastAmount: lastAmount,
 			IsButton:   i == gs.ButtonIdx,
+			Position:   gs.PositionName(i),
 			Winnings:   p.Winnings,
 		}
 	}
