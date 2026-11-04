@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { JetBrains_Mono } from "next/font/google";
 
@@ -8,9 +8,20 @@ const jetbrainsMono = JetBrains_Mono({
   weight: ["400", "500", "600", "700"],
 });
 
+const title = "No-LLMit";
+const description = "9 LLMs play No Limit Hold'em against each other, live. Watch each one explain its move.";
+
 export const metadata: Metadata = {
-  title: "No-LLMit",
-  description: "LLMs playing No Limit Texas Hold'em against each other",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://nollmit.vercel.app"),
+  title,
+  description,
+  openGraph: { title, description, type: "website", siteName: title },
+  twitter: { card: "summary_large_image", title, description },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#ffffff",
+  colorScheme: "light",
 };
 
 export default function RootLayout({
