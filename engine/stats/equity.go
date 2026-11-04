@@ -5,6 +5,7 @@ package stats
 
 import (
 	"math/rand"
+	"runtime"
 	"sort"
 	"strconv"
 	"sync"
@@ -20,30 +21,83 @@ type pot struct {
 	eligible []int // indexes into the players being evaluated
 }
 
-// aievCache keeps each hand's all-in EV nets, since a preflop all-in takes about half a
-// second with the shared evaluator and stats are recomputed after every hand.
+// aievCache keeps each hand's all-in EV nets, since a preflop all-in takes up to seconds
+// with the shared evaluator and stats are recomputed after every hand.
 var aievCache sync.Map // hand_id -> map[int]float64
 
-// aievNet returns each seat's all-in-EV-adjusted net for the hand: its actual net,
-// except in an all-in before the river, where it is expected winnings minus chips put in.
-func aievNet(h history.HandRecord) map[int]float64 {
-	if v, ok := aievCache.Load(h.HandID); ok {
-		return v.(map[int]float64)
+var boardAt = map[string]int{"preflop": 0, "flop": 3, "turn": 4}
+
+// needsEV reports whether the hand was all-in before the river: it reached showdown and
+// the last decision came before the river, so the rest of the board was run out.
+func needsEV(h history.HandRecord) bool {
+	if len(h.Actions) == 0 || len(h.Result.Showdown) < 2 || len(h.Board) != 5 {
+		return false
 	}
+	_, ok := boardAt[h.Actions[len(h.Actions)-1].Street]
+	return ok
+}
+
+func actualNets(h history.HandRecord) map[int]float64 {
 	out := map[int]float64{}
 	for _, s := range h.Seats {
 		out[s.Seat] = float64(netOf(h, s.Seat))
 	}
-	defer aievCache.Store(h.HandID, out)
+	return out
+}
 
-	boardAt := map[string]int{"preflop": 0, "flop": 3, "turn": 4}
-	if len(h.Actions) == 0 || len(h.Result.Showdown) < 2 || len(h.Board) != 5 {
+// aievNet returns each seat's all-in-EV-adjusted net for the hand: its actual net,
+// except in an all-in before the river, where it is expected winnings minus chips put in.
+// ok is false when that all-in has not been computed yet (see WarmAIEV); the actual nets
+// stand in for it.
+func aievNet(h history.HandRecord) (nets map[int]float64, ok bool) {
+	if !needsEV(h) {
+		return actualNets(h), true
+	}
+	if v, ok := aievCache.Load(h.HandID); ok {
+		return v.(map[int]float64), true
+	}
+	return actualNets(h), false
+}
+
+// WarmAIEV computes the all-in EV of up to limit hands that need it and are not cached yet
+// (all of them when limit < 0), on half the cores so the table keeps running. It returns
+// the indexes of the hands it computed and how many are still left.
+func WarmAIEV(hands []history.HandRecord, limit int) (warmed []int, remaining int) {
+	for i, h := range hands {
+		if !needsEV(h) {
+			continue
+		}
+		if _, ok := aievCache.Load(h.HandID); ok {
+			continue
+		}
+		if limit >= 0 && len(warmed) >= limit {
+			remaining++
+			continue
+		}
+		warmed = append(warmed, i)
+	}
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, max(1, runtime.NumCPU()/2))
+	for _, i := range warmed {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(h history.HandRecord) {
+			defer func() { <-sem; wg.Done() }()
+			computeAIEV(h)
+		}(hands[i])
+	}
+	wg.Wait()
+	return warmed, remaining
+}
+
+// computeAIEV works out a hand's all-in EV nets and caches them.
+func computeAIEV(h history.HandRecord) map[int]float64 {
+	out := actualNets(h)
+	defer aievCache.Store(h.HandID, out)
+	if !needsEV(h) {
 		return out
 	}
-	known, ok := boardAt[h.Actions[len(h.Actions)-1].Street]
-	if !ok {
-		return out // the last decision was on the river, so the result is what it was worth
-	}
+	known := boardAt[h.Actions[len(h.Actions)-1].Street]
 
 	contrib := contributions(h)
 	inShowdown := map[int]bool{}

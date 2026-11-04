@@ -4,9 +4,7 @@ package stats
 
 import (
 	"math"
-	"runtime"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
@@ -18,6 +16,9 @@ type Stats struct {
 	Sessions       []Session `json:"sessions"`
 	Models         []Model   `json:"models"`
 	DefinitionsURL string    `json:"definitions_url"`
+	// Partial is true while some all-ins are still being worked out; those hands count at
+	// their actual result in aiev_bb100 until then.
+	Partial bool `json:"partial"`
 }
 
 type Scope struct {
@@ -31,7 +32,7 @@ type Scope struct {
 type Session struct {
 	ID        string     `json:"id"`
 	StartedAt time.Time  `json:"started_at"`
-	EndedAt   *time.Time `json:"ended_at"` // null for the session still being played
+	EndedAt   *time.Time `json:"ended_at"` // the caller sets null for the session still being played
 	Hands     int        `json:"hands"`
 }
 
@@ -129,8 +130,9 @@ type vsAcc struct {
 	net  float64
 }
 
-// Compute builds the stats for the given hands, which must be in the order played.
-// GeneratedAt is left for the caller to set.
+// Compute builds the stats for the given hands, which must be in the order played. It
+// never runs the equity calculator: call WarmAIEV first. GeneratedAt, and nulling the
+// live session's ended_at, are left for the caller.
 func Compute(hands []history.HandRecord) Stats {
 	out := Stats{Sessions: []Session{}, Models: []Model{}, DefinitionsURL: "/docs/stats.md"}
 	accs := map[string]*acc{}
@@ -140,19 +142,6 @@ func Compute(hands []history.HandRecord) Stats {
 		}
 		return accs[name]
 	}
-
-	// Fill the all-in EV cache on every core first; a multiway preflop all-in takes seconds.
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, runtime.NumCPU())
-	for _, h := range hands {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(h history.HandRecord) {
-			defer func() { <-sem; wg.Done() }()
-			aievNet(h)
-		}(h)
-	}
-	wg.Wait()
 
 	sessionIdx := map[string]int{}
 	for _, h := range hands {
@@ -167,10 +156,9 @@ func Compute(hands []history.HandRecord) Stats {
 		out.Sessions[i].EndedAt = &ended
 		out.Sessions[i].Hands++
 		out.Scope = Scope{TableID: h.TableID, PromptVersion: h.Config.PromptVersion, BigBlind: h.Config.BigBlind}
-		addHand(h, get)
-	}
-	if n := len(hands); n > 0 {
-		out.Sessions[sessionIdx[SessionID(hands[n-1])]].EndedAt = nil
+		if !addHand(h, get) {
+			out.Partial = true
+		}
 	}
 	out.Scope.Hands = len(hands)
 	out.Scope.Sessions = len(out.Sessions)
@@ -224,7 +212,9 @@ type seatHand struct {
 	showdown, wonPot bool
 }
 
-func addHand(h history.HandRecord, get func(string) *acc) {
+// addHand adds one hand to the accumulators. It returns false when the hand's all-in EV
+// was not computed yet and its actual result stood in.
+func addHand(h history.HandRecord, get func(string) *acc) bool {
 	bb := float64(h.Config.BigBlind)
 	if bb == 0 {
 		bb = 1
@@ -346,7 +336,7 @@ func addHand(h history.HandRecord, get func(string) *acc) {
 		}
 	}
 
-	aiev := aievNet(h)
+	aiev, evDone := aievNet(h)
 	for _, seat := range h.Seats {
 		s, a := sh[seat.Seat], get(seat.Name)
 		net := netOf(h, seat.Seat)
@@ -408,6 +398,7 @@ func addHand(h history.HandRecord, get func(string) *acc) {
 			}
 		}
 	}
+	return evDone
 }
 
 func (a *acc) result() Model {

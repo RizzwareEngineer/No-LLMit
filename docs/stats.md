@@ -6,7 +6,12 @@ session; for now a session is one table id. The code is `engine/stats`; to check
 hands offline, run `go run ./cmd/stats -in data/hands.jsonl` from `engine/`.
 
 The engine loads every saved hand at startup and again every 5 minutes, and adds each hand
-as soon as it is saved, so the numbers are never more than one hand behind.
+as soon as it is saved, so the numbers are never more than one hand behind. Until the first
+load succeeds the endpoint answers 503 (a failed load is retried every 15 seconds).
+
+All-ins are worked out a few hands at a time after a restart, so serving never waits on
+them. While some are left, `partial` is `true` and those hands count at their actual result
+in all-in EV bb/100. `ended_at` is `null` only for the session of the latest hand.
 
 ## Which decisions count
 
@@ -34,8 +39,10 @@ A rate with nothing to count, such as c-bet for a model that never had the chanc
   put in. Side pots are split by contribution level and only the players in each pot can
   win it. After the flop or turn every runout is counted exactly (990 for two players on
   the flop); preflop it is 10,000 random runouts from a fixed seed, so the number never
-  changes between runs. Every other hand counts at its actual net.
-- **Biggest pot won**: the largest pot in a hand the model finished ahead in.
+  changes between runs (its error is about 0.1% of the pot per hand). Every other hand counts
+  at its actual net.
+- **Biggest pot won**: the largest pot in a hand the model finished ahead in, counting the
+  whole pot even when it was split.
 - **Biggest pot lost**: the largest pot in a hand the model finished behind in, after
   putting chips in by choice or reaching showdown (a folded blind does not count).
   A pot is every chip put in, less the part of a bet nobody called.

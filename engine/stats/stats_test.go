@@ -109,11 +109,41 @@ func TestAIEVWithSidePotTheRecordOmits(t *testing.T) {
 			Net:      map[string]int{"0": 200, "1": 100, "2": -300},
 		},
 	}
-	got := aievNet(h)
+	got := computeAIEV(h)
 	want := map[int]float64{0: 362.0/990*300 - 100, 1: 628.0/990*300 + 100, 2: -300}
 	for seat, w := range want {
 		if !near(got[seat], w) {
 			t.Errorf("seat %d aiev %v, want %v", seat, got[seat], w)
 		}
+	}
+}
+
+func TestComputeIsPartialUntilWarmed(t *testing.T) {
+	h := history.HandRecord{
+		HandID: "partial", TableID: "t", Config: history.HandConfig{BigBlind: 10},
+		Seats:   []history.SeatRecord{{Seat: 0, Name: "A"}, {Seat: 1, Name: "B"}},
+		Blinds:  []history.BlindRecord{{Seat: 0, Amount: 10}, {Seat: 1, Amount: 10}},
+		Board:   []string{"9h", "8h", "7c", "3h", "4s"},
+		Actions: []history.ActionRecord{{Street: "flop", Seat: 1, Status: "ok", Applied: history.AppliedAction{Type: "ALL_IN", Amount: 90}}, {Street: "flop", Seat: 0, Status: "ok", Applied: history.AppliedAction{Type: "CALL", Amount: 90}}},
+		Result: history.HandResult{
+			Showdown: []history.ShowdownRecord{{Seat: 0, HoleCards: []string{"Ah", "2h"}}, {Seat: 1, HoleCards: []string{"Tc", "Js"}}},
+			Net:      map[string]int{"0": 100, "1": -100},
+		},
+	}
+	hands := []history.HandRecord{h}
+	before := Compute(hands)
+	if !before.Partial || before.Models[0].AIEVBB100 != before.Models[0].BB100 {
+		t.Errorf("before warming: partial %v, %+v", before.Partial, before.Models[0])
+	}
+	if warmed, left := WarmAIEV(hands, 0); len(warmed) != 0 || left != 1 {
+		t.Errorf("a limit of 0 warms nothing: %v %d", warmed, left)
+	}
+	if warmed, left := WarmAIEV(hands, 5); len(warmed) != 1 || left != 0 {
+		t.Errorf("warm: %v %d", warmed, left)
+	}
+	after := Compute(hands)
+	wantA := 100 * (362.0/990*200 - 100) / 10 // A had 362/990 of the 200 pot
+	if after.Partial || !near(after.Models[0].AIEVBB100, wantA) {
+		t.Errorf("after warming: partial %v, A aiev %v want %v", after.Partial, after.Models[0].AIEVBB100, wantA)
 	}
 }

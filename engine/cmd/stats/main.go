@@ -28,6 +28,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	stats.WarmAIEV(hands, -1)
 	s := stats.Compute(hands)
 	fmt.Printf("%d hands, %d sessions, big blind %d, prompt %s\n\n", s.Scope.Hands, s.Scope.Sessions, s.Scope.BigBlind, s.Scope.PromptVersion)
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
