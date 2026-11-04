@@ -6,8 +6,8 @@ package history
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -110,7 +110,8 @@ type ShowdownRecord struct {
 	HoleCards []string `json:"hole_cards"`
 }
 
-// ReadHands parses one hand record per line, skipping blank lines.
+// ReadHands parses one hand record per line, skipping blank lines. A line that does not
+// parse (such as one cut short by a crash mid-append) is logged and skipped.
 func ReadHands(r io.Reader) ([]HandRecord, error) {
 	var out []HandRecord
 	scanner := bufio.NewScanner(r)
@@ -121,7 +122,8 @@ func ReadHands(r io.Reader) ([]HandRecord, error) {
 		}
 		var h HandRecord
 		if err := json.Unmarshal(scanner.Bytes(), &h); err != nil {
-			return nil, fmt.Errorf("line %d: %w", line, err)
+			log.Printf("!!! Skipping unreadable hand on line %d: %v", line, err)
+			continue
 		}
 		out = append(out, h)
 	}
