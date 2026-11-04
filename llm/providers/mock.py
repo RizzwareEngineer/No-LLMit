@@ -9,7 +9,7 @@ import random
 REASON = "Mock provider: random legal action, no model was called."
 
 
-def get_decision(player_name: str, prompt: str, valid_actions: list[dict]) -> dict:
+def get_decision(player_name: str, prompt: str, valid_actions: list[dict], retry_note: str | None = None) -> dict:
     by_type = {a["type"]: a for a in valid_actions}
     sizing = by_type.get("BET") or by_type.get("RAISE")
 
