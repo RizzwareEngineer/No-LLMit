@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import { API_URL } from '@/lib/api';
 
-// Shape of GET /api/stats, per docs/stats-api-contract.json. Rates are 0..1; bb = big blinds.
+// Shape of GET /api/stats, per docs/stats-api-contract.json. Rates are 0..1, or null when nothing
+// qualified for them; bb = big blinds.
 export interface PositionStats {
   hands: number;
-  vpip: number;
-  pfr: number;
+  vpip: number | null;
+  pfr: number | null;
   bb100: number;
 }
 
@@ -23,20 +24,20 @@ export interface ModelStats {
   decisions: number;
   net_chips: number;
   bb100: number;
-  bb100_ci: [number, number];
+  bb100_ci: [number, number] | null; // null below 2 hands
   aiev_bb100: number;
   vpip: number;
   pfr: number;
-  three_bet: number;
-  af: number;
-  cbet: number;
-  fold_to_cbet: number;
-  wtsd: number;
-  wsd: number;
-  avg_bet_pct_pot: number;
-  fold_when_check_free: number;
-  error_rate: number;
-  retry_rate: number;
+  three_bet: number | null;
+  af: number | null;
+  cbet: number | null;
+  fold_to_cbet: number | null;
+  wtsd: number | null;
+  wsd: number | null;
+  avg_bet_pct_pot: number | null;
+  fold_when_check_free: number | null;
+  error_rate: number | null;
+  retry_rate: number | null;
   avg_latency_ms: number;
   cost_usd: number;
   cost_per_hand_usd: number;
@@ -65,9 +66,15 @@ export interface StatsResponse {
 // Below this many hands bb/100 is mostly noise.
 export const MIN_HANDS = 500;
 
+export class StatsLoadingError extends Error {}
+
+// How long to wait before asking again while the engine answers 503.
+const LOADING_RETRY_MS = 10_000;
+
 export async function fetchStats(session?: string): Promise<StatsResponse> {
   const query = session ? `?session=${encodeURIComponent(session)}` : '';
   const res = await fetch(`${API_URL}/api/stats${query}`);
+  if (res.status === 503) throw new StatsLoadingError(); // engine still building its first snapshot
   if (!res.ok) throw new Error(`stats ${res.status}`);
   const json = await res.json();
   if (!Array.isArray(json?.models) || !Array.isArray(json?.sessions)) throw new Error('stats: unexpected shape');
@@ -77,40 +84,50 @@ export async function fetchStats(session?: string): Promise<StatsResponse> {
 interface StatsState {
   data: StatsResponse | null;
   sample: boolean; // true when showing the bundled fixture instead of the engine's data
+  loading: boolean; // the engine answered 503: its stats are still loading
   error: string | null;
 }
 
-// Fetches /api/stats. In development a failed fetch falls back to the bundled sample.
+// Fetches /api/stats, retrying every 10s while the engine answers 503.
+// In development any other failure falls back to the bundled sample.
 export function useStats(session?: string): StatsState {
-  const [state, setState] = useState<StatsState>({ data: null, sample: false, error: null });
+  const [state, setState] = useState<StatsState>({ data: null, sample: false, loading: false, error: null });
   useEffect(() => {
     let cancelled = false;
-    fetchStats(session)
-      .then(data => !cancelled && setState({ data, sample: false, error: null }))
-      .catch(err => {
-        if (cancelled) return;
-        if (process.env.NODE_ENV === 'development') {
-          // Loaded lazily so the sample never ships in the production bundle.
-          import('@/lib/stats-fixture.json').then(f => !cancelled && setState({ data: f.default as unknown as StatsResponse, sample: true, error: null }));
-        } else {
-          setState({ data: null, sample: false, error: String(err?.message || err) });
-        }
-      });
-    return () => { cancelled = true; };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () =>
+      fetchStats(session)
+        .then(data => !cancelled && setState({ data, sample: false, loading: false, error: null }))
+        .catch(err => {
+          if (cancelled) return;
+          if (err instanceof StatsLoadingError) {
+            setState(s => ({ ...s, loading: true }));
+            timer = setTimeout(load, LOADING_RETRY_MS);
+          } else if (process.env.NODE_ENV === 'development') {
+            // Loaded lazily so the sample never ships in the production bundle.
+            import('@/lib/stats-fixture.json').then(f => !cancelled && setState({ data: f.default as unknown as StatsResponse, sample: true, loading: false, error: null }));
+          } else {
+            setState({ data: null, sample: false, loading: false, error: String(err?.message || err) });
+          }
+        });
+    load();
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [session]);
   return state;
 }
 
 export const modelSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-export const ciHalf = (m: ModelStats) => (m.bb100_ci[1] - m.bb100_ci[0]) / 2;
+export const ciHalf = (m: ModelStats) => (m.bb100_ci ? (m.bb100_ci[1] - m.bb100_ci[0]) / 2 : null);
+
+export const DASH = '—';
 
 export const signed = (n: number, digits = 1) =>
   `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toFixed(digits)}`;
 
 export const chips = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}¤${Math.abs(n).toLocaleString()}`;
 
-export const pct = (n: number) => `${Math.round(n * 100)}%`;
+export const pct = (n: number | null) => (n === null ? DASH : `${Math.round(n * 100)}%`);
 
 export const netColor = (n: number) =>
   n > 0 ? 'rgb(15, 123, 108)' : n < 0 ? 'rgb(200, 50, 50)' : 'rgba(55, 53, 47, 0.65)';

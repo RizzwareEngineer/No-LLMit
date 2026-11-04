@@ -7,7 +7,7 @@ import LLMLogo from '@/components/LLMLogo';
 import StatsPanel, { SampleBadge } from '@/components/StatsPanel';
 import CumulativeChart from '@/components/CumulativeChart';
 import HeadToHead from '@/components/HeadToHead';
-import { MIN_HANDS, ciHalf, modelSlug, netColor, pct, signed, chips, useStats } from '@/lib/stats';
+import { DASH, MIN_HANDS, ciHalf, modelSlug, netColor, pct, signed, chips, useStats } from '@/lib/stats';
 
 const TEXT = 'rgb(55, 53, 47)';
 const MUTED = 'rgba(55, 53, 47, 0.65)';
@@ -24,10 +24,10 @@ function Fact({ label, value, color }: { label: string; value: React.ReactNode; 
 
 export default function ModelStatsPage() {
   const { model: slug } = useParams<{ model: string }>();
-  const { data, sample, error } = useStats();
+  const { data, sample, loading, error } = useStats();
 
   if (error) return <p className="text-[14px]" style={{ color: MUTED }}>Stats are unavailable right now ({error}).</p>;
-  if (!data) return <p className="text-[14px]" style={{ color: MUTED }}>Loading stats…</p>;
+  if (!data) return <p className="text-[14px]" style={{ color: MUTED }}>{loading ? 'Stats are loading…' : 'Loading stats…'}</p>;
 
   const m = data.models.find(x => modelSlug(x.name) === slug);
   if (!m) return <p className="text-[14px]" style={{ color: MUTED }}>No stats for this model yet.</p>;
@@ -50,7 +50,7 @@ export default function ModelStatsPage() {
       <dl className="mb-6 flex flex-wrap gap-x-8 gap-y-3">
         <Fact
           label="bb/100"
-          value={<>{signed(m.bb100)} <span className="font-normal text-[13px]" style={{ color: MUTED }}>± {ciHalf(m).toFixed(1)}</span></>}
+          value={<>{signed(m.bb100)} <span className="font-normal text-[13px]" style={{ color: MUTED }}>± {ciHalf(m)?.toFixed(1) ?? DASH}</span></>}
           color={netColor(m.bb100)}
         />
         <Fact label="Hands" value={m.hands.toLocaleString()} />

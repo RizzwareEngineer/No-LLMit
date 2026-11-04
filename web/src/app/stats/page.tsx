@@ -8,7 +8,7 @@ import LLMLogo from '@/components/LLMLogo';
 import StatsPanel, { SampleBadge } from '@/components/StatsPanel';
 import CumulativeChart from '@/components/CumulativeChart';
 import HeadToHead from '@/components/HeadToHead';
-import { MIN_HANDS, ModelStats, STAT_DEFINITIONS, ciHalf, modelSlug, netColor, pct, signed, useStats } from '@/lib/stats';
+import { MIN_HANDS, ModelStats, STAT_DEFINITIONS, DASH, ciHalf, modelSlug, netColor, pct, signed, useStats } from '@/lib/stats';
 
 const TEXT = 'rgb(55, 53, 47)';
 const MUTED = 'rgba(55, 53, 47, 0.65)';
@@ -16,7 +16,7 @@ const MUTED = 'rgba(55, 53, 47, 0.65)';
 interface Column {
   key: keyof typeof STAT_DEFINITIONS;
   label: string;
-  value: (m: ModelStats) => number;
+  value: (m: ModelStats) => number | null;
   render: (m: ModelStats) => React.ReactNode;
   lowerIsBetter?: boolean;
 }
@@ -25,13 +25,13 @@ const COLUMNS: Column[] = [
   { key: 'hands', label: 'Hands', value: m => m.hands, render: m => m.hands.toLocaleString() },
   {
     key: 'bb100', label: 'bb/100', value: m => m.bb100,
-    render: m => <span style={{ color: netColor(m.bb100) }} className="font-bold">{signed(m.bb100)} <span className="font-normal" style={{ color: MUTED }}>± {ciHalf(m).toFixed(1)}</span></span>,
+    render: m => <span style={{ color: netColor(m.bb100) }} className="font-bold">{signed(m.bb100)} <span className="font-normal" style={{ color: MUTED }}>± {ciHalf(m)?.toFixed(1) ?? DASH}</span></span>,
   },
   { key: 'aiev_bb100', label: 'All-in EV bb/100', value: m => m.aiev_bb100, render: m => signed(m.aiev_bb100) },
   { key: 'vpip', label: 'VPIP', value: m => m.vpip, render: m => pct(m.vpip) },
   { key: 'pfr', label: 'PFR', value: m => m.pfr, render: m => pct(m.pfr) },
   { key: 'three_bet', label: '3-bet', value: m => m.three_bet, render: m => pct(m.three_bet) },
-  { key: 'af', label: 'AF', value: m => m.af, render: m => m.af.toFixed(1) },
+  { key: 'af', label: 'AF', value: m => m.af, render: m => m.af?.toFixed(1) ?? DASH },
   { key: 'cbet', label: 'C-bet', value: m => m.cbet, render: m => pct(m.cbet) },
   { key: 'fold_to_cbet', label: 'Fold to c-bet', value: m => m.fold_to_cbet, render: m => pct(m.fold_to_cbet) },
   { key: 'wtsd', label: 'WTSD', value: m => m.wtsd, render: m => pct(m.wtsd) },
@@ -85,15 +85,20 @@ function HeaderCell({ col, sort, onSort }: { col: Column; sort: { key: string; d
 
 export default function StatsPage() {
   const [session, setSession] = useState('');
-  const { data, sample, error } = useStats(session || undefined);
+  const { data, sample, loading, error } = useStats(session || undefined);
   const [sort, setSort] = useState({ key: 'bb100', desc: true });
   const [selected, setSelected] = useState('');
 
   if (error) return <p className="text-[14px]" style={{ color: MUTED }}>Stats are unavailable right now ({error}).</p>;
-  if (!data) return <p className="text-[14px]" style={{ color: MUTED }}>Loading stats…</p>;
+  if (!data) return <p className="text-[14px]" style={{ color: MUTED }}>{loading ? 'Stats are loading…' : 'Loading stats…'}</p>;
 
   const col = COLUMNS.find(c => c.key === sort.key) ?? COLUMNS[1];
-  const models = [...data.models].sort((a, b) => (sort.desc ? -1 : 1) * (col.value(a) - col.value(b)));
+  // Nulls (nothing to count yet) sort last in both directions.
+  const models = [...data.models].sort((a, b) => {
+    const va = col.value(a), vb = col.value(b);
+    if (va === null || vb === null) return (va === null ? 1 : 0) - (vb === null ? 1 : 0);
+    return (sort.desc ? -1 : 1) * (va - vb);
+  });
   const small = data.models.some(m => m.hands < MIN_HANDS);
   const toggleSort = (c: Column) =>
     setSort(s => (s.key === c.key ? { key: c.key, desc: !s.desc } : { key: c.key, desc: !c.lowerIsBetter }));

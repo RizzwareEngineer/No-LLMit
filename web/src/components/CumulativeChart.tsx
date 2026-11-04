@@ -13,7 +13,7 @@ const PAD = { top: 12, right: 12, bottom: 24, left: 40 };
 // 95% band around the cumulative line after n hands. The per-hand spread implied by the
 // bb/100 interval over N hands is h*sqrt(N)/196, so n hands spread by h*sqrt(N*n)/100.
 function band(m: ModelStats, n: number) {
-  return (ciHalf(m) * Math.sqrt(m.hands * n)) / 100;
+  return ((ciHalf(m) ?? 0) * Math.sqrt(m.hands * n)) / 100; // no interval below 2 hands
 }
 
 function niceTicks(min: number, max: number, count = 4) {
