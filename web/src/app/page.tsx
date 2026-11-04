@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer, Brain } from "@phosphor-icons/react";
+import { MotionConfig } from "motion/react";
+import { CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
-import UsageIndicator from "@/components/UsageIndicator";
+import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import { useGameState } from "@/hooks/useGameState";
 import { ALL_LLMS, DEFAULT_GAME_CONFIG } from "@/lib/constants";
 
@@ -15,6 +16,8 @@ export default function Home() {
   const {
     gameState,
     isConnected,
+    gaveUp,
+    tableNotice,
     isLoading,
     error,
     actionRequired,
@@ -24,6 +27,7 @@ export default function Home() {
     shotClockRemaining,
     buttonDetermination,
     connect,
+    retry,
     newGame,
     startHand,
     submitAction,
@@ -37,6 +41,9 @@ export default function Home() {
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
   const [usageRefreshTrigger, setUsageRefreshTrigger] = useState(0);
+  const { usage, error: usageError } = useUsage(usageRefreshTrigger, isPaused);
+  const watching = usageError ? undefined : usage?.table?.spectators;
+  const isLive = isConnected && !tableNotice;
   
   // Check for test mode via URL param (?test=true) or play mode via sessionStorage
   useEffect(() => {
@@ -239,27 +246,28 @@ export default function Home() {
     : {};
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="flex flex-col min-h-screen p-3 lg:p-4 overflow-auto" style={{ background: '#FFFFFF' }}>
-      <div className="flex-1 flex flex-col items-center">
+      <main className="flex-1 flex flex-col items-center-safe">
         
       {/* Header - Title centered */}
-        <div className="mb-1 text-center">
+        <div className="mb-2 text-center">
           <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
-          <p className="text-[12px] mt-0.5" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
-            Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
+          <p className="text-[15px] mt-1" style={{ color: 'rgb(55, 53, 47)' }}>
+            9 LLMs play No Limit Hold&apos;em against each other, live. Watch each one explain its move.{' '}
             <Link 
               href="/about" 
-              className="hover:underline"
+              className="hover:underline whitespace-nowrap"
               style={{ color: 'rgb(35, 131, 226)' }}
             >
-              ⓘ About
+              About
             </Link>
           </p>
         </div>
 
-        {/* Action buttons row */}
-        <div className="mb-2 flex items-center justify-center gap-3">
-          {gameMode === 'play' ? (
+        {/* Play mode: way back to the shared table */}
+        {gameMode === 'play' && (
+          <div className="mb-2 flex items-center justify-center gap-3">
             <button
               onClick={handleBackToSpectate}
               className="btn-brutal px-3 py-1 text-[11px] flex items-center gap-2"
@@ -267,34 +275,24 @@ export default function Home() {
               <Television size={12} weight="bold" />
               Back to Spectate
             </button>
-          ) : (
-            <>
-              <button
-                disabled
-                className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
-              >
-                <GameController size={12} weight="bold" />
-                Play vs. LLMs — (coming soon)!
-              </button>
-              <button
-                disabled
-                className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
-              >
-                <Brain size={12} weight="bold" />
-                Train an LLM to play like you (coming soon)!
-              </button>
-            </>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Status row - Mode indicator, hand counter, blinds, timer */}
-        <div className="mb-3 flex items-center gap-4">
+        <div className="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
           {/* Mode indicator */}
           <div className="flex items-center gap-2">
             {gameMode === 'spectate' && (
               <>
-                <Television size={14} weight="bold" style={{ color: 'rgb(35, 131, 226)' }} />
-                <span className="text-[12px] font-medium" style={{ color: 'rgb(35, 131, 226)' }}>Spectating</span>
+                <span
+                  aria-hidden
+                  className={`inline-block w-2 h-2 rounded-full ${isLive ? 'animate-pulse' : ''}`}
+                  style={{ background: isLive ? 'rgb(220, 38, 38)' : 'rgba(55, 53, 47, 0.65)' }}
+                />
+                <span className="text-[12px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
+                  {!isConnected ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+                  {watching !== undefined && ` · ${watching.toLocaleString()} watching`}
+                </span>
               </>
             )}
             {gameMode === 'play' && (
@@ -315,11 +313,11 @@ export default function Home() {
           {handNumber > 0 && (
             <>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber}</span>
+              <span className="text-[12px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber}</span>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
               <span className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{stakes.smallBlind}/{stakes.bigBlind}</span>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[12px] font-mono" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
+              <span className="text-[12px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
             </>
           )}
 
@@ -342,10 +340,10 @@ export default function Home() {
 
 
         {/* Main content */}
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col">
-            {/* Row 1: Table + Winnings */}
-            <div className="flex gap-6 items-stretch relative">
+        <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
+          <div className="flex flex-col w-full md:w-auto">
+            {/* Row 1: Table + Winnings (stacked on phones) */}
+            <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
               {/* Main game grid */}
               <PokerTable
                 players={players}
@@ -363,23 +361,23 @@ export default function Home() {
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
                 buttonDetermination={buttonDetermination}
                 hidePositions={!!buttonDetermination}
+                notice={tableNotice}
               />
 
-              {/* Right sidebar column - API Usage above Winnings */}
-              <div className="flex flex-col w-[240px] shrink-0">
-                {/* API Usage - static, above winnings */}
-                <UsageIndicator isPaused={isPaused} inline refreshTrigger={usageRefreshTrigger} />
-
-                {/* Winnings panel */}
-                <div className="mt-4 flex-1 flex flex-col min-h-0">
+              {/* Right sidebar column - leaderboard, then API usage */}
+              <div className="flex flex-col w-full md:w-[240px] shrink-0">
+                <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />
+                </div>
+                <div className="mt-4">
+                  <UsageIndicator usage={usage} error={usageError} />
                 </div>
               </div>
             </div>
 
             {/* Reasoning Panel - LLM thinking + reasoning (always visible in spectate) */}
             {gameMode === 'spectate' && (
-              <div className="mt-4" style={{ width: '50vw', maxWidth: '700px', minWidth: '500px' }}>
+              <div className="mt-4 w-full">
                 <ReasoningPanel
                   displayState={displayState}
                   shotClockRemaining={shotClockRemaining}
@@ -405,7 +403,7 @@ export default function Home() {
             )}
           </div>
         </div>
-      </div>
+      </main>
 
       {/* Dev controls - top left */}
       {process.env.NODE_ENV === 'development' && (
@@ -458,31 +456,33 @@ export default function Home() {
 
       {/* Fixed notification bar for connection status/errors */}
       {(!isConnected || error) && (
-        <div className="fixed bottom-0 left-0 right-0 px-4 py-2 flex items-center justify-center gap-4 z-50" style={{ background: 'rgb(203, 145, 47)', color: '#ffffff' }}>
+        <div role="status" className="fixed bottom-0 left-0 right-0 px-4 py-2 flex items-center justify-center gap-4 z-50" style={{ background: 'rgb(203, 145, 47)', color: 'rgb(30, 28, 24)' }}>
           <div className="flex items-center gap-2">
-            {!isConnected && (
+            {gaveUp ? (
+              <span className="text-sm font-medium">Can&apos;t reach the game server.</span>
+            ) : !isConnected ? (
               <>
-                <CircleNotch size={14} className="animate-spin" />
-                <span className="text-sm font-medium">Connecting to game server...</span>
+                <CircleNotch size={14} className="animate-spin" aria-hidden />
+                <span className="text-sm font-medium">Connecting to the game server…</span>
               </>
-            )}
-            {isConnected && error && (
-              <span className="text-sm font-medium">⚠️ {error}</span>
+            ) : (
+              <span className="text-sm font-medium">{error}</span>
             )}
           </div>
-          {error && (
+          {(gaveUp || (isConnected && error)) && (
             <button
               onClick={() => {
                 clearError();
-                if (!isConnected) connect();
+                if (gaveUp) retry();
               }}
-              className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded font-bold"
+              className="text-xs bg-white/40 hover:bg-white/60 px-3 py-1 rounded font-bold"
             >
-              {isConnected ? 'Dismiss' : 'Retry'}
+              {gaveUp ? 'Retry' : 'Dismiss'}
             </button>
           )}
         </div>
       )}
     </div>
+    </MotionConfig>
   );
 }
