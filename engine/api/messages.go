@@ -133,11 +133,6 @@ type ButtonWinnerPayload struct {
 func ConvertGameState(gs *game.GameState) GameStatePayload {
 	players := make([]PlayerStatePayload, len(gs.Players))
 	for i, p := range gs.Players {
-		var holeCards []string
-		for _, c := range p.HoleCards {
-			holeCards = append(holeCards, c.String())
-		}
-
 		var lastAction string
 		var lastAmount int
 		if p.LastAction != nil {
@@ -149,7 +144,7 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 			ID:         p.ID,
 			Name:       p.Name,
 			Stack:      p.Stack,
-			HoleCards:  holeCards,
+			HoleCards:  game.CardStrings(p.HoleCards),
 			Status:     p.Status.String(),
 			CurrentBet: p.CurrentBet,
 			LastAction: lastAction,
@@ -158,11 +153,6 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 			Position:   gs.PositionName(i),
 			Winnings:   p.Winnings,
 		}
-	}
-
-	var communityCards []string
-	for _, c := range gs.CommunityCards {
-		communityCards = append(communityCards, c.String())
 	}
 
 	var validActions []ValidActionPayload
@@ -191,7 +181,7 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 		HandNumber:       gs.HandNumber,
 		Street:           gs.Street.String(),
 		Pot:              gs.GetTotalPot(),
-		CommunityCards:   communityCards,
+		CommunityCards:   game.CardStrings(gs.CommunityCards),
 		CurrentBet:       gs.CurrentBet,
 		MinRaise:         gs.MinRaise,
 		CurrentPlayerIdx: gs.CurrentPlayerIdx,

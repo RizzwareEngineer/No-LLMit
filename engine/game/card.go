@@ -18,6 +18,15 @@ func (s Suit) String() string {
 	return []string{"h", "d", "c", "s"}[s]
 }
 
+// CardStrings returns each card's short notation, e.g. ["Ah", "Tc"].
+func CardStrings(cards []Card) []string {
+	out := make([]string, len(cards))
+	for i, c := range cards {
+		out[i] = c.String()
+	}
+	return out
+}
+
 type Rank int
 
 const (

@@ -264,7 +264,6 @@ func (gs *GameState) advanceToNextPlayer() {
 }
 
 func (gs *GameState) IsBettingRoundComplete() bool {
-	activePlayers := 0
 	playersToAct := 0
 	playersInHand := 0
 
@@ -273,23 +272,12 @@ func (gs *GameState) IsBettingRoundComplete() bool {
 		if player.Status == PlayerActive || player.Status == PlayerAllIn {
 			playersInHand++
 		}
-		if player.Status == PlayerActive {
-			activePlayers++
-			if !player.HasActedThisRound || player.CurrentBet < gs.CurrentBet {
-				playersToAct++
-			}
+		if player.Status == PlayerActive && (!player.HasActedThisRound || player.CurrentBet < gs.CurrentBet) {
+			playersToAct++
 		}
 	}
 
-	if playersInHand <= 1 {
-		return true
-	}
-
-	if playersToAct > 0 {
-		return false
-	}
-
-	return true
+	return playersInHand <= 1 || playersToAct == 0
 }
 
 func (gs *GameState) CountActivePlayers() int {

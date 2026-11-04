@@ -221,16 +221,13 @@ func (gs *GameState) getNextActivePlayer(fromIdx int) int {
 func (gs *GameState) dealHoleCards() {
 	startIdx := (gs.ButtonIdx + 1) % len(gs.Players) // Start left of button
 
-	for i := 0; i < len(gs.Players); i++ {
-		idx := (startIdx + i) % len(gs.Players)
-		if gs.Players[idx].Status != PlayerEliminated {
-			gs.Players[idx].HoleCards = append(gs.Players[idx].HoleCards, gs.deck.Deal(1)[0])
-		}
-	}
-	for i := 0; i < len(gs.Players); i++ {
-		idx := (startIdx + i) % len(gs.Players)
-		if gs.Players[idx].Status != PlayerEliminated {
-			gs.Players[idx].HoleCards = append(gs.Players[idx].HoleCards, gs.deck.Deal(1)[0])
+	// One card at a time around the table, twice.
+	for round := 0; round < 2; round++ {
+		for i := 0; i < len(gs.Players); i++ {
+			idx := (startIdx + i) % len(gs.Players)
+			if gs.Players[idx].Status != PlayerEliminated {
+				gs.Players[idx].HoleCards = append(gs.Players[idx].HoleCards, gs.deck.Deal(1)[0])
+			}
 		}
 	}
 }
@@ -251,10 +248,10 @@ func (gs *GameState) AdvanceStreet() error {
 		gs.dealFlop()
 	case StreetFlop:
 		gs.Street = StreetTurn
-		gs.dealTurn()
+		gs.dealOne()
 	case StreetTurn:
 		gs.Street = StreetRiver
-		gs.dealRiver()
+		gs.dealOne()
 	case StreetRiver:
 		gs.Street = StreetShowdown
 		return gs.resolveShowdown()
@@ -274,20 +271,15 @@ func (gs *GameState) dealFlop() {
 	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(3)...)
 }
 
-func (gs *GameState) dealTurn() {
-	gs.deck.Burn()
-	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(1)[0])
-}
-
-func (gs *GameState) dealRiver() {
+// dealOne burns a card and deals the turn or river.
+func (gs *GameState) dealOne() {
 	gs.deck.Burn()
 	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(1)[0])
 }
 
 func (gs *GameState) runOutBoard() error {
 	for len(gs.CommunityCards) < 5 {
-		gs.deck.Burn()
-		gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(1)[0])
+		gs.dealOne()
 	}
 	gs.Street = StreetShowdown
 	return gs.resolveShowdown()
@@ -368,11 +360,7 @@ func (gs *GameState) RebuyBrokePlayers(stack int) []int {
 
 // DeckOrder returns this hand's full shuffled deck, in the order cards are dealt.
 func (gs *GameState) DeckOrder() []string {
-	order := make([]string, len(gs.deck.cards))
-	for i, c := range gs.deck.cards {
-		order[i] = c.String()
-	}
-	return order
+	return CardStrings(gs.deck.cards)
 }
 
 // PositionName returns a player's position this hand (BTN, SB, BB, UTG, ...).
@@ -429,19 +417,11 @@ func (gs *GameState) getPositionName(playerIdx int) string {
 }
 
 func (gs *GameState) GetLLMCommunityCards() []string {
-	cards := make([]string, len(gs.CommunityCards))
-	for i, c := range gs.CommunityCards {
-		cards[i] = c.String()
-	}
-	return cards
+	return CardStrings(gs.CommunityCards)
 }
 
 func (gs *GameState) GetLLMHoleCards(playerIdx int) []string {
-	cards := make([]string, len(gs.Players[playerIdx].HoleCards))
-	for i, c := range gs.Players[playerIdx].HoleCards {
-		cards[i] = c.String()
-	}
-	return cards
+	return CardStrings(gs.Players[playerIdx].HoleCards)
 }
 
 func generateGameID() string {
