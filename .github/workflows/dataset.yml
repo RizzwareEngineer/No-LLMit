@@ -1,0 +1,59 @@
+# Nightly open-dataset export: yesterday's hands (America/New_York day) from Supabase to Hugging Face.
+# Secrets: SUPABASE_URL, SUPABASE_SERVICE_KEY, HF_TOKEN (write access), HF_REPO (e.g. user/no-llmit-hands).
+# Until all four are set the job only logs that it skipped.
+name: Dataset export
+
+on:
+  schedule:
+    - cron: "17 9 * * *" # 04:17 or 05:17 ET, after the table closes at 9pm ET
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "ET day to export (YYYY-MM-DD), or 'yesterday'"
+        default: yesterday
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: dataset
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_REPO: ${{ secrets.HF_REPO }}
+    steps:
+      - id: check
+        working-directory: .
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_KEY" ] && [ -n "$HF_TOKEN" ] && [ -n "$HF_REPO" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Dataset secrets are not set; skipping the export."
+          fi
+      - if: steps.check.outputs.ready == 'true'
+        uses: actions/checkout@v4
+      - if: steps.check.outputs.ready == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: dataset/requirements.txt
+      - if: steps.check.outputs.ready == 'true'
+        run: pip install -r requirements.txt
+      - if: steps.check.outputs.ready == 'true'
+        name: Pull published tables (for a card that covers every day)
+        run: python upload.py --out out --pull
+      - if: steps.check.outputs.ready == 'true'
+        name: Export
+        env:
+          DAY: ${{ inputs.day || 'yesterday' }}
+        run: python export.py --out out --day "$DAY"
+      - if: steps.check.outputs.ready == 'true'
+        name: Upload
+        run: python upload.py --out out
