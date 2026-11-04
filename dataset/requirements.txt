@@ -1,0 +1,4 @@
+pyarrow==26.0.1
+huggingface_hub==2.4.0
+tzdata>=2024.1  # America/New_York on hosts without system zoneinfo
+pytest==9.2.0
