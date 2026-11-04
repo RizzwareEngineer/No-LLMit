@@ -58,6 +58,7 @@ func TestStatsFromScriptedHands(t *testing.T) {
 		}
 	}
 
+	stats.WarmAIEV(hands, -1)
 	s := stats.Compute(hands)
 	m := map[string]stats.Model{}
 	for _, x := range s.Models {
@@ -149,7 +150,7 @@ func TestStatsFromScriptedHands(t *testing.T) {
 		t.Errorf("bb100 sums to %v, aiev to %v", sum, aiev)
 	}
 
-	if s.Scope.Hands != 5 || len(s.Sessions) != 1 || s.Sessions[0].ID != "tbl_test" || s.Sessions[0].EndedAt != nil {
+	if s.Scope.Hands != 5 || len(s.Sessions) != 1 || s.Sessions[0].ID != "tbl_test" || s.Sessions[0].EndedAt == nil || s.Partial {
 		t.Errorf("scope %+v sessions %+v", s.Scope, s.Sessions)
 	}
 }
@@ -161,59 +162,137 @@ func deref(p *float64) any {
 	return *p
 }
 
+func newTestCache(load func() ([]history.HandRecord, error)) *statsCache {
+	return &statsCache{load: load, dirty: make(chan struct{}, 1), retryWait: time.Hour, seen: map[string]bool{}, changed: map[string]bool{}}
+}
+
+func (c *statsCache) get(url string) (int, stats.Stats) {
+	w := httptest.NewRecorder()
+	c.handle(w, httptest.NewRequest("GET", url, nil))
+	var s stats.Stats
+	json.Unmarshal(w.Body.Bytes(), &s)
+	return w.Code, s
+}
+
+func waitFor(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); !ok(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for " + what)
+		}
+	}
+}
+
 func TestStatsEndpoint(t *testing.T) {
 	hands := statsHands(t)
-	c := &statsCache{dirty: make(chan struct{}, 1), seen: map[string]bool{},
-		load: func() ([]history.HandRecord, error) { return hands[:4], nil }}
-	get := func(url string) (int, stats.Stats) {
-		w := httptest.NewRecorder()
-		c.handle(w, httptest.NewRequest("GET", url, nil))
-		var s stats.Stats
-		json.Unmarshal(w.Body.Bytes(), &s)
-		return w.Code, s
-	}
-	if code, _ := get("/api/stats"); code != http.StatusServiceUnavailable {
+	c := newTestCache(func() ([]history.HandRecord, error) { return hands[:4:4], nil })
+	if code, _ := c.get("/api/stats"); code != http.StatusServiceUnavailable {
 		t.Errorf("before the first load: %d", code)
 	}
 
 	go c.run()
 	c.Add(hands[4]) // a hand saved while loading is kept
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, s := get("/api/stats"); s.Scope.Hands == 5 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("stats never reached 5 hands")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if code, s := get("/api/stats?session=tbl_test"); code != 200 || s.Scope.Hands != 5 || s.GeneratedAt.IsZero() {
+	waitFor(t, "5 hands", func() bool { _, s := c.get("/api/stats"); return s.Scope.Hands == 5 })
+	if code, s := c.get("/api/stats?session=tbl_test"); code != 200 || s.Scope.Hands != 5 || s.GeneratedAt.IsZero() {
 		t.Errorf("session: %d %+v", code, s.Scope)
 	}
-	if code, _ := get("/api/stats?session=nope"); code != http.StatusNotFound {
+	if code, _ := c.get("/api/stats?session=nope"); code != http.StatusNotFound {
 		t.Errorf("unknown session: %d", code)
 	}
 }
 
-func TestLoadSupabaseHandsPages(t *testing.T) {
-	var queries []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		queries = append(queries, r.URL.RawQuery)
-		n := 1000
-		if r.URL.Query().Get("offset") == "1000" {
-			n = 1
+func TestStatsStay503UntilALoadSucceeds(t *testing.T) {
+	hands := statsHands(t)
+	failed := make(chan struct{})
+	calls := 0
+	c := newTestCache(func() ([]history.HandRecord, error) {
+		if calls++; calls == 1 {
+			close(failed)
+			return nil, fmt.Errorf("database down")
 		}
-		rows := make([]string, n)
-		for i := range rows {
-			rows[i] = `{"doc":{"hand_id":"h"}}`
+		return hands, nil
+	})
+	c.retryWait = 200 * time.Millisecond
+	go c.run()
+	<-failed
+	c.Add(hands[0]) // a hand saved meanwhile must not make the table look loaded
+	time.Sleep(20 * time.Millisecond)
+	if code, s := c.get("/api/stats"); code != http.StatusServiceUnavailable {
+		t.Errorf("after a failed first load: %d with %d hands", code, s.Scope.Hands)
+	}
+	waitFor(t, "the retry", func() bool { _, s := c.get("/api/stats"); return s.Scope.Hands == 5 })
+}
+
+func TestStatsSessionsInPlayOrderAndLiveOnlyLast(t *testing.T) {
+	hands := statsHands(t)
+	start := time.Date(2026, 11, 1, 20, 0, 0, 0, time.UTC)
+	for i := range hands {
+		hands[i].StartedAt, hands[i].EndedAt = start.Add(time.Duration(i)*time.Minute), start.Add(time.Duration(i)*time.Minute+30*time.Second)
+		if i < 2 {
+			hands[i].TableID = "tbl_old"
+		}
+	}
+	c := newTestCache(nil)
+	for _, i := range []int{3, 1, 4, 0} { // saved out of play order, as spill replays can be
+		c.add(hands[i])
+	}
+	c.recompute(true)
+
+	session := func(id string) stats.Session {
+		_, s := c.get("/api/stats?session=" + id)
+		return s.Sessions[0]
+	}
+	if old := session("tbl_old"); old.EndedAt == nil || !old.StartedAt.Equal(hands[0].StartedAt) || !old.EndedAt.Equal(hands[1].EndedAt) {
+		t.Errorf("finished session: %+v", old)
+	}
+	if cur := session("tbl_test"); cur.EndedAt != nil || !cur.StartedAt.Equal(hands[3].StartedAt) {
+		t.Errorf("live session: %+v", cur)
+	}
+	if _, all := c.get("/api/stats"); len(all.Sessions) != 2 || all.Sessions[0].ID != "tbl_old" || all.Sessions[0].EndedAt == nil || all.Sessions[1].EndedAt != nil {
+		t.Errorf("all-time sessions: %+v", all.Sessions)
+	}
+
+	// A new hand re-encodes the live session and all-time, not the finished one.
+	c.mu.Lock()
+	oldBytes := string(c.bySession["tbl_old"])
+	c.mu.Unlock()
+	time.Sleep(time.Millisecond) // so a re-encode would carry a new generated_at
+	c.add(hands[2])
+	c.recompute(false)
+	if _, all := c.get("/api/stats"); all.Scope.Hands != 5 {
+		t.Errorf("all-time hands %d", all.Scope.Hands)
+	}
+	c.mu.Lock()
+	unchanged := string(c.bySession["tbl_old"]) == oldBytes
+	c.mu.Unlock()
+	if !unchanged {
+		t.Error("finished session was recomputed for a hand in another session")
+	}
+	if cur := session("tbl_test"); cur.Hands != 3 {
+		t.Errorf("live session hands %d", cur.Hands)
+	}
+}
+
+func TestLoadSupabaseHandsWithSmallRowCap(t *testing.T) {
+	const total, cap = 1201, 500 // the server returns at most 500 rows whatever is asked
+	var ranges []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ranges = append(ranges, r.Header.Get("Range"))
+		var from, to int
+		fmt.Sscanf(r.Header.Get("Range"), "%d-%d", &from, &to)
+		rows := []string{}
+		for i := from; i <= to && i < total && len(rows) < cap; i++ {
+			rows = append(rows, fmt.Sprintf(`{"doc":{"hand_id":"h%d"}}`, i))
 		}
 		w.Write([]byte("[" + strings.Join(rows, ",") + "]"))
 	}))
 	defer srv.Close()
 
 	hands, err := loadSupabaseHands(srv.URL, "k")
-	if err != nil || len(hands) != 1001 || len(queries) != 2 || queries[1] != "select=doc&order=started_at,hand_id&limit=1000&offset=1000" {
-		t.Errorf("%d hands, %v, queries %v", len(hands), err, queries)
+	if err != nil || len(hands) != total || hands[total-1].HandID != "h1200" {
+		t.Fatalf("%d hands, %v", len(hands), err)
+	}
+	if want := []string{"0-999", "500-1499", "1000-1999", "1201-2200"}; strings.Join(ranges, ",") != strings.Join(want, ",") {
+		t.Errorf("ranges %v, want %v", ranges, want)
 	}
 }
