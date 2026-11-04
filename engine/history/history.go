@@ -4,6 +4,11 @@
 package history
 
 import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
@@ -103,4 +108,22 @@ type PotRecord struct {
 type ShowdownRecord struct {
 	Seat      int      `json:"seat"`
 	HoleCards []string `json:"hole_cards"`
+}
+
+// ReadHands parses one hand record per line, skipping blank lines.
+func ReadHands(r io.Reader) ([]HandRecord, error) {
+	var out []HandRecord
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(nil, 64<<20)
+	for line := 1; scanner.Scan(); line++ {
+		if len(strings.TrimSpace(scanner.Text())) == 0 {
+			continue
+		}
+		var h HandRecord
+		if err := json.Unmarshal(scanner.Bytes(), &h); err != nil {
+			return nil, fmt.Errorf("line %d: %w", line, err)
+		}
+		out = append(out, h)
+	}
+	return out, scanner.Err()
 }
