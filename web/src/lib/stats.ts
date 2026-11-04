@@ -66,6 +66,9 @@ export interface StatsResponse {
 // Below this many hands bb/100 is mostly noise.
 export const MIN_HANDS = 500;
 
+export const TEXT = 'rgb(55, 53, 47)';
+export const MUTED = 'rgba(55, 53, 47, 0.65)';
+
 export class StatsLoadingError extends Error {}
 
 // How long to wait before asking again while the engine answers 503.
@@ -82,38 +85,48 @@ export async function fetchStats(session?: string): Promise<StatsResponse> {
 }
 
 interface StatsState {
-  data: StatsResponse | null;
+  data: StatsResponse | null; // the last good response; kept when a later fetch fails
   sample: boolean; // true when showing the bundled fixture instead of the engine's data
   loading: boolean; // the engine answered 503: its stats are still loading
   error: string | null;
+  current: boolean; // false while data, loading and error still describe a previous session
 }
 
+type Settled = Omit<StatsState, 'current'> & { session?: string };
+
 // Fetches /api/stats, retrying every 10s while the engine answers 503.
-// In development any other failure falls back to the bundled sample.
-export function useStats(session?: string): StatsState {
-  const [state, setState] = useState<StatsState>({ data: null, sample: false, loading: false, error: null });
+// In development any other failure falls back to the bundled sample for the same session.
+export function useStats(session?: string, enabled = true): StatsState {
+  const [state, setState] = useState<Settled>({ data: null, sample: false, loading: false, error: null, session: '\0' }); // '\0': nothing settled yet
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (next: Partial<Settled>) =>
+      !cancelled && setState(s => ({ ...s, sample: false, loading: false, error: null, ...next, session }));
     const load = () =>
       fetchStats(session)
-        .then(data => !cancelled && setState({ data, sample: false, loading: false, error: null }))
+        .then(data => settle({ data }))
         .catch(err => {
           if (cancelled) return;
           if (err instanceof StatsLoadingError) {
-            setState(s => ({ ...s, loading: true }));
+            settle({ loading: true });
             timer = setTimeout(load, LOADING_RETRY_MS);
           } else if (process.env.NODE_ENV === 'development') {
             // Loaded lazily so the sample never ships in the production bundle.
-            import('@/lib/stats-fixture.json').then(f => !cancelled && setState({ data: f.default as unknown as StatsResponse, sample: true, loading: false, error: null }));
+            const sample = session
+              ? import('@/lib/stats-fixture-sessions.json').then(f => (f.default as unknown as Record<string, StatsResponse>)[session])
+              : import('@/lib/stats-fixture.json').then(f => f.default as unknown as StatsResponse);
+            sample.then(data => (data ? settle({ data, sample: true }) : settle({ error: 'unknown session' })));
           } else {
-            setState({ data: null, sample: false, loading: false, error: String(err?.message || err) });
+            settle({ error: String(err?.message || err) });
           }
         });
     load();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [session]);
-  return state;
+  }, [session, enabled]);
+  const { session: settledFor, ...rest } = state;
+  return { ...rest, current: settledFor === session };
 }
 
 export const modelSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

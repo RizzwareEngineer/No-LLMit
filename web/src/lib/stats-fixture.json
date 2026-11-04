@@ -27,85 +27,85 @@
       "name": "GPT-OSS 20B",
       "model": "openai/gpt-oss-20b",
       "hands": 128,
-      "decisions": 298,
-      "net_chips": 222,
-      "bb100": 17.4,
+      "decisions": 300,
+      "net_chips": 297,
+      "bb100": 23.2,
       "bb100_ci": [
-        -83.9,
-        118.7
+        -72.4,
+        118.8
       ],
-      "aiev_bb100": 10.1,
-      "vpip": 0.28,
-      "pfr": 0.15,
+      "aiev_bb100": 15.5,
+      "vpip": 0.37,
+      "pfr": 0.17,
       "three_bet": 0.07,
-      "af": 2.3,
-      "cbet": 0.49,
-      "fold_to_cbet": 0.57,
-      "wtsd": 0.26,
-      "wsd": 0.57,
-      "avg_bet_pct_pot": 0.72,
+      "af": 1.96,
+      "cbet": 0.68,
+      "fold_to_cbet": 0.42,
+      "wtsd": 0.31,
+      "wsd": 0.51,
+      "avg_bet_pct_pot": 0.79,
       "fold_when_check_free": 0.04,
-      "error_rate": 0.04,
+      "error_rate": 0.03,
       "retry_rate": 0.04,
-      "avg_latency_ms": 2253,
-      "cost_usd": 0.11,
-      "cost_per_hand_usd": 0.0009,
-      "biggest_pot_won": 1427,
-      "biggest_pot_lost": 776,
+      "avg_latency_ms": 2380,
+      "cost_usd": 0.28,
+      "cost_per_hand_usd": 0.0022,
+      "biggest_pot_won": 1126,
+      "biggest_pot_lost": 1335,
       "by_position": {
         "UTG": {
           "hands": 14,
-          "vpip": 0.25,
-          "pfr": 0.26,
-          "bb100": 57
+          "vpip": 0.34,
+          "pfr": 0.33,
+          "bb100": 61.1
         },
         "UTG+1": {
           "hands": 14,
-          "vpip": 0.37,
-          "pfr": 0.19,
-          "bb100": 101.9
+          "vpip": 0.3,
+          "pfr": 0.21,
+          "bb100": 70.7
         },
         "MP": {
-          "hands": 15,
-          "vpip": 0.15,
-          "pfr": 0.2,
-          "bb100": 102
+          "hands": 14,
+          "vpip": 0.27,
+          "pfr": 0.1,
+          "bb100": -22.1
         },
         "LJ": {
-          "hands": 15,
-          "vpip": 0.36,
-          "pfr": 0.22,
-          "bb100": 99.8
+          "hands": 14,
+          "vpip": 0.27,
+          "pfr": 0.15,
+          "bb100": 46.3
         },
         "HJ": {
-          "hands": 15,
-          "vpip": 0.25,
-          "pfr": 0.15,
-          "bb100": 84.8
+          "hands": 14,
+          "vpip": 0.32,
+          "pfr": 0.27,
+          "bb100": 95.3
         },
         "CO": {
           "hands": 14,
-          "vpip": 0.16,
-          "pfr": 0.14,
-          "bb100": 3.1
+          "vpip": 0.12,
+          "pfr": 0.13,
+          "bb100": 38.3
         },
         "BTN": {
           "hands": 14,
-          "vpip": 0.47,
-          "pfr": 0.22,
-          "bb100": 63.3
+          "vpip": 0.29,
+          "pfr": 0.17,
+          "bb100": -32.1
         },
         "SB": {
-          "hands": 15,
-          "vpip": 0.12,
-          "pfr": 0.13,
-          "bb100": 29.5
+          "hands": 14,
+          "vpip": 0.34,
+          "pfr": 0.1,
+          "bb100": 0.2
         },
         "BB": {
           "hands": 14,
-          "vpip": 0.3,
-          "pfr": 0.18,
-          "bb100": -44
+          "vpip": 0.28,
+          "pfr": 0.23,
+          "bb100": 80
         }
       },
       "cumulative_bb": [
@@ -147,57 +147,57 @@
         ],
         [
           90,
-          11.1
+          12.2
         ],
         [
           100,
-          13.1
+          16.7
         ],
         [
           110,
-          17.6
+          19.4
         ],
         [
           120,
-          21.3
+          28.7
         ],
         [
           128,
-          22.2
+          29.7
         ]
       ],
       "vs": {
         "Claude Haiku 5.5": {
-          "pots": 26,
-          "net_chips": -2
+          "pots": 15,
+          "net_chips": -112
         },
         "Gemma 3 12B": {
-          "pots": 9,
-          "net_chips": 73
+          "pots": 14,
+          "net_chips": 140
         },
         "Llama 3.1 8B": {
-          "pots": 15,
-          "net_chips": 194
+          "pots": 10,
+          "net_chips": 180
         },
         "Mistral Nemo": {
-          "pots": 14,
-          "net_chips": 345
+          "pots": 18,
+          "net_chips": 112
         },
         "DeepSeek V4 Flash": {
-          "pots": 21,
-          "net_chips": -73
+          "pots": 13,
+          "net_chips": -153
         },
         "Phi-4": {
-          "pots": 26,
-          "net_chips": 193
+          "pots": 12,
+          "net_chips": 122
         },
         "Qwen 3.7 Flash": {
-          "pots": 18,
-          "net_chips": 132
+          "pots": 13,
+          "net_chips": 62
         },
         "Cohere Command R7B": {
-          "pots": 11,
-          "net_chips": -17
+          "pots": 18,
+          "net_chips": 96
         }
       }
     },
@@ -205,85 +205,85 @@
       "name": "Claude Haiku 5.5",
       "model": "anthropic/claude-haiku-5.5",
       "hands": 128,
-      "decisions": 275,
-      "net_chips": 357,
-      "bb100": 27.9,
+      "decisions": 315,
+      "net_chips": 395,
+      "bb100": 30.9,
       "bb100_ci": [
-        -60.2,
-        116
+        -64.9,
+        126.7
       ],
-      "aiev_bb100": 11.9,
-      "vpip": 0.38,
-      "pfr": 0.23,
-      "three_bet": 0.09,
-      "af": 2,
-      "cbet": 0.41,
-      "fold_to_cbet": 0.33,
-      "wtsd": 0.34,
-      "wsd": 0.43,
+      "aiev_bb100": 21.8,
+      "vpip": 0.36,
+      "pfr": 0.22,
+      "three_bet": 0.06,
+      "af": 1.88,
+      "cbet": 0.53,
+      "fold_to_cbet": 0.53,
+      "wtsd": 0.29,
+      "wsd": 0.47,
       "avg_bet_pct_pot": 0.74,
-      "fold_when_check_free": 0.05,
-      "error_rate": 0,
-      "retry_rate": 0.07,
-      "avg_latency_ms": 2667,
-      "cost_usd": 0.23,
-      "cost_per_hand_usd": 0.0018,
-      "biggest_pot_won": 1491,
-      "biggest_pot_lost": 1445,
+      "fold_when_check_free": 0.02,
+      "error_rate": 0.04,
+      "retry_rate": 0.02,
+      "avg_latency_ms": 1780,
+      "cost_usd": 0.38,
+      "cost_per_hand_usd": 0.003,
+      "biggest_pot_won": 769,
+      "biggest_pot_lost": 1253,
       "by_position": {
         "UTG": {
           "hands": 14,
-          "vpip": 0.5,
-          "pfr": 0.12,
-          "bb100": 54.4
+          "vpip": 0.43,
+          "pfr": 0.07,
+          "bb100": 94.1
         },
         "UTG+1": {
           "hands": 14,
-          "vpip": 0.28,
-          "pfr": 0.23,
-          "bb100": -44.5
+          "vpip": 0.25,
+          "pfr": 0.21,
+          "bb100": 17.7
         },
         "MP": {
-          "hands": 15,
-          "vpip": 0.45,
-          "pfr": 0.32,
-          "bb100": 104.9
+          "hands": 14,
+          "vpip": 0.13,
+          "pfr": 0.26,
+          "bb100": -39.1
         },
         "LJ": {
-          "hands": 15,
+          "hands": 14,
           "vpip": 0.4,
           "pfr": 0.13,
-          "bb100": -70
+          "bb100": 8.4
         },
         "HJ": {
           "hands": 14,
-          "vpip": 0.13,
-          "pfr": 0.05,
-          "bb100": 51.3
+          "vpip": 0.33,
+          "pfr": 0.17,
+          "bb100": 99
         },
         "CO": {
           "hands": 14,
-          "vpip": 0.4,
-          "pfr": 0.2,
-          "bb100": 65.4
+          "vpip": 0.44,
+          "pfr": 0.22,
+          "bb100": 51.9
         },
         "BTN": {
           "hands": 14,
-          "vpip": 0.45,
-          "pfr": 0.12,
-          "bb100": 2.7
+          "vpip": 0.42,
+          "pfr": 0.28,
+          "bb100": -28.4
         },
         "SB": {
-          "hands": 15,
-          "vpip": 0.15,
-          "pfr": 0.2,
-          "bb100": -71.5
+          "hands": 14,
+          "vpip": 0.14,
+          "pfr": 0.14,
+          "bb100": -5.3
         },
         "BB": {
           "hands": 14,
-          "vpip": 0.47,
+          "vpip": 0.2,
           "pfr": 0.24,
-          "bb100": 112.3
+          "bb100": -29.1
         }
       },
       "cumulative_bb": [
@@ -293,89 +293,89 @@
         ],
         [
           10,
-          6.9
+          3.5
         ],
         [
           20,
-          5.7
+          0.6
         ],
         [
           30,
-          10.4
+          2.1
         ],
         [
           40,
-          10.9
+          1.5
         ],
         [
           50,
-          11.1
+          2.2
         ],
         [
           60,
-          12.3
+          4
         ],
         [
           70,
-          20.8
+          4.2
         ],
         [
           80,
-          30.8
+          8
         ],
         [
           90,
-          27
+          10
         ],
         [
           100,
-          36
+          15.4
         ],
         [
           110,
-          31.6
+          25.7
         ],
         [
           120,
-          33.1
+          37
         ],
         [
           128,
-          35.7
+          39.5
         ]
       ],
       "vs": {
         "GPT-OSS 20B": {
-          "pots": 26,
-          "net_chips": 2
+          "pots": 15,
+          "net_chips": 112
         },
         "Gemma 3 12B": {
-          "pots": 26,
-          "net_chips": 43
+          "pots": 16,
+          "net_chips": 192
         },
         "Llama 3.1 8B": {
           "pots": 11,
-          "net_chips": 147
+          "net_chips": 172
         },
         "Mistral Nemo": {
-          "pots": 27,
-          "net_chips": 377
+          "pots": 14,
+          "net_chips": 0
         },
         "DeepSeek V4 Flash": {
-          "pots": 19,
-          "net_chips": -20
+          "pots": 14,
+          "net_chips": -50
         },
         "Phi-4": {
-          "pots": 21,
-          "net_chips": 580
+          "pots": 14,
+          "net_chips": 303
         },
         "Qwen 3.7 Flash": {
-          "pots": 13,
-          "net_chips": 181
+          "pots": 11,
+          "net_chips": 143
         },
         "Cohere Command R7B": {
-          "pots": 12,
-          "net_chips": 119
+          "pots": 13,
+          "net_chips": 162
         }
       }
     },
@@ -383,85 +383,85 @@
       "name": "Gemma 3 12B",
       "model": "google/gemma-3-12b-it",
       "hands": 128,
-      "decisions": 365,
-      "net_chips": -13,
-      "bb100": -1,
+      "decisions": 338,
+      "net_chips": 223,
+      "bb100": 17.4,
       "bb100_ci": [
-        -100.7,
-        98.7
+        -70.4,
+        105.2
       ],
-      "aiev_bb100": -0.8,
-      "vpip": 0.33,
+      "aiev_bb100": 10.7,
+      "vpip": 0.35,
       "pfr": 0.24,
-      "three_bet": 0.11,
-      "af": 0.9,
-      "cbet": 0.45,
-      "fold_to_cbet": 0.32,
-      "wtsd": 0.2,
-      "wsd": 0.42,
-      "avg_bet_pct_pot": 0.4,
-      "fold_when_check_free": 0.04,
-      "error_rate": 0.08,
-      "retry_rate": 0.02,
-      "avg_latency_ms": 920,
-      "cost_usd": 0.01,
-      "cost_per_hand_usd": 0.0001,
-      "biggest_pot_won": 542,
-      "biggest_pot_lost": 1109,
+      "three_bet": 0.04,
+      "af": 3.17,
+      "cbet": null,
+      "fold_to_cbet": null,
+      "wtsd": 0.28,
+      "wsd": 0.49,
+      "avg_bet_pct_pot": 0.52,
+      "fold_when_check_free": 0.01,
+      "error_rate": 0.04,
+      "retry_rate": 0.04,
+      "avg_latency_ms": 1574,
+      "cost_usd": 0.02,
+      "cost_per_hand_usd": 0.0002,
+      "biggest_pot_won": 1223,
+      "biggest_pot_lost": 1140,
       "by_position": {
         "UTG": {
           "hands": 14,
-          "vpip": 0.39,
-          "pfr": 0.18,
-          "bb100": -61.3
+          "vpip": 0.35,
+          "pfr": 0.2,
+          "bb100": -78
         },
         "UTG+1": {
           "hands": 14,
-          "vpip": 0.49,
-          "pfr": 0.35,
-          "bb100": 25.5
+          "vpip": 0.2,
+          "pfr": 0.32,
+          "bb100": -35.3
         },
         "MP": {
-          "hands": 15,
-          "vpip": 0.47,
-          "pfr": 0.11,
-          "bb100": 28
+          "hands": 14,
+          "vpip": 0.31,
+          "pfr": 0.23,
+          "bb100": -33
         },
         "LJ": {
           "hands": 14,
-          "vpip": 0.3,
-          "pfr": 0.22,
-          "bb100": 53.3
+          "vpip": 0.39,
+          "pfr": 0.23,
+          "bb100": 104
         },
         "HJ": {
-          "hands": 15,
-          "vpip": 0.29,
-          "pfr": 0.11,
-          "bb100": -11.7
+          "hands": 14,
+          "vpip": 0.35,
+          "pfr": 0.29,
+          "bb100": 22.2
         },
         "CO": {
           "hands": 14,
-          "vpip": 0.37,
-          "pfr": 0.21,
-          "bb100": 11.3
+          "vpip": 0.29,
+          "pfr": 0.26,
+          "bb100": 79
         },
         "BTN": {
-          "hands": 15,
-          "vpip": 0.4,
-          "pfr": 0.16,
-          "bb100": 49.2
+          "hands": 14,
+          "vpip": 0.32,
+          "pfr": 0.12,
+          "bb100": 17.2
         },
         "SB": {
           "hands": 14,
-          "vpip": 0.22,
-          "pfr": 0.21,
-          "bb100": -60.4
+          "vpip": 0.39,
+          "pfr": 0.16,
+          "bb100": -29.3
         },
         "BB": {
           "hands": 14,
-          "vpip": 0.39,
-          "pfr": 0.14,
-          "bb100": -53.9
+          "vpip": 0.28,
+          "pfr": 0.2,
+          "bb100": -3.2
         }
       },
       "cumulative_bb": [
@@ -471,89 +471,89 @@
         ],
         [
           10,
-          4
+          3.5
         ],
         [
           20,
-          1.7
+          2.5
         ],
         [
           30,
-          -3.6
+          5.1
         ],
         [
           40,
-          -0.3
+          -0.4
         ],
         [
           50,
-          5.8
+          5.7
         ],
         [
           60,
-          3.1
+          0.1
         ],
         [
           70,
-          -2.4
+          -2.9
         ],
         [
           80,
-          -5
+          3.3
         ],
         [
           90,
-          1.2
+          10.2
         ],
         [
           100,
-          1.5
+          18.4
         ],
         [
           110,
-          -2
+          19.7
         ],
         [
           120,
-          -0.6
+          22.9
         ],
         [
           128,
-          -1.3
+          22.3
         ]
       ],
       "vs": {
         "GPT-OSS 20B": {
-          "pots": 9,
-          "net_chips": -73
+          "pots": 14,
+          "net_chips": -140
         },
         "Claude Haiku 5.5": {
-          "pots": 26,
-          "net_chips": -43
+          "pots": 16,
+          "net_chips": -192
         },
         "Llama 3.1 8B": {
-          "pots": 9,
-          "net_chips": 83
+          "pots": 13,
+          "net_chips": -35
         },
         "Mistral Nemo": {
-          "pots": 23,
-          "net_chips": -61
+          "pots": 11,
+          "net_chips": -84
         },
         "DeepSeek V4 Flash": {
-          "pots": 24,
-          "net_chips": -454
+          "pots": 15,
+          "net_chips": -162
         },
         "Phi-4": {
-          "pots": 26,
-          "net_chips": 67
+          "pots": 16,
+          "net_chips": -16
         },
         "Qwen 3.7 Flash": {
-          "pots": 26,
-          "net_chips": 107
+          "pots": 18,
+          "net_chips": -137
         },
         "Cohere Command R7B": {
-          "pots": 21,
-          "net_chips": 63
+          "pots": 11,
+          "net_chips": 37
         }
       }
     },
@@ -561,85 +561,797 @@
       "name": "Llama 3.1 8B",
       "model": "meta-llama/llama-3.1-8b-instruct",
       "hands": 128,
-      "decisions": 364,
-      "net_chips": -226,
-      "bb100": -17.7,
+      "decisions": 284,
+      "net_chips": -217,
+      "bb100": -17,
       "bb100_ci": [
-        -105.7,
-        70.3
+        -113.6,
+        79.6
       ],
-      "aiev_bb100": -10.2,
-      "vpip": 0.17,
-      "pfr": 0.16,
-      "three_bet": 0.11,
-      "af": 2.6,
-      "cbet": 0.7,
-      "fold_to_cbet": 0.59,
-      "wtsd": 0.31,
-      "wsd": 0.44,
-      "avg_bet_pct_pot": 0.52,
-      "fold_when_check_free": 0.05,
-      "error_rate": 0.01,
-      "retry_rate": 0.07,
-      "avg_latency_ms": 2520,
-      "cost_usd": 0.39,
-      "cost_per_hand_usd": 0.003,
-      "biggest_pot_won": 1062,
-      "biggest_pot_lost": 1153,
+      "aiev_bb100": -13.5,
+      "vpip": 0.32,
+      "pfr": 0.23,
+      "three_bet": 0.08,
+      "af": 2.56,
+      "cbet": 0.6,
+      "fold_to_cbet": 0.38,
+      "wtsd": 0.27,
+      "wsd": 0.45,
+      "avg_bet_pct_pot": 0.71,
+      "fold_when_check_free": 0.04,
+      "error_rate": 0.05,
+      "retry_rate": 0.04,
+      "avg_latency_ms": 2058,
+      "cost_usd": 0.27,
+      "cost_per_hand_usd": 0.0021,
+      "biggest_pot_won": 1467,
+      "biggest_pot_lost": 1201,
       "by_position": {
         "UTG": {
-          "hands": 15,
-          "vpip": 0.3,
-          "pfr": 0.09,
-          "bb100": -75.7
+          "hands": 14,
+          "vpip": 0.24,
+          "pfr": 0.13,
+          "bb100": 22.1
         },
         "UTG+1": {
-          "hands": 15,
-          "vpip": 0.17,
-          "pfr": 0.07,
-          "bb100": -63.2
+          "hands": 14,
+          "vpip": 0.28,
+          "pfr": 0.27,
+          "bb100": -38.1
         },
         "MP": {
-          "hands": 15,
-          "vpip": 0.32,
-          "pfr": 0.19,
-          "bb100": 81.1
+          "hands": 14,
+          "vpip": 0.25,
+          "pfr": 0.28,
+          "bb100": -47.9
         },
         "LJ": {
           "hands": 14,
+          "vpip": 0.19,
+          "pfr": 0.24,
+          "bb100": 44.8
+        },
+        "HJ": {
+          "hands": 14,
+          "vpip": 0.44,
+          "pfr": 0.3,
+          "bb100": 15.2
+        },
+        "CO": {
+          "hands": 14,
+          "vpip": 0.34,
+          "pfr": 0.09,
+          "bb100": 36.2
+        },
+        "BTN": {
+          "hands": 14,
+          "vpip": 0.33,
+          "pfr": 0.2,
+          "bb100": 38.8
+        },
+        "SB": {
+          "hands": 14,
+          "vpip": 0.24,
+          "pfr": 0.08,
+          "bb100": -37.7
+        },
+        "BB": {
+          "hands": 14,
+          "vpip": 0.22,
+          "pfr": 0.13,
+          "bb100": -53.4
+        }
+      },
+      "cumulative_bb": [
+        [
+          0,
+          0
+        ],
+        [
+          10,
+          1.7
+        ],
+        [
+          20,
+          -2.1
+        ],
+        [
+          30,
+          -10
+        ],
+        [
+          40,
+          -15.8
+        ],
+        [
+          50,
+          -9.4
+        ],
+        [
+          60,
+          -2.9
+        ],
+        [
+          70,
+          -2.9
+        ],
+        [
+          80,
+          1.4
+        ],
+        [
+          90,
+          -7.8
+        ],
+        [
+          100,
+          -15.3
+        ],
+        [
+          110,
+          -20.2
+        ],
+        [
+          120,
+          -19.8
+        ],
+        [
+          128,
+          -21.7
+        ]
+      ],
+      "vs": {
+        "GPT-OSS 20B": {
+          "pots": 10,
+          "net_chips": -180
+        },
+        "Claude Haiku 5.5": {
+          "pots": 11,
+          "net_chips": -172
+        },
+        "Gemma 3 12B": {
+          "pots": 13,
+          "net_chips": 35
+        },
+        "Mistral Nemo": {
+          "pots": 12,
+          "net_chips": -144
+        },
+        "DeepSeek V4 Flash": {
+          "pots": 11,
+          "net_chips": -262
+        },
+        "Phi-4": {
+          "pots": 15,
+          "net_chips": -77
+        },
+        "Qwen 3.7 Flash": {
+          "pots": 17,
+          "net_chips": -79
+        },
+        "Cohere Command R7B": {
+          "pots": 15,
+          "net_chips": 1
+        }
+      }
+    },
+    {
+      "name": "Mistral Nemo",
+      "model": "mistralai/mistral-nemo",
+      "hands": 128,
+      "decisions": 324,
+      "net_chips": 56,
+      "bb100": 4.4,
+      "bb100_ci": [
+        -94.2,
+        103
+      ],
+      "aiev_bb100": 1.6,
+      "vpip": 0.23,
+      "pfr": 0.16,
+      "three_bet": 0.04,
+      "af": 1.48,
+      "cbet": 0.66,
+      "fold_to_cbet": 0.48,
+      "wtsd": 0.23,
+      "wsd": 0.55,
+      "avg_bet_pct_pot": 0.71,
+      "fold_when_check_free": 0.03,
+      "error_rate": 0.01,
+      "retry_rate": 0.05,
+      "avg_latency_ms": 1370,
+      "cost_usd": 0.18,
+      "cost_per_hand_usd": 0.0014,
+      "biggest_pot_won": 1061,
+      "biggest_pot_lost": 627,
+      "by_position": {
+        "UTG": {
+          "hands": 14,
+          "vpip": 0.28,
+          "pfr": 0.2,
+          "bb100": -31.3
+        },
+        "UTG+1": {
+          "hands": 14,
+          "vpip": 0.4,
+          "pfr": 0.13,
+          "bb100": -29.8
+        },
+        "MP": {
+          "hands": 14,
+          "vpip": 0.32,
+          "pfr": 0.15,
+          "bb100": -55.6
+        },
+        "LJ": {
+          "hands": 14,
+          "vpip": 0.23,
+          "pfr": 0.12,
+          "bb100": -16.1
+        },
+        "HJ": {
+          "hands": 14,
+          "vpip": 0.38,
+          "pfr": 0.24,
+          "bb100": 24
+        },
+        "CO": {
+          "hands": 14,
           "vpip": 0.27,
+          "pfr": 0.24,
+          "bb100": 28
+        },
+        "BTN": {
+          "hands": 14,
+          "vpip": 0.34,
+          "pfr": 0.25,
+          "bb100": 24.1
+        },
+        "SB": {
+          "hands": 14,
+          "vpip": 0.19,
+          "pfr": 0.23,
+          "bb100": -26.2
+        },
+        "BB": {
+          "hands": 14,
+          "vpip": 0.24,
+          "pfr": 0.24,
+          "bb100": 45.4
+        }
+      },
+      "cumulative_bb": [
+        [
+          0,
+          0
+        ],
+        [
+          10,
+          2.2
+        ],
+        [
+          20,
+          10.5
+        ],
+        [
+          30,
+          5.3
+        ],
+        [
+          40,
+          -1
+        ],
+        [
+          50,
+          -6.1
+        ],
+        [
+          60,
+          -2.6
+        ],
+        [
+          70,
+          -7
+        ],
+        [
+          80,
+          -7.4
+        ],
+        [
+          90,
+          0.4
+        ],
+        [
+          100,
+          8.2
+        ],
+        [
+          110,
+          0.5
+        ],
+        [
+          120,
+          5.4
+        ],
+        [
+          128,
+          5.6
+        ]
+      ],
+      "vs": {
+        "GPT-OSS 20B": {
+          "pots": 18,
+          "net_chips": -112
+        },
+        "Claude Haiku 5.5": {
+          "pots": 14,
+          "net_chips": 0
+        },
+        "Gemma 3 12B": {
+          "pots": 11,
+          "net_chips": 84
+        },
+        "Llama 3.1 8B": {
+          "pots": 12,
+          "net_chips": 144
+        },
+        "DeepSeek V4 Flash": {
+          "pots": 13,
+          "net_chips": 51
+        },
+        "Phi-4": {
+          "pots": 16,
+          "net_chips": 144
+        },
+        "Qwen 3.7 Flash": {
+          "pots": 15,
+          "net_chips": 99
+        },
+        "Cohere Command R7B": {
+          "pots": 14,
+          "net_chips": 257
+        }
+      }
+    },
+    {
+      "name": "DeepSeek V4 Flash",
+      "model": "deepseek/deepseek-v4-flash",
+      "hands": 128,
+      "decisions": 342,
+      "net_chips": 591,
+      "bb100": 46.2,
+      "bb100_ci": [
+        -50.8,
+        143.2
+      ],
+      "aiev_bb100": 21.6,
+      "vpip": 0.23,
+      "pfr": 0.2,
+      "three_bet": 0.07,
+      "af": 2.41,
+      "cbet": 0.78,
+      "fold_to_cbet": 0.47,
+      "wtsd": 0.24,
+      "wsd": 0.48,
+      "avg_bet_pct_pot": 0.67,
+      "fold_when_check_free": 0.03,
+      "error_rate": 0.06,
+      "retry_rate": 0.06,
+      "avg_latency_ms": 2397,
+      "cost_usd": 0.14,
+      "cost_per_hand_usd": 0.0011,
+      "biggest_pot_won": 1153,
+      "biggest_pot_lost": 943,
+      "by_position": {
+        "UTG": {
+          "hands": 14,
+          "vpip": 0.27,
+          "pfr": 0.26,
+          "bb100": 38.8
+        },
+        "UTG+1": {
+          "hands": 14,
+          "vpip": 0.35,
           "pfr": 0.14,
-          "bb100": -116.9
+          "bb100": 91.4
+        },
+        "MP": {
+          "hands": 14,
+          "vpip": 0.3,
+          "pfr": 0.2,
+          "bb100": 28.8
+        },
+        "LJ": {
+          "hands": 14,
+          "vpip": 0.38,
+          "pfr": 0.15,
+          "bb100": 62.4
+        },
+        "HJ": {
+          "hands": 14,
+          "vpip": 0.36,
+          "pfr": 0.22,
+          "bb100": 82
+        },
+        "CO": {
+          "hands": 14,
+          "vpip": 0.43,
+          "pfr": 0.16,
+          "bb100": 14.8
+        },
+        "BTN": {
+          "hands": 14,
+          "vpip": 0.45,
+          "pfr": 0.09,
+          "bb100": 2
+        },
+        "SB": {
+          "hands": 14,
+          "vpip": 0.21,
+          "pfr": 0.12,
+          "bb100": 35.9
+        },
+        "BB": {
+          "hands": 14,
+          "vpip": 0.41,
+          "pfr": 0.14,
+          "bb100": 1.5
+        }
+      },
+      "cumulative_bb": [
+        [
+          0,
+          0
+        ],
+        [
+          10,
+          4.9
+        ],
+        [
+          20,
+          9.2
+        ],
+        [
+          30,
+          15.2
+        ],
+        [
+          40,
+          24
+        ],
+        [
+          50,
+          32.1
+        ],
+        [
+          60,
+          42.8
+        ],
+        [
+          70,
+          43.6
+        ],
+        [
+          80,
+          45.3
+        ],
+        [
+          90,
+          50.4
+        ],
+        [
+          100,
+          53.8
+        ],
+        [
+          110,
+          63.6
+        ],
+        [
+          120,
+          57.5
+        ],
+        [
+          128,
+          59.1
+        ]
+      ],
+      "vs": {
+        "GPT-OSS 20B": {
+          "pots": 13,
+          "net_chips": 153
+        },
+        "Claude Haiku 5.5": {
+          "pots": 14,
+          "net_chips": 50
+        },
+        "Gemma 3 12B": {
+          "pots": 15,
+          "net_chips": 162
+        },
+        "Llama 3.1 8B": {
+          "pots": 11,
+          "net_chips": 262
+        },
+        "Mistral Nemo": {
+          "pots": 13,
+          "net_chips": -51
+        },
+        "Phi-4": {
+          "pots": 11,
+          "net_chips": 233
+        },
+        "Qwen 3.7 Flash": {
+          "pots": 13,
+          "net_chips": 19
+        },
+        "Cohere Command R7B": {
+          "pots": 19,
+          "net_chips": 301
+        }
+      }
+    },
+    {
+      "name": "Phi-4",
+      "model": "microsoft/phi-4",
+      "hands": 128,
+      "decisions": 267,
+      "net_chips": -309,
+      "bb100": -24.1,
+      "bb100_ci": [
+        -117.6,
+        69.4
+      ],
+      "aiev_bb100": -17.1,
+      "vpip": 0.42,
+      "pfr": 0.23,
+      "three_bet": 0.08,
+      "af": null,
+      "cbet": 0.7,
+      "fold_to_cbet": 0.48,
+      "wtsd": 0.3,
+      "wsd": 0.44,
+      "avg_bet_pct_pot": 0.48,
+      "fold_when_check_free": 0.03,
+      "error_rate": 0.02,
+      "retry_rate": 0.04,
+      "avg_latency_ms": 1003,
+      "cost_usd": 0.2,
+      "cost_per_hand_usd": 0.0016,
+      "biggest_pot_won": 992,
+      "biggest_pot_lost": 1111,
+      "by_position": {
+        "UTG": {
+          "hands": 14,
+          "vpip": 0.29,
+          "pfr": 0.2,
+          "bb100": -89.9
+        },
+        "UTG+1": {
+          "hands": 14,
+          "vpip": 0.43,
+          "pfr": 0.17,
+          "bb100": 28.4
+        },
+        "MP": {
+          "hands": 14,
+          "vpip": 0.32,
+          "pfr": 0.3,
+          "bb100": 13.7
+        },
+        "LJ": {
+          "hands": 14,
+          "vpip": 0.38,
+          "pfr": 0.14,
+          "bb100": -0.6
+        },
+        "HJ": {
+          "hands": 14,
+          "vpip": 0.28,
+          "pfr": 0.26,
+          "bb100": -31.5
+        },
+        "CO": {
+          "hands": 14,
+          "vpip": 0.4,
+          "pfr": 0.27,
+          "bb100": 15.6
+        },
+        "BTN": {
+          "hands": 14,
+          "vpip": 0.4,
+          "pfr": 0.3,
+          "bb100": -74.9
+        },
+        "SB": {
+          "hands": 14,
+          "vpip": 0.41,
+          "pfr": 0.08,
+          "bb100": -104.7
+        },
+        "BB": {
+          "hands": 14,
+          "vpip": 0.44,
+          "pfr": 0.34,
+          "bb100": -101.9
+        }
+      },
+      "cumulative_bb": [
+        [
+          0,
+          0
+        ],
+        [
+          10,
+          6.6
+        ],
+        [
+          20,
+          8.6
+        ],
+        [
+          30,
+          1.3
+        ],
+        [
+          40,
+          -7.1
+        ],
+        [
+          50,
+          -6.3
+        ],
+        [
+          60,
+          -16.5
+        ],
+        [
+          70,
+          -12.4
+        ],
+        [
+          80,
+          -12.3
+        ],
+        [
+          90,
+          -20
+        ],
+        [
+          100,
+          -21.6
+        ],
+        [
+          110,
+          -28.7
+        ],
+        [
+          120,
+          -29.7
+        ],
+        [
+          128,
+          -30.9
+        ]
+      ],
+      "vs": {
+        "GPT-OSS 20B": {
+          "pots": 12,
+          "net_chips": -122
+        },
+        "Claude Haiku 5.5": {
+          "pots": 14,
+          "net_chips": -303
+        },
+        "Gemma 3 12B": {
+          "pots": 16,
+          "net_chips": 16
+        },
+        "Llama 3.1 8B": {
+          "pots": 15,
+          "net_chips": 77
+        },
+        "Mistral Nemo": {
+          "pots": 16,
+          "net_chips": -144
+        },
+        "DeepSeek V4 Flash": {
+          "pots": 11,
+          "net_chips": -233
+        },
+        "Qwen 3.7 Flash": {
+          "pots": 16,
+          "net_chips": 2
+        },
+        "Cohere Command R7B": {
+          "pots": 14,
+          "net_chips": -85
+        }
+      }
+    },
+    {
+      "name": "Qwen 3.7 Flash",
+      "model": "qwen/qwen3.7-flash",
+      "hands": 128,
+      "decisions": 331,
+      "net_chips": -225,
+      "bb100": -17.6,
+      "bb100_ci": [
+        -114,
+        78.8
+      ],
+      "aiev_bb100": -14.1,
+      "vpip": 0.24,
+      "pfr": 0.18,
+      "three_bet": 0.06,
+      "af": 1.27,
+      "cbet": 0.48,
+      "fold_to_cbet": 0.44,
+      "wtsd": 0.27,
+      "wsd": 0.51,
+      "avg_bet_pct_pot": 0.68,
+      "fold_when_check_free": 0.03,
+      "error_rate": 0.04,
+      "retry_rate": 0.04,
+      "avg_latency_ms": 2354,
+      "cost_usd": 0.1,
+      "cost_per_hand_usd": 0.0008,
+      "biggest_pot_won": 1458,
+      "biggest_pot_lost": 1390,
+      "by_position": {
+        "UTG": {
+          "hands": 14,
+          "vpip": 0.38,
+          "pfr": 0.25,
+          "bb100": -36.9
+        },
+        "UTG+1": {
+          "hands": 14,
+          "vpip": 0.43,
+          "pfr": 0.15,
+          "bb100": -90.3
+        },
+        "MP": {
+          "hands": 14,
+          "vpip": 0.38,
+          "pfr": 0.21,
+          "bb100": -24.6
+        },
+        "LJ": {
+          "hands": 14,
+          "vpip": 0.3,
+          "pfr": 0.23,
+          "bb100": 5.2
         },
         "HJ": {
           "hands": 14,
           "vpip": 0.27,
-          "pfr": 0.08,
-          "bb100": -70.9
+          "pfr": 0.16,
+          "bb100": -103.1
         },
         "CO": {
-          "hands": 15,
-          "vpip": 0.41,
-          "pfr": 0.28,
-          "bb100": -30.3
+          "hands": 14,
+          "vpip": 0.23,
+          "pfr": 0.17,
+          "bb100": -52.7
         },
         "BTN": {
-          "hands": 15,
-          "vpip": 0.48,
-          "pfr": 0.29,
-          "bb100": 14.7
+          "hands": 14,
+          "vpip": 0.28,
+          "pfr": 0.14,
+          "bb100": -93
         },
         "SB": {
-          "hands": 15,
-          "vpip": 0.24,
-          "pfr": 0.17,
-          "bb100": -18.3
+          "hands": 14,
+          "vpip": 0.16,
+          "pfr": 0.27,
+          "bb100": 54.9
         },
         "BB": {
           "hands": 14,
-          "vpip": 0.3,
-          "pfr": 0.22,
-          "bb100": 26.7
+          "vpip": 0.16,
+          "pfr": 0.21,
+          "bb100": -63.8
         }
       },
       "cumulative_bb": [
@@ -653,797 +1365,85 @@
         ],
         [
           20,
-          -10.2
+          -10.7
         ],
         [
           30,
-          -3.7
+          -2.2
         ],
         [
           40,
-          -7.5
-        ],
-        [
-          50,
-          -6.8
-        ],
-        [
-          60,
-          -4.2
-        ],
-        [
-          70,
-          -8.5
-        ],
-        [
-          80,
-          -12.4
-        ],
-        [
-          90,
-          -22.7
-        ],
-        [
-          100,
-          -30
-        ],
-        [
-          110,
-          -26.8
-        ],
-        [
-          120,
-          -20.7
-        ],
-        [
-          128,
-          -22.6
-        ]
-      ],
-      "vs": {
-        "GPT-OSS 20B": {
-          "pots": 15,
-          "net_chips": -194
-        },
-        "Claude Haiku 5.5": {
-          "pots": 11,
-          "net_chips": -147
-        },
-        "Gemma 3 12B": {
-          "pots": 9,
-          "net_chips": -83
-        },
-        "Mistral Nemo": {
-          "pots": 25,
-          "net_chips": -335
-        },
-        "DeepSeek V4 Flash": {
-          "pots": 24,
-          "net_chips": -518
-        },
-        "Phi-4": {
-          "pots": 27,
-          "net_chips": 27
-        },
-        "Qwen 3.7 Flash": {
-          "pots": 16,
-          "net_chips": -219
-        },
-        "Cohere Command R7B": {
-          "pots": 17,
-          "net_chips": -216
-        }
-      }
-    },
-    {
-      "name": "Mistral Nemo",
-      "model": "mistralai/mistral-nemo",
-      "hands": 128,
-      "decisions": 347,
-      "net_chips": 53,
-      "bb100": 4.2,
-      "bb100_ci": [
-        -98.8,
-        107.2
-      ],
-      "aiev_bb100": 3.6,
-      "vpip": 0.17,
-      "pfr": 0.23,
-      "three_bet": 0.06,
-      "af": 2.8,
-      "cbet": 0.66,
-      "fold_to_cbet": 0.54,
-      "wtsd": 0.2,
-      "wsd": 0.58,
-      "avg_bet_pct_pot": 0.65,
-      "fold_when_check_free": 0.05,
-      "error_rate": 0.03,
-      "retry_rate": 0.07,
-      "avg_latency_ms": 2497,
-      "cost_usd": 0.1,
-      "cost_per_hand_usd": 0.0008,
-      "biggest_pot_won": 1172,
-      "biggest_pot_lost": 1389,
-      "by_position": {
-        "UTG": {
-          "hands": 15,
-          "vpip": 0.24,
-          "pfr": 0.25,
-          "bb100": 79.7
-        },
-        "UTG+1": {
-          "hands": 14,
-          "vpip": 0.22,
-          "pfr": 0.33,
-          "bb100": -95.5
-        },
-        "MP": {
-          "hands": 14,
-          "vpip": 0.26,
-          "pfr": 0.06,
-          "bb100": 42.8
-        },
-        "LJ": {
-          "hands": 15,
-          "vpip": 0.17,
-          "pfr": 0.11,
-          "bb100": 93.7
-        },
-        "HJ": {
-          "hands": 15,
-          "vpip": 0.17,
-          "pfr": 0.09,
-          "bb100": 29.5
-        },
-        "CO": {
-          "hands": 14,
-          "vpip": 0.42,
-          "pfr": 0.23,
-          "bb100": 54.4
-        },
-        "BTN": {
-          "hands": 14,
-          "vpip": 0.23,
-          "pfr": 0.26,
-          "bb100": 95.2
-        },
-        "SB": {
-          "hands": 15,
-          "vpip": 0.34,
-          "pfr": 0.28,
-          "bb100": 44.7
-        },
-        "BB": {
-          "hands": 14,
-          "vpip": 0.39,
-          "pfr": 0.23,
-          "bb100": -75.7
-        }
-      },
-      "cumulative_bb": [
-        [
-          0,
-          0
-        ],
-        [
-          10,
-          0.9
-        ],
-        [
-          20,
-          0.2
-        ],
-        [
-          30,
-          7.2
-        ],
-        [
-          40,
-          8.7
-        ],
-        [
-          50,
-          15.7
-        ],
-        [
-          60,
-          11.9
-        ],
-        [
-          70,
-          15.5
-        ],
-        [
-          80,
-          14.6
-        ],
-        [
-          90,
-          13
-        ],
-        [
-          100,
-          7.7
-        ],
-        [
-          110,
-          9.6
-        ],
-        [
-          120,
           5.1
         ],
         [
-          128,
-          5.3
-        ]
-      ],
-      "vs": {
-        "GPT-OSS 20B": {
-          "pots": 14,
-          "net_chips": -345
-        },
-        "Claude Haiku 5.5": {
-          "pots": 27,
-          "net_chips": -377
-        },
-        "Gemma 3 12B": {
-          "pots": 23,
-          "net_chips": 61
-        },
-        "Llama 3.1 8B": {
-          "pots": 25,
-          "net_chips": 335
-        },
-        "DeepSeek V4 Flash": {
-          "pots": 13,
-          "net_chips": 104
-        },
-        "Phi-4": {
-          "pots": 12,
-          "net_chips": -180
-        },
-        "Qwen 3.7 Flash": {
-          "pots": 20,
-          "net_chips": 230
-        },
-        "Cohere Command R7B": {
-          "pots": 20,
-          "net_chips": 300
-        }
-      }
-    },
-    {
-      "name": "DeepSeek V4 Flash",
-      "model": "deepseek/deepseek-v4-flash",
-      "hands": 128,
-      "decisions": 250,
-      "net_chips": 272,
-      "bb100": 21.2,
-      "bb100_ci": [
-        -82.9,
-        125.3
-      ],
-      "aiev_bb100": 17.7,
-      "vpip": 0.16,
-      "pfr": 0.25,
-      "three_bet": 0.05,
-      "af": 1.8,
-      "cbet": 0.76,
-      "fold_to_cbet": 0.54,
-      "wtsd": 0.18,
-      "wsd": 0.6,
-      "avg_bet_pct_pot": 0.5,
-      "fold_when_check_free": 0.04,
-      "error_rate": 0.03,
-      "retry_rate": 0,
-      "avg_latency_ms": 1014,
-      "cost_usd": 0.33,
-      "cost_per_hand_usd": 0.0026,
-      "biggest_pot_won": 1206,
-      "biggest_pot_lost": 1204,
-      "by_position": {
-        "UTG": {
-          "hands": 14,
-          "vpip": 0.18,
-          "pfr": 0.06,
-          "bb100": 15.2
-        },
-        "UTG+1": {
-          "hands": 15,
-          "vpip": 0.16,
-          "pfr": 0.15,
-          "bb100": 17.4
-        },
-        "MP": {
-          "hands": 14,
-          "vpip": 0.12,
-          "pfr": 0.06,
-          "bb100": -60.1
-        },
-        "LJ": {
-          "hands": 15,
-          "vpip": 0.29,
-          "pfr": 0.29,
-          "bb100": 66.8
-        },
-        "HJ": {
-          "hands": 15,
-          "vpip": 0.38,
-          "pfr": 0.17,
-          "bb100": 43.9
-        },
-        "CO": {
-          "hands": 15,
-          "vpip": 0.41,
-          "pfr": 0.34,
-          "bb100": 63.5
-        },
-        "BTN": {
-          "hands": 15,
-          "vpip": 0.42,
-          "pfr": 0.1,
-          "bb100": -65.7
-        },
-        "SB": {
-          "hands": 15,
-          "vpip": 0.36,
-          "pfr": 0.18,
-          "bb100": 30.2
-        },
-        "BB": {
-          "hands": 14,
-          "vpip": 0.25,
-          "pfr": 0.2,
-          "bb100": -54.4
-        }
-      },
-      "cumulative_bb": [
-        [
-          0,
-          0
+          50,
+          13.9
         ],
         [
-          10,
-          8.3
-        ],
-        [
-          20,
-          4.7
-        ],
-        [
-          30,
+          60,
           10.5
         ],
         [
-          40,
-          6.2
-        ],
-        [
-          50,
-          1.4
-        ],
-        [
-          60,
-          11.3
-        ],
-        [
           70,
-          21.4
+          5.7
         ],
         [
           80,
-          15.3
+          -2.2
         ],
         [
           90,
-          9.6
+          -10.4
         ],
         [
           100,
-          7.2
-        ],
-        [
-          110,
-          17.1
-        ],
-        [
-          120,
-          25.6
-        ],
-        [
-          128,
-          27.2
-        ]
-      ],
-      "vs": {
-        "GPT-OSS 20B": {
-          "pots": 21,
-          "net_chips": 73
-        },
-        "Claude Haiku 5.5": {
-          "pots": 19,
-          "net_chips": 20
-        },
-        "Gemma 3 12B": {
-          "pots": 24,
-          "net_chips": 454
-        },
-        "Llama 3.1 8B": {
-          "pots": 24,
-          "net_chips": 518
-        },
-        "Mistral Nemo": {
-          "pots": 13,
-          "net_chips": -104
-        },
-        "Phi-4": {
-          "pots": 20,
-          "net_chips": 438
-        },
-        "Qwen 3.7 Flash": {
-          "pots": 10,
-          "net_chips": 180
-        },
-        "Cohere Command R7B": {
-          "pots": 9,
-          "net_chips": 373
-        }
-      }
-    },
-    {
-      "name": "Phi-4",
-      "model": "microsoft/phi-4",
-      "hands": 128,
-      "decisions": 287,
-      "net_chips": -4,
-      "bb100": -0.3,
-      "bb100_ci": [
-        -101.7,
-        101.1
-      ],
-      "aiev_bb100": -0.2,
-      "vpip": 0.34,
-      "pfr": 0.21,
-      "three_bet": 0.04,
-      "af": 1.3,
-      "cbet": 0.45,
-      "fold_to_cbet": 0.4,
-      "wtsd": 0.29,
-      "wsd": 0.57,
-      "avg_bet_pct_pot": 0.72,
-      "fold_when_check_free": 0.02,
-      "error_rate": 0.03,
-      "retry_rate": 0.03,
-      "avg_latency_ms": 901,
-      "cost_usd": 0.24,
-      "cost_per_hand_usd": 0.0019,
-      "biggest_pot_won": 485,
-      "biggest_pot_lost": 363,
-      "by_position": {
-        "UTG": {
-          "hands": 15,
-          "vpip": 0.4,
-          "pfr": 0.34,
-          "bb100": 38
-        },
-        "UTG+1": {
-          "hands": 14,
-          "vpip": 0.38,
-          "pfr": 0.15,
-          "bb100": 72.5
-        },
-        "MP": {
-          "hands": 14,
-          "vpip": 0.44,
-          "pfr": 0.25,
-          "bb100": 62.9
-        },
-        "LJ": {
-          "hands": 14,
-          "vpip": 0.42,
-          "pfr": 0.3,
-          "bb100": -91.8
-        },
-        "HJ": {
-          "hands": 14,
-          "vpip": 0.18,
-          "pfr": 0.06,
-          "bb100": 15.2
-        },
-        "CO": {
-          "hands": 15,
-          "vpip": 0.35,
-          "pfr": 0.31,
-          "bb100": 72.8
-        },
-        "BTN": {
-          "hands": 15,
-          "vpip": 0.18,
-          "pfr": 0.22,
-          "bb100": -8.4
-        },
-        "SB": {
-          "hands": 14,
-          "vpip": 0.32,
-          "pfr": 0.28,
-          "bb100": 3.2
-        },
-        "BB": {
-          "hands": 14,
-          "vpip": 0.25,
-          "pfr": 0.2,
-          "bb100": -51.3
-        }
-      },
-      "cumulative_bb": [
-        [
-          0,
-          0
-        ],
-        [
-          10,
-          -6
-        ],
-        [
-          20,
-          -1.1
-        ],
-        [
-          30,
-          3.1
-        ],
-        [
-          40,
-          -1.7
-        ],
-        [
-          50,
-          -3.9
-        ],
-        [
-          60,
-          -9.1
-        ],
-        [
-          70,
           -15
         ],
         [
-          80,
-          -9.6
-        ],
-        [
-          90,
-          -4.5
-        ],
-        [
-          100,
-          -2.8
-        ],
-        [
           110,
-          -4.3
+          -22.7
         ],
         [
           120,
-          0.8
+          -23
         ],
         [
           128,
-          -0.4
+          -22.5
         ]
       ],
       "vs": {
         "GPT-OSS 20B": {
-          "pots": 26,
-          "net_chips": -193
+          "pots": 13,
+          "net_chips": -62
         },
         "Claude Haiku 5.5": {
-          "pots": 21,
-          "net_chips": -580
+          "pots": 11,
+          "net_chips": -143
         },
         "Gemma 3 12B": {
-          "pots": 26,
-          "net_chips": -67
+          "pots": 18,
+          "net_chips": 137
         },
         "Llama 3.1 8B": {
-          "pots": 27,
-          "net_chips": -27
-        },
-        "Mistral Nemo": {
-          "pots": 12,
-          "net_chips": 180
-        },
-        "DeepSeek V4 Flash": {
-          "pots": 20,
-          "net_chips": -438
-        },
-        "Qwen 3.7 Flash": {
-          "pots": 26,
+          "pots": 17,
           "net_chips": 79
         },
-        "Cohere Command R7B": {
-          "pots": 19,
-          "net_chips": -75
-        }
-      }
-    },
-    {
-      "name": "Qwen 3.7 Flash",
-      "model": "qwen/qwen3.7-flash",
-      "hands": 128,
-      "decisions": 318,
-      "net_chips": -233,
-      "bb100": -18.2,
-      "bb100_ci": [
-        -111.9,
-        75.5
-      ],
-      "aiev_bb100": -13,
-      "vpip": 0.32,
-      "pfr": 0.18,
-      "three_bet": 0.02,
-      "af": 3,
-      "cbet": 0.66,
-      "fold_to_cbet": 0.59,
-      "wtsd": 0.23,
-      "wsd": 0.55,
-      "avg_bet_pct_pot": 0.87,
-      "fold_when_check_free": 0.03,
-      "error_rate": 0.05,
-      "retry_rate": 0.02,
-      "avg_latency_ms": 1180,
-      "cost_usd": 0.09,
-      "cost_per_hand_usd": 0.0007,
-      "biggest_pot_won": 835,
-      "biggest_pot_lost": 818,
-      "by_position": {
-        "UTG": {
-          "hands": 14,
-          "vpip": 0.34,
-          "pfr": 0.22,
-          "bb100": 32.6
-        },
-        "UTG+1": {
-          "hands": 15,
-          "vpip": 0.3,
-          "pfr": 0.31,
-          "bb100": 18.7
-        },
-        "MP": {
-          "hands": 14,
-          "vpip": 0.35,
-          "pfr": 0.27,
-          "bb100": 60
-        },
-        "LJ": {
-          "hands": 15,
-          "vpip": 0.49,
-          "pfr": 0.14,
-          "bb100": 80.8
-        },
-        "HJ": {
-          "hands": 14,
-          "vpip": 0.14,
-          "pfr": 0.14,
-          "bb100": 53
-        },
-        "CO": {
-          "hands": 15,
-          "vpip": 0.39,
-          "pfr": 0.21,
-          "bb100": -70.4
-        },
-        "BTN": {
-          "hands": 15,
-          "vpip": 0.41,
-          "pfr": 0.11,
-          "bb100": 44.2
-        },
-        "SB": {
-          "hands": 15,
-          "vpip": 0.33,
-          "pfr": 0.34,
-          "bb100": -56.9
-        },
-        "BB": {
-          "hands": 14,
-          "vpip": 0.11,
-          "pfr": 0.27,
-          "bb100": -15.3
-        }
-      },
-      "cumulative_bb": [
-        [
-          0,
-          0
-        ],
-        [
-          10,
-          0.2
-        ],
-        [
-          20,
-          -1.5
-        ],
-        [
-          30,
-          -8.2
-        ],
-        [
-          40,
-          -5.2
-        ],
-        [
-          50,
-          -6.3
-        ],
-        [
-          60,
-          -6.5
-        ],
-        [
-          70,
-          -13.1
-        ],
-        [
-          80,
-          -6.4
-        ],
-        [
-          90,
-          -9.9
-        ],
-        [
-          100,
-          -12.8
-        ],
-        [
-          110,
-          -19
-        ],
-        [
-          120,
-          -23.8
-        ],
-        [
-          128,
-          -23.3
-        ]
-      ],
-      "vs": {
-        "GPT-OSS 20B": {
-          "pots": 18,
-          "net_chips": -132
-        },
-        "Claude Haiku 5.5": {
-          "pots": 13,
-          "net_chips": -181
-        },
-        "Gemma 3 12B": {
-          "pots": 26,
-          "net_chips": -107
-        },
-        "Llama 3.1 8B": {
-          "pots": 16,
-          "net_chips": 219
-        },
         "Mistral Nemo": {
-          "pots": 20,
-          "net_chips": -230
+          "pots": 15,
+          "net_chips": -99
         },
         "DeepSeek V4 Flash": {
-          "pots": 10,
-          "net_chips": -180
+          "pots": 13,
+          "net_chips": -19
         },
         "Phi-4": {
-          "pots": 26,
-          "net_chips": -79
+          "pots": 16,
+          "net_chips": -2
         },
         "Cohere Command R7B": {
-          "pots": 21,
-          "net_chips": 291
+          "pots": 13,
+          "net_chips": 180
         }
       }
     },
@@ -1451,85 +1451,85 @@
       "name": "Cohere Command R7B",
       "model": "cohere/command-r7b",
       "hands": 128,
-      "decisions": 263,
-      "net_chips": -551,
-      "bb100": -43.1,
+      "decisions": 310,
+      "net_chips": -261,
+      "bb100": -20.4,
       "bb100_ci": [
-        -136.7,
-        50.5
+        -112.3,
+        71.5
       ],
-      "aiev_bb100": -33.4,
-      "vpip": 0.18,
-      "pfr": 0.14,
-      "three_bet": 0.06,
-      "af": 2.7,
-      "cbet": 0.67,
-      "fold_to_cbet": 0.49,
-      "wtsd": 0.21,
-      "wsd": 0.59,
-      "avg_bet_pct_pot": 0.9,
+      "aiev_bb100": -15.2,
+      "vpip": 0.29,
+      "pfr": 0.21,
+      "three_bet": 0.09,
+      "af": 1.64,
+      "cbet": 0.63,
+      "fold_to_cbet": 0.43,
+      "wtsd": 0.27,
+      "wsd": 0.52,
+      "avg_bet_pct_pot": 0.7,
       "fold_when_check_free": 0.04,
-      "error_rate": 0.06,
-      "retry_rate": 0.01,
-      "avg_latency_ms": 2734,
-      "cost_usd": 0.25,
-      "cost_per_hand_usd": 0.002,
-      "biggest_pot_won": 491,
-      "biggest_pot_lost": 712,
+      "error_rate": 0.05,
+      "retry_rate": 0.06,
+      "avg_latency_ms": 1931,
+      "cost_usd": 0.2,
+      "cost_per_hand_usd": 0.0016,
+      "biggest_pot_won": 1275,
+      "biggest_pot_lost": 1212,
       "by_position": {
         "UTG": {
-          "hands": 15,
-          "vpip": 0.3,
-          "pfr": 0.21,
-          "bb100": -56.7
+          "hands": 14,
+          "vpip": 0.46,
+          "pfr": 0.25,
+          "bb100": -64.7
         },
         "UTG+1": {
-          "hands": 15,
-          "vpip": 0.46,
-          "pfr": 0.33,
-          "bb100": -50.6
+          "hands": 14,
+          "vpip": 0.29,
+          "pfr": 0.13,
+          "bb100": 21.3
         },
         "MP": {
-          "hands": 15,
-          "vpip": 0.49,
-          "pfr": 0.24,
-          "bb100": -62.2
+          "hands": 14,
+          "vpip": 0.28,
+          "pfr": 0.28,
+          "bb100": 23
         },
         "LJ": {
-          "hands": 15,
-          "vpip": 0.12,
-          "pfr": 0.14,
-          "bb100": -137.4
+          "hands": 14,
+          "vpip": 0.44,
+          "pfr": 0.23,
+          "bb100": 34.7
         },
         "HJ": {
-          "hands": 15,
-          "vpip": 0.14,
-          "pfr": 0.12,
-          "bb100": -9.8
+          "hands": 14,
+          "vpip": 0.36,
+          "pfr": 0.13,
+          "bb100": -36.8
         },
         "CO": {
           "hands": 14,
-          "vpip": 0.21,
-          "pfr": 0.09,
-          "bb100": 8.9
+          "vpip": 0.26,
+          "pfr": 0.11,
+          "bb100": -0.3
         },
         "BTN": {
           "hands": 14,
-          "vpip": 0.35,
-          "pfr": 0.28,
-          "bb100": -140.2
+          "vpip": 0.41,
+          "pfr": 0.24,
+          "bb100": 2.1
         },
         "SB": {
-          "hands": 15,
-          "vpip": 0.46,
+          "hands": 14,
+          "vpip": 0.45,
           "pfr": 0.28,
-          "bb100": 47.6
+          "bb100": -78.8
         },
         "BB": {
           "hands": 14,
-          "vpip": 0.13,
-          "pfr": 0.1,
-          "bb100": -135.4
+          "vpip": 0.29,
+          "pfr": 0.15,
+          "bb100": -9.8
         }
       },
       "cumulative_bb": [
@@ -1539,89 +1539,89 @@
         ],
         [
           10,
-          -10.6
+          -4.3
         ],
         [
           20,
-          -11.9
+          0.6
         ],
         [
           30,
-          -9.4
+          3.4
         ],
         [
           40,
-          -5.8
+          -7.9
         ],
         [
           50,
-          -15.7
+          -1.5
         ],
         [
           60,
-          -21.7
+          -9.3
         ],
         [
           70,
-          -22.1
+          -9.2
         ],
         [
           80,
-          -26
+          -13
         ],
         [
           90,
-          -31.8
+          -20.2
         ],
         [
           100,
-          -38.1
+          -30.8
         ],
         [
           110,
-          -48.3
+          -25.8
         ],
         [
           120,
-          -53.1
+          -24.1
         ],
         [
           128,
-          -55.1
+          -26.1
         ]
       ],
       "vs": {
         "GPT-OSS 20B": {
-          "pots": 11,
-          "net_chips": 17
+          "pots": 18,
+          "net_chips": -96
         },
         "Claude Haiku 5.5": {
-          "pots": 12,
-          "net_chips": -119
+          "pots": 13,
+          "net_chips": -162
         },
         "Gemma 3 12B": {
-          "pots": 21,
-          "net_chips": -63
+          "pots": 11,
+          "net_chips": -37
         },
         "Llama 3.1 8B": {
-          "pots": 17,
-          "net_chips": 216
+          "pots": 15,
+          "net_chips": -1
         },
         "Mistral Nemo": {
-          "pots": 20,
-          "net_chips": -300
+          "pots": 14,
+          "net_chips": -257
         },
         "DeepSeek V4 Flash": {
-          "pots": 9,
-          "net_chips": -373
+          "pots": 19,
+          "net_chips": -301
         },
         "Phi-4": {
-          "pots": 19,
-          "net_chips": 75
+          "pots": 14,
+          "net_chips": 85
         },
         "Qwen 3.7 Flash": {
-          "pots": 21,
-          "net_chips": -291
+          "pots": 13,
+          "net_chips": -180
         }
       }
     }

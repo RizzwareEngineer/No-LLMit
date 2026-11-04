@@ -2,15 +2,11 @@
 
 import { useParams } from 'next/navigation';
 import { MotionConfig } from 'motion/react';
-import { Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
-import StatsPanel, { SampleBadge } from '@/components/StatsPanel';
+import StatsPanel, { SampleBadge, SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
 import CumulativeChart from '@/components/CumulativeChart';
 import HeadToHead from '@/components/HeadToHead';
-import { DASH, MIN_HANDS, ciHalf, modelSlug, netColor, pct, signed, chips, useStats } from '@/lib/stats';
-
-const TEXT = 'rgb(55, 53, 47)';
-const MUTED = 'rgba(55, 53, 47, 0.65)';
+import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, ciHalf, modelSlug, netColor, pct, signed, chips, useStats } from '@/lib/stats';
 const POSITION_ORDER = ['UTG', 'UTG+1', 'UTG+2', 'MP', 'LJ', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
 
 function Fact({ label, value, color }: { label: string; value: React.ReactNode; color?: string }) {
@@ -22,18 +18,25 @@ function Fact({ label, value, color }: { label: string; value: React.ReactNode; 
   );
 }
 
+// Accepts the display-name slug in any case, the URL-encoded name, or the model id.
+function findModel(models: ModelStats[], param: string) {
+  let raw = param;
+  try { raw = decodeURIComponent(param); } catch { /* malformed escape: use as is */ }
+  const want = modelSlug(raw);
+  return models.find(x => modelSlug(x.name) === want || modelSlug(x.model) === want || x.model.toLowerCase() === raw.toLowerCase());
+}
+
 export default function ModelStatsPage() {
   const { model: slug } = useParams<{ model: string }>();
   const { data, sample, loading, error } = useStats();
 
-  if (error) return <p className="text-[14px]" style={{ color: MUTED }}>Stats are unavailable right now ({error}).</p>;
-  if (!data) return <p className="text-[14px]" style={{ color: MUTED }}>{loading ? 'Stats are loading…' : 'Loading stats…'}</p>;
+  if (!data) return <StatsMessage error={error} loading={loading} />;
 
-  const m = data.models.find(x => modelSlug(x.name) === slug);
+  const m = findModel(data.models, slug);
   if (!m) return <p className="text-[14px]" style={{ color: MUTED }}>No stats for this model yet.</p>;
 
   const rank = (p: string) => (POSITION_ORDER.indexOf(p) + 1 || 99);
-  const positions = Object.entries(m.by_position).sort((a, b) => rank(a[0]) - rank(b[0]));
+  const positions = Object.entries(m.by_position ?? {}).sort((a, b) => rank(a[0]) - rank(b[0]));
 
   return (
     <MotionConfig reducedMotion="user">
@@ -58,10 +61,7 @@ export default function ModelStatsPage() {
         <Fact label="All-in EV bb/100" value={signed(m.aiev_bb100)} />
       </dl>
       {m.hands < MIN_HANDS && (
-        <p className="mb-6 flex items-start gap-2 rounded p-2 text-[13px]" style={{ background: 'rgba(203, 145, 47, 0.12)', color: TEXT }}>
-          <Warning size={16} weight="bold" className="shrink-0 mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden />
-          Fewer than {MIN_HANDS} hands, so this win rate is mostly luck so far.
-        </p>
+        <SmallSampleNote>Fewer than {MIN_HANDS} hands, so this win rate is mostly luck so far.</SmallSampleNote>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -70,6 +70,9 @@ export default function ModelStatsPage() {
         </StatsPanel>
 
         <StatsPanel title="By position">
+          {positions.length === 0 ? (
+            <p className="text-[13px]" style={{ color: MUTED }}>No position data yet.</p>
+          ) : (
           <table className="w-full text-[12px] tabular-nums">
             <caption className="sr-only">{m.name} results by table position</caption>
             <thead>
@@ -93,6 +96,7 @@ export default function ModelStatsPage() {
               ))}
             </tbody>
           </table>
+          )}
         </StatsPanel>
 
         <StatsPanel title="Head to head">

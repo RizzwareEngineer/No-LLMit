@@ -2,16 +2,15 @@
 
 import Link from 'next/link';
 import LLMLogo from '@/components/LLMLogo';
-import { ModelStats, chips, modelSlug, netColor } from '@/lib/stats';
+import { MUTED, ModelStats, TEXT, chips, modelSlug, netColor } from '@/lib/stats';
 
-const TEXT = 'rgb(55, 53, 47)';
-const MUTED = 'rgba(55, 53, 47, 0.65)';
 
 // Chips won from each opponent in pots they both played. With `focus`, one model's opponents
 // as a list; without it, the full grid (row model's net against the column model).
 export default function HeadToHead({ models, focus }: { models: ModelStats[]; focus?: ModelStats }) {
   if (focus) {
-    const rows = Object.entries(focus.vs).sort((a, b) => b[1].net_chips - a[1].net_chips);
+    const rows = Object.entries(focus.vs ?? {}).sort((a, b) => b[1].net_chips - a[1].net_chips);
+    if (rows.length === 0) return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
     return (
       <table className="w-full text-[12px] tabular-nums">
         <caption className="sr-only">{focus.name} against each opponent</caption>
@@ -40,6 +39,10 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
     );
   }
 
+  if (!models.some(m => Object.keys(m.vs ?? {}).length > 0)) {
+    return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
+  }
+
   return (
     <div className="relative overflow-x-auto">
       <table className="text-[11px] tabular-nums border-collapse">
@@ -65,7 +68,7 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
                 </Link>
               </th>
               {models.map(col => {
-                const v = row.vs[col.name];
+                const v = row.vs?.[col.name];
                 if (row.name === col.name || !v) {
                   return <td key={col.name} className="p-1 text-center" style={{ color: MUTED, background: 'rgba(55, 53, 47, 0.04)' }}>·</td>;
                 }
