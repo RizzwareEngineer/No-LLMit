@@ -56,7 +56,7 @@ type Table struct {
 	buttonWinner *ButtonWinnerPayload
 	turn         *ServerMessage // llm_thinking or llm_action currently on screen
 	nextHandAt   time.Time
-	notice       string // shown to everyone while the table is stopped (e.g. daily cap)
+	notice       TableNoticePayload // shown to everyone while the table is stopped; Kind "" when running
 
 	dailyCallCap int
 	calls        int
@@ -130,25 +130,44 @@ func (t *Table) isOpen() bool {
 	return h >= t.openHour && h < t.closeHour
 }
 
+// nextOpen is the next time the table opens after now. Only meaningful with hoursZone set.
+func (t *Table) nextOpen(now time.Time) time.Time {
+	now = now.In(t.hoursZone)
+	open := time.Date(now.Year(), now.Month(), now.Day(), t.openHour, 0, 0, 0, t.hoursZone)
+	if !open.After(now) {
+		open = open.AddDate(0, 0, 1)
+	}
+	return open
+}
+
+// setNotice stores the notice and broadcasts it; an empty Kind clears it. Callers hold t.mu.
+func (t *Table) setNotice(n TableNoticePayload) {
+	t.notice = n
+	t.broadcast(ServerMessage{Type: MsgTableNotice, Payload: n})
+}
+
 // waitForOpenHours blocks between hands while the table is closed for the day.
 func (t *Table) waitForOpenHours() {
-	closedNotice := ""
+	closed := false
 	for !t.isOpen() {
-		if closedNotice == "" {
-			closedNotice = fmt.Sprintf("The table is closed. It is open daily from %s.", t.hoursLabel())
+		if !closed {
+			closed = true
 			log.Printf("Table closed for the day (%s)", t.hoursLabel())
 			t.mu.Lock()
-			t.notice = closedNotice
-			t.broadcast(ServerMessage{Type: MsgError, Payload: ErrorPayload{Message: t.notice}})
+			t.setNotice(TableNoticePayload{
+				Kind:      "closed",
+				Message:   fmt.Sprintf("The table is closed. It is open daily from %s.", t.hoursLabel()),
+				ReopensAt: t.nextOpen(time.Now()).Format(time.RFC3339),
+			})
 			t.mu.Unlock()
 		}
 		time.Sleep(10 * time.Second)
 	}
-	if closedNotice != "" {
+	if closed {
 		log.Printf("Table open")
 		t.mu.Lock()
-		if t.notice == closedNotice {
-			t.notice = ""
+		if t.notice.Kind == "closed" {
+			t.setNotice(TableNoticePayload{})
 		}
 		t.mu.Unlock()
 	}
@@ -160,6 +179,9 @@ type TableUsage struct {
 	DailyCallCap int    `json:"dailyCallCap"`
 	Open         bool   `json:"open"`
 	Hours        string `json:"hours,omitempty"`
+	OpenHour     int    `json:"openHour"`
+	CloseHour    int    `json:"closeHour"`
+	Timezone     string `json:"timezone,omitempty"` // IANA zone of the hours; empty when always open
 	Spectators   int    `json:"spectators"`
 }
 
@@ -170,13 +192,19 @@ func (t *Table) Usage() TableUsage {
 	if t.callsDay != time.Now().UTC().Format("2006-01-02") {
 		calls = 0
 	}
-	return TableUsage{
+	u := TableUsage{
 		CallsToday:   calls,
 		DailyCallCap: t.dailyCallCap,
 		Open:         t.isOpen(),
 		Hours:        t.hoursLabel(),
+		OpenHour:     t.openHour,
+		CloseHour:    t.closeHour,
 		Spectators:   len(t.spectators),
 	}
+	if t.hoursZone != nil {
+		u.Timezone = t.hoursZone.String()
+	}
+	return u
 }
 
 func envInt(key string, fallback int) int {
@@ -304,8 +332,8 @@ func (t *Table) sendSnapshot(sp *spectator) {
 	if t.turn != nil {
 		t.enqueue(sp, *t.turn)
 	}
-	if t.notice != "" {
-		t.enqueue(sp, ServerMessage{Type: MsgError, Payload: ErrorPayload{Message: t.notice}})
+	if t.notice.Kind != "" {
+		t.enqueue(sp, ServerMessage{Type: MsgTableNotice, Payload: t.notice})
 	}
 }
 
@@ -344,17 +372,20 @@ func (t *Table) waitForBudget() {
 			t.calls = 0
 		}
 		if t.calls < t.dailyCallCap {
-			if t.notice != "" {
-				t.notice = ""
+			if t.notice.Kind == "cap" {
+				t.setNotice(TableNoticePayload{})
 				log.Printf("Daily call cap reset, table resumed")
 			}
 			t.mu.Unlock()
 			return
 		}
-		if t.notice == "" {
-			t.notice = "Daily LLM call limit reached. The table resumes at midnight UTC."
+		if t.notice.Kind != "cap" {
 			log.Printf("Daily call cap reached (%d), table stopped", t.dailyCallCap)
-			t.broadcast(ServerMessage{Type: MsgError, Payload: ErrorPayload{Message: t.notice}})
+			t.setNotice(TableNoticePayload{
+				Kind:      "cap",
+				Message:   "Daily LLM call limit reached.",
+				ReopensAt: time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour).Format(time.RFC3339),
+			})
 		}
 		t.mu.Unlock()
 		time.Sleep(10 * time.Second)
