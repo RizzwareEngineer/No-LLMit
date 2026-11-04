@@ -14,6 +14,13 @@ import (
 // does, with each step's reply scripted.
 func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
 	t.Helper()
+	return playDealt(t, nil, nil, script)
+}
+
+// playDealt is playRecorded with the hole cards (A, B, C) and the five board cards fixed;
+// nil keeps the shuffled ones.
+func playDealt(t *testing.T, holes [][]string, board []string, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
+	t.Helper()
 	gs := game.NewGame(game.GameConfig{
 		PlayerNames:   []string{"A", "B", "C"},
 		StartingStack: 2000,
@@ -21,6 +28,14 @@ func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (history.Ha
 	})
 	if err := gs.StartHand(); err != nil {
 		t.Fatal(err)
+	}
+	for i, h := range holes {
+		gs.Players[i].HoleCards = mustCards(t, h)
+	}
+	setBoard := func(n int) { // replace the first n board cards with the fixed ones
+		if board != nil {
+			gs.CommunityCards = append(mustCards(t, board[:n]), gs.CommunityCards[n:]...)
+		}
 	}
 	rec := newHandRecorder(gs, "tbl_test", nil)
 
@@ -50,15 +65,32 @@ func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (history.Ha
 		rec.endDecision(gs, turn)
 
 		if gs.NeedToAdvanceStreet() {
+			if gs.CountActivePlayers() > 1 && gs.CountActiveNonAllInPlayers() <= 1 && board != nil {
+				gs.CommunityCards = mustCards(t, board) // all in: the runout deals nothing more
+			}
 			if err := gs.AdvanceStreet(); err != nil {
 				t.Fatal(err)
 			}
+			setBoard(len(gs.CommunityCards))
 		}
 	}
 	if !gs.IsHandComplete() {
 		t.Fatal("hand did not finish")
 	}
 	return rec.finish(gs)
+}
+
+func mustCards(t *testing.T, ss []string) []game.Card {
+	t.Helper()
+	var cs []game.Card
+	for _, s := range ss {
+		c, err := game.ParseCard(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs = append(cs, c)
+	}
+	return cs
 }
 
 func reply(action string, amount int) client.LLMDecisionResponse {
