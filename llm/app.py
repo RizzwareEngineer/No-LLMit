@@ -32,6 +32,8 @@ else:
 # Every prompt and response is appended here, one JSON object per line.
 DECISION_LOG = Path(__file__).parent / "logs" / "decisions.jsonl"
 
+EXTRA_FIELDS = ("reasoning", "reasoning_tokens", "finish_reason", "upstream_provider", "generation_id", "temperature")
+
 
 def log_decision(record: dict):
     DECISION_LOG.parent.mkdir(exist_ok=True)
@@ -85,7 +87,7 @@ def decide(request: DecisionRequest):
     start = time.time()
 
     try:
-        result = get_decision(request.player_name, request.prompt, request.valid_actions)
+        result = get_decision(request.player_name, request.prompt, request.valid_actions, request.retry_note)
     except Exception as e:
         logger.error(f"❌ Error: {e}")
         return DecisionResponse(
@@ -101,7 +103,8 @@ def decide(request: DecisionRequest):
     
     latency_ms = int((time.time() - start) * 1000)
     usage = result.get("usage") or {}
-
+    # Provider extras; the mock provider returns none of them.
+    extras = {k: result.get(k) for k in EXTRA_FIELDS}
 
     log_decision({
         "time": datetime.now().isoformat(timespec="seconds"),
@@ -110,11 +113,14 @@ def decide(request: DecisionRequest):
         "usage": result.get("usage"),
         "player": request.player_name,
         "prompt": request.prompt,
+        "retry_note": request.retry_note,
         "raw": result["raw"],
         "action": result["action"],
         "amount": result["amount"],
         "reason": result["reason"],
+        "status": result.get("status", "ok"),
         "latency_ms": latency_ms,
+        **extras,
     })
     
     # Log result
@@ -137,6 +143,7 @@ def decide(request: DecisionRequest):
         tokens_out=usage.get("completion_tokens"),
         cost_usd=usage.get("cost"),
         prompt_version=prompt_version,
+        **extras,
     )
 
 
