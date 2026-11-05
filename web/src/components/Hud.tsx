@@ -97,7 +97,6 @@ export function HudSlot({ id }: { id: string }) {
   return (
     <div
       id={id}
-      aria-live="polite"
       onMouseEnter={hold}
       onMouseLeave={() => hover(null)}
       onFocus={hold}

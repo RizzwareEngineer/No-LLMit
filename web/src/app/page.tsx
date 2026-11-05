@@ -16,7 +16,7 @@ import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
 import { MUTED, useStats } from "@/lib/stats";
-import { pageBy, scrollsInside } from "@/components/Section";
+import { pageBy, resnap, scrollsInside } from "@/components/Section";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -186,11 +186,26 @@ export default function Home() {
       lockUntil = now + 700;
       pageBy(e.deltaY > 0 ? 1 : -1);
     };
+    // Keyboard focus scrolls the focused element into view, which can stop between screens;
+    // focus inside the stats stage lands on the overview at least. A resize moves every screen
+    // edge; phones skip this (their URL bar resizes constantly, and mandatory snap re-snaps).
+    const onFocus = (e: FocusEvent) => {
+      const t = e.target instanceof Element ? e.target : null;
+      if (!t?.matches(':focus-visible') || t.closest('dialog')) return;
+      const stats = document.getElementById('stats');
+      const min = stats && t.closest('[data-stage]') ? stats.getBoundingClientRect().top + window.scrollY : 0;
+      requestAnimationFrame(() => resnap(min));
+    };
+    const onResize = () => window.innerWidth >= 768 && resnap();
     window.addEventListener('keydown', onKey);
     window.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('focusin', onFocus);
+    window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('focusin', onFocus);
+      window.removeEventListener('resize', onResize);
     };
   }, []);
 

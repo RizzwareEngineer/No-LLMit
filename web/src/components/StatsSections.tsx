@@ -8,7 +8,7 @@ import StatsTable from '@/components/StatsTable';
 import HeadToHead from '@/components/HeadToHead';
 import MultiwayTable from '@/components/MultiwayTable';
 import { SampleBadge, SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
-import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, netColor, signed, useStats } from '@/lib/stats';
+import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, netColor, plural, signed, useStats } from '@/lib/stats';
 
 type Stats = ReturnType<typeof useStats>;
 
@@ -98,16 +98,20 @@ export default memo(function StatsSections({
     if (!el) return;
     // Screen 1 can still change height as the table fills in (and scroll anchoring may move the
     // page with it); keep the landing on the screen's edge for a few seconds, until the visitor
-    // scrolls or presses a key.
+    // scrolls or presses a key. A scroll that leaves the screen's edge without one of those inputs
+    // (scrollbar drag, find in page, a script) also ends it; anchoring keeps the edge in place.
     const land = () => window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' });
     const ro = new ResizeObserver(land);
+    const onScroll = () => Math.abs(el.getBoundingClientRect().top) > 2 && stop();
     const stop = () => {
       ro.disconnect();
       clearTimeout(timer);
       INPUTS.forEach(t => window.removeEventListener(t, stop));
+      window.removeEventListener('scroll', onScroll);
     };
     const timer = setTimeout(stop, 4000);
     INPUTS.forEach(t => window.addEventListener(t, stop, { passive: true }));
+    window.addEventListener('scroll', onScroll, { passive: true });
     ro.observe(document.querySelector('[data-screen]')!);
     land();
     return stop;
@@ -136,7 +140,7 @@ export default memo(function StatsSections({
       ))}
       {/* The stage: pinned while any of the four screens is in view. pt-14 clears the sticky bar;
           the clip keeps a zoom's spring overshoot from adding a page scrollbar. */}
-      <div className="absolute inset-0">
+      <div data-stage className="absolute inset-0">
         <div
           className="sticky top-0 h-svh max-w-[1300px] mx-auto pt-14 pb-[calc(0.75rem+var(--bar-h,0px))] overflow-clip [overflow-clip-margin:8px]"
         >
@@ -212,13 +216,14 @@ export default memo(function StatsSections({
                   field="heads_up_vs"
                   caption="Heads-up pots: chips each row model won from each column model in flops only the two of them saw, with heads-up bb/100 and hands"
                   extra={{
+                    key: 'hu_bb100',
                     label: 'bb/100',
                     render: m => {
                       const b = heads(m);
                       return (
                         <>
                           <div className="font-bold" style={{ color: b?.bb100 == null ? MUTED : netColor(b.bb100) }}>{b?.bb100 == null ? DASH : signed(b.bb100)}</div>
-                          <div style={{ color: MUTED }}>{b?.hands ?? 0} hands</div>
+                          <div style={{ color: MUTED }}>{plural(b?.hands ?? 0, 'hand')}</div>
                         </>
                       );
                     },

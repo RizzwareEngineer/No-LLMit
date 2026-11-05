@@ -1,10 +1,12 @@
 'use client';
 
 import LLMLogo from '@/components/LLMLogo';
-import { MUTED, ModelStats, TEXT, chips, modelHref, netColor } from '@/lib/stats';
+import { MUTED, ModelStats, TEXT, chips, modelHref, netColor, plural } from '@/lib/stats';
+import { HeaderCell } from '@/components/StatsTable';
 
 // One extra column on the right of the grid (heads-up bb/100 and hands).
 interface Extra {
+  key: string; // its STAT_DEFINITIONS entry, shown on header hover
   label: string;
   render: (m: ModelStats) => React.ReactNode;
 }
@@ -82,7 +84,7 @@ export default function HeadToHead({
                 <span className="sr-only">{m.name}</span>
               </th>
             ))}
-            {extra && <th scope="col" className="p-1 font-medium w-[15%] text-right" style={{ color: MUTED }}>{extra.label}</th>}
+            {extra && <HeaderCell col={extra} sort={{ key: extra.key, desc: true }} className="p-1 w-[15%]" />}
           </tr>
         </thead>
         <tbody>
@@ -100,9 +102,9 @@ export default function HeadToHead({
                   return <td key={col.name} className="p-1 text-center" style={{ color: MUTED, background: 'rgba(55, 53, 47, 0.04)' }}>·</td>;
                 }
                 return (
-                  <td key={col.name} className="lift p-1 text-center rounded" title={`${row.name} vs ${col.name}: ${chips(v.net_chips)} over ${v.pots} pots`}>
+                  <td key={col.name} className="lift p-1 text-center rounded" title={`${row.name} vs ${col.name}: ${chips(v.net_chips)} over ${plural(v.pots, 'pot')}`}>
                     <div className="font-bold" style={{ color: netColor(v.net_chips) }}>{chips(v.net_chips)}</div>
-                    <div style={{ color: MUTED }}>{v.pots} pots</div>
+                    <div style={{ color: MUTED }}>{plural(v.pots, 'pot')}</div>
                   </td>
                 );
               })}

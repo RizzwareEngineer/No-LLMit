@@ -168,6 +168,8 @@ export const signed = (n: number, digits = 1) =>
 
 export const chips = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}¤${Math.abs(n).toLocaleString()}`;
 
+export const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+
 export const pct = (n: number | null) => (n === null ? DASH : `${Math.round(n * 100)}%`);
 
 export const netColor = (n: number) =>
@@ -190,6 +192,8 @@ export const STAT_DEFINITIONS: Record<string, string> = {
   fold_when_check_free: 'Share of decisions where it folded although checking was free. Always a mistake.',
   error_rate: 'Share of decisions where the reply was unusable (unparseable, illegal or timed out) and the engine acted for it.',
   cost_per_hand_usd: 'API cost per hand played, in US dollars.',
+  hu_bb100: 'Big blinds won per 100 hands over flops only two players saw. It counts blinds folded by the other players, which the cells leave out, so it can differ from the row\'s chips.',
+  mw_bb: 'Big blinds won per 100 hands over all flops with 3 or more players. The table is sorted by it.',
   mw_hands: 'Hands where this model saw a flop with 3 or more players.',
   mw_won: 'Of those hands, how many it won at least part of a pot.',
   mw_win: 'Won ÷ hands, over pots that reached the flop with 3 or more players.',

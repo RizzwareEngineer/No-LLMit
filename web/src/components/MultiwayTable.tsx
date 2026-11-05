@@ -21,11 +21,12 @@ const COLUMNS = [
   { key: 'mw_hands', label: 'Hands' },
   { key: 'mw_won', label: 'Won' },
   { key: 'mw_win', label: 'Win %' },
+  { key: 'mw_bb', label: 'bb/100' },
   { key: 'mw_bb100_3', label: 'bb/100 at 3' },
   { key: 'mw_bb100_4', label: 'bb/100 at 4+' },
   { key: 'mw_share', label: 'Share vs fair' },
 ];
-const SORT = { key: 'mw_bb', desc: true }; // combined multiway bb/100, not a column of its own
+const SORT = { key: 'mw_bb', desc: true }; // combined multiway bb/100
 
 // Multiway pots per model, best combined multiway bb/100 first; models with none sort last.
 export default function MultiwayTable({ models }: { models: ModelStats[] }) {
@@ -58,6 +59,7 @@ export default function MultiwayTable({ models }: { models: ModelStats[] }) {
                 <td className="p-2 text-right">{mw.hands}</td>
                 <td className="p-2 text-right">{mw.won}</td>
                 <td className="p-2 text-right">{mw.hands ? pct(mw.won / mw.hands) : DASH}</td>
+                <td className="p-2 text-right whitespace-nowrap">{rate(mw.bb100)}</td>
                 <td className="p-2 text-right whitespace-nowrap">{rate(mw.three)}</td>
                 <td className="p-2 text-right whitespace-nowrap">{rate(mw.four)}</td>
                 <td className="p-2 text-right whitespace-nowrap">

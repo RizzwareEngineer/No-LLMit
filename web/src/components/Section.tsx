@@ -12,9 +12,11 @@ const topOf = (el: HTMLElement) => el.getBoundingClientRect().top + window.scrol
 
 // Where a running paged scroll is headed, so a second press steps on from there.
 let pendingY: number | null = null;
+let pendingId: string | null = null; // the screen that scroll is headed for
 let clearTimer: ReturnType<typeof setTimeout> | undefined;
 const settle = () => {
   pendingY = null;
+  pendingId = null;
   clearTimeout(clearTimer);
 };
 
@@ -38,8 +40,29 @@ export function goToScreen(id: string) {
   if (el) scrollToTop(topOf(el), id);
 }
 
+// Puts the page back on a screen edge after a focus scroll or a resize left it between two:
+// the screen a running paged scroll was headed for, else the nearest one (never above `min`).
+// A screen taller than the window (the phone table) is fine anywhere inside it.
+export function resnap(min = 0) {
+  const target = pendingId !== null ? document.getElementById(pendingId) : null;
+  const list = screens();
+  const y = window.scrollY;
+  const h = window.innerHeight;
+  settle();
+  let el = target;
+  if (!el) {
+    const inside = list.find(s => { const t = topOf(s); return t <= y + 1 && y + h <= t + s.offsetHeight + 1; });
+    if (inside && topOf(inside) >= min) return;
+    el = list.filter(s => topOf(s) >= min - 1).sort((a, b) => Math.abs(topOf(a) - y) - Math.abs(topOf(b) - y))[0];
+  }
+  if (!el || Math.abs(topOf(el) - y) < 1) return;
+  window.dispatchEvent(new CustomEvent('screenchange', { detail: el.id }));
+  window.scrollTo({ top: topOf(el), behavior: 'instant' });
+}
+
 function scrollToTop(top: number, id: string) {
   pendingY = top;
+  pendingId = id || null;
   clearTimeout(clearTimer);
   clearTimer = setTimeout(settle, 1000); // browsers without scrollend
   window.addEventListener('scrollend', settle, { once: true });
@@ -62,7 +85,7 @@ const SPRING = { type: 'spring', stiffness: 260, damping: 32 } as const;
 // A stats panel: a small linked title and a card. `focused` lifts it out of the overview grid
 // to fill the stage; motion's layout animation turns that jump into a zoom (transforms only,
 // and nothing under reduced motion). The body scrolls inside itself when it overflows.
-// In the overview a click (or Enter with the panel focused) scrolls to the panel's own screen,
+// In the overview a click (or Enter or Space with the panel focused) scrolls to the panel's own screen,
 // except on links and controls inside it.
 export default function Panel({
   id,
@@ -86,12 +109,16 @@ export default function Panel({
   const overview = !focused && !covered;
   const zoom = (e: React.SyntheticEvent) => {
     e.preventDefault();
+    history.replaceState(null, '', href); // shareable; fires no hashchange, so the #model= drawer is untouched
     goToScreen(href.slice(1));
   };
   return (
     <motion.section
       layout
-      transition={SPRING}
+      initial={false}
+      // Covered panels fade out, so a panel-to-panel zoom never shows the overview between.
+      animate={{ opacity: covered ? 0 : 1 }}
+      transition={{ ...SPRING, opacity: { duration: 0.2 } }}
       id={id}
       aria-labelledby={`${id}-title`}
       inert={covered}
@@ -100,13 +127,14 @@ export default function Panel({
         const t = e.target as Element;
         if (t.closest(`#${id}-title a`) || !t.closest('a, button, select, input, label')) zoom(e);
       } : undefined}
-      onKeyDown={overview ? e => e.key === 'Enter' && e.target === e.currentTarget && zoom(e) : undefined}
+      onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && zoom(e) : undefined}
       className={`flex flex-col min-h-0 min-w-0 bg-white p-3 ${focused ? 'absolute inset-0 z-20' : `relative z-0 ${className}`} ${overview ? 'cursor-zoom-in' : ''}`}
       style={{ borderRadius: 4, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
       <motion.div layout="position" transition={SPRING} className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id={`${id}-title`} className="text-[14px] font-bold" style={{ color: TEXT }}>
-          <a href={href} className="hover:underline">{title}</a>
+          {/* Not a tab stop: the panel itself is the one stop that zooms. */}
+          <a href={href} tabIndex={-1} className="hover:underline">{title}</a>
         </h2>
         {aside}
       </motion.div>

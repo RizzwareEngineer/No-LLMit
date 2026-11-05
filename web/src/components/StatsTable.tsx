@@ -36,7 +36,7 @@ const COLUMNS: Column[] = [
 
 // A column header with its definition on hover or focus. Without `onSort` it is a plain label
 // (a fixed-order table); `sort` then only marks the column the rows are ordered by.
-export function HeaderCell({ col, sort, onSort }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void }) {
+export function HeaderCell({ col, sort, onSort, className = 'p-2' }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string }) {
   const [open, setOpen] = useState(false);
   const tipId = useId();
   const active = sort.key === col.key;
@@ -44,7 +44,7 @@ export function HeaderCell({ col, sort, onSort }: { col: { key: string; label: s
     <th
       scope="col"
       aria-sort={active ? (sort.desc ? 'descending' : 'ascending') : onSort ? 'none' : undefined}
-      className="relative p-2 font-medium text-right align-bottom leading-tight"
+      className={`relative ${className} font-medium text-right align-bottom leading-tight`}
       style={{ color: active ? TEXT : MUTED }}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}

@@ -137,7 +137,8 @@ export default function TableFelt({
 
       {hudSlot}
 
-      {/* Next hand countdown - displayed on the felt */}
+      {/* Next hand countdown. Its height is always reserved so the board never moves when it shows. */}
+      <div className="h-[34px] flex items-center">
       {nextHandCountdown !== null && nextHandCountdown !== undefined && nextHandCountdown > 0 && (
         <div 
           className="flex items-center gap-2 bg-white px-4 py-2 rounded"
@@ -149,6 +150,7 @@ export default function TableFelt({
           </span>
         </div>
       )}
+      </div>
     </div>
   );
 }
