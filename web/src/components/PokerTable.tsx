@@ -2,6 +2,8 @@
 
 import Player from "@/components/Player";
 import TableFelt from "@/components/TableFelt";
+import { useState } from "react";
+import TableMotion, { FLIGHT, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import type { ButtonDetermination } from "@/hooks/useGameState";
 
@@ -23,6 +25,7 @@ interface PokerTableProps {
   currentPlayerIdx: number;
   communityCards: string[];
   pot: number;
+  handNumber: number;
   winnersByIdx?: Record<number, WinnerInfo>;
   nextHandCountdown?: number | null;
   thinkingPlayerIdx?: number;
@@ -37,6 +40,7 @@ export default function PokerTable({
   currentPlayerIdx,
   communityCards,
   pot,
+  handNumber,
   winnersByIdx = {},
   nextHandCountdown,
   thinkingPlayerIdx,
@@ -44,6 +48,11 @@ export default function PokerTable({
   hidePositions = false,
   notice,
 }: PokerTableProps) {
+  // A late joiner sees the hand already dealt; only hands dealt while watching wait for their flight.
+  const [firstHand, setFirstHand] = useState(0);
+  if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
+  const dealt = firstHand > 0 && handNumber !== firstHand;
+
   if (players.length === 0) {
     return (
       <div 
@@ -66,6 +75,9 @@ export default function PokerTable({
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
+      seatIdx={idx}
+      handNumber={handNumber}
+      dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + FLIGHT) : undefined}
     />
   );
 
@@ -94,6 +106,12 @@ export default function PokerTable({
 
   return (
     <>
+      <TableMotion
+        players={players}
+        handNumber={handNumber}
+        boardCount={communityCards.length}
+        winnerIdxs={Object.keys(winnersByIdx).map(Number)}
+      />
       {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>

@@ -7,6 +7,7 @@ import { CircleNotch } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
+import SoundToggle from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import { useGameState } from "@/hooks/useGameState";
 
@@ -174,6 +175,8 @@ export default function Home() {
               <span className="text-[12px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
             </>
           )}
+          <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+          <SoundToggle />
         </div>
 
         {/* Main content */}
@@ -188,6 +191,7 @@ export default function Home() {
                 currentPlayerIdx={currentPlayerIdx}
                 communityCards={communityCards}
                 pot={pot}
+                handNumber={handNumber}
                 winnersByIdx={winnersByIdx}
                 nextHandCountdown={nextHandCountdown}
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
