@@ -45,7 +45,9 @@ export default function WinningsPanel({ players, handNumber }: WinningsPanelProp
         </div>
       </div>
       <div className="flex-1 overflow-auto">
-        {rows.length > 0 && <Rankings rows={rows} />}
+        {/* Keyed by source: switching from this game's winnings to all-time stats remounts
+            the list instead of sliding every row to its new place. */}
+        {rows.length > 0 && <Rankings key={statsRows ? 'stats' : 'game'} rows={rows} />}
       </div>
     </div>
   );
@@ -80,7 +82,7 @@ function Rankings({ rows }: { rows: Row[] }) {
   return (
     <ol className="flex flex-col divide-y divide-black/10">
       {ranked.map((row, index) => (
-        <motion.li key={row.name} layout transition={{ duration: 0.3 }}>
+        <motion.li key={row.name} layout="position" initial={false} transition={{ duration: 0.3 }}>
           <RankingItem row={row} rank={index + 1} />
         </motion.li>
       ))}
