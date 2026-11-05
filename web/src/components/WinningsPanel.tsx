@@ -16,17 +16,16 @@ interface WinningsPanelProps {
 interface Row {
   name: string;
   net: number;
-  hands?: number;
 }
 
 export default function WinningsPanel({ players, handNumber }: WinningsPanelProps) {
-  // All-time net chips and hands from /api/stats, refreshed after each hand; until the first
+  // All-time net chips from /api/stats, refreshed after each hand; until the first
   // good response the panel shows this game's in-memory winnings.
   const [statsRows, setStatsRows] = useState<Row[] | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetchStats()
-      .then(s => !cancelled && setStatsRows(s.models.map(m => ({ name: m.name, net: m.net_chips, hands: m.hands }))))
+      .then(s => !cancelled && setStatsRows(s.models.map(m => ({ name: m.name, net: m.net_chips }))))
       .catch(() => {}); // keep the last good rows so the panel does not flip sources between hands
     return () => { cancelled = true; };
   }, [handNumber]);
@@ -62,9 +61,6 @@ function RankingItem({ row, rank }: { row: Row; rank: number }) {
       <LLMLogo model={row.name} size={20} />
       <div className="flex-1 min-w-0">
         <div className="text-[12px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={row.name}>{row.name}</div>
-        {row.hands !== undefined && (
-          <div className="text-[11px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{row.hands.toLocaleString()} {row.hands === 1 ? "hand" : "hands"}</div>
-        )}
       </div>
       <div className="flex flex-row items-center gap-1 text-[12px] font-bold tabular-nums" style={{ color }}>
         {row.net > 0 && <CaretUp size={11} weight="bold" aria-hidden />}
