@@ -1,9 +1,9 @@
 "use client";
 
-import { useHud, type CardAlign } from "@/components/Hud";
+import { HudSlot, useHud } from "@/components/Hud";
 import Player from "@/components/Player";
 import TableFelt from "@/components/TableFelt";
-import { useState } from "react";
+import { useId, useState } from "react";
 import TableMotion, { FLIGHT, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import type { ButtonDetermination } from "@/hooks/useGameState";
@@ -52,6 +52,7 @@ export default function PokerTable({
   const { on: hudOn } = useHud();
   // A late joiner sees the hand already dealt; only hands dealt while watching wait for their flight.
   const [firstHand, setFirstHand] = useState(0);
+  const slotIds = { phone: useId(), desk: useId() }; // each layout has its own felt and slot
   if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
   const dealt = firstHand > 0 && handNumber !== firstHand;
 
@@ -68,7 +69,7 @@ export default function PokerTable({
     );
   }
 
-  const seat = (idx: number, cardAlign?: CardAlign) => players[idx] && (
+  const seat = (idx: number, hudSlotId: string) => players[idx] && (
     <Player
       player={players[idx]}
       active={idx === currentPlayerIdx}
@@ -77,14 +78,14 @@ export default function PokerTable({
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
-      cardAlign={cardAlign}
+      hudSlotId={hudSlotId}
       seatIdx={idx}
       handNumber={handNumber}
       dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + FLIGHT) : undefined}
     />
   );
 
-  const felt = (
+  const felt = (slotId: string) => (
     <TableFelt
       cards={communityCards}
       pot={pot}
@@ -96,12 +97,14 @@ export default function PokerTable({
       nextHandCountdown={nextHandCountdown}
       buttonDetermination={buttonDetermination}
       notice={notice}
+      hudSlot={<HudSlot id={slotId} />}
     />
   );
 
   const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
 
-  // Calculate fixed width based on layout
+  // 200px a column, grown to fill the window beside the 240px sidebar (up to 20% wider). --fit is
+  // the CSS zoom on short windows (globals.css), so the zoomed table still reaches the edge.
   const numCols = layout.top.length + (layout.left.length > 0 ? 1 : 0) + (layout.right.length > 0 ? 1 : 0);
   const tableWidth = numCols * 200;
   const line = '1px solid rgba(55, 53, 47, 0.09)';
@@ -118,11 +121,11 @@ export default function PokerTable({
       {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
-          {felt}
+          {felt(slotIds.phone)}
         </div>
         <div className="grid grid-cols-3 gap-2">
           {players.map((p, idx) => (
-            <div key={p.id} className={hudOn ? "h-[170px]" : "h-[150px]"}>{seat(idx, `${idx < 3 ? "up-" : ""}${(["left", "center", "right"] as const)[idx % 3]}` as CardAlign)}</div>
+            <div key={p.id} className={hudOn ? "h-[170px]" : "h-[150px]"}>{seat(idx, slotIds.phone)}</div>
           ))}
         </div>
       </div>
@@ -130,7 +133,7 @@ export default function PokerTable({
       {/* md and up: seats around the felt. The table is only for layout. */}
       <div
         className="hidden md:block relative bg-white shrink-0 self-stretch rounded"
-        style={{ width: tableWidth, ...cardStyle }}
+        style={{ width: `clamp(${tableWidth}px, calc((100vw - 3rem - 252px) / var(--fit, 1)), ${tableWidth * 1.2}px)`, ...cardStyle }}
       >
         <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
           <tbody>
@@ -145,7 +148,7 @@ export default function PokerTable({
                   className="w-[200px] h-[100px]"
                   style={{ borderBottom: line, borderRight: i < layout.top.length - 1 ? line : undefined }}
                 >
-                  {seat(idx)}
+                  {seat(idx, slotIds.desk)}
                 </td>
               ))}
               {layout.right.length > 0 && (
@@ -159,21 +162,21 @@ export default function PokerTable({
                 {layout.left.length > 0 && (
                   <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }}>
                     <div className="flex justify-end h-full">
-                      {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx], "felt-left")}
+                      {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx], slotIds.desk)}
                     </div>
                   </td>
                 )}
 
                 {rowIdx === 0 && (
                   <td colSpan={layout.top.length} rowSpan={rows} style={{ borderBottom: line }}>
-                    <div className="flex items-center justify-center h-full">{felt}</div>
+                    <div className="flex items-center justify-center h-full">{felt(slotIds.desk)}</div>
                   </td>
                 )}
 
                 {layout.right.length > 0 && (
                   <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }}>
                     <div className="flex justify-start h-full">
-                      {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx], "felt-right")}
+                      {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx], slotIds.desk)}
                     </div>
                   </td>
                 )}
@@ -193,7 +196,7 @@ export default function PokerTable({
                       className="flex-1"
                       style={{ borderRight: i < layout.bottom.length - 1 ? line : undefined }}
                     >
-                      {seat(playerIdx)}
+                      {seat(playerIdx, slotIds.desk)}
                     </div>
                   ))}
                 </div>

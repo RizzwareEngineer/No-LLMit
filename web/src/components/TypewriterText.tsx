@@ -67,7 +67,7 @@ export default function TypewriterText({
   return (
     <span className={className}>
       {displayedText}
-      {isTyping && <span className="animate-pulse">▌</span>}
+      {isTyping && <span>▌</span>}
     </span>
   );
 }

@@ -32,7 +32,7 @@ export default function SessionProgress({ table }: { table?: UsageData['table'] 
   }
 
   return (
-    <div className="w-full max-w-[720px] mb-3" style={{ visibility: fill === null ? 'hidden' : undefined }} aria-hidden={fill === null}>
+    <div className="w-full max-w-[720px] mb-1.5" style={{ visibility: fill === null ? 'hidden' : undefined }} aria-hidden={fill === null}>
       <div
         className="h-[2px] w-full rounded-full overflow-hidden"
         style={{ background: 'rgba(55, 53, 47, 0.09)' }}

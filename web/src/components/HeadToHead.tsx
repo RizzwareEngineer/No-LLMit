@@ -1,11 +1,32 @@
 'use client';
 
 import LLMLogo from '@/components/LLMLogo';
-import { MUTED, ModelStats, TEXT, chips, modelHref, netColor } from '@/lib/stats';
+import { MUTED, ModelStats, TEXT, chips, modelHref, netColor, plural } from '@/lib/stats';
+import { HeaderCell } from '@/components/StatsTable';
+
+// One extra column on the right of the grid (heads-up bb/100 and hands).
+interface Extra {
+  key: string; // its STAT_DEFINITIONS entry, shown on header hover
+  label: string;
+  render: (m: ModelStats) => React.ReactNode;
+}
 
 // Chips won from each opponent in pots they both played. With `focus`, one model's opponents
-// as a list; without it, the full grid (row model's net against the column model).
-export default function HeadToHead({ models, focus }: { models: ModelStats[]; focus?: ModelStats }) {
+// as a list; without it, the full grid (row model's net against the column model). `field`
+// picks all shared pots (`vs`, the pairwise results) or heads-up flops only (`heads_up_vs`).
+export default function HeadToHead({
+  models,
+  focus,
+  field = 'vs',
+  extra,
+  caption = 'Pairwise results: chips each row model won from each column model, and pots they played together',
+}: {
+  models: ModelStats[];
+  focus?: ModelStats;
+  field?: 'vs' | 'heads_up_vs';
+  extra?: Extra;
+  caption?: string;
+}) {
   if (focus) {
     const rows = Object.entries(focus.vs ?? {}).sort((a, b) => b[1].net_chips - a[1].net_chips);
     if (rows.length === 0) return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
@@ -37,46 +58,57 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
     );
   }
 
-  if (!models.some(m => Object.keys(m.vs ?? {}).length > 0)) {
+  if (!models.some(m => Object.keys(m[field] ?? {}).length > 0)) {
     return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
   }
 
+  // The grid fills its panel: a size container whose cells share the space and whose text
+  // scales with it (cq units). Under 768px of width the row labels drop to logos only.
   return (
-    <div className="relative overflow-x-auto">
-      <table className="text-[11px] tabular-nums border-collapse">
-        <caption className="sr-only">Head-to-head: chips each row model won from each column model, and pots they played together</caption>
+    <div
+      className="relative flex-1 min-h-0 overflow-auto"
+      style={{ containerType: 'size' }}
+    >
+      {/* cq units resolve against the wrapper above, never the element that sets them. */}
+      <table
+        className="w-full h-full min-h-[180px] table-fixed tabular-nums border-collapse whitespace-nowrap"
+        style={{ minWidth: 56 * (models.length + (extra ? 2 : 1)), fontSize: 'clamp(10px, min(2.2cqh, 1.25cqw), 18px)' }}
+      >
+        <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
-            <td />
+            <td className="w-[48px] @3xl:w-[22%]" />
             {models.map(m => (
               <th key={m.name} scope="col" className="p-1 font-medium" title={m.name}>
                 <span className="flex justify-center"><LLMLogo model={m.name} size={18} /></span>
                 <span className="sr-only">{m.name}</span>
               </th>
             ))}
+            {extra && <HeaderCell col={extra} sort={{ key: extra.key, desc: true }} className="p-1 w-[15%]" />}
           </tr>
         </thead>
         <tbody>
           {models.map(row => (
             <tr key={row.name} className="border-t border-notion">
-              <th scope="row" className="text-left font-medium p-1 pr-2 whitespace-nowrap">
-                <a href={modelHref(row.name)} className="flex items-center gap-1.5 hover:underline" style={{ color: TEXT }}>
+              <th scope="row" className="text-left font-medium p-1 pr-2 whitespace-nowrap overflow-hidden text-ellipsis">
+                <a href={modelHref(row.name)} className="flex items-center gap-1.5 hover:underline" style={{ color: TEXT }} title={row.name}>
                   <LLMLogo model={row.name} size={18} />
-                  {row.name}
+                  <span className="truncate @max-3xl:sr-only">{row.name}</span>
                 </a>
               </th>
               {models.map(col => {
-                const v = row.vs?.[col.name];
+                const v = row[field]?.[col.name];
                 if (row.name === col.name || !v) {
                   return <td key={col.name} className="p-1 text-center" style={{ color: MUTED, background: 'rgba(55, 53, 47, 0.04)' }}>·</td>;
                 }
                 return (
-                  <td key={col.name} className="lift p-1 text-center min-w-[56px] rounded" title={`${row.name} vs ${col.name}: ${chips(v.net_chips)} over ${v.pots} pots`}>
+                  <td key={col.name} className="lift p-1 text-center rounded" title={`${row.name} vs ${col.name}: ${chips(v.net_chips)} over ${plural(v.pots, 'pot')}`}>
                     <div className="font-bold" style={{ color: netColor(v.net_chips) }}>{chips(v.net_chips)}</div>
-                    <div style={{ color: MUTED }}>{v.pots} pots</div>
+                    <div style={{ color: MUTED }}>{plural(v.pots, 'pot')}</div>
                   </td>
                 );
               })}
+              {extra && <td className="p-1 pl-2 text-right border-l border-notion">{extra.render(row)}</td>}
             </tr>
           ))}
         </tbody>
