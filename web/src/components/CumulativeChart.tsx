@@ -6,7 +6,6 @@ import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { MUTED, ModelStats, ciHalf, signed } from '@/lib/stats';
 
 const GRID = 'rgba(55, 53, 47, 0.09)';
-const HEIGHT = 300;
 // Every line is redrawn through this many points, so a new hand changes the numbers in each
 // path but not its shape and motion can tween the old line into the new one.
 const SAMPLES = 160;
@@ -56,14 +55,14 @@ export default function CumulativeChart({
   onSelect?: (name: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(720);
+  const [{ width, height }, setSize] = useState({ width: 720, height: 300 }); // the plot fills its panel
   const [showTable, setShowTable] = useState(false);
   const reduce = useReducedMotion();
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    const ro = new ResizeObserver(([entry]) => setSize({ width: entry.contentRect.width, height: entry.contentRect.height }));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -80,7 +79,7 @@ export default function CumulativeChart({
   const w = Math.max(width, 200);
   const left = 12 + 7 * Math.max(...yTicks.map(t => String(t).length)); // room for the widest y label
   const x = (n: number) => left + (n / maxHand) * (w - left - PAD.right);
-  const y = (v: number) => PAD.top + ((yMax - v) / (yMax - yMin || 1)) * (HEIGHT - PAD.top - PAD.bottom);
+  const y = (v: number) => PAD.top + ((yMax - v) / (yMax - yMin || 1)) * (height - PAD.top - PAD.bottom);
   const line = (pts: [number, number][]) => pts.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
   const selPts = sel ? drawn.get(sel.name)! : [];
   const bandPath = sel
@@ -94,9 +93,10 @@ export default function CumulativeChart({
     .join('; ');
 
   return (
-    <div>
-      <div ref={ref} className="w-full">
-        <svg width="100%" height={HEIGHT} viewBox={`0 0 ${w} ${HEIGHT}`} role="img" aria-label={`Cumulative big blinds won over hands. ${summary}. Shaded: 95% band for ${sel?.name}.`}>
+    <div className="flex-1 min-h-0 flex flex-col">
+      {/* The svg is absolute so its height comes from the panel, never the other way round. */}
+      <div ref={ref} className="relative w-full flex-1 min-h-[120px]">
+        <svg className="absolute inset-0" width="100%" height={height} viewBox={`0 0 ${w} ${height}`} role="img" aria-label={`Cumulative big blinds won over hands. ${summary}. Shaded: 95% band for ${sel?.name}.`}>
           {yTicks.map(t => (
             <g key={t}>
               <line x1={left} x2={w - PAD.right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.35)' : GRID} />
@@ -104,7 +104,7 @@ export default function CumulativeChart({
             </g>
           ))}
           {niceTicks(0, maxHand, 4, true).filter(t => t <= maxHand).map(t => (
-            <text key={t} x={x(t)} y={HEIGHT - 6} textAnchor="middle" fontSize={11} fill={MUTED} className="tabular-nums">{t}</text>
+            <text key={t} x={x(t)} y={height - 6} textAnchor="middle" fontSize={11} fill={MUTED} className="tabular-nums">{t}</text>
           ))}
           {sel && <motion.path initial={false} animate={{ d: bandPath }} transition={tween} fill={modelColor(sel.name)} opacity={0.14} />}
           {ordered.map(m => {

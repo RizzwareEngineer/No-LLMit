@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
-import { CircleNotch } from "@phosphor-icons/react";
+import { ArrowDown, Brain, CircleNotch, GameController } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
@@ -15,7 +15,8 @@ import ModelDrawer from "@/components/ModelDrawer";
 import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
-import { useStats } from "@/lib/stats";
+import { MUTED, useStats } from "@/lib/stats";
+import { pageBy } from "@/components/Section";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -49,6 +50,8 @@ const closeModel = () => {
   window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
 };
 
+const PAGE_KEYS: Record<string, 1 | -1> = { ArrowRight: 1, PageDown: 1, ArrowLeft: -1, PageUp: -1 };
+
 export default function Home() {
   const {
     gameState,
@@ -72,7 +75,6 @@ export default function Home() {
   const { usage, error: usageError } = useUsage(usageRefreshTrigger);
   const watching = usageError ? undefined : usage?.table?.spectators;
   const isLive = isConnected && !tableNotice;
-  const hud = useHudState(gameState?.handNumber || 0);
   
   // Auto-connect on mount
   useEffect(() => {
@@ -136,6 +138,8 @@ export default function Home() {
   const all = useStats(undefined, true, handNumber);
   const pickedLive = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
   const picked = useStats(session || undefined, !!session, pickedLive ? handNumber : undefined);
+  // The HUD reads the same all-time fetch; the bundled dev sample never feeds the seats.
+  const hud = useHudState(all.sample ? null : all.data?.models);
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
   const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
@@ -149,6 +153,19 @@ export default function Home() {
     const io = new IntersectionObserver(([e]) => setTableInView(e.isIntersecting), { rootMargin: '-44px 0px 0px 0px' });
     if (tableRef.current) io.observe(tableRef.current);
     return () => io.disconnect();
+  }, []);
+
+  // ← → and PageUp/PageDown page between screens, unless a field or the drawer has the keys.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const dir = PAGE_KEYS[e.key];
+      if (!dir || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (e.target instanceof Element && e.target.closest('input, select, textarea, [contenteditable], dialog')) return;
+      e.preventDefault();
+      pageBy(dir);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   // Next hand countdown: the server deals the next hand and tells us how long is left.
@@ -185,25 +202,41 @@ export default function Home() {
   return (
     <MotionConfig reducedMotion="user">
     <HudContext.Provider value={hud}>
-    <div className="flex flex-col min-h-screen p-3 lg:p-4 overflow-auto" style={{ background: '#FFFFFF' }}>
-      <main className="flex-1 flex flex-col items-center-safe">
-        
+    <div className="px-3 lg:px-4" style={{ background: '#FFFFFF' }}>
+      <main className="flex flex-col items-center-safe">
+      {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
+      <section data-screen aria-label="Live table" className="relative w-full min-h-dvh snap-start snap-normal flex flex-col items-center-safe pt-3 pb-9 lg:pt-4">
       {/* Header - Title centered */}
-        <div className="mb-2 text-center">
+        <div className="mb-1 text-center">
           <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
-          <p className="text-[15px] mt-1" style={{ color: 'rgb(55, 53, 47)' }}>
-            9 LLMs play No Limit Hold&apos;em against each other, live. Watch each one explain its move.{' '}
+          <p className="text-[12px] mt-0.5" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+            Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
             <Link 
               href="/about" 
-              className="hover:underline whitespace-nowrap"
+              className="hover:underline"
               style={{ color: 'rgb(35, 131, 226)' }}
             >
-              About
-            </Link>{' · '}
-            <a href="#stats" className="hover:underline whitespace-nowrap" style={{ color: 'rgb(35, 131, 226)' }}>
-              Stats
-            </a>
+              ⓘ About
+            </Link>
           </p>
+        </div>
+
+        {/* Action buttons row */}
+        <div className="mb-2 flex items-center justify-center gap-3">
+          <button
+            disabled
+            className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
+          >
+            <GameController size={12} weight="bold" />
+            Play vs. LLMs — (coming soon)!
+          </button>
+          <button
+            disabled
+            className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
+          >
+            <Brain size={12} weight="bold" />
+            Train an LLM to play like you (coming soon)!
+          </button>
         </div>
 
         {/* Status row - live indicator, hand counter, blinds, timer */}
@@ -228,7 +261,7 @@ export default function Home() {
               className="text-[12px] font-medium px-1.5 rounded hover:bg-[rgba(55,53,47,0.06)]"
               style={{ color: hud.on ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)', background: hud.on ? 'rgba(35, 131, 226, 0.1)' : undefined }}
             >
-              HUD {hud.on ? 'on' : 'off'}
+              HUD
             </button>
           </div>
 
@@ -251,7 +284,7 @@ export default function Home() {
 
         {/* Main content */}
         <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
-          <div className="flex flex-col w-full md:w-auto">
+          <div className="screen-fit flex flex-col w-full md:w-auto">
             {/* Row 1: Table + Winnings (stacked on phones) */}
             <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
               {/* Main game grid */}
@@ -288,18 +321,25 @@ export default function Home() {
                 shotClockRemaining={shotClockRemaining}
               />
             </div>
-
-            {/* Race, stats and head-to-head. w-0 min-w-full: as wide as the table above, never wider. */}
-            <div className="w-full md:w-0 md:min-w-full pb-16">
-              <StatsSections
-                all={all}
-                picked={session ? picked : all}
-                session={session}
-                onSession={setSession}
-              />
-            </div>
           </div>
         </div>
+
+        <button
+          onClick={() => pageBy(1)}
+          className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded px-2 py-1 text-[12px] font-medium hover:bg-[rgba(55,53,47,0.06)]"
+          style={{ color: MUTED }}
+        >
+          Stats <ArrowDown size={12} weight="bold" aria-hidden />
+        </button>
+      </section>
+
+      {/* Screen 2 (one per section on phones): race, stats and head-to-head. */}
+      <StatsSections
+        all={all}
+        picked={session ? picked : all}
+        session={session}
+        onSession={setSession}
+      />
       </main>
 
       <StickyBar show={!tableInView && players.length > 0} pot={pot} handNumber={handNumber} display={displayState} />

@@ -124,7 +124,7 @@ export default function ModelDrawer({
             )}
 
             <Block title="Results">
-              <CumulativeChart models={[m]} selected={m.name} />
+              <div className="flex flex-col min-h-[340px]"><CumulativeChart models={[m]} selected={m.name} /></div>
             </Block>
 
             <Block title="By position">

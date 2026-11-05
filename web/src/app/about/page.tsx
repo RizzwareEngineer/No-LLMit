@@ -36,7 +36,7 @@ function Toggle({ title, children }: { title: string; children: React.ReactNode 
     <div>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 text-[14px] font-medium hover:bg-[rgba(55,53,47,0.04)] rounded px-1 -ml-1 py-0.5 transition-colors w-full text-left"
+        className="flex items-center gap-1 text-[13px] font-medium hover:bg-[rgba(55,53,47,0.04)] rounded px-1 -ml-1 py-0.5 transition-colors w-full text-left"
         style={{ color: 'rgb(55, 53, 47)' }}
       >
         <CaretRight 
@@ -63,7 +63,7 @@ export default function AboutPage() {
         <div className="max-w-[1300px] mx-auto px-6 py-3">
           <Link 
             href="/" 
-            className="flex items-center gap-2 text-sm text-[rgb(55,53,47)] opacity-65 hover:opacity-100 transition-opacity"
+            className="flex items-center gap-2 text-[12px] text-[rgb(55,53,47)] opacity-65 hover:opacity-100 transition-opacity"
           >
             <ArrowLeft size={16} />
             Back to game
@@ -76,10 +76,10 @@ export default function AboutPage() {
         {/* ROW 1: Hero */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-3">
-            <span className="text-3xl">🃏</span>
-            <h1 className="text-3xl font-bold" style={{ color: 'rgb(55, 53, 47)' }}>No-LLMit</h1>
+            <span className="text-[24px]">🃏</span>
+            <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>No-LLMit</h1>
           </div>
-          <p className="text-[15px] text-[rgb(55,53,47)] opacity-65 leading-relaxed">
+          <p className="text-[12px] text-[rgb(55,53,47)] opacity-65 leading-relaxed">
             Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game (or, soon, tournament)!
           </p>
         </div>
@@ -140,7 +140,7 @@ export default function AboutPage() {
           
           {/* Limitations */}
           <div>
-            <h2 className="text-[16px] font-semibold mb-3" style={{ color: 'rgb(55, 53, 47)' }}>
+            <h2 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'rgb(55, 53, 47)' }}>
               ⚠️ Limitations
             </h2>
             <p className="text-[13px] text-[rgb(55,53,47)] opacity-60 mb-3">
@@ -149,12 +149,12 @@ export default function AboutPage() {
             <div className="space-y-2">
               <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)]">
                 {/* <div className="text-[10px] font-medium opacity-40 mb-0.5"></div> */}
-                <div className="text-xl font-semibold">Open 9am to 9pm ET, daily</div>
+                <div className="text-[13px] font-semibold">Open 9am to 9pm ET, daily</div>
                 <div className="text-[11px] opacity-50 mt-1">Outside those hours the table is closed and no LLMs are called. A hand takes ~15 API calls across all 9 LLMs.</div>
               </div>
               {/* <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)]">
                 <div className="text-[10px] font-medium opacity-40 mb-0.5">Tokens / Request</div>
-                <div className="text-xl font-semibold">~500 max</div>
+                <div className="text-[13px] font-semibold">~500 max</div>
                 <div className="text-[11px] opacity-50 mt-1">We use ~256 on average</div>
               </div> */}
             </div>
@@ -163,14 +163,14 @@ export default function AboutPage() {
             </p>
             <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)] bg-orange-50">
               {/* <div className="text-[10px] font-medium opacity-40 mb-0.5"></div> */}
-              <div className="text-xl font-semibold text-orange-700">~150 hands per day</div>
+              <div className="text-[13px] font-semibold text-orange-700">~150 hands per day</div>
               <div className="text-[11px] opacity-50 mt-1">The average 5-hour session of live cash game poker has ~125 hands. </div>
             </div>
           </div>
 
           {/* Why Donate */}
           <div>
-            <h2 className="text-[16px] font-semibold mb-3" style={{ color: 'rgb(55, 53, 47)' }}>
+            <h2 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'rgb(55, 53, 47)' }}>
               💝 Why Donate?
             </h2>
             <p className="text-[13px] text-[rgb(55,53,47)] opacity-60 mb-3">
@@ -202,10 +202,10 @@ export default function AboutPage() {
 
           {/* Upcoming Features */}
           <div>
-            <h2 className="text-[16px] font-semibold mb-3" style={{ color: 'rgb(55, 53, 47)' }}>
+            <h2 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: 'rgb(55, 53, 47)' }}>
             🫷Upcoming Features
             </h2>
-            <div className="space-y-4 text-[14px]">
+            <div className="space-y-4 text-[13px]">
               <div>
                 <p className="font-semibold mb-1">🌐 Open source datasets</p>
                 <p className="opacity-60 text-[13px] leading-relaxed">

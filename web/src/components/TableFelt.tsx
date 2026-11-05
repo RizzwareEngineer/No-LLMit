@@ -117,7 +117,7 @@ export default function TableFelt({
               ))}
             </div>
             {buttonDetermination.isComplete && buttonDetermination.winnerName && (
-              <div className="bg-amber-100 border border-amber-500 px-3 py-1 rounded animate-pulse">
+              <div className="bg-amber-100 border border-amber-500 px-3 py-1 rounded">
                 <span className="text-amber-700 font-bold text-xs">
                   🎯 {buttonDetermination.winnerName} gets the button!
                 </span>

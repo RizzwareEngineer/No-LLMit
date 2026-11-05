@@ -54,11 +54,15 @@ export default memo(function StatsSections({
   const bestRate = models.reduce<typeof models[number] | undefined>((a, b) => (!a || b.bb100 > a.bb100 ? b : a), undefined);
 
   return (
-    <>
+    // Screen 2: on md+ one snap screen, Race and Stats side by side over Head-to-head. On phones
+    // the wrapper is plain and each section snaps on its own. pt-14 clears the sticky bar.
+    <div
+      data-screen
+      className="w-full max-w-[1300px] snap-align-none md:h-dvh md:snap-start md:snap-normal md:pt-14 md:pb-3 md:grid md:grid-cols-[55fr_45fr] md:grid-rows-[minmax(0,4fr)_minmax(0,5fr)] md:gap-x-4 md:gap-y-3"
+    >
       <Section
         id="race"
         title="Race"
-        minHeight={420}
         aside={leader && second && (
           <div className="flex items-center gap-1.5 text-[13px] tabular-nums" style={{ color: TEXT }}>
             <LLMLogo model={leader.name} size={16} />
@@ -76,36 +80,30 @@ export default memo(function StatsSections({
         ) : message}
       </Section>
 
-      <Section
-        id="stats"
-        title={<>Stats {sample && <SampleBadge />}</>}
-        minHeight={360}
-        aside={
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]" style={{ color: MUTED }}>
-            {ready && (
-              <span className="tabular-nums">
-                <CountUp value={data.scope.hands} /> hands · blinds ¤{data.scope.big_blind / 2}/{data.scope.big_blind}
-              </span>
-            )}
-            <label className="flex items-center gap-2" style={{ color: TEXT }}>
-              Session
-              <select
-                value={session}
-                onChange={e => onSession(e.target.value)}
-                className="rounded border border-[rgba(55,53,47,0.16)] bg-white px-2 py-1 text-[13px]"
-              >
-                <option value="">All time</option>
-                {(all.data?.sessions ?? []).map(s => (
-                  <option key={s.id} value={s.id}>
-                    {new Date(s.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                    {s.ended_at ? '' : ' (live)'} · {s.hands.toLocaleString()} hands
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        }
-      >
+      <Section id="stats" title={<>Stats {sample && <SampleBadge />}</>}>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[12px]" style={{ color: MUTED }}>
+          {ready && (
+            <span className="tabular-nums">
+              <CountUp value={data.scope.hands} /> hands · blinds ¤{data.scope.big_blind / 2}/{data.scope.big_blind}
+            </span>
+          )}
+          <label className="flex items-center gap-2" style={{ color: TEXT }}>
+            Session
+            <select
+              value={session}
+              onChange={e => onSession(e.target.value)}
+              className="rounded border border-[rgba(55,53,47,0.16)] bg-white px-2 py-0.5 text-[12px]"
+            >
+              <option value="">All time</option>
+              {(all.data?.sessions ?? []).map(s => (
+                <option key={s.id} value={s.id}>
+                  {new Date(s.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                  {s.ended_at ? '' : ' (live)'} · {s.hands.toLocaleString()} hands
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         {!ready ? message : (
           <>
             {stale}
@@ -120,9 +118,9 @@ export default memo(function StatsSections({
         )}
       </Section>
 
-      <Section id="head-to-head" title="Head-to-head" minHeight={320}>
+      <Section id="head-to-head" title="Head-to-head" className="md:col-span-2">
         {ready ? <HeadToHead models={race} /> : message}
       </Section>
-    </>
+    </div>
   );
 });
