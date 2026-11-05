@@ -29,3 +29,6 @@ Each becomes a GitHub issue once approved. Value / size / auto-merge-ok.
 18. Remaining UX medium items: recent-actions log under the reasoning panel, short seat names, card backs for hidden cards, split-pot winner names — low / S / yes
 19. About page: list the models and stakes, fix the budget sentence, example input with a current seat — low / S / yes
 20. README: resolve the memory contradiction; link the dataset once it exists — low / S / yes
+
+## Open design questions (2026-11-04)
+- Per-model view: the drawer stays for now; decide later how a model's detail fits the one-screen-per-concern layout (third screen? inline expand? separate page?).

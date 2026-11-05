@@ -79,11 +79,12 @@ function HeaderCell({ col, sort, onSort }: { col: Column; sort: { key: string; d
   );
 }
 
-// Every model's stats, sortable. Collapsed to the core columns until "All stats" is pressed.
-export default function StatsTable({ models }: { models: ModelStats[] }) {
+// Every model's stats, sortable. Collapsed to the core columns until "All stats" is pressed;
+// without `expandable` (the overview) it stays collapsed. Extra columns scroll sideways in here.
+export default function StatsTable({ models, expandable = true }: { models: ModelStats[]; expandable?: boolean }) {
   const [sort, setSort] = useState({ key: 'bb100', desc: true });
   const [all, setAll] = useState(false);
-  const columns = all ? COLUMNS : COLUMNS.filter(c => c.core);
+  const columns = all && expandable ? COLUMNS : COLUMNS.filter(c => c.core);
   const col = COLUMNS.find(c => c.key === sort.key) ?? COLUMNS[1];
   // Nulls (nothing to count yet) sort last in both directions.
   const sorted = [...models].sort((a, b) => {
@@ -96,7 +97,7 @@ export default function StatsTable({ models }: { models: ModelStats[] }) {
 
   return (
     <>
-      <div className="relative overflow-x-auto -mx-3 -mt-3">
+      <div className="relative overflow-x-auto">
         <table className="w-full text-[12px] tabular-nums">
           <caption className="sr-only">Stats per model. Column headers sort the table; the info buttons explain each stat.</caption>
           <thead>
@@ -123,14 +124,14 @@ export default function StatsTable({ models }: { models: ModelStats[] }) {
           </tbody>
         </table>
       </div>
-      <button
+      {expandable && <button
         onClick={() => setAll(v => !v)}
         aria-expanded={all}
         className="mt-2 text-[12px] hover:underline"
         style={{ color: 'rgb(35, 131, 226)' }}
       >
         {all ? 'Fewer stats' : `All stats (${COLUMNS.length - columns.length} more)`}
-      </button>
+      </button>}
     </>
   );
 }
