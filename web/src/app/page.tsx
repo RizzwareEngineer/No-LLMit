@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
-import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
+import { ArrowDown, Brain, CircleNotch, GameController } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
@@ -207,21 +207,36 @@ export default function Home() {
       {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
       <section data-screen aria-label="Live table" className="relative w-full min-h-dvh snap-start snap-normal flex flex-col items-center-safe pt-3 pb-9 lg:pt-4">
       {/* Header - Title centered */}
-        <div className="mb-2 text-center">
+        <div className="mb-1 text-center">
           <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
-          <p className="text-[15px] mt-1" style={{ color: 'rgb(55, 53, 47)' }}>
-            9 LLMs play No Limit Hold&apos;em against each other, live. Watch each one explain its move.{' '}
+          <p className="text-[12px] mt-0.5" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+            Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
             <Link 
               href="/about" 
-              className="hover:underline whitespace-nowrap"
+              className="hover:underline"
               style={{ color: 'rgb(35, 131, 226)' }}
             >
-              About
-            </Link>{' · '}
-            <a href="#stats" className="hover:underline whitespace-nowrap" style={{ color: 'rgb(35, 131, 226)' }}>
-              Stats
-            </a>
+              ⓘ About
+            </Link>
           </p>
+        </div>
+
+        {/* Action buttons row */}
+        <div className="mb-2 flex items-center justify-center gap-3">
+          <button
+            disabled
+            className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
+          >
+            <GameController size={12} weight="bold" />
+            Play vs. LLMs — (coming soon)!
+          </button>
+          <button
+            disabled
+            className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
+          >
+            <Brain size={12} weight="bold" />
+            Train an LLM to play like you (coming soon)!
+          </button>
         </div>
 
         {/* Status row - live indicator, hand counter, blinds, timer */}
@@ -246,7 +261,7 @@ export default function Home() {
               className="text-[12px] font-medium px-1.5 rounded hover:bg-[rgba(55,53,47,0.06)]"
               style={{ color: hud.on ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)', background: hud.on ? 'rgba(35, 131, 226, 0.1)' : undefined }}
             >
-              HUD {hud.on ? 'on' : 'off'}
+              HUD
             </button>
           </div>
 
