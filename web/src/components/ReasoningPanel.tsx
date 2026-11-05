@@ -65,7 +65,8 @@ export default function ReasoningPanel({
   // The last three decisions: the newest is typed out on top, the two before it sit below.
   const reduce = useReducedMotion();
   const [history, setHistory] = useState<Decision[]>([]);
-  const currentKey = showReason && reason && action ? `${displayState?.playerIdx}|${reason}` : null;
+  // One entry per turn: the same player can give the same reason twice in a row.
+  const currentKey = showReason && reason && action ? String(displayState?.turnStartTime) : null;
   if (currentKey && history[0]?.key !== currentKey) {
     setHistory([{ key: currentKey, playerName, action: action!, amount, reason: reason! }, ...history].slice(0, 3));
   }
