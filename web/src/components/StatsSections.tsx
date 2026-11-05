@@ -6,26 +6,30 @@ import Panel, { CountUp } from '@/components/Section';
 import CumulativeChart from '@/components/CumulativeChart';
 import StatsTable from '@/components/StatsTable';
 import HeadToHead from '@/components/HeadToHead';
+import MultiwayTable from '@/components/MultiwayTable';
 import { SampleBadge, SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
-import { MIN_HANDS, MUTED, TEXT, netColor, useStats } from '@/lib/stats';
+import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, netColor, signed, useStats } from '@/lib/stats';
 
 type Stats = ReturnType<typeof useStats>;
 
-// Screens 2-5. Each is an empty full-height snap point; the panels sit on one sticky stage
-// above them. On the overview (#stats) the three panels share the stage; on each later screen
-// one panel fills it. Old #head-to-head links still land on the head-to-head screen.
+// Screens 2-7. Each is an empty full-height snap point; the panels sit on one sticky stage
+// above them. On the overview (#stats) the five panels share the stage; on each later screen
+// one panel fills it. Old #h2h and #head-to-head links land on the pairwise screen.
 const SCREENS = [
   { id: 'stats', label: 'Overview' },
   { id: 'race', label: 'Race' },
   { id: 'stats-table', label: 'Stats' },
-  { id: 'h2h', label: 'Head-to-head' },
+  { id: 'heads-up', label: 'Heads-up pots' },
+  { id: 'multiway', label: 'Multiway pots' },
+  { id: 'pairwise', label: 'Pairwise results' },
 ] as const;
 type Screen = (typeof SCREENS)[number]['id'];
-const ALIASES: Record<string, Screen> = { 'head-to-head': 'h2h' };
+const ALIASES: Record<string, Screen> = { 'head-to-head': 'pairwise', h2h: 'pairwise' };
+const heads = (m: ModelStats) => m.by_players_to_flop?.['2'];
 const INPUTS = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
 const asScreen = (id: string): Screen => ALIASES[id] ?? SCREENS.find(s => s.id === id)?.id ?? 'stats';
 
-// The three sections under the live table. `picked` is the session chosen in the Stats
+// The five panels under the live table. `picked` is the session chosen in the Stats
 // section (or all time); `all` carries the session list. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
 export default memo(function StatsSections({
@@ -47,17 +51,38 @@ export default memo(function StatsSections({
 
   // The screen crossing the middle of the window picks the stage's layout; screen 1 counts
   // as the overview. pageBy announces its target first so the zoom starts with the key press.
+  // While a scroll to an announced screen runs, the screens it passes on the way are ignored, so a
+  // jump from the overview to a far panel zooms that panel only.
   useEffect(() => {
+    let target: string | null = null;
     const io = new IntersectionObserver(
-      entries => entries.forEach(e => e.isIntersecting && setActive(asScreen(e.target.id))),
+      entries => entries.forEach(e => {
+        if (!e.isIntersecting || (target !== null && e.target.id !== target)) return;
+        target = null;
+        setActive(asScreen(e.target.id));
+      }),
       { rootMargin: '-50% 0px -50% 0px' },
     );
-    document.querySelectorAll('[data-screen]').forEach(el => io.observe(el));
-    const onScreen = (e: Event) => setActive(asScreen((e as CustomEvent<string>).detail));
+    const screens = document.querySelectorAll('[data-screen]');
+    screens.forEach(el => io.observe(el));
+    const onScreen = (e: Event) => {
+      target = (e as CustomEvent<string>).detail;
+      setActive(asScreen(target));
+    };
+    // An interrupted scroll never reaches its target: settle on the screen in the middle.
+    const onEnd = () => {
+      if (target === null) return;
+      target = null;
+      const mid = innerHeight / 2;
+      const el = [...screens].find(s => { const r = s.getBoundingClientRect(); return r.top <= mid && r.bottom > mid; });
+      if (el) setActive(asScreen(el.id));
+    };
     window.addEventListener('screenchange', onScreen);
+    window.addEventListener('scrollend', onEnd);
     return () => {
       io.disconnect();
       window.removeEventListener('screenchange', onScreen);
+      window.removeEventListener('scrollend', onEnd);
     };
   }, []);
 
@@ -98,6 +123,8 @@ export default memo(function StatsSections({
   const final = (pts: [number, number][]) => pts.at(-1)?.[1] ?? 0;
   const race = [...models].sort((a, b) => final(b.cumulative_bb) - final(a.cumulative_bb));
   const [leader, second] = race;
+  // Heads-up rows: best heads-up bb/100 first; models with no heads-up flop last.
+  const headsUp = [...models].sort((a, b) => (heads(b)?.bb100 ?? -Infinity) - (heads(a)?.bb100 ?? -Infinity));
   const bestRate = models.reduce<typeof models[number] | undefined>((a, b) => (!a || b.bb100 > a.bb100 ? b : a), undefined);
   const zoomed = active === 'stats' ? null : active;
   const panel = (screen: Screen) => ({ focused: zoomed === screen, covered: !!zoomed && zoomed !== screen, href: `#${screen}` });
@@ -113,12 +140,13 @@ export default memo(function StatsSections({
         <div
           className="sticky top-0 h-svh max-w-[1300px] mx-auto pt-14 pb-[calc(0.75rem+var(--bar-h,0px))] overflow-clip [overflow-clip-margin:8px]"
         >
-          <div className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:gap-x-4 md:grid-cols-[minmax(0,55fr)_minmax(0,45fr)] md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
+          {/* Overview: Race and Stats on top, the three pot panels below (stacked on phones). */}
+          <div className="relative h-full grid gap-2 grid-cols-1 grid-rows-[repeat(5,minmax(0,1fr))] md:gap-3 md:grid-cols-6 md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
             <Panel
               id="race-panel"
               title="Race"
               {...panel('race')}
-              className="row-start-1 md:col-start-1"
+              className="row-start-1 md:col-span-3"
               aside={leader && second && (
                 <div className="flex items-center gap-1.5 text-[13px] tabular-nums" style={{ color: TEXT }}>
                   <LLMLogo model={leader.name} size={16} />
@@ -136,7 +164,7 @@ export default memo(function StatsSections({
               ) : message}
             </Panel>
 
-            <Panel id="stats-panel" title={<>Stats {sample && <SampleBadge />}</>} {...panel('stats-table')} className="row-start-2 md:row-start-1 md:col-start-2">
+            <Panel id="stats-panel" title={<>Stats {sample && <SampleBadge />}</>} {...panel('stats-table')} className="row-start-2 md:row-start-1 md:col-span-3">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[12px]" style={{ color: MUTED }}>
                 {ready && (
                   <span className="tabular-nums">
@@ -176,7 +204,36 @@ export default memo(function StatsSections({
               )}
             </Panel>
 
-            <Panel id="h2h-panel" title="Head-to-head" {...panel('h2h')} className="row-start-3 md:row-start-2 md:col-span-2">
+            <Panel id="heads-up-panel" title="Heads-up pots" {...panel('heads-up')} className="row-start-3 md:row-start-2 md:col-span-2">
+              {zoomed === 'heads-up' && <Definition>Net chips between the two models in hands where only they saw the flop, with each model&apos;s heads-up bb/100 on the right.</Definition>}
+              {ready ? (
+                <HeadToHead
+                  models={headsUp}
+                  field="heads_up_vs"
+                  caption="Heads-up pots: chips each row model won from each column model in flops only the two of them saw, with heads-up bb/100 and hands"
+                  extra={{
+                    label: 'bb/100',
+                    render: m => {
+                      const b = heads(m);
+                      return (
+                        <>
+                          <div className="font-bold" style={{ color: b?.bb100 == null ? MUTED : netColor(b.bb100) }}>{b?.bb100 == null ? DASH : signed(b.bb100)}</div>
+                          <div style={{ color: MUTED }}>{b?.hands ?? 0} hands</div>
+                        </>
+                      );
+                    },
+                  }}
+                />
+              ) : message}
+            </Panel>
+
+            <Panel id="multiway-panel" title="Multiway pots" {...panel('multiway')} className="row-start-4 md:row-start-2 md:col-span-2">
+              {zoomed === 'multiway' && <Definition>Hands where the model saw a flop with 3 or more players. Hover a header for its definition.</Definition>}
+              {ready ? <MultiwayTable models={models} /> : message}
+            </Panel>
+
+            <Panel id="pairwise-panel" title="Pairwise results" {...panel('pairwise')} className="row-start-5 md:row-start-2 md:col-span-2">
+              {zoomed === 'pairwise' && <Definition>Net chips between each pair over every pot both were in; a multiway pot counts toward every pair in it.</Definition>}
               {ready ? <HeadToHead models={race} /> : message}
             </Panel>
           </div>
@@ -185,3 +242,8 @@ export default memo(function StatsSections({
     </div>
   );
 });
+
+// One muted line under a panel title saying what the panel counts.
+function Definition({ children }: { children: React.ReactNode }) {
+  return <p className="mb-1.5 text-[12px] leading-snug" style={{ color: MUTED }}>{children}</p>;
+}

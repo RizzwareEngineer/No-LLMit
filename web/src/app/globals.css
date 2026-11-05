@@ -319,15 +319,16 @@ html:has([data-screen]) {
   html:has([data-screen]) { scroll-snap-type: y proximity; }
 }
 
-/* The live table scales down on short desktop windows so screen 1 stays one screen. */
-@media (min-width: 768px) and (max-height: 920px) {
-  .screen-fit { zoom: 0.9; }
+/* The live table scales down on short desktop windows so screen 1 stays one screen. The content
+   is about 693px tall at zoom 1 under a ~197px header and footer, so it fits unzoomed from 890px. */
+@media (min-width: 768px) and (max-height: 889px) {
+  .screen-fit { zoom: 0.86; --fit: 0.86; }
 }
-@media (min-width: 768px) and (max-height: 800px) {
-  .screen-fit { zoom: 0.77; }
+@media (min-width: 768px) and (max-height: 799px) {
+  .screen-fit { zoom: 0.8; --fit: 0.8; }
 }
-@media (min-width: 768px) and (max-height: 760px) {
-  .screen-fit { zoom: 0.72; }
+@media (min-width: 768px) and (max-height: 759px) {
+  .screen-fit { zoom: 0.75; --fit: 0.75; }
 }
 
 /* Stats panels scroll inside themselves with a scrollbar that stays visible. */

@@ -29,12 +29,21 @@ export function pageBy(dir: 1 | -1) {
   let top = dir > 0 ? tops.find(t => t > y + 1) : tops.findLast(t => t < y - 1);
   if (top === undefined) return;
   top = dir > 0 ? Math.min(top, y + h) : Math.max(top, y - h);
-  top = Math.min(top, document.documentElement.scrollHeight - h);
+  scrollToTop(Math.min(top, document.documentElement.scrollHeight - h), list[tops.indexOf(top)]?.id ?? '');
+}
+
+// Scroll to the screen with this id (the overview's click-to-zoom).
+export function goToScreen(id: string) {
+  const el = document.getElementById(id);
+  if (el) scrollToTop(topOf(el), id);
+}
+
+function scrollToTop(top: number, id: string) {
   pendingY = top;
   clearTimeout(clearTimer);
   clearTimer = setTimeout(settle, 1000); // browsers without scrollend
   window.addEventListener('scrollend', settle, { once: true });
-  window.dispatchEvent(new CustomEvent('screenchange', { detail: list[tops.indexOf(top)]?.id ?? '' }));
+  window.dispatchEvent(new CustomEvent('screenchange', { detail: id }));
   window.scrollTo({ top });
 }
 
@@ -53,6 +62,8 @@ const SPRING = { type: 'spring', stiffness: 260, damping: 32 } as const;
 // A stats panel: a small linked title and a card. `focused` lifts it out of the overview grid
 // to fill the stage; motion's layout animation turns that jump into a zoom (transforms only,
 // and nothing under reduced motion). The body scrolls inside itself when it overflows.
+// In the overview a click (or Enter with the panel focused) scrolls to the panel's own screen,
+// except on links and controls inside it.
 export default function Panel({
   id,
   href,
@@ -72,6 +83,11 @@ export default function Panel({
   className?: string;
   children: React.ReactNode;
 }) {
+  const overview = !focused && !covered;
+  const zoom = (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    goToScreen(href.slice(1));
+  };
   return (
     <motion.section
       layout
@@ -79,7 +95,13 @@ export default function Panel({
       id={id}
       aria-labelledby={`${id}-title`}
       inert={covered}
-      className={`flex flex-col min-h-0 min-w-0 bg-white p-3 ${focused ? 'absolute inset-0 z-20' : `relative z-0 ${className}`}`}
+      tabIndex={overview ? 0 : -1}
+      onClick={overview ? e => {
+        const t = e.target as Element;
+        if (t.closest(`#${id}-title a`) || !t.closest('a, button, select, input, label')) zoom(e);
+      } : undefined}
+      onKeyDown={overview ? e => e.key === 'Enter' && e.target === e.currentTarget && zoom(e) : undefined}
+      className={`flex flex-col min-h-0 min-w-0 bg-white p-3 ${focused ? 'absolute inset-0 z-20' : `relative z-0 ${className}`} ${overview ? 'cursor-zoom-in' : ''}`}
       style={{ borderRadius: 4, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
       <motion.div layout="position" transition={SPRING} className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">

@@ -235,8 +235,8 @@ export default function Home() {
       <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-clip flex flex-col items-center-safe pt-3 pb-[calc(2.25rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
         <div className="mb-1 text-center">
-          <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
-          <p className="text-[12px] mt-0.5" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+          <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
+          <p className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
             Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
             <Link 
               href="/about" 
@@ -249,7 +249,7 @@ export default function Home() {
         </div>
 
         {/* Action buttons row */}
-        <div className="mb-2 flex items-center justify-center gap-3">
+        <div className="mb-1.5 flex items-center justify-center gap-3">
           <button
             disabled
             className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
@@ -267,7 +267,7 @@ export default function Home() {
         </div>
 
         {/* Status row - live indicator, hand counter, blinds, timer */}
-        <div className="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+        <div className="mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
           {/* Live indicator */}
           <div className="flex items-center gap-2">
             <span
@@ -313,7 +313,7 @@ export default function Home() {
         <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
           <div className="screen-fit flex flex-col w-full md:w-auto">
             {/* Row 1: Table + Winnings (stacked on phones) */}
-            <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
+            <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-3 items-stretch relative">
               {/* Main game grid */}
               <PokerTable
                 players={players}
@@ -335,14 +335,14 @@ export default function Home() {
                 <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} stats={all.sample ? null : all.data} />
                 </div>
-                <div className="mt-4">
+                <div className="mt-3">
                   <UsageIndicator usage={usage} error={usageError} />
                 </div>
               </div>
             </div>
 
             {/* Reasoning Panel - LLM thinking + reasoning */}
-            <div className="mt-4 w-full">
+            <div className="mt-3 w-full">
               <ReasoningPanel
                 displayState={displayState}
                 shotClockRemaining={shotClockRemaining}
@@ -360,7 +360,7 @@ export default function Home() {
         </button>
       </section>
 
-      {/* Screens 2-5: the overview, then race, stats and head-to-head one at a time. */}
+      {/* Screens 2-7: the overview, then race, stats, heads-up, multiway and pairwise one at a time. */}
       <StatsSections
         all={all}
         picked={session ? picked : all}

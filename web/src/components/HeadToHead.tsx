@@ -3,9 +3,28 @@
 import LLMLogo from '@/components/LLMLogo';
 import { MUTED, ModelStats, TEXT, chips, modelHref, netColor } from '@/lib/stats';
 
+// One extra column on the right of the grid (heads-up bb/100 and hands).
+interface Extra {
+  label: string;
+  render: (m: ModelStats) => React.ReactNode;
+}
+
 // Chips won from each opponent in pots they both played. With `focus`, one model's opponents
-// as a list; without it, the full grid (row model's net against the column model).
-export default function HeadToHead({ models, focus }: { models: ModelStats[]; focus?: ModelStats }) {
+// as a list; without it, the full grid (row model's net against the column model). `field`
+// picks all shared pots (`vs`, the pairwise results) or heads-up flops only (`heads_up_vs`).
+export default function HeadToHead({
+  models,
+  focus,
+  field = 'vs',
+  extra,
+  caption = 'Pairwise results: chips each row model won from each column model, and pots they played together',
+}: {
+  models: ModelStats[];
+  focus?: ModelStats;
+  field?: 'vs' | 'heads_up_vs';
+  extra?: Extra;
+  caption?: string;
+}) {
   if (focus) {
     const rows = Object.entries(focus.vs ?? {}).sort((a, b) => b[1].net_chips - a[1].net_chips);
     if (rows.length === 0) return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
@@ -37,7 +56,7 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
     );
   }
 
-  if (!models.some(m => Object.keys(m.vs ?? {}).length > 0)) {
+  if (!models.some(m => Object.keys(m[field] ?? {}).length > 0)) {
     return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
   }
 
@@ -51,9 +70,9 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
       {/* cq units resolve against the wrapper above, never the element that sets them. */}
       <table
         className="w-full h-full min-h-[180px] table-fixed tabular-nums border-collapse whitespace-nowrap"
-        style={{ minWidth: 56 * (models.length + 1), fontSize: 'clamp(10px, min(2.2cqh, 1.25cqw), 18px)' }}
+        style={{ minWidth: 56 * (models.length + (extra ? 2 : 1)), fontSize: 'clamp(10px, min(2.2cqh, 1.25cqw), 18px)' }}
       >
-        <caption className="sr-only">Head-to-head: chips each row model won from each column model, and pots they played together</caption>
+        <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
             <td className="w-[48px] @3xl:w-[22%]" />
@@ -63,6 +82,7 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
                 <span className="sr-only">{m.name}</span>
               </th>
             ))}
+            {extra && <th scope="col" className="p-1 font-medium w-[15%] text-right" style={{ color: MUTED }}>{extra.label}</th>}
           </tr>
         </thead>
         <tbody>
@@ -75,7 +95,7 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
                 </a>
               </th>
               {models.map(col => {
-                const v = row.vs?.[col.name];
+                const v = row[field]?.[col.name];
                 if (row.name === col.name || !v) {
                   return <td key={col.name} className="p-1 text-center" style={{ color: MUTED, background: 'rgba(55, 53, 47, 0.04)' }}>·</td>;
                 }
@@ -86,6 +106,7 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
                   </td>
                 );
               })}
+              {extra && <td className="p-1 pl-2 text-right border-l border-notion">{extra.render(row)}</td>}
             </tr>
           ))}
         </tbody>

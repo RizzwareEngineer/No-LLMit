@@ -2,11 +2,10 @@
 
 import Card from "@/components/Card";
 import LLMLogo from "@/components/LLMLogo";
-import { useId, useState } from "react";
 import NumberFlow from "@number-flow/react";
 import { motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
-import { HudCard, HudLine, useHud, type CardAlign } from "@/components/Hud";
+import { HudLine, useHud } from "@/components/Hud";
 
 interface PlayerProps {
   player: PlayerState;
@@ -16,7 +15,7 @@ interface PlayerProps {
   winAmount?: number;
   winDesc?: string;
   isThinking?: boolean;
-  cardAlign?: CardAlign;
+  hudSlotId?: string; // the felt's HUD slot, which describes this seat while the tracker line is off
   seatIdx?: number;
   handNumber?: number;
   dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
@@ -51,14 +50,10 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, cardAlign = "center", seatIdx, handNumber = 0, dealDelays }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, hudSlotId, seatIdx, handNumber = 0, dealDelays }: PlayerProps) {
   const reduce = useReducedMotion();
-  const { stats, on: hudOn, followed, toggleFollow } = useHud();
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const cardId = useId();
+  const { stats, on: hudOn, followed, toggleFollow, hover } = useHud();
   const pinned = followed === player.name;
-  const cardOpen = !hudOn && (hovered || focused || pinned);
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const isWinner = winAmount !== undefined && winAmount > 0;
@@ -66,18 +61,18 @@ export default function Player({ player, active, position, folded = false, winAm
   return (
     <div
       className="relative h-full w-full"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocus={() => setFocused(true)}
-      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
-      onKeyDown={(e) => { if (e.key === "Escape") { setHovered(false); setFocused(false); } }}
+      onMouseEnter={() => hover(player.name)}
+      onMouseLeave={() => hover(null)}
+      onFocus={() => hover(player.name)}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) hover(null); }}
+      onKeyDown={(e) => { if (e.key === "Escape") hover(null); }}
     >
     <div
       data-seat={seatIdx}
       role="button"
       tabIndex={0}
       aria-pressed={pinned}
-      aria-describedby={hudOn ? undefined : cardId}
+      aria-describedby={hudOn ? undefined : hudSlotId}
       aria-label={`${player.name}, stack ${player.stack.toLocaleString()}${pinned ? ", following" : ""}`}
       onClick={() => toggleFollow(player.name)}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleFollow(player.name); } }}
@@ -170,7 +165,6 @@ export default function Player({ player, active, position, folded = false, winAm
         </div>
       </div>
     </div>
-    <HudCard id={cardId} stats={stats?.[player.name]} loaded={stats !== null} open={cardOpen} align={cardAlign} />
     </div>
   );
 }

@@ -46,6 +46,18 @@ export interface ModelStats {
   by_position: Record<string, PositionStats>;
   cumulative_bb: [number, number][];
   vs: Record<string, VsStats>;
+  // From engine #21; optional so an older engine or the bundled sample still renders.
+  by_players_to_flop?: Record<'2' | '3' | '4+', FlopBucket>;
+  multiway_share?: { chips_won_pct: number | null; fair_share_pct: number | null };
+  heads_up_vs?: Record<string, VsStats>;
+}
+
+// Hands that reached the flop with this many players (2, 3 or 4+).
+export interface FlopBucket {
+  hands: number;
+  won: number;
+  net_chips: number;
+  bb100: number | null;
 }
 
 export interface StatsSession {
@@ -178,4 +190,10 @@ export const STAT_DEFINITIONS: Record<string, string> = {
   fold_when_check_free: 'Share of decisions where it folded although checking was free. Always a mistake.',
   error_rate: 'Share of decisions where the reply was unusable (unparseable, illegal or timed out) and the engine acted for it.',
   cost_per_hand_usd: 'API cost per hand played, in US dollars.',
+  mw_hands: 'Hands where this model saw a flop with 3 or more players.',
+  mw_won: 'Of those hands, how many it won at least part of a pot.',
+  mw_win: 'Won ÷ hands, over pots that reached the flop with 3 or more players.',
+  mw_bb100_3: 'Big blinds won per 100 hands, over flops seen by exactly 3 players.',
+  mw_bb100_4: 'Big blinds won per 100 hands, over flops seen by 4 or more players.',
+  mw_share: 'Share of the chips in its multiway pots that it won, against its fair share (each pot split evenly among the players who saw the flop, weighted by pot size). Green when above.',
 };

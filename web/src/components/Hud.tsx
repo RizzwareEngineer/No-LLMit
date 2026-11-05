@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DASH, MUTED, ModelStats, STAT_DEFINITIONS, TEXT, ciHalf, pct, signed } from "@/lib/stats";
 
 const STORAGE_KEY = "nollmit.hud";
@@ -11,9 +11,14 @@ export interface HudValue {
   setOn: (on: boolean) => void;
   followed: string | null; // pinned model name
   toggleFollow: (name: string) => void;
+  hovered: string | null; // seat under the pointer or keyboard focus
+  hover: (name: string | null) => void; // null clears after a short grace, so the pointer can reach the slot
+  hold: () => void; // cancels that pending clear
 }
 
-export const HudContext = createContext<HudValue>({ stats: null, on: false, setOn: () => {}, followed: null, toggleFollow: () => {} });
+export const HudContext = createContext<HudValue>({
+  stats: null, on: false, setOn: () => {}, followed: null, toggleFollow: () => {}, hovered: null, hover: () => {}, hold: () => {},
+});
 // The toggle lives in localStorage; useSyncExternalStore reads it after hydration without an effect.
 const listeners = new Set<() => void>();
 const subscribe = (cb: () => void) => { listeners.add(cb); return () => { listeners.delete(cb); }; };
@@ -27,6 +32,14 @@ export function useHudState(models: ModelStats[] | null | undefined): HudValue {
   const stats = useMemo(() => (models ? Object.fromEntries(models.map(m => [m.name, m])) : null), [models]);
   const on = useSyncExternalStore(subscribe, readOn, () => false);
   const [followed, setFollowed] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const clear = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const hold = useCallback(() => clearTimeout(clear.current), []);
+  const hover = useCallback((name: string | null) => {
+    clearTimeout(clear.current);
+    if (name) setHovered(name);
+    else clear.current = setTimeout(() => setHovered(null), 250);
+  }, []);
 
   const setOn = useCallback((v: boolean) => {
     try { localStorage.setItem(STORAGE_KEY, v ? "1" : "0"); } catch { /* not persisted; stays off */ }
@@ -40,7 +53,10 @@ export function useHudState(models: ModelStats[] | null | undefined): HudValue {
   }, []);
   const toggleFollow = useCallback((name: string) => setFollowed(f => (f === name ? null : name)), []);
 
-  return { stats, on, setOn, followed, toggleFollow };
+  return useMemo(
+    () => ({ stats, on, setOn, followed, toggleFollow, hovered, hover, hold }),
+    [stats, on, setOn, followed, toggleFollow, hovered, hover, hold],
+  );
 }
 
 const bb100 = (m: ModelStats) => {
@@ -64,59 +80,61 @@ export function HudLine({ stats }: { stats: ModelStats | undefined }) {
   );
 }
 
-// Hover/pin card. Always in the DOM so aria-describedby on the seat resolves; hidden unless open.
-// Where the card opens, relative to the seat; it touches the seat so the mouse can travel into it.
-// down-*: below; up-*: above; felt-left/felt-right: beside a side-column seat, toward the felt.
-export type CardAlign = "left" | "center" | "right" | "up-left" | "up-center" | "up-right" | "felt-left" | "felt-right";
-const POS: Record<CardAlign, string> = {
-  left: "top-full left-0",
-  center: "top-full left-1/2 -translate-x-1/2",
-  right: "top-full right-0",
-  "up-left": "bottom-full left-0",
-  "up-center": "bottom-full left-1/2 -translate-x-1/2",
-  "up-right": "bottom-full right-0",
-  "felt-left": "top-0 left-full",
-  "felt-right": "top-0 right-full",
-};
-
-export function HudCard({ id, stats, loaded, open, align }: { id: string; stats: ModelStats | undefined; loaded: boolean; open: boolean; align: CardAlign }) {
-  const rows = stats
+// The HUD's one fixed slot on the felt, under the board and pot: the hovered or focused seat's
+// four numbers, else the pinned seat's. Its height is reserved so the board never moves.
+export function HudSlot({ id }: { id: string }) {
+  const { stats, on, followed, hovered, hover, hold } = useHud();
+  const name = on ? null : hovered ?? followed;
+  const m = name ? stats?.[name] : undefined;
+  const rows = m
     ? [
-        { key: "bb100", label: "bb/100", value: <>{bb100(stats).value} <span style={{ color: MUTED }}>{bb100(stats).ci}</span></> },
-        { key: "vpip", label: "VPIP", value: pct(stats.vpip) },
-        { key: "pfr", label: "PFR", value: pct(stats.pfr) },
-        { key: "af", label: "AF", value: af(stats) },
+        { key: "bb100", label: "bb/100", value: <>{bb100(m).value} <span style={{ color: MUTED }}>{bb100(m).ci}</span></> },
+        { key: "vpip", label: "VPIP", value: pct(m.vpip) },
+        { key: "pfr", label: "PFR", value: pct(m.pfr) },
+        { key: "af", label: "AF", value: af(m) },
       ]
     : [];
   return (
     <div
       id={id}
-      role="group"
-      hidden={!open}
-      className={`absolute z-30 w-[168px] rounded bg-white p-2.5 text-[12px] tabular-nums ${POS[align]}`}
-      style={{ color: TEXT, boxShadow: "rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px" }}
+      aria-live="polite"
+      onMouseEnter={hold}
+      onMouseLeave={() => hover(null)}
+      onFocus={hold}
+      onBlur={() => hover(null)}
+      className="h-[60px] md:h-[44px] flex flex-col items-center justify-center text-[12px] tabular-nums"
+      style={{ color: TEXT, visibility: on ? "hidden" : undefined }}
     >
-      {stats ? (
-        <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-          {rows.map(r => (
-            <div key={r.key} className="contents">
-              <dt className="group relative">
-                <span tabIndex={0} aria-describedby={`${id}-${r.key}`} className="cursor-help underline decoration-dotted underline-offset-2" style={{ color: MUTED }}>{r.label}</span>
-                <span
-                  id={`${id}-${r.key}`}
-                  role="tooltip"
-                  className="hidden group-hover:block group-focus-within:block absolute left-0 top-full mt-1 z-40 w-[168px] rounded bg-white p-2 text-[11px] leading-snug"
-                  style={{ color: TEXT, boxShadow: "rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px" }}
-                >
-                  {STAT_DEFINITIONS[r.key]}
-                </span>
-              </dt>
-              <dd className="m-0 text-right font-semibold">{r.value}</dd>
-            </div>
-          ))}
-        </dl>
+      {!name ? (
+        <span className="text-[11px]" style={{ color: MUTED }}>Hover a seat for its stats; click to pin.</span>
       ) : (
-        <span style={{ color: MUTED }}>{loaded ? "No stats yet" : "Stats loading…"}</span>
+        <div className="rounded bg-white px-2.5 py-1" style={{ boxShadow: "rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px" }}>
+          <div className="text-[11px] font-semibold text-center truncate max-w-[320px]">
+            {name}{followed === name && <span className="font-normal" style={{ color: MUTED }}> · pinned</span>}
+          </div>
+          {m ? (
+            <dl className="m-0 flex flex-wrap justify-center gap-x-3">
+              {rows.map(r => (
+                <div key={r.key} className="flex gap-1 items-baseline whitespace-nowrap">
+                  <dt className="group relative">
+                    <span tabIndex={0} aria-describedby={`${id}-${r.key}`} className="cursor-help underline decoration-dotted underline-offset-2" style={{ color: MUTED }}>{r.label}</span>
+                    <span
+                      id={`${id}-${r.key}`}
+                      role="tooltip"
+                      className="hidden group-hover:block group-focus-within:block absolute left-0 bottom-full mb-1 z-40 w-[168px] rounded bg-white p-2 text-[11px] leading-snug"
+                      style={{ color: TEXT, boxShadow: "rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px" }}
+                    >
+                      {STAT_DEFINITIONS[r.key]}
+                    </span>
+                  </dt>
+                  <dd className="m-0 font-semibold">{r.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <span style={{ color: MUTED }}>{stats ? "No stats yet" : "Stats loading…"}</span>
+          )}
+        </div>
       )}
     </div>
   );

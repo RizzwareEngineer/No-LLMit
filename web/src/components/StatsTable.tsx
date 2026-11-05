@@ -34,24 +34,28 @@ const COLUMNS: Column[] = [
   { key: 'cost_per_hand_usd', core: true, label: 'Cost/hand', value: m => m.cost_per_hand_usd, render: m => `$${m.cost_per_hand_usd.toFixed(4)}`, lowerIsBetter: true },
 ];
 
-function HeaderCell({ col, sort, onSort }: { col: Column; sort: { key: string; desc: boolean }; onSort: () => void }) {
+// A column header with its definition on hover or focus. Without `onSort` it is a plain label
+// (a fixed-order table); `sort` then only marks the column the rows are ordered by.
+export function HeaderCell({ col, sort, onSort }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void }) {
   const [open, setOpen] = useState(false);
   const tipId = useId();
   const active = sort.key === col.key;
   return (
     <th
       scope="col"
-      aria-sort={active ? (sort.desc ? 'descending' : 'ascending') : 'none'}
+      aria-sort={active ? (sort.desc ? 'descending' : 'ascending') : onSort ? 'none' : undefined}
       className="relative p-2 font-medium text-right align-bottom leading-tight"
       style={{ color: active ? TEXT : MUTED }}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
       <span className="inline-flex items-end justify-end gap-0.5">
-        <button onClick={onSort} className="hover:underline text-right">
-          {col.label}
-          {active && (sort.desc ? <CaretDown size={10} weight="bold" aria-hidden /> : <CaretUp size={10} weight="bold" aria-hidden />)}
-        </button>
+        {onSort ? (
+          <button onClick={onSort} className="hover:underline text-right">
+            {col.label}
+            {active && (sort.desc ? <CaretDown size={10} weight="bold" aria-hidden /> : <CaretUp size={10} weight="bold" aria-hidden />)}
+          </button>
+        ) : col.label}
         <button
           onClick={() => setOpen(true)} // not a toggle: hover and focus already opened it
           onFocus={() => setOpen(true)}
