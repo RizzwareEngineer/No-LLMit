@@ -5,8 +5,8 @@ import { animate, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { playSound } from "@/lib/sound";
 
-// Seconds. A whole deal (9 seats) lands in under a second, well inside the thinking phase.
-export const DEAL_STAGGER = 0.06;
+// Seconds. Two rounds of cards to 9 seats land in about 1.1 s, well inside the thinking phase.
+export const DEAL_STAGGER = 0.04;
 export const FLIGHT = 0.4;
 
 // Deal order: the seat left of the button gets the first card.
@@ -15,9 +15,14 @@ export function dealOrder(players: PlayerState[], idx: number) {
   return (idx - button - 1 + players.length) % players.length;
 }
 
+// When a seat's card `round` (0 or 1) leaves the felt: one card to each seat, then the second.
+export function dealStart(players: PlayerState[], idx: number, round: number) {
+  return (round * players.length + dealOrder(players, idx)) * DEAL_STAGGER;
+}
+
 interface Snapshot {
   hand: number;
-  bets: Record<string, number>;
+  stacks: Record<string, number>;
   board: number;
   winners: string;
 }
@@ -37,10 +42,16 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: DOMRect | null, to
   el.className = `flight-${kind}`;
   el.style.opacity = '0';
   layer.appendChild(el);
-  const x = [from.left + from.width / 2, to.left + to.width / 2];
-  const y = [from.top + from.height / 2, to.top + to.height / 2];
-  // Fade only in the last fifth, once it has reached the pot or seat.
-  animate(el, { x, y, opacity: [1, 1, 0] }, { duration: FLIGHT, delay, ease: 'easeOut', opacity: { duration: FLIGHT, delay, times: [0, 0.8, 1] } }).then(() => el.remove());
+  const [x0, y0] = [from.left + from.width / 2, from.top + from.height / 2];
+  const [x1, y1] = [to.left + to.width / 2, to.top + to.height / 2];
+  // Chips are tossed in a low arc; cards slide flat across the felt.
+  const lift = kind === 'chip' ? Math.min(60, 20 + Math.hypot(x1 - x0, y1 - y0) * 0.15) : 0;
+  animate(el, { x: [x0, x1], y: [y0, (y0 + y1) / 2 - lift, y1], opacity: [1, 1, 0] }, {
+    x: { duration: FLIGHT, delay, ease: 'easeOut' },
+    y: { duration: FLIGHT, delay, times: [0, 0.4, 1], ease: ['easeOut', 'easeIn'] },
+    // Fade only in the last fifth, once it has reached the pot or seat.
+    opacity: { duration: FLIGHT, delay, times: [0, 0.8, 1] },
+  }).then(() => el.remove());
 }
 
 interface TableMotionProps {
@@ -55,6 +66,7 @@ interface TableMotionProps {
 export default function TableMotion({ players, handNumber, boardCount, winnerIdxs }: TableMotionProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const prev = useRef<Snapshot | null>(null);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const reduce = useReducedMotion();
   const winners = winnerIdxs.length ? `${handNumber}:${winnerIdxs.join(',')}` : '';
 
@@ -62,34 +74,41 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
     const before = prev.current;
     const now: Snapshot = {
       hand: handNumber,
-      bets: Object.fromEntries(players.map(p => [p.id, p.currentBet])),
+      stacks: Object.fromEntries(players.map(p => [p.id, p.stack])),
       board: boardCount,
       winners,
     };
     prev.current = now;
     if (!before || players.length === 0) return;
 
-    // No flights in a background tab: they would queue up until it is shown again.
-    const layer = reduce || document.hidden ? null : layerRef.current;
+    // Nothing in a background tab: flights and sounds would queue up until it is shown again.
+    if (document.hidden) return;
+    const layer = reduce ? null : layerRef.current;
     const newHand = now.hand !== before.hand;
     const seat = (idx: number) => visibleRect(`[data-seat="${idx}"]`);
 
     if (newHand) {
       layer?.replaceChildren(); // drop any flight stuck while frames were paused
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
       players.forEach((p, idx) => {
-        if (!p.holeCards?.length) return;
-        const delay = dealOrder(players, idx) * DEAL_STAGGER;
-        if (layer) fly(layer, 'card', visibleRect('[data-felt-cards]'), visibleRect(`[data-seat="${idx}"] [data-hole]`), delay);
-        setTimeout(() => playSound('deal'), delay * 1000);
+        p.holeCards?.forEach((_, round) => {
+          const delay = dealStart(players, idx, round);
+          const target = visibleRect(`[data-seat="${idx}"] [data-hole] > :nth-child(${round + 1})`);
+          if (layer) fly(layer, 'card', visibleRect('[data-felt-cards]'), target, delay);
+          timers.current.push(setTimeout(() => playSound('deal'), delay * 1000));
+        });
       });
     } else if (now.board > before.board) {
       playSound('deal');
     }
 
+    // Chips in: the stack went down. The engine zeroes currentBet before it broadcasts the
+    // action that closes a street, so currentBet is only used for the blinds of a new hand.
     let chips = false;
     players.forEach((p, idx) => {
-      const was = newHand ? 0 : before.bets[p.id] ?? 0;
-      if (p.currentBet > was) {
+      const put = newHand ? p.currentBet > 0 : p.stack < (before.stacks[p.id] ?? p.stack);
+      if (put) {
         chips = true;
         if (layer) fly(layer, 'chip', seat(idx), visibleRect('[data-pot]'));
       }
@@ -97,14 +116,21 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
     if (chips) playSound('chip');
 
     if (winners && winners !== before.winners) {
+      // If the last call came in with this state, let it reach the pot first.
+      const after = chips ? FLIGHT : 0;
       winnerIdxs.forEach((idx, i) => {
-        if (layer) fly(layer, 'chip', visibleRect('[data-pot]'), seat(idx), i * DEAL_STAGGER);
+        if (layer) fly(layer, 'chip', visibleRect('[data-pot]'), seat(idx), after + i * 0.06);
       });
       playSound('showdown');
     }
     // winnerIdxs is summarised by `winners`
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [players, handNumber, boardCount, winners, reduce]);
+
+  useEffect(() => {
+    const pending = timers;
+    return () => pending.current.forEach(clearTimeout);
+  }, []);
 
   return <div ref={layerRef} aria-hidden className="pointer-events-none fixed inset-0 z-40 overflow-hidden" />;
 }

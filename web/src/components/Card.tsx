@@ -10,7 +10,7 @@ interface CardProps {
   className?: string;
   faceDown?: boolean;
   delay?: number; // seconds before it appears (dealt cards land one after another)
-  flip?: boolean; // turn over in place instead of sliding up (community cards)
+  flip?: boolean; // turn over from its back instead of sliding up (community cards)
 }
 
 const RANK_NAMES: Record<string, string> = {
@@ -47,21 +47,29 @@ const Card = ({ value, className = "", faceDown = false, delay = 0, flip = false
   const suitName = SUIT_NAMES[suit];
   const label = faceDown || !suitName ? 'hidden card' : `${rankName} of ${suitName}`;
   
+  const back = (
+    <div className="w-full h-full bg-gradient-to-br from-blue-800 to-blue-600 flex items-center justify-center rounded">
+      <div className="w-3/4 h-3/4 border-2 border-blue-300 rounded opacity-50"></div>
+    </div>
+  );
+  // While flipping, each face hides when turned away, so the back shows for the first half.
+  const hideBackface = flip ? { backfaceVisibility: 'hidden' as const } : undefined;
+
   return (
     <motion.div 
-      initial={reduce ? false : flip ? { opacity: 0, rotateY: 90 } : { opacity: 0, y: 20 }}
+      initial={reduce ? false : flip ? { opacity: 0, rotateY: 180 } : { opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0, rotateY: 0 }}
-      transition={{ duration: flip ? 0.35 : 0.2, delay }}
+      transition={{ duration: flip ? 0.45 : 0.2, delay, opacity: { duration: flip ? 0.1 : 0.2, delay } }}
       role="img"
       aria-label={label}
       className={`relative bg-white flex items-center justify-center rounded ${className}`}
-      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px', transformPerspective: 400 }}
+      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px', transformPerspective: 400, transformStyle: flip ? 'preserve-3d' : undefined }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       {(!faceDown || isHovered) ? (
         // Face up card
-        <div aria-hidden className="flex flex-row gap-1 items-center justify-center w-full h-full" style={{ color: 'rgb(55, 53, 47)' }}>
+        <div aria-hidden className="flex flex-row gap-1 items-center justify-center w-full h-full" style={{ color: 'rgb(55, 53, 47)', ...hideBackface }}>
           <span className={`font-bold ${rankText === '10' ? 'text-[10px] sm:text-[11px] -mr-0.5' : 'text-xs sm:text-sm'}`}>{rankText}</span>
           {suit === 'h' && <Heart className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
           {suit === 'd' && <Diamond className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
@@ -70,8 +78,11 @@ const Card = ({ value, className = "", faceDown = false, delay = 0, flip = false
         </div>
       ) : (
         // Face down card
-        <div className="w-full h-full bg-gradient-to-br from-blue-800 to-blue-600 flex items-center justify-center rounded">
-          <div className="w-3/4 h-3/4 border-2 border-blue-300 rounded opacity-50"></div>
+        back
+      )}
+      {flip && (
+        <div aria-hidden className="absolute inset-0" style={{ transform: 'rotateY(180deg)', ...hideBackface }}>
+          {back}
         </div>
       )}
     </motion.div>

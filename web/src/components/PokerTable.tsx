@@ -2,7 +2,8 @@
 
 import Player from "@/components/Player";
 import TableFelt from "@/components/TableFelt";
-import TableMotion, { DEAL_STAGGER, FLIGHT, dealOrder } from "@/components/TableMotion";
+import { useState } from "react";
+import TableMotion, { FLIGHT, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import type { ButtonDetermination } from "@/hooks/useGameState";
 
@@ -47,6 +48,11 @@ export default function PokerTable({
   hidePositions = false,
   notice,
 }: PokerTableProps) {
+  // A late joiner sees the hand already dealt; only hands dealt while watching wait for their flight.
+  const [firstHand, setFirstHand] = useState(0);
+  if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
+  const dealt = firstHand > 0 && handNumber !== firstHand;
+
   if (players.length === 0) {
     return (
       <div 
@@ -70,7 +76,8 @@ export default function PokerTable({
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
       seatIdx={idx}
-      dealDelay={dealOrder(players, idx) * DEAL_STAGGER + FLIGHT}
+      handNumber={handNumber}
+      dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + FLIGHT) : undefined}
     />
   );
 

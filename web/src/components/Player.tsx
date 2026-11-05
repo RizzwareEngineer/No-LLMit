@@ -15,7 +15,8 @@ interface PlayerProps {
   winDesc?: string;
   isThinking?: boolean;
   seatIdx?: number;
-  dealDelay?: number; // seconds until this seat's dealt cards land
+  handNumber?: number;
+  dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
 }
 
 // Position badge colors
@@ -47,7 +48,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, seatIdx, dealDelay = 0 }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, seatIdx, handNumber = 0, dealDelays }: PlayerProps) {
   const reduce = useReducedMotion();
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
@@ -76,17 +77,17 @@ export default function Player({ player, active, position, folded = false, winAm
               <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤<NumberFlow value={player.stack} /></div>
             </div>
           </div>
-          {/* A folded hand slides down and fades while the seat dims */}
+          {/* A folded hand slides down while the seat dims */}
           <motion.div
             data-hole
             className="flex flex-row items-center gap-1 shrink-0"
             initial={false}
-            animate={folded ? { y: 6, opacity: 0.5 } : { y: 0, opacity: 1 }}
+            animate={{ y: folded ? 4 : 0 }}
             transition={{ duration: reduce ? 0 : 0.3 }}
           >
             {cards.length > 0 ? (
               cards.map((card, i) => (
-                <Card key={`${card}-${i}`} value={card} className="w-7 h-10" delay={dealDelay} />
+                <Card key={`${handNumber}-${card}-${i}`} value={card} className="w-7 h-10" delay={dealDelays?.[i] ?? 0} />
               ))
             ) : (
               <>
