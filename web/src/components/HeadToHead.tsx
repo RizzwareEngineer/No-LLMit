@@ -1,12 +1,11 @@
 'use client';
 
 import LLMLogo from '@/components/LLMLogo';
-import { MUTED, ModelStats, TEXT, chips, netColor } from '@/lib/stats';
+import { MUTED, ModelStats, TEXT, chips, modelHref, netColor } from '@/lib/stats';
 
 // Chips won from each opponent in pots they both played. With `focus`, one model's opponents
 // as a list; without it, the full grid (row model's net against the column model).
-// onSelect opens a model's detail.
-export default function HeadToHead({ models, focus, onSelect }: { models: ModelStats[]; focus?: ModelStats; onSelect: (name: string) => void }) {
+export default function HeadToHead({ models, focus }: { models: ModelStats[]; focus?: ModelStats }) {
   if (focus) {
     const rows = Object.entries(focus.vs ?? {}).sort((a, b) => b[1].net_chips - a[1].net_chips);
     if (rows.length === 0) return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
@@ -24,10 +23,10 @@ export default function HeadToHead({ models, focus, onSelect }: { models: ModelS
           {rows.map(([name, v]) => (
             <tr key={name} className="lift">
               <th scope="row" className="text-left font-medium p-2">
-                <button onClick={() => onSelect(name)} className="flex items-center gap-2 hover:underline text-left" style={{ color: TEXT }}>
+                <a href={modelHref(name)} className="flex items-center gap-2 hover:underline" style={{ color: TEXT }}>
                   <LLMLogo model={name} size={18} />
                   {name}
-                </button>
+                </a>
               </th>
               <td className="text-right p-2">{v.pots}</td>
               <td className="text-right p-2 font-bold" style={{ color: netColor(v.net_chips) }}>{chips(v.net_chips)}</td>
@@ -61,10 +60,10 @@ export default function HeadToHead({ models, focus, onSelect }: { models: ModelS
           {models.map(row => (
             <tr key={row.name} className="border-t border-notion">
               <th scope="row" className="text-left font-medium p-1 pr-2 whitespace-nowrap">
-                <button onClick={() => onSelect(row.name)} className="flex items-center gap-1.5 hover:underline text-left" style={{ color: TEXT }}>
+                <a href={modelHref(row.name)} className="flex items-center gap-1.5 hover:underline" style={{ color: TEXT }}>
                   <LLMLogo model={row.name} size={18} />
                   {row.name}
-                </button>
+                </a>
               </th>
               {models.map(col => {
                 const v = row.vs?.[col.name];

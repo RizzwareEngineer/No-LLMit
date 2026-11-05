@@ -13,15 +13,36 @@ import ModelDrawer from "@/components/ModelDrawer";
 import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
-import { modelSlug, useStats } from "@/lib/stats";
+import { useStats } from "@/lib/stats";
 
-// The URL hash, so #model=<slug> opens the model drawer and the Back button closes it.
+// The URL hash: #model=<slug> opens the model drawer, and Back closes it.
+// openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
+// closing it should step back instead of leaving an extra entry behind.
+const isModelHash = (h: string) => h.startsWith("#model=");
+let lastHash = "";
+let openedInPage = false;
+let goingBack = false; // history.back() is async: ignore a second close until the hash changes
 const subscribeHash = (cb: () => void) => {
-  window.addEventListener("hashchange", cb);
-  return () => window.removeEventListener("hashchange", cb);
+  lastHash = window.location.hash;
+  openedInPage = false;
+  const onChange = () => {
+    const h = window.location.hash;
+    if (isModelHash(h) && !isModelHash(lastHash)) openedInPage = true;
+    lastHash = h;
+    goingBack = false;
+    cb();
+  };
+  window.addEventListener("hashchange", onChange);
+  return () => window.removeEventListener("hashchange", onChange);
 };
-const openModel = (name: string) => { window.location.hash = `model=${modelSlug(name)}`; };
 const closeModel = () => {
+  if (!isModelHash(window.location.hash) || goingBack) return; // Back already left the drawer's entry
+  if (openedInPage) {
+    openedInPage = false;
+    goingBack = true;
+    history.back();
+    return;
+  }
   history.replaceState(null, "", window.location.pathname + window.location.search);
   window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
 };
@@ -107,11 +128,11 @@ export default function Home() {
   const isHandComplete = street === 'complete';
 
   // All-time stats feed the leaderboard and drawer; the session picker below the table may
-  // narrow the sections. Both refetch as each hand finishes.
+  // narrow the sections. Both refetch as each hand finishes; a finished session never changes.
   const [session, setSession] = useState('');
   const all = useStats(undefined, true, handNumber);
-  const picked = useStats(session || undefined, !!session, handNumber);
-  const liveSession = all.data?.sessions.find(s => !s.ended_at);
+  const pickedLive = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
+  const picked = useStats(session || undefined, !!session, pickedLive ? handNumber : undefined);
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
   const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
@@ -121,7 +142,8 @@ export default function Home() {
   // starts out of view, as it does after a deep link to #stats.
   const [tableInView, setTableInView] = useState(true);
   useEffect(() => {
-    const io = new IntersectionObserver(([e]) => setTableInView(e.isIntersecting));
+    // The top 44px sit under the bar itself, so they do not count as visible.
+    const io = new IntersectionObserver(([e]) => setTableInView(e.isIntersecting), { rootMargin: '-44px 0px 0px 0px' });
     if (tableRef.current) io.observe(tableRef.current);
     return () => io.disconnect();
   }, []);
@@ -208,10 +230,7 @@ export default function Home() {
           )}
         </div>
 
-        <SessionProgress
-          table={usageError ? undefined : usage?.table}
-          label={liveSession ? `This session: ${liveSession.hands.toLocaleString()} hands` : `${handNumber.toLocaleString()} hands today`}
-        />
+        <SessionProgress table={usageError ? undefined : usage?.table} />
 
         {/* Main content */}
         <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
@@ -236,7 +255,7 @@ export default function Home() {
               {/* Right sidebar column - leaderboard, then API usage */}
               <div className="flex flex-col w-full md:w-[240px] shrink-0">
                 <div className="flex-1 flex flex-col min-h-0">
-                  <WinningsPanel players={players} stats={all.sample ? null : all.data} onSelect={openModel} />
+                  <WinningsPanel players={players} stats={all.sample ? null : all.data} />
                 </div>
                 <div className="mt-4">
                   <UsageIndicator usage={usage} error={usageError} />
@@ -259,7 +278,6 @@ export default function Home() {
                 picked={session ? picked : all}
                 session={session}
                 onSession={setSession}
-                onSelect={openModel}
               />
             </div>
           </div>
@@ -267,7 +285,7 @@ export default function Home() {
       </main>
 
       <StickyBar show={!tableInView && players.length > 0} pot={pot} handNumber={handNumber} display={displayState} />
-      <ModelDrawer models={all.data?.models ?? []} slug={drawerSlug} onSelect={openModel} onClose={closeModel} />
+      <ModelDrawer models={all.data?.models ?? []} error={all.error} loading={all.loading} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status/errors */}
       {(!isConnected || error) && (

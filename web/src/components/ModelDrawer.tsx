@@ -4,7 +4,8 @@ import { useEffect, useRef } from 'react';
 import { X } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
 import HeadToHead from '@/components/HeadToHead';
-import { SmallSampleNote } from '@/components/StatsPanel';
+import CumulativeChart from '@/components/CumulativeChart';
+import { SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
 import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, ciHalf, modelSlug, netColor, pct, signed, chips } from '@/lib/stats';
 
 const POSITION_ORDER = ['UTG', 'UTG+1', 'UTG+2', 'MP', 'LJ', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
@@ -39,13 +40,15 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
 // (styles in globals.css). The dialog gives focus trapping, Escape and an inert page for free.
 export default function ModelDrawer({
   models,
+  error,
+  loading,
   slug,
-  onSelect,
   onClose,
 }: {
   models: ModelStats[];
+  error: string | null;
+  loading: boolean;
   slug: string | null;
-  onSelect: (name: string) => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -73,7 +76,18 @@ export default function ModelDrawer({
       onClose={onClose}
       onClick={e => e.target === e.currentTarget && onClose()} // the backdrop
     >
-      <div data-scroll className="h-full overflow-y-auto overscroll-contain p-5">
+      <div
+        data-scroll
+        className="h-full overflow-y-auto overscroll-contain p-5"
+        // Switching models inside the drawer replaces its history entry, so Back and close
+        // leave the drawer instead of stepping through every model viewed.
+        onClick={e => {
+          const a = (e.target as HTMLElement).closest('a[href^="#model="]');
+          if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+          e.preventDefault();
+          window.location.replace(a.getAttribute('href')!);
+        }}
+      >
         <div className="flex items-start gap-3">
           {m && <LLMLogo model={m.name} size={36} />}
           <div className="flex-1 min-w-0">
@@ -88,7 +102,9 @@ export default function ModelDrawer({
         </div>
 
         {!m ? (
-          <p className="mt-6 text-[14px]" style={{ color: MUTED }}>{models.length ? 'No stats for this model yet.' : 'Loading stats…'}</p>
+          <div className="mt-6">
+            {models.length ? <p className="text-[14px]" style={{ color: MUTED }}>No stats for this model yet.</p> : <StatsMessage error={error} loading={loading} />}
+          </div>
         ) : (
           <>
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3">
@@ -106,6 +122,10 @@ export default function ModelDrawer({
                 <SmallSampleNote>Fewer than {MIN_HANDS} hands, so this win rate is mostly luck so far.</SmallSampleNote>
               </div>
             )}
+
+            <Block title="Results">
+              <CumulativeChart models={[m]} selected={m.name} />
+            </Block>
 
             <Block title="By position">
               {positions.length === 0 ? (
@@ -138,7 +158,7 @@ export default function ModelDrawer({
             </Block>
 
             <Block title="Head to head">
-              <HeadToHead models={models} focus={m} onSelect={onSelect} />
+              <HeadToHead models={models} focus={m} />
             </Block>
 
             <Block title="Biggest pots">

@@ -3,7 +3,7 @@
 import { useId, useState } from 'react';
 import { CaretDown, CaretUp, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
-import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciHalf, netColor, pct, signed } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signed } from '@/lib/stats';
 
 interface Column {
   key: keyof typeof STAT_DEFINITIONS;
@@ -80,7 +80,7 @@ function HeaderCell({ col, sort, onSort }: { col: Column; sort: { key: string; d
 }
 
 // Every model's stats, sortable. Collapsed to the core columns until "All stats" is pressed.
-export default function StatsTable({ models, onSelect }: { models: ModelStats[]; onSelect: (name: string) => void }) {
+export default function StatsTable({ models }: { models: ModelStats[] }) {
   const [sort, setSort] = useState({ key: 'bb100', desc: true });
   const [all, setAll] = useState(false);
   const columns = all ? COLUMNS : COLUMNS.filter(c => c.core);
@@ -109,13 +109,13 @@ export default function StatsTable({ models, onSelect }: { models: ModelStats[];
             {sorted.map(m => (
               <tr key={m.name} className="lift">
                 <th scope="row" className="p-2 text-left font-bold sticky left-0 bg-white whitespace-nowrap">
-                  <button onClick={() => onSelect(m.name)} className="flex items-center gap-2 hover:underline text-left" style={{ color: TEXT }}>
+                  <a href={modelHref(m.name)} className="flex items-center gap-2 hover:underline" style={{ color: TEXT }}>
                     <LLMLogo model={m.name} size={20} />
                     {m.name}
                     {m.hands < MIN_HANDS && (
                       <Warning size={13} weight="bold" style={{ color: 'rgb(140, 95, 20)' }} aria-label={`Fewer than ${MIN_HANDS} hands`} />
                     )}
-                  </button>
+                  </a>
                 </th>
                 {columns.map(c => <td key={c.key} className="p-2 text-right whitespace-nowrap">{c.render(m)}</td>)}
               </tr>

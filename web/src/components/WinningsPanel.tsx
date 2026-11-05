@@ -4,12 +4,11 @@ import { motion } from "motion/react";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
-import { StatsResponse, chips, netColor } from "@/lib/stats";
+import { StatsResponse, chips, modelHref, netColor } from "@/lib/stats";
 
 interface WinningsPanelProps {
   players: PlayerState[];
   stats: StatsResponse | null; // all-time, refetched by the page after each hand
-  onSelect: (name: string) => void;
 }
 
 interface Row {
@@ -17,7 +16,7 @@ interface Row {
   net: number;
 }
 
-export default function WinningsPanel({ players, stats, onSelect }: WinningsPanelProps) {
+export default function WinningsPanel({ players, stats }: WinningsPanelProps) {
   // All-time net chips from /api/stats; until the first good response the panel shows this
   // game's in-memory winnings. The page keeps the last good response, so the source does not flip.
   const statsRows: Row[] | null = stats?.models.map(m => ({ name: m.name, net: m.net_chips })) ?? null;
@@ -38,17 +37,17 @@ export default function WinningsPanel({ players, stats, onSelect }: WinningsPane
       <div className="flex-1 overflow-auto">
         {/* Keyed by source: switching from this game's winnings to all-time stats remounts
             the list instead of sliding every row to its new place. */}
-        {rows.length > 0 && <Rankings key={statsRows ? 'stats' : 'game'} rows={rows} onSelect={onSelect} />}
+        {rows.length > 0 && <Rankings key={statsRows ? 'stats' : 'game'} rows={rows} />}
       </div>
     </div>
   );
 }
 
-function RankingItem({ row, rank, onSelect }: { row: Row; rank: number; onSelect: (name: string) => void }) {
+function RankingItem({ row, rank }: { row: Row; rank: number }) {
   const color = netColor(row.net);
 
   return (
-    <button onClick={() => onSelect(row.name)} className="lift w-full text-left flex flex-row items-center gap-2 p-2 px-3">
+    <a href={modelHref(row.name)} className="lift flex flex-row items-center gap-2 p-2 px-3">
       <span className="text-[12px] w-5 font-bold tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{rank}.</span>
       <LLMLogo model={row.name} size={20} />
       <div className="flex-1 min-w-0">
@@ -59,19 +58,19 @@ function RankingItem({ row, rank, onSelect }: { row: Row; rank: number; onSelect
         {row.net < 0 && <CaretDown size={11} weight="bold" aria-hidden />}
         {chips(row.net)}
       </div>
-    </button>
+    </a>
   );
 }
 
 // Sorted by net chips. motion's layout animation slides rows to their new rank; not draggable.
-function Rankings({ rows, onSelect }: { rows: Row[]; onSelect: (name: string) => void }) {
+function Rankings({ rows }: { rows: Row[] }) {
   const ranked = [...rows].sort((a, b) => b.net - a.net);
 
   return (
     <ol className="flex flex-col divide-y divide-black/10">
       {ranked.map((row, index) => (
         <motion.li key={row.name} layout="position" initial={false} transition={{ duration: 0.3 }}>
-          <RankingItem row={row} rank={index + 1} onSelect={onSelect} />
+          <RankingItem row={row} rank={index + 1} />
         </motion.li>
       ))}
     </ol>
