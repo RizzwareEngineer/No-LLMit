@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
 import { motion } from "motion/react";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
-import { chips, fetchStats, modelSlug, netColor } from "@/lib/stats";
+import { StatsResponse, chips, modelHref, netColor } from "@/lib/stats";
 
 interface WinningsPanelProps {
   players: PlayerState[];
-  handNumber: number;
+  stats: StatsResponse | null; // all-time, refetched by the page after each hand
 }
 
 interface Row {
@@ -18,17 +16,10 @@ interface Row {
   net: number;
 }
 
-export default function WinningsPanel({ players, handNumber }: WinningsPanelProps) {
-  // All-time net chips from /api/stats, refreshed after each hand; until the first
-  // good response the panel shows this game's in-memory winnings.
-  const [statsRows, setStatsRows] = useState<Row[] | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetchStats()
-      .then(s => !cancelled && setStatsRows(s.models.map(m => ({ name: m.name, net: m.net_chips }))))
-      .catch(() => {}); // keep the last good rows so the panel does not flip sources between hands
-    return () => { cancelled = true; };
-  }, [handNumber]);
+export default function WinningsPanel({ players, stats }: WinningsPanelProps) {
+  // All-time net chips from /api/stats; until the first good response the panel shows this
+  // game's in-memory winnings. The page keeps the last good response, so the source does not flip.
+  const statsRows: Row[] | null = stats?.models.map(m => ({ name: m.name, net: m.net_chips })) ?? null;
 
   const rows: Row[] = statsRows ?? players.map(p => ({ name: p.name, net: p.winnings || 0 }));
 
@@ -56,7 +47,7 @@ function RankingItem({ row, rank }: { row: Row; rank: number }) {
   const color = netColor(row.net);
 
   return (
-    <Link href={`/stats/${modelSlug(row.name)}`} className="flex flex-row items-center gap-2 p-2 px-3 hover:bg-[rgba(55,53,47,0.04)]">
+    <a href={modelHref(row.name)} className="lift flex flex-row items-center gap-2 p-2 px-3">
       <span className="text-[12px] w-5 font-bold tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{rank}.</span>
       <LLMLogo model={row.name} size={20} />
       <div className="flex-1 min-w-0">
@@ -67,7 +58,7 @@ function RankingItem({ row, rank }: { row: Row; rank: number }) {
         {row.net < 0 && <CaretDown size={11} weight="bold" aria-hidden />}
         {chips(row.net)}
       </div>
-    </Link>
+    </a>
   );
 }
 
