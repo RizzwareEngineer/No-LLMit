@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 // Display pacing. Mirrors what the frontend used to do on its own clock.
@@ -77,12 +78,13 @@ type Table struct {
 	hoursZone *time.Location
 }
 
-func NewTable() *Table {
+// onSaved, if set, is called with each hand once it is saved.
+func NewTable(onSaved func(history.HandRecord)) *Table {
 	idBytes := make([]byte, 3)
 	rand.Read(idBytes)
 	t := &Table{
 		id:           "tbl_" + hex.EncodeToString(idBytes),
-		store:        NewHandStore(),
+		store:        NewHandStore(onSaved),
 		spectators:   make(map[*websocket.Conn]*spectator),
 		dailyCallCap: envInt("DAILY_CALL_CAP", 5000),
 		pace:         envFloat("TABLE_PACE", 1),

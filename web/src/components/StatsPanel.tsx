@@ -1,5 +1,4 @@
 import { Warning } from '@phosphor-icons/react';
-import CornerBorders from '@/components/CornerBorders';
 import { MUTED, TEXT } from '@/lib/stats';
 
 // Card in the same style as the main page's Profits & Losses panel.
@@ -9,7 +8,6 @@ export default function StatsPanel({ title, children, className = '' }: { title:
       className={`relative bg-white rounded ${className}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
-      <CornerBorders />
       <h2 className="text-xs font-bold uppercase tracking-wider p-3 border-b border-notion" style={{ color: TEXT }}>{title}</h2>
       <div className="p-3">{children}</div>
     </section>

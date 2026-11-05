@@ -35,12 +35,14 @@ func NewServer() *Server {
 }
 
 func (s *Server) Start(port int) error {
-	s.table = NewTable()
+	stats := newStatsCache()
+	s.table = NewTable(stats.Add)
 	go s.table.Run()
 
 	http.HandleFunc("/ws", s.handleWebSocket)
 	http.HandleFunc("/health", s.handleHealth)
 	http.HandleFunc("/api/usage", s.handleCORS(s.handleUsage))
+	http.HandleFunc("/api/stats", s.handleCORS(stats.handle))
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("Starting server on %s", addr)
