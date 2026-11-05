@@ -68,10 +68,12 @@ export default function CumulativeChart({
     return () => ro.disconnect();
   }, []);
 
-  const sel = models.find(m => m.name === selected) ?? models[0];
   const maxHand = Math.max(1, ...models.flatMap(m => m.cumulative_bb.map(p => p[0])));
-  const ys = models.flatMap(m => m.cumulative_bb.map(p => p[1]));
-  if (sel) sel.cumulative_bb.forEach(([n, v]) => ys.push(v + band(sel, n), v - band(sel, n)));
+  // The axis fits the lines as drawn (resampled), so it never reaches past all of them.
+  const drawn = new Map(models.map(m => [m.name, resample(m.cumulative_bb)]));
+  const ys = [...drawn.values()].flatMap(pts => pts.map(p => p[1]));
+  const sel = models.find(m => m.name === selected) ?? models[0];
+  if (sel) drawn.get(sel.name)!.forEach(([n, v]) => ys.push(v + band(sel, n), v - band(sel, n)));
   const yTicks = niceTicks(Math.min(0, ...ys), Math.max(0, ...ys), 5);
   const yMin = yTicks[0];
   const yMax = yTicks[yTicks.length - 1];
@@ -80,7 +82,7 @@ export default function CumulativeChart({
   const x = (n: number) => left + (n / maxHand) * (w - left - PAD.right);
   const y = (v: number) => PAD.top + ((yMax - v) / (yMax - yMin || 1)) * (HEIGHT - PAD.top - PAD.bottom);
   const line = (pts: [number, number][]) => pts.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
-  const selPts = sel ? resample(sel.cumulative_bb) : [];
+  const selPts = sel ? drawn.get(sel.name)! : [];
   const bandPath = sel
     ? line(selPts.map(([n, v]) => [n, v + band(sel, n)])) +
       [...selPts].reverse().map(([n, v]) => `L${x(n)},${y(v - band(sel, n))}`).join('') + 'Z'
@@ -106,7 +108,7 @@ export default function CumulativeChart({
           ))}
           {sel && <motion.path initial={false} animate={{ d: bandPath }} transition={tween} fill={modelColor(sel.name)} opacity={0.14} />}
           {ordered.map(m => {
-            const d = line(resample(m.cumulative_bb));
+            const d = line(drawn.get(m.name)!);
             return (
               <motion.path
                 key={m.name}

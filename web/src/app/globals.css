@@ -24,8 +24,17 @@ html:has(dialog[open]) {
 }
 .lift:hover {
   transform: translateY(-1px);
-  background-color: rgba(55, 53, 47, 0.03);
+  background-color: #f9f9f8;
   box-shadow: 0 2px 6px rgba(15, 15, 15, 0.08);
+}
+/* Opaque, so the sticky first cell (bg-white) matches the rest of the row. */
+tr.lift:hover > th {
+  background-color: #f9f9f8;
+}
+/* Keep the focus ring when a focused row is also hovered. */
+.lift:focus-visible {
+  outline: none;
+  box-shadow: rgb(35, 131, 226) 0 0 0 2px;
 }
 
 /* Model detail: a drawer from the right on desktop, a bottom sheet on phones. */
@@ -52,6 +61,7 @@ dialog.drawer::backdrop {
     width: 100vw;
     height: auto;
     max-height: 85dvh;
+    padding-bottom: env(safe-area-inset-bottom);
     border-radius: 12px 12px 0 0;
     animation-name: sheet-in;
   }

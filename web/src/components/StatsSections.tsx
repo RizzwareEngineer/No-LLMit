@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import LLMLogo from '@/components/LLMLogo';
 import Section, { CountUp } from '@/components/Section';
 import CumulativeChart from '@/components/CumulativeChart';
@@ -13,31 +13,40 @@ type Stats = ReturnType<typeof useStats>;
 const SECTIONS = ['race', 'stats', 'head-to-head'];
 
 // The three sections under the live table. `picked` is the session chosen in the Stats
-// section (or all time); `all` carries the session list.
-export default function StatsSections({
+// section (or all time); `all` carries the session list. Memoized: the page re-renders every
+// second for its clock, and these only change when stats do.
+export default memo(function StatsSections({
   all,
   picked,
   session,
   onSession,
-  onSelect,
 }: {
   all: Stats;
   picked: Stats;
   session: string;
   onSession: (id: string) => void;
-  onSelect: (name: string) => void;
 }) {
   const { data, sample, loading, error, current } = picked;
   const [selected, setSelected] = useState('');
-  const ready = !!data && current && !error && !loading;
+  // A failed refetch keeps the last good data on screen, with the problem as a status line.
+  const ready = !!data && current;
 
-  // A link to /#stats lands before the sections have data; jump again once they do.
+  // A link to /#stats lands before the sections have data: jump there once they arrive,
+  // once per page load.
+  const jumped = useRef(false);
   useEffect(() => {
+    if (!ready || jumped.current) return;
+    jumped.current = true;
     const id = window.location.hash.slice(1);
-    if (ready && SECTIONS.includes(id)) document.getElementById(id)?.scrollIntoView({ behavior: 'instant' });
+    if (SECTIONS.includes(id)) document.getElementById(id)?.scrollIntoView({ behavior: 'instant' });
   }, [ready]);
 
   const message = <StatsMessage error={current ? error : null} loading={current && loading} />;
+  const stale = ready && (error || loading) && (
+    <p className="mb-2 text-[12px]" style={{ color: MUTED }} role="status">
+      {error ? 'Could not refresh the stats; showing the last good numbers.' : 'Stats are refreshing…'}
+    </p>
+  );
   const models = ready ? data.models : [];
   const final = (pts: [number, number][]) => pts.at(-1)?.[1] ?? 0;
   const race = [...models].sort((a, b) => final(b.cumulative_bb) - final(a.cumulative_bb));
@@ -50,17 +59,18 @@ export default function StatsSections({
         id="race"
         title="Race"
         minHeight={420}
-        aside={leader && (
+        aside={leader && second && (
           <div className="flex items-center gap-1.5 text-[13px] tabular-nums" style={{ color: TEXT }}>
             <LLMLogo model={leader.name} size={16} />
             <span className="font-bold">{leader.name}</span>
             <span style={{ color: MUTED }}>leads by</span>
             <span className="font-bold" style={{ color: netColor(1) }}>
-              <CountUp value={second ? final(leader.cumulative_bb) - final(second.cumulative_bb) : final(leader.cumulative_bb)} format={{ maximumFractionDigits: 1, minimumFractionDigits: 1 }} suffix=" bb" />
+              <CountUp value={final(leader.cumulative_bb) - final(second.cumulative_bb)} format={{ maximumFractionDigits: 1, minimumFractionDigits: 1 }} suffix=" bb" />
             </span>
           </div>
         )}
       >
+        {stale}
         {ready ? (
           <CumulativeChart models={models} selected={selected || bestRate?.name || ''} onSelect={setSelected} />
         ) : message}
@@ -98,20 +108,21 @@ export default function StatsSections({
       >
         {!ready ? message : (
           <>
+            {stale}
             {models.some(m => m.hands < MIN_HANDS) && (
               <SmallSampleNote>Models marked with a warning have fewer than {MIN_HANDS} hands, so their win rates are mostly luck so far. Read the ± first.</SmallSampleNote>
             )}
             {data.partial && (
               <p className="mb-2 text-[12px]" style={{ color: MUTED }} role="status">All-in EV still computing…</p>
             )}
-            <StatsTable models={models} onSelect={onSelect} />
+            <StatsTable models={models} />
           </>
         )}
       </Section>
 
       <Section id="head-to-head" title="Head-to-head" minHeight={320}>
-        {ready ? <HeadToHead models={race} onSelect={onSelect} /> : message}
+        {ready ? <HeadToHead models={race} /> : message}
       </Section>
     </>
   );
-}
+});
