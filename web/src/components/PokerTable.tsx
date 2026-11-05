@@ -1,7 +1,10 @@
 "use client";
 
+import { useHud, type CardAlign } from "@/components/Hud";
 import Player from "@/components/Player";
 import TableFelt from "@/components/TableFelt";
+import { useState } from "react";
+import TableMotion, { FLIGHT, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import type { ButtonDetermination } from "@/hooks/useGameState";
 
@@ -23,6 +26,7 @@ interface PokerTableProps {
   currentPlayerIdx: number;
   communityCards: string[];
   pot: number;
+  handNumber: number;
   winnersByIdx?: Record<number, WinnerInfo>;
   nextHandCountdown?: number | null;
   thinkingPlayerIdx?: number;
@@ -37,6 +41,7 @@ export default function PokerTable({
   currentPlayerIdx,
   communityCards,
   pot,
+  handNumber,
   winnersByIdx = {},
   nextHandCountdown,
   thinkingPlayerIdx,
@@ -44,6 +49,12 @@ export default function PokerTable({
   hidePositions = false,
   notice,
 }: PokerTableProps) {
+  const { on: hudOn } = useHud();
+  // A late joiner sees the hand already dealt; only hands dealt while watching wait for their flight.
+  const [firstHand, setFirstHand] = useState(0);
+  if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
+  const dealt = firstHand > 0 && handNumber !== firstHand;
+
   if (players.length === 0) {
     return (
       <div 
@@ -57,7 +68,7 @@ export default function PokerTable({
     );
   }
 
-  const seat = (idx: number) => players[idx] && (
+  const seat = (idx: number, cardAlign?: CardAlign) => players[idx] && (
     <Player
       player={players[idx]}
       active={idx === currentPlayerIdx}
@@ -66,6 +77,10 @@ export default function PokerTable({
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
+      cardAlign={cardAlign}
+      seatIdx={idx}
+      handNumber={handNumber}
+      dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + FLIGHT) : undefined}
     />
   );
 
@@ -94,6 +109,12 @@ export default function PokerTable({
 
   return (
     <>
+      <TableMotion
+        players={players}
+        handNumber={handNumber}
+        boardCount={communityCards.length}
+        winnerIdxs={Object.keys(winnersByIdx).map(Number)}
+      />
       {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
@@ -101,7 +122,7 @@ export default function PokerTable({
         </div>
         <div className="grid grid-cols-3 gap-2">
           {players.map((p, idx) => (
-            <div key={p.id} className="h-[150px]">{seat(idx)}</div>
+            <div key={p.id} className={hudOn ? "h-[170px]" : "h-[150px]"}>{seat(idx, `${idx < 3 ? "up-" : ""}${(["left", "center", "right"] as const)[idx % 3]}` as CardAlign)}</div>
           ))}
         </div>
       </div>
@@ -138,7 +159,7 @@ export default function PokerTable({
                 {layout.left.length > 0 && (
                   <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }}>
                     <div className="flex justify-end h-full">
-                      {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx])}
+                      {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx], "felt-left")}
                     </div>
                   </td>
                 )}
@@ -152,7 +173,7 @@ export default function PokerTable({
                 {layout.right.length > 0 && (
                   <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }}>
                     <div className="flex justify-start h-full">
-                      {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx])}
+                      {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx], "felt-right")}
                     </div>
                   </td>
                 )}

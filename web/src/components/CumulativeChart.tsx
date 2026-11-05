@@ -1,13 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { MUTED, ModelStats, ciHalf, signed } from '@/lib/stats';
 
 const GRID = 'rgba(55, 53, 47, 0.09)';
-const HEIGHT = 260;
-const PAD = { top: 12, right: 12, bottom: 24, left: 40 };
+const HEIGHT = 300;
+// Every line is redrawn through this many points, so a new hand changes the numbers in each
+// path but not its shape and motion can tween the old line into the new one.
+const SAMPLES = 160;
+const PAD = { top: 12, right: 12, bottom: 24 };
 
 // 95% band around the cumulative line after n hands. The per-hand spread implied by the
 // bb/100 interval over N hands is h*sqrt(N)/196, so n hands spread by h*sqrt(N*n)/100.
@@ -30,6 +33,19 @@ export function niceTicks(min: number, max: number, count: number, integer = fal
   return ticks;
 }
 
+// The curve at SAMPLES evenly spaced hands over [0, last hand], linearly interpolated.
+export function resample(pts: [number, number][]): [number, number][] {
+  const last = pts.at(-1)?.[0] ?? 0;
+  if (pts.length < 2) return Array.from({ length: SAMPLES }, (_, i) => [(i / (SAMPLES - 1)) * last, pts[0]?.[1] ?? 0]);
+  let j = 0;
+  return Array.from({ length: SAMPLES }, (_, i) => {
+    const n = (i / (SAMPLES - 1)) * last;
+    while (j < pts.length - 2 && pts[j + 1][0] < n) j++;
+    const [n0, v0] = pts[j], [n1, v1] = pts[j + 1];
+    return [n, n1 === n0 ? v1 : v0 + ((n - n0) / (n1 - n0)) * (v1 - v0)];
+  });
+}
+
 export default function CumulativeChart({
   models,
   selected,
@@ -42,6 +58,7 @@ export default function CumulativeChart({
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(720);
   const [showTable, setShowTable] = useState(false);
+  const reduce = useReducedMotion();
 
   useEffect(() => {
     const el = ref.current;
@@ -51,21 +68,26 @@ export default function CumulativeChart({
     return () => ro.disconnect();
   }, []);
 
-  const sel = models.find(m => m.name === selected) ?? models[0];
   const maxHand = Math.max(1, ...models.flatMap(m => m.cumulative_bb.map(p => p[0])));
-  const ys = models.flatMap(m => m.cumulative_bb.map(p => p[1]));
-  if (sel) sel.cumulative_bb.forEach(([n, v]) => ys.push(v + band(sel, n), v - band(sel, n)));
+  // The axis fits the lines as drawn (resampled), so it never reaches past all of them.
+  const drawn = new Map(models.map(m => [m.name, resample(m.cumulative_bb)]));
+  const ys = [...drawn.values()].flatMap(pts => pts.map(p => p[1]));
+  const sel = models.find(m => m.name === selected) ?? models[0];
+  if (sel) drawn.get(sel.name)!.forEach(([n, v]) => ys.push(v + band(sel, n), v - band(sel, n)));
   const yTicks = niceTicks(Math.min(0, ...ys), Math.max(0, ...ys), 5);
   const yMin = yTicks[0];
   const yMax = yTicks[yTicks.length - 1];
   const w = Math.max(width, 200);
-  const x = (n: number) => PAD.left + (n / maxHand) * (w - PAD.left - PAD.right);
+  const left = 12 + 7 * Math.max(...yTicks.map(t => String(t).length)); // room for the widest y label
+  const x = (n: number) => left + (n / maxHand) * (w - left - PAD.right);
   const y = (v: number) => PAD.top + ((yMax - v) / (yMax - yMin || 1)) * (HEIGHT - PAD.top - PAD.bottom);
   const line = (pts: [number, number][]) => pts.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
+  const selPts = sel ? drawn.get(sel.name)! : [];
   const bandPath = sel
-    ? line(sel.cumulative_bb.map(([n, v]) => [n, v + band(sel, n)])) +
-      [...sel.cumulative_bb].reverse().map(([n, v]) => `L${x(n)},${y(v - band(sel, n))}`).join('') + 'Z'
+    ? line(selPts.map(([n, v]) => [n, v + band(sel, n)])) +
+      [...selPts].reverse().map(([n, v]) => `L${x(n)},${y(v - band(sel, n))}`).join('') + 'Z'
     : '';
+  const tween = { duration: reduce ? 0 : 0.6, ease: [0.22, 1, 0.36, 1] as const };
   const ordered = sel ? [...models.filter(m => m !== sel), sel] : models; // selected drawn on top
   const summary = models
     .map(m => `${m.name} ${signed(m.cumulative_bb.at(-1)?.[1] ?? 0)} bb after ${m.cumulative_bb.at(-1)?.[0] ?? 0} hands`)
@@ -77,28 +99,33 @@ export default function CumulativeChart({
         <svg width="100%" height={HEIGHT} viewBox={`0 0 ${w} ${HEIGHT}`} role="img" aria-label={`Cumulative big blinds won over hands. ${summary}. Shaded: 95% band for ${sel?.name}.`}>
           {yTicks.map(t => (
             <g key={t}>
-              <line x1={PAD.left} x2={w - PAD.right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.35)' : GRID} />
-              <text x={PAD.left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={11} fill={MUTED} className="tabular-nums">{t}</text>
+              <line x1={left} x2={w - PAD.right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.35)' : GRID} />
+              <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={11} fill={MUTED} className="tabular-nums">{t}</text>
             </g>
           ))}
           {niceTicks(0, maxHand, 4, true).filter(t => t <= maxHand).map(t => (
             <text key={t} x={x(t)} y={HEIGHT - 6} textAnchor="middle" fontSize={11} fill={MUTED} className="tabular-nums">{t}</text>
           ))}
-          {sel && <path d={bandPath} fill={modelColor(sel.name)} opacity={0.14} />}
-          {ordered.map(m => (
-            <motion.path
-              key={m.name}
-              d={line(m.cumulative_bb)}
-              fill="none"
-              stroke={modelColor(m.name)}
-              strokeWidth={m === sel ? 2.5 : 1.5}
-              strokeLinejoin="round"
-              opacity={m === sel ? 1 : 0.35}
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 0.6 }}
-            />
-          ))}
+          {sel && <motion.path initial={false} animate={{ d: bandPath }} transition={tween} fill={modelColor(sel.name)} opacity={0.14} />}
+          {ordered.map(m => {
+            const d = line(drawn.get(m.name)!);
+            return (
+              <motion.path
+                key={m.name}
+                fill="none"
+                stroke={modelColor(m.name)}
+                strokeWidth={m === sel ? 2.5 : 1.5}
+                strokeLinejoin="round"
+                opacity={m === sel ? 1 : 0.35}
+                // Lines draw in the first time the chart scrolls into view, then tween as hands finish.
+                initial={{ d, pathLength: reduce ? 1 : 0 }}
+                animate={{ d }}
+                whileInView={{ pathLength: 1 }}
+                viewport={{ once: true }}
+                transition={{ d: tween, pathLength: { duration: reduce ? 0 : 1.2, ease: 'easeOut' } }}
+              />
+            );
+          })}
         </svg>
       </div>
       <p className="text-[11px] mt-1" style={{ color: MUTED }}>x: hands played · y: big blinds won · shaded: 95% band for the selected model</p>
