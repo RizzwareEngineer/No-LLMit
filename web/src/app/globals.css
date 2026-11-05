@@ -35,26 +35,20 @@
 
 /* Active player - More prominent blue highlight using outline (no layout shift) */
 .border-animation {
-  outline: 3px solid rgb(35, 131, 226) !important;
+  outline: 3px solid rgb(35, 131, 226);
   outline-offset: -3px;
-  /* Static, thick highlight: any repeating animation reads as flashing. */
-  outline-width: 3px;
-  outline-color: rgb(35, 131, 226);
-  background-color: rgba(35, 131, 226, 0.08);
+  background-color: rgba(35, 131, 226, 0.06);
+  /* Slow radiating glow so the seat to act is obvious; one cycle every 6s, never a blink. */
+  animation: seat-glow 6s ease-in-out infinite;
   position: relative;
   z-index: 10;
 }
 
-@keyframes notion-pulse {
-  0%, 100% {
-    outline-color: rgb(35, 131, 226);
-    background-color: rgba(35, 131, 226, 0.05);
-  }
-  50% {
-    outline-color: rgba(35, 131, 226, 0.45);
-    background-color: rgba(35, 131, 226, 0.12);
-  }
+@keyframes seat-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(35, 131, 226, 0.0); }
+  50% { box-shadow: 0 0 22px 6px rgba(35, 131, 226, 0.35); }
 }
+
 
 /* Respect reduced motion: no pulsing seat, pulse dots, or spinners */
 @media (prefers-reduced-motion: reduce) {
