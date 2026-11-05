@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { CircleNotch } from "@phosphor-icons/react";
@@ -8,7 +8,23 @@ import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
+import StatsSections from "@/components/StatsSections";
+import ModelDrawer from "@/components/ModelDrawer";
+import StickyBar from "@/components/StickyBar";
+import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
+import { modelSlug, useStats } from "@/lib/stats";
+
+// The URL hash, so #model=<slug> opens the model drawer and the Back button closes it.
+const subscribeHash = (cb: () => void) => {
+  window.addEventListener("hashchange", cb);
+  return () => window.removeEventListener("hashchange", cb);
+};
+const openModel = (name: string) => { window.location.hash = `model=${modelSlug(name)}`; };
+const closeModel = () => {
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
+};
 
 export default function Home() {
   const {
@@ -90,6 +106,26 @@ export default function Home() {
   const winners = gameState?.winners || lastHandResult?.winners || [];
   const isHandComplete = street === 'complete';
 
+  // All-time stats feed the leaderboard and drawer; the session picker below the table may
+  // narrow the sections. Both refetch as each hand finishes.
+  const [session, setSession] = useState('');
+  const all = useStats(undefined, true, handNumber);
+  const picked = useStats(session || undefined, !!session, handNumber);
+  const liveSession = all.data?.sessions.find(s => !s.ended_at);
+
+  const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
+  const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
+
+  const tableRef = useRef<HTMLDivElement>(null);
+  // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
+  // starts out of view, as it does after a deep link to #stats.
+  const [tableInView, setTableInView] = useState(true);
+  useEffect(() => {
+    const io = new IntersectionObserver(([e]) => setTableInView(e.isIntersecting));
+    if (tableRef.current) io.observe(tableRef.current);
+    return () => io.disconnect();
+  }, []);
+
   // Next hand countdown: the server deals the next hand and tells us how long is left.
   const nextHandInMs = gameState?.nextHandInMs;
   useEffect(() => {
@@ -138,13 +174,9 @@ export default function Home() {
             >
               About
             </Link>{' · '}
-            <Link
-              href="/stats"
-              className="hover:underline whitespace-nowrap"
-              style={{ color: 'rgb(35, 131, 226)' }}
-            >
+            <a href="#stats" className="hover:underline whitespace-nowrap" style={{ color: 'rgb(35, 131, 226)' }}>
               Stats
-            </Link>
+            </a>
           </p>
         </div>
 
@@ -176,11 +208,16 @@ export default function Home() {
           )}
         </div>
 
+        <SessionProgress
+          table={usageError ? undefined : usage?.table}
+          label={liveSession ? `This session: ${liveSession.hands.toLocaleString()} hands` : `${handNumber.toLocaleString()} hands today`}
+        />
+
         {/* Main content */}
         <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
           <div className="flex flex-col w-full md:w-auto">
             {/* Row 1: Table + Winnings (stacked on phones) */}
-            <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
+            <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
               {/* Main game grid */}
               <PokerTable
                 players={players}
@@ -199,7 +236,7 @@ export default function Home() {
               {/* Right sidebar column - leaderboard, then API usage */}
               <div className="flex flex-col w-full md:w-[240px] shrink-0">
                 <div className="flex-1 flex flex-col min-h-0">
-                  <WinningsPanel players={players} handNumber={handNumber} />
+                  <WinningsPanel players={players} stats={all.sample ? null : all.data} onSelect={openModel} />
                 </div>
                 <div className="mt-4">
                   <UsageIndicator usage={usage} error={usageError} />
@@ -214,9 +251,23 @@ export default function Home() {
                 shotClockRemaining={shotClockRemaining}
               />
             </div>
+
+            {/* Race, stats and head-to-head. w-0 min-w-full: as wide as the table above, never wider. */}
+            <div className="w-full md:w-0 md:min-w-full pb-16">
+              <StatsSections
+                all={all}
+                picked={session ? picked : all}
+                session={session}
+                onSession={setSession}
+                onSelect={openModel}
+              />
+            </div>
           </div>
         </div>
       </main>
+
+      <StickyBar show={!tableInView && players.length > 0} pot={pot} handNumber={handNumber} display={displayState} />
+      <ModelDrawer models={all.data?.models ?? []} slug={drawerSlug} onSelect={openModel} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status/errors */}
       {(!isConnected || error) && (
