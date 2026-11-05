@@ -48,7 +48,7 @@ export default function Section({
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
     >
       <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 id={`${id}-title`} className="text-[14px] font-bold" style={{ color: TEXT }}>
+        <h2 id={`${id}-title`} className="text-xs font-bold uppercase tracking-wider" style={{ color: TEXT }}>
           <a href={`#${id}`} className="hover:underline">{title}</a>
         </h2>
         {aside}
