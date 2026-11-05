@@ -154,7 +154,7 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <span
               aria-hidden
-              className={`inline-block w-2 h-2 rounded-full ${isLive ? 'animate-pulse' : ''}`}
+              className="inline-block w-2 h-2 rounded-full"
               style={{ background: isLive ? 'rgb(220, 38, 38)' : 'rgba(55, 53, 47, 0.65)' }}
             />
             <span className="text-[12px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>

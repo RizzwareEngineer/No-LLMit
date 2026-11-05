@@ -92,7 +92,7 @@ export default function ReasoningPanel({
         <div className="flex-1 flex flex-col justify-center px-4 min-w-0">
           {isThinking && (
             <div className="text-sm italic flex items-center gap-2" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
-              <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'rgba(55, 53, 47, 0.65)' }} />
+              <span className="inline-block w-2 h-2 rounded-full" style={{ background: 'rgba(55, 53, 47, 0.65)', animation: 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
               Thinking…
             </div>
           )}

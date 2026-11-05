@@ -37,7 +37,9 @@
 .border-animation {
   outline: 3px solid rgb(35, 131, 226) !important;
   outline-offset: -3px;
-  animation: notion-pulse 2.8s ease-in-out infinite;
+  /* Static highlight: the pulse read as flashing. */
+  outline-color: rgb(35, 131, 226);
+  background-color: rgba(35, 131, 226, 0.06);
   position: relative;
   z-index: 10;
 }
