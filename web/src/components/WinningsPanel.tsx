@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
 import { motion } from "motion/react";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
-import { chips, fetchStats, modelSlug, netColor } from "@/lib/stats";
+import { StatsResponse, chips, netColor } from "@/lib/stats";
 
 interface WinningsPanelProps {
   players: PlayerState[];
-  handNumber: number;
+  stats: StatsResponse | null; // all-time, refetched by the page after each hand
+  onSelect: (name: string) => void;
 }
 
 interface Row {
@@ -18,17 +17,10 @@ interface Row {
   net: number;
 }
 
-export default function WinningsPanel({ players, handNumber }: WinningsPanelProps) {
-  // All-time net chips from /api/stats, refreshed after each hand; until the first
-  // good response the panel shows this game's in-memory winnings.
-  const [statsRows, setStatsRows] = useState<Row[] | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetchStats()
-      .then(s => !cancelled && setStatsRows(s.models.map(m => ({ name: m.name, net: m.net_chips }))))
-      .catch(() => {}); // keep the last good rows so the panel does not flip sources between hands
-    return () => { cancelled = true; };
-  }, [handNumber]);
+export default function WinningsPanel({ players, stats, onSelect }: WinningsPanelProps) {
+  // All-time net chips from /api/stats; until the first good response the panel shows this
+  // game's in-memory winnings. The page keeps the last good response, so the source does not flip.
+  const statsRows: Row[] | null = stats?.models.map(m => ({ name: m.name, net: m.net_chips })) ?? null;
 
   const rows: Row[] = statsRows ?? players.map(p => ({ name: p.name, net: p.winnings || 0 }));
 
@@ -46,17 +38,17 @@ export default function WinningsPanel({ players, handNumber }: WinningsPanelProp
       <div className="flex-1 overflow-auto">
         {/* Keyed by source: switching from this game's winnings to all-time stats remounts
             the list instead of sliding every row to its new place. */}
-        {rows.length > 0 && <Rankings key={statsRows ? 'stats' : 'game'} rows={rows} />}
+        {rows.length > 0 && <Rankings key={statsRows ? 'stats' : 'game'} rows={rows} onSelect={onSelect} />}
       </div>
     </div>
   );
 }
 
-function RankingItem({ row, rank }: { row: Row; rank: number }) {
+function RankingItem({ row, rank, onSelect }: { row: Row; rank: number; onSelect: (name: string) => void }) {
   const color = netColor(row.net);
 
   return (
-    <Link href={`/stats/${modelSlug(row.name)}`} className="flex flex-row items-center gap-2 p-2 px-3 hover:bg-[rgba(55,53,47,0.04)]">
+    <button onClick={() => onSelect(row.name)} className="lift w-full text-left flex flex-row items-center gap-2 p-2 px-3">
       <span className="text-[12px] w-5 font-bold tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{rank}.</span>
       <LLMLogo model={row.name} size={20} />
       <div className="flex-1 min-w-0">
@@ -67,19 +59,19 @@ function RankingItem({ row, rank }: { row: Row; rank: number }) {
         {row.net < 0 && <CaretDown size={11} weight="bold" aria-hidden />}
         {chips(row.net)}
       </div>
-    </Link>
+    </button>
   );
 }
 
 // Sorted by net chips. motion's layout animation slides rows to their new rank; not draggable.
-function Rankings({ rows }: { rows: Row[] }) {
+function Rankings({ rows, onSelect }: { rows: Row[]; onSelect: (name: string) => void }) {
   const ranked = [...rows].sort((a, b) => b.net - a.net);
 
   return (
     <ol className="flex flex-col divide-y divide-black/10">
       {ranked.map((row, index) => (
         <motion.li key={row.name} layout="position" initial={false} transition={{ duration: 0.3 }}>
-          <RankingItem row={row} rank={index + 1} />
+          <RankingItem row={row} rank={index + 1} onSelect={onSelect} />
         </motion.li>
       ))}
     </ol>
