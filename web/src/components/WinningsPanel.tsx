@@ -56,7 +56,7 @@ function Rankings({ players }: { players: PlayerState[] }) {
   return (
     <ol className="flex flex-col divide-y divide-black/10">
       {ranked.map((player, index) => (
-        <motion.li key={player.id} layout transition={{ duration: 0.3 }}>
+        <motion.li key={player.id} layout="position" initial={false} transition={{ duration: 0.3 }}>
           <RankingItem player={player} rank={index + 1} />
         </motion.li>
       ))}
