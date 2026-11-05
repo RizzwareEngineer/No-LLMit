@@ -8,6 +8,7 @@ import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
+import { HudContext, useHudState } from "@/components/Hud";
 import { useGameState } from "@/hooks/useGameState";
 
 export default function Home() {
@@ -33,6 +34,7 @@ export default function Home() {
   const { usage, error: usageError } = useUsage(usageRefreshTrigger);
   const watching = usageError ? undefined : usage?.table?.spectators;
   const isLive = isConnected && !tableNotice;
+  const hud = useHudState(gameState?.handNumber || 0);
   
   // Auto-connect on mount
   useEffect(() => {
@@ -123,6 +125,7 @@ export default function Home() {
 
   return (
     <MotionConfig reducedMotion="user">
+    <HudContext.Provider value={hud}>
     <div className="flex flex-col min-h-screen p-3 lg:p-4 overflow-auto" style={{ background: '#FFFFFF' }}>
       <main className="flex-1 flex flex-col items-center-safe">
         
@@ -161,6 +164,17 @@ export default function Home() {
               {!isConnected ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
               {watching !== undefined && ` · ${watching.toLocaleString()} watching`}
             </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={hud.on}
+              onClick={() => hud.setOn(!hud.on)}
+              title="Show bb/100, VPIP, PFR and AF under every seat"
+              className="text-[12px] font-medium px-1.5 rounded hover:bg-[rgba(55,53,47,0.06)]"
+              style={{ color: hud.on ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)', background: hud.on ? 'rgba(35, 131, 226, 0.1)' : undefined }}
+            >
+              HUD {hud.on ? 'on' : 'off'}
+            </button>
           </div>
 
           {/* Hand counter, blinds, timer */}
@@ -247,6 +261,7 @@ export default function Home() {
         </div>
       )}
     </div>
+    </HudContext.Provider>
     </MotionConfig>
   );
 }

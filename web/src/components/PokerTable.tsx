@@ -57,7 +57,7 @@ export default function PokerTable({
     );
   }
 
-  const seat = (idx: number) => players[idx] && (
+  const seat = (idx: number, cardAlign?: "left" | "center" | "right") => players[idx] && (
     <Player
       player={players[idx]}
       active={idx === currentPlayerIdx}
@@ -66,6 +66,7 @@ export default function PokerTable({
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
+      cardAlign={cardAlign}
     />
   );
 
@@ -101,7 +102,7 @@ export default function PokerTable({
         </div>
         <div className="grid grid-cols-3 gap-2">
           {players.map((p, idx) => (
-            <div key={p.id} className="h-[150px]">{seat(idx)}</div>
+            <div key={p.id} className="h-[150px]">{seat(idx, (["left", "center", "right"] as const)[idx % 3])}</div>
           ))}
         </div>
       </div>

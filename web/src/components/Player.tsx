@@ -2,7 +2,9 @@
 
 import Card from "@/components/Card";
 import LLMLogo from "@/components/LLMLogo";
+import { useId, useState } from "react";
 import { PlayerState } from "@/lib/api";
+import { HudCard, HudLine, useHud } from "@/components/Hud";
 
 interface PlayerProps {
   player: PlayerState;
@@ -12,6 +14,7 @@ interface PlayerProps {
   winAmount?: number;
   winDesc?: string;
   isThinking?: boolean;
+  cardAlign?: "left" | "center" | "right";
 }
 
 // Position badge colors
@@ -43,17 +46,38 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, cardAlign = "center" }: PlayerProps) {
+  const { stats, on: hudOn, followed, toggleFollow } = useHud();
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const cardId = useId();
+  const pinned = followed === player.name;
+  const cardOpen = !hudOn && (hovered || focused || pinned);
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const isWinner = winAmount !== undefined && winAmount > 0;
   
   return (
-    <div 
-      className={`overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`}
+    <div
+      className="relative h-full w-full"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
+      onKeyDown={(e) => { if (e.key === "Escape") { setHovered(false); setFocused(false); } }}
+    >
+    <div
+      role="button"
+      tabIndex={0}
+      aria-pressed={pinned}
+      aria-describedby={hudOn ? undefined : cardId}
+      aria-label={`${player.name}, stack ${player.stack.toLocaleString()}${pinned ? ", following" : ""}`}
+      onClick={() => toggleFollow(player.name)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleFollow(player.name); } }}
+      className={`cursor-pointer outline-offset-2 overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`}
       style={{ 
         boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px',
-        background: isWinner ? 'rgb(237, 253, 244)' : '#ffffff'
+        background: isWinner ? 'rgb(237, 253, 244)' : pinned ? 'rgba(35, 131, 226, 0.08)' : '#ffffff'
       }}
     >
       <div 
@@ -83,6 +107,8 @@ export default function Player({ player, active, position, folded = false, winAm
             )}
           </div>
         </div>
+
+        {hudOn && <HudLine stats={stats?.[player.name]} />}
 
         <div className="flex flex-col mt-auto p-3 pt-0 min-w-0 overflow-hidden">
           <div className="flex items-center gap-2 min-w-0">
@@ -129,6 +155,8 @@ export default function Player({ player, active, position, folded = false, winAm
           </div>
         </div>
       </div>
+    </div>
+    <HudCard id={cardId} stats={stats?.[player.name]} open={cardOpen} align={cardAlign} />
     </div>
   );
 }
