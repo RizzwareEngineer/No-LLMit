@@ -37,7 +37,7 @@
 .border-animation {
   outline: 3px solid rgb(35, 131, 226) !important;
   outline-offset: -3px;
-  animation: notion-pulse 1.2s ease-in-out infinite;
+  animation: notion-pulse 2.8s ease-in-out infinite;
   position: relative;
   z-index: 10;
 }
