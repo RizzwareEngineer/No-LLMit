@@ -56,7 +56,6 @@ export default function CumulativeChart({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [{ width, height }, setSize] = useState({ width: 720, height: 300 }); // the plot fills its panel
-  const [showTable, setShowTable] = useState(false);
   const reduce = useReducedMotion();
 
   useEffect(() => {
@@ -152,17 +151,10 @@ export default function CumulativeChart({
       </div>
       )}
 
-      <button
-        onClick={() => setShowTable(v => !v)}
-        aria-expanded={showTable}
-        className="mt-2 text-[12px] hover:underline"
-        style={{ color: 'rgb(35, 131, 226)' }}
-      >
-        {showTable ? 'Hide' : 'Show'} chart data as a table
-      </button>
-      {showTable && sel && (
-        <table className="mt-2 text-[12px] tabular-nums">
-          <caption className="text-left text-[12px] mb-1" style={{ color: MUTED }}>{sel.name}: cumulative bb with 95% band</caption>
+      {/* The chart's numbers for screen readers; tables ignore sr-only's 1px box, so a div clips it. */}
+      {sel && (
+        <div className="sr-only"><table>
+          <caption>{sel.name}: cumulative bb with 95% band</caption>
           <thead>
             <tr style={{ color: MUTED }}>
               <th scope="col" className="text-right font-medium px-2">Hand</th>
@@ -181,7 +173,7 @@ export default function CumulativeChart({
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </div>
   );

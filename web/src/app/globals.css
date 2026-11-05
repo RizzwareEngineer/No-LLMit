@@ -309,20 +309,25 @@ input[type="number"] {
   box-shadow: rgba(15, 15, 15, 0.2) 0 1px 3px;
 }
 
-/* The home page pages between whole screens: each [data-screen] is a snap point. */
+/* The home page pages between whole screens: each [data-screen] is a snap point. Phones
+   swipe with mandatory snapping; wider screens page by wheel and keys (page.tsx), so
+   proximity only tidies a scrollbar drag that stops near a screen edge. */
 html:has([data-screen]) {
   scroll-snap-type: y mandatory;
 }
+@media (min-width: 768px) {
+  html:has([data-screen]) { scroll-snap-type: y proximity; }
+}
 
 /* The live table scales down on short desktop windows so screen 1 stays one screen. */
-@media (min-width: 768px) and (max-height: 880px) {
+@media (min-width: 768px) and (max-height: 920px) {
   .screen-fit { zoom: 0.9; }
 }
 @media (min-width: 768px) and (max-height: 800px) {
-  .screen-fit { zoom: 0.8; }
+  .screen-fit { zoom: 0.77; }
 }
 @media (min-width: 768px) and (max-height: 760px) {
-  .screen-fit { zoom: 0.75; }
+  .screen-fit { zoom: 0.72; }
 }
 
 /* Stats panels scroll inside themselves with a scrollbar that stays visible. */

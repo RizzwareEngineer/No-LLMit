@@ -41,13 +41,22 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
     return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
   }
 
+  // The grid fills its panel: a size container whose cells share the space and whose text
+  // scales with it (cq units). Under 768px of width the row labels drop to logos only.
   return (
-    <div className="relative overflow-x-auto">
-      <table className="text-[11px] tabular-nums border-collapse">
+    <div
+      className="relative flex-1 min-h-0 overflow-auto"
+      style={{ containerType: 'size' }}
+    >
+      {/* cq units resolve against the wrapper above, never the element that sets them. */}
+      <table
+        className="w-full h-full min-h-[180px] table-fixed tabular-nums border-collapse whitespace-nowrap"
+        style={{ minWidth: 56 * (models.length + 1), fontSize: 'clamp(10px, min(2.2cqh, 1.25cqw), 18px)' }}
+      >
         <caption className="sr-only">Head-to-head: chips each row model won from each column model, and pots they played together</caption>
         <thead>
           <tr>
-            <td />
+            <td className="w-[48px] @3xl:w-[22%]" />
             {models.map(m => (
               <th key={m.name} scope="col" className="p-1 font-medium" title={m.name}>
                 <span className="flex justify-center"><LLMLogo model={m.name} size={18} /></span>
@@ -59,10 +68,10 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
         <tbody>
           {models.map(row => (
             <tr key={row.name} className="border-t border-notion">
-              <th scope="row" className="text-left font-medium p-1 pr-2 whitespace-nowrap">
-                <a href={modelHref(row.name)} className="flex items-center gap-1.5 hover:underline" style={{ color: TEXT }}>
+              <th scope="row" className="text-left font-medium p-1 pr-2 whitespace-nowrap overflow-hidden text-ellipsis">
+                <a href={modelHref(row.name)} className="flex items-center gap-1.5 hover:underline" style={{ color: TEXT }} title={row.name}>
                   <LLMLogo model={row.name} size={18} />
-                  {row.name}
+                  <span className="truncate @max-3xl:sr-only">{row.name}</span>
                 </a>
               </th>
               {models.map(col => {
@@ -71,7 +80,7 @@ export default function HeadToHead({ models, focus }: { models: ModelStats[]; fo
                   return <td key={col.name} className="p-1 text-center" style={{ color: MUTED, background: 'rgba(55, 53, 47, 0.04)' }}>·</td>;
                 }
                 return (
-                  <td key={col.name} className="lift p-1 text-center min-w-[56px] rounded" title={`${row.name} vs ${col.name}: ${chips(v.net_chips)} over ${v.pots} pots`}>
+                  <td key={col.name} className="lift p-1 text-center rounded" title={`${row.name} vs ${col.name}: ${chips(v.net_chips)} over ${v.pots} pots`}>
                     <div className="font-bold" style={{ color: netColor(v.net_chips) }}>{chips(v.net_chips)}</div>
                     <div style={{ color: MUTED }}>{v.pots} pots</div>
                   </td>

@@ -5,60 +5,92 @@ import { motion, useInView } from 'motion/react';
 import NumberFlow, { type Format } from '@number-flow/react';
 import { TEXT } from '@/lib/stats';
 
-// The scroll-snap screens in use right now: phones snap every section, wider screens snap the
-// stats grid as one (the others compute scroll-snap-align: none).
-const screens = () =>
-  [...document.querySelectorAll<HTMLElement>('[data-screen]')].filter(el => !getComputedStyle(el).scrollSnapAlign.startsWith('none'));
+// Document y of every snap screen, top to bottom. Screens carry no transforms, so the
+// bounding box is their layout position.
+const screens = () => [...document.querySelectorAll<HTMLElement>('[data-screen]')];
+const topOf = (el: HTMLElement) => el.getBoundingClientRect().top + window.scrollY;
 
-// Scroll one screen down (1) or up (-1). Smooth through scroll-behavior in globals.css, which
-// prefers-reduced-motion turns off; scroll-snap still lands it on the screen's top.
+// Where a running paged scroll is headed, so a second press steps on from there.
+let pendingY: number | null = null;
+let clearTimer: ReturnType<typeof setTimeout> | undefined;
+const settle = () => {
+  pendingY = null;
+  clearTimeout(clearTimer);
+};
+
+// Scroll one screen down (1) or up (-1); a screen taller than the window (the phone table)
+// moves one window at a time inside it. Smooth through scroll-behavior in globals.css, which
+// prefers-reduced-motion turns off. Announces the target screen so the zoom can start at once.
 export function pageBy(dir: 1 | -1) {
-  const y = window.scrollY;
-  const tops = screens().map(el => el.getBoundingClientRect().top + y);
-  const top = dir > 0 ? tops.find(t => t > y + 1) : tops.findLast(t => t < y - 1);
-  if (top !== undefined) window.scrollTo({ top });
+  const y = pendingY ?? window.scrollY;
+  const h = window.innerHeight;
+  const list = screens();
+  const tops = list.map(topOf);
+  let top = dir > 0 ? tops.find(t => t > y + 1) : tops.findLast(t => t < y - 1);
+  if (top === undefined) return;
+  top = dir > 0 ? Math.min(top, y + h) : Math.max(top, y - h);
+  top = Math.min(top, document.documentElement.scrollHeight - h);
+  pendingY = top;
+  clearTimeout(clearTimer);
+  clearTimer = setTimeout(settle, 1000); // browsers without scrollend
+  window.addEventListener('scrollend', settle, { once: true });
+  window.dispatchEvent(new CustomEvent('screenchange', { detail: list[tops.indexOf(top)]?.id ?? '' }));
+  window.scrollTo({ top });
 }
 
-// A stats panel: an anchor, a small heading, and a card that fades and rises in the first time it
-// scrolls into view. The card fills the room its screen gives it; its children never shrink, so a
-// tall table scrolls the card instead of being squeezed into a scroller of its own.
-// On phones each section is its own snap screen; pt-14 keeps the heading clear of the sticky bar.
-export default function Section({
+// True when `el` or an ancestor would scroll itself for a wheel or key in direction `dir`.
+export function scrollsInside(el: Element | null, dir: number) {
+  for (; el && el !== document.documentElement && el !== document.body; el = el.parentElement) {
+    const { overflowY } = getComputedStyle(el);
+    if (overflowY !== 'auto' && overflowY !== 'scroll') continue;
+    if (dir > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0) return true;
+  }
+  return false;
+}
+
+const SPRING = { type: 'spring', stiffness: 260, damping: 32 } as const;
+
+// A stats panel: a small linked title and a card. `focused` lifts it out of the overview grid
+// to fill the stage; motion's layout animation turns that jump into a zoom (transforms only,
+// and nothing under reduced motion). The body scrolls inside itself when it overflows.
+export default function Panel({
   id,
+  href,
   title,
   aside,
+  focused,
+  covered,
   className = '',
   children,
 }: {
   id: string;
+  href: string;
   title: React.ReactNode;
   aside?: React.ReactNode;
+  focused: boolean;
+  covered: boolean; // another panel fills the stage over this one
   className?: string;
   children: React.ReactNode;
 }) {
   return (
     <motion.section
+      layout
+      transition={SPRING}
       id={id}
       aria-labelledby={`${id}-title`}
-      data-screen
-      className={`flex flex-col h-dvh snap-start snap-normal pt-14 pb-4 md:h-auto md:min-h-0 md:snap-align-none md:p-0 ${className}`}
-      initial={{ opacity: 0, y: 24 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '0px 0px -80px 0px' }}
-      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+      inert={covered}
+      className={`flex flex-col min-h-0 min-w-0 bg-white p-3 ${focused ? 'absolute inset-0 z-20' : `relative z-0 ${className}`}`}
+      style={{ borderRadius: 4, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
-      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <motion.div layout="position" transition={SPRING} className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id={`${id}-title`} className="text-[14px] font-bold" style={{ color: TEXT }}>
-          <a href={`#${id}`} className="hover:underline">{title}</a>
+          <a href={href} className="hover:underline">{title}</a>
         </h2>
         {aside}
-      </div>
-      <div
-        className="panel-scroll flex-1 min-h-0 flex flex-col [&>*]:shrink-0 overflow-auto bg-white rounded p-3"
-        style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
-      >
+      </motion.div>
+      <motion.div layout transition={SPRING} className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">
         {children}
-      </div>
+      </motion.div>
     </motion.section>
   );
 }

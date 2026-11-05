@@ -16,7 +16,7 @@ import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
 import { MUTED, useStats } from "@/lib/stats";
-import { pageBy } from "@/components/Section";
+import { pageBy, scrollsInside } from "@/components/Section";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -50,7 +50,7 @@ const closeModel = () => {
   window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
 };
 
-const PAGE_KEYS: Record<string, 1 | -1> = { ArrowRight: 1, PageDown: 1, ArrowLeft: -1, PageUp: -1 };
+const PAGE_KEYS: Record<string, 1 | -1> = { ArrowDown: 1, ArrowRight: 1, PageDown: 1, ArrowUp: -1, ArrowLeft: -1, PageUp: -1 };
 
 export default function Home() {
   const {
@@ -155,17 +155,43 @@ export default function Home() {
     return () => io.disconnect();
   }, []);
 
-  // ← → and PageUp/PageDown page between screens, unless a field or the drawer has the keys.
+  // ↑ ↓ ← → and PageUp/PageDown page between screens, unless a field, the drawer or a panel
+  // that can still scroll that way has the keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const dir = PAGE_KEYS[e.key];
       if (!dir || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-      if (e.target instanceof Element && e.target.closest('input, select, textarea, [contenteditable], dialog')) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest('input, select, textarea, [contenteditable], dialog')) return;
+      const sideways = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+      if (sideways ? t?.closest('.panel-scroll') : scrollsInside(t, dir)) return;
       e.preventDefault();
       pageBy(dir);
     };
+    // One wheel or trackpad gesture moves exactly one screen. Wheel inside a panel scrolls the
+    // panel until it reaches its end. Events keep the lock alive, so momentum after a flick
+    // never pages twice.
+    let lockUntil = 0;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.defaultPrevented || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest('dialog') || scrollsInside(t, Math.sign(e.deltaY))) return;
+      e.preventDefault();
+      const now = performance.now();
+      if (now < lockUntil) {
+        lockUntil = Math.max(lockUntil, now + 200);
+        return;
+      }
+      if (Math.abs(e.deltaY) < 4) return;
+      lockUntil = now + 700;
+      pageBy(e.deltaY > 0 ? 1 : -1);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('wheel', onWheel);
+    };
   }, []);
 
   // Next hand countdown: the server deals the next hand and tells us how long is left.
@@ -202,10 +228,11 @@ export default function Home() {
   return (
     <MotionConfig reducedMotion="user">
     <HudContext.Provider value={hud}>
-    <div className="px-3 lg:px-4" style={{ background: '#FFFFFF' }}>
+    {/* --bar-h: room the connection bar takes at the bottom, so it never covers a screen's edge. */}
+    <div className="px-3 lg:px-4" style={{ background: '#FFFFFF', ['--bar-h' as string]: !isConnected || error ? '40px' : '0px' }}>
       <main className="flex flex-col items-center-safe">
       {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
-      <section data-screen aria-label="Live table" className="relative w-full min-h-dvh snap-start snap-normal flex flex-col items-center-safe pt-3 pb-9 lg:pt-4">
+      <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-clip flex flex-col items-center-safe pt-3 pb-[calc(2.25rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
         <div className="mb-1 text-center">
           <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
@@ -326,14 +353,14 @@ export default function Home() {
 
         <button
           onClick={() => pageBy(1)}
-          className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded px-2 py-1 text-[12px] font-medium hover:bg-[rgba(55,53,47,0.06)]"
+          className="absolute bottom-[calc(0.5rem+var(--bar-h))] left-1/2 -translate-x-1/2 flex items-center gap-1 rounded px-2 py-1 text-[12px] font-medium hover:bg-[rgba(55,53,47,0.06)]"
           style={{ color: MUTED }}
         >
           Stats <ArrowDown size={12} weight="bold" aria-hidden />
         </button>
       </section>
 
-      {/* Screen 2 (one per section on phones): race, stats and head-to-head. */}
+      {/* Screens 2-5: the overview, then race, stats and head-to-head one at a time. */}
       <StatsSections
         all={all}
         picked={session ? picked : all}
