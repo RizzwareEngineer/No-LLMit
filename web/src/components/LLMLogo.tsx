@@ -31,6 +31,27 @@ function getModelKey(name: string): string {
   return '';
 }
 
+// One line color per model, from its logo where that works on a chart. Every color is at
+// least 3:1 on white and at least ~28 CIELAB ΔE from every other, so Gemini takes its red and
+// Gemma a teal rather than three near-identical blues.
+const LLM_COLORS: Record<string, string> = {
+  gpt: '#10A37F',
+  claude: '#D97757',
+  gemini: '#D93025',
+  gemma: '#0B7FA8',
+  llama: '#0050B3',
+  mistral: '#C46A00',
+  deepseek: '#4D6BFE',
+  grok: '#1F1F1F',
+  phi: '#5E8C00',
+  qwen: '#9333EA',
+  cohere: '#39594D',
+};
+
+export function modelColor(name: string): string {
+  return LLM_COLORS[getModelKey(name)] || 'rgb(120, 119, 116)';
+}
+
 export default function LLMLogo({ model, size = 28, className = '' }: LLMLogoProps) {
   const key = getModelKey(model);
   const box = { width: size, height: size, minWidth: size, minHeight: size };
