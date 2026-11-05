@@ -37,9 +37,10 @@
 .border-animation {
   outline: 3px solid rgb(35, 131, 226) !important;
   outline-offset: -3px;
-  /* Slow breathe so the seat to act is obvious without flashing. */
+  /* Static, thick highlight: any repeating animation reads as flashing. */
   outline-width: 3px;
-  animation: notion-pulse 4s ease-in-out infinite;
+  outline-color: rgb(35, 131, 226);
+  background-color: rgba(35, 131, 226, 0.08);
   position: relative;
   z-index: 10;
 }
