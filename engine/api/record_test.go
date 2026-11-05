@@ -7,11 +7,19 @@ import (
 
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 // playRecorded drives a three-handed hand through the recorder the same way the table
 // does, with each step's reply scripted.
-func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (HandRecord, []HandPrompt) {
+func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
+	t.Helper()
+	return playDealt(t, nil, nil, script)
+}
+
+// playDealt is playRecorded with the hole cards (A, B, C) and the five board cards fixed;
+// nil keeps the shuffled ones.
+func playDealt(t *testing.T, holes [][]string, board []string, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
 	t.Helper()
 	gs := game.NewGame(game.GameConfig{
 		PlayerNames:   []string{"A", "B", "C"},
@@ -20,6 +28,14 @@ func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (HandRecord
 	})
 	if err := gs.StartHand(); err != nil {
 		t.Fatal(err)
+	}
+	for i, h := range holes {
+		gs.Players[i].HoleCards = mustCards(t, h)
+	}
+	setBoard := func(n int) { // replace the first n board cards with the fixed ones
+		if board != nil {
+			gs.CommunityCards = append(mustCards(t, board[:n]), gs.CommunityCards[n:]...)
+		}
 	}
 	rec := newHandRecorder(gs, "tbl_test", nil)
 
@@ -49,9 +65,13 @@ func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (HandRecord
 		rec.endDecision(gs, turn)
 
 		if gs.NeedToAdvanceStreet() {
+			if gs.CountActivePlayers() > 1 && gs.CountActiveNonAllInPlayers() <= 1 && board != nil {
+				gs.CommunityCards = mustCards(t, board) // all in: the runout deals nothing more
+			}
 			if err := gs.AdvanceStreet(); err != nil {
 				t.Fatal(err)
 			}
+			setBoard(len(gs.CommunityCards))
 		}
 	}
 	if !gs.IsHandComplete() {
@@ -60,11 +80,24 @@ func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (HandRecord
 	return rec.finish(gs)
 }
 
+func mustCards(t *testing.T, ss []string) []game.Card {
+	t.Helper()
+	var cs []game.Card
+	for _, s := range ss {
+		c, err := game.ParseCard(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs = append(cs, c)
+	}
+	return cs
+}
+
 func reply(action string, amount int) client.LLMDecisionResponse {
 	return client.LLMDecisionResponse{Action: action, Amount: amount, Reason: "because", Raw: "ACTION: " + action, Status: "ok"}
 }
 
-func netSum(r HandRecord) int {
+func netSum(r history.HandRecord) int {
 	sum := 0
 	for _, n := range r.Result.Net {
 		sum += n
@@ -98,13 +131,13 @@ func TestHandRecordThroughShowdown(t *testing.T) {
 		t.Errorf("actions per street: %v", streets)
 	}
 
-	if got := record.Actions[0].Applied; got != (AppliedAction{Type: "RAISE", Amount: 30}) {
+	if got := record.Actions[0].Applied; got != (history.AppliedAction{Type: "RAISE", Amount: 30}) {
 		t.Errorf("preflop open: %+v", got)
 	}
-	if got := record.Actions[1].Applied; got != (AppliedAction{Type: "CALL", Amount: 25}) {
+	if got := record.Actions[1].Applied; got != (history.AppliedAction{Type: "CALL", Amount: 25}) {
 		t.Errorf("small blind call: %+v", got)
 	}
-	if got := record.Actions[4].Applied; got != (AppliedAction{Type: "BET", Amount: 40}) {
+	if got := record.Actions[4].Applied; got != (history.AppliedAction{Type: "BET", Amount: 40}) {
 		t.Errorf("flop bet should be recorded as BET: %+v", got)
 	}
 	if a := record.Actions[4]; a.PotBefore != 90 || a.ToCall != 0 || a.StackBefore != 1970 {

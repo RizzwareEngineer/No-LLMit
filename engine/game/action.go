@@ -1,6 +1,6 @@
 // This file handles all betting logic. When a player needs to act, GetValidActions tells them
 // what they can do (fold, check, call, raise, all-in). When they choose, ProcessAction validates
-// and executes it. Called by api/game_handlers.go for human actions and api/llm_handlers.go for LLMs.
+// and executes it. Called by api/table.go for each model's move.
 package game
 
 import "fmt"
@@ -110,7 +110,6 @@ func (gs *GameState) CheckAction(action Action) error {
 func (gs *GameState) processFold(player *Player, action Action) error {
 	player.Status = PlayerFolded
 	player.LastAction = &action
-	gs.actionsThisRound++
 	gs.advanceToNextPlayer()
 	return nil
 }
@@ -123,7 +122,6 @@ func (gs *GameState) processCheck(player *Player, action Action) error {
 
 	player.HasActedThisRound = true
 	player.LastAction = &action
-	gs.actionsThisRound++
 	gs.advanceToNextPlayer()
 	return nil
 }
@@ -144,7 +142,6 @@ func (gs *GameState) processCall(player *Player, action Action) error {
 	player.TotalBetThisHand += amountToCall
 	player.HasActedThisRound = true
 	player.LastAction = &Action{Type: ActionCall, Amount: amountToCall, PlayerIdx: action.PlayerIdx}
-	gs.actionsThisRound++
 	gs.advanceToNextPlayer()
 	return nil
 }
@@ -181,10 +178,8 @@ func (gs *GameState) processRaise(player *Player, action Action) error {
 	player.LastAction = &Action{Type: ActionRaise, Amount: raiseToAmount, PlayerIdx: action.PlayerIdx}
 
 	// Update game state
-	gs.LastRaiseAmount = raiseAmount
 	gs.MinRaise = raiseAmount
 	gs.CurrentBet = raiseToAmount
-	gs.actionsThisRound++
 	gs.reopenRaising()
 	gs.resetActedExcept(action.PlayerIdx)
 	gs.advanceToNextPlayer()
@@ -210,7 +205,6 @@ func (gs *GameState) processAllIn(player *Player, action Action) error {
 		raiseAmount := totalBet - gs.CurrentBet
 		if raiseAmount >= gs.MinRaise {
 			gs.MinRaise = raiseAmount
-			gs.LastRaiseAmount = raiseAmount
 			gs.reopenRaising()
 		} else {
 			// Incomplete raise: players who already acted may only call or fold (TDA).
@@ -225,7 +219,6 @@ func (gs *GameState) processAllIn(player *Player, action Action) error {
 		gs.resetActedExcept(action.PlayerIdx)
 	}
 
-	gs.actionsThisRound++
 	gs.advanceToNextPlayer()
 	return nil
 }
@@ -271,7 +264,6 @@ func (gs *GameState) advanceToNextPlayer() {
 }
 
 func (gs *GameState) IsBettingRoundComplete() bool {
-	activePlayers := 0
 	playersToAct := 0
 	playersInHand := 0
 
@@ -280,23 +272,12 @@ func (gs *GameState) IsBettingRoundComplete() bool {
 		if player.Status == PlayerActive || player.Status == PlayerAllIn {
 			playersInHand++
 		}
-		if player.Status == PlayerActive {
-			activePlayers++
-			if !player.HasActedThisRound || player.CurrentBet < gs.CurrentBet {
-				playersToAct++
-			}
+		if player.Status == PlayerActive && (!player.HasActedThisRound || player.CurrentBet < gs.CurrentBet) {
+			playersToAct++
 		}
 	}
 
-	if playersInHand <= 1 {
-		return true
-	}
-
-	if playersToAct > 0 {
-		return false
-	}
-
-	return true
+	return playersInHand <= 1 || playersToAct == 0
 }
 
 func (gs *GameState) CountActivePlayers() int {
@@ -327,8 +308,6 @@ func (gs *GameState) ResetBettingRound() {
 	}
 	gs.CurrentBet = 0
 	gs.MinRaise = gs.Stakes.BigBlind
-	gs.LastRaiseAmount = gs.Stakes.BigBlind
-	gs.actionsThisRound = 0
 }
 
 func (gs *GameState) GetFirstToAct() int {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import CornerBorders from "@/components/CornerBorders";
 import { ValidAction, PlayerState } from "@/lib/api";
 
 interface ActionPanelProps {
@@ -85,7 +84,6 @@ export default function ActionPanel({
       className={`w-[557px] h-[100px] bg-white relative rounded overflow-hidden ${isWaiting ? 'opacity-60' : ''}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
-      <CornerBorders />
       <div className="p-3 h-full flex flex-col justify-between">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">

@@ -17,12 +17,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 type savedHand struct {
-	Record       HandRecord   `json:"hand"`
-	Prompts      []HandPrompt `json:"prompts"`
-	SystemPrompt string       `json:"system_prompt,omitempty"` // only written to the spill file
+	Record       history.HandRecord `json:"hand"`
+	Prompts      []HandPrompt       `json:"prompts"`
+	SystemPrompt string             `json:"system_prompt,omitempty"` // only written to the spill file
 }
 
 type handSaver interface {
@@ -36,13 +38,14 @@ type handSaver interface {
 type HandStore struct {
 	saver     handSaver
 	queue     chan savedHand
-	wg        sync.WaitGroup
 	spillPath string
 	spillMu   sync.Mutex
 	retryWait time.Duration // first wait between attempts; doubles each time
+	onSaved   func(history.HandRecord)
 }
 
-func NewHandStore() *HandStore {
+// onSaved, if set, is called with each hand once it is saved.
+func NewHandStore(onSaved func(history.HandRecord)) *HandStore {
 	dir := os.Getenv("HAND_LOG_DIR")
 	if dir == "" {
 		dir = "data"
@@ -62,8 +65,8 @@ func NewHandStore() *HandStore {
 		queue:     make(chan savedHand, 256),
 		spillPath: filepath.Join(dir, "unsaved.jsonl"),
 		retryWait: 2 * time.Second,
+		onSaved:   onSaved,
 	}
-	s.wg.Add(1)
 	go s.run()
 	return s
 }
@@ -80,7 +83,6 @@ func (s *HandStore) Save(h savedHand) {
 }
 
 func (s *HandStore) run() {
-	defer s.wg.Done()
 	s.replaySpill()
 	for h := range s.queue {
 		s.saveWithRetry(h)
@@ -93,6 +95,7 @@ func (s *HandStore) saveWithRetry(h savedHand) {
 	var err error
 	for attempt, wait := 1, s.retryWait; attempt <= 5; attempt, wait = attempt+1, wait*2 {
 		if err = s.saver.save(h); err == nil {
+			s.saved(h)
 			s.replaySpill()
 			return
 		}
@@ -101,6 +104,12 @@ func (s *HandStore) saveWithRetry(h savedHand) {
 	}
 	log.Printf("!!! Hand %s not saved after 5 attempts", h.Record.HandID)
 	s.spill(h)
+}
+
+func (s *HandStore) saved(h savedHand) {
+	if s.onSaved != nil {
+		s.onSaved(h.Record)
+	}
 }
 
 // spill appends a hand to the spill file. Losing it here is the only way a hand is lost.
@@ -148,6 +157,7 @@ func (s *HandStore) replaySpill() {
 			keep = append(keep, line)
 			failed = true
 		} else {
+			s.saved(h)
 			saved++
 		}
 	}

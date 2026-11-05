@@ -1,16 +1,56 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
-import { CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer } from "@phosphor-icons/react";
+import { ArrowDown, Brain, CircleNotch, GameController } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
-import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
+import SoundToggle from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
+import { HudContext, useHudState } from "@/components/Hud";
+import StatsSections from "@/components/StatsSections";
+import ModelDrawer from "@/components/ModelDrawer";
+import StickyBar from "@/components/StickyBar";
+import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
-import { ALL_LLMS, DEFAULT_GAME_CONFIG } from "@/lib/constants";
+import { MUTED, useStats } from "@/lib/stats";
+import { pageBy } from "@/components/Section";
+
+// The URL hash: #model=<slug> opens the model drawer, and Back closes it.
+// openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
+// closing it should step back instead of leaving an extra entry behind.
+const isModelHash = (h: string) => h.startsWith("#model=");
+let lastHash = "";
+let openedInPage = false;
+let goingBack = false; // history.back() is async: ignore a second close until the hash changes
+const subscribeHash = (cb: () => void) => {
+  lastHash = window.location.hash;
+  openedInPage = false;
+  const onChange = () => {
+    const h = window.location.hash;
+    if (isModelHash(h) && !isModelHash(lastHash)) openedInPage = true;
+    lastHash = h;
+    goingBack = false;
+    cb();
+  };
+  window.addEventListener("hashchange", onChange);
+  return () => window.removeEventListener("hashchange", onChange);
+};
+const closeModel = () => {
+  if (!isModelHash(window.location.hash) || goingBack) return; // Back already left the drawer's entry
+  if (openedInPage) {
+    openedInPage = false;
+    goingBack = true;
+    history.back();
+    return;
+  }
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
+};
+
+const PAGE_KEYS: Record<string, 1 | -1> = { ArrowRight: 1, PageDown: 1, ArrowLeft: -1, PageUp: -1 };
 
 export default function Home() {
   const {
@@ -20,103 +60,32 @@ export default function Home() {
     tableNotice,
     isLoading,
     error,
-    actionRequired,
     lastHandResult,
     displayState,
-    isPaused,
     shotClockRemaining,
     buttonDetermination,
     connect,
     retry,
-    newGame,
-    startHand,
-    submitAction,
     clearError,
-    pause,
-    resume,
   } = useGameState();
 
-  const [gameMode, setGameMode] = useState<'spectate' | 'play' | 'test'>('spectate');
-  const [selectedLLMs, setSelectedLLMs] = useState<string[]>([]);
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
   const [usageRefreshTrigger, setUsageRefreshTrigger] = useState(0);
-  const { usage, error: usageError } = useUsage(usageRefreshTrigger, isPaused);
+  const { usage, error: usageError } = useUsage(usageRefreshTrigger);
   const watching = usageError ? undefined : usage?.table?.spectators;
   const isLive = isConnected && !tableNotice;
   
-  // Check for test mode via URL param (?test=true) or play mode via sessionStorage
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('test') === 'true') {
-        setGameMode('test');
-      } else if (sessionStorage.getItem('playMode') === 'true') {
-        setGameMode('play');
-        const stored = sessionStorage.getItem('selectedLLMs');
-        if (stored) {
-          setSelectedLLMs(JSON.parse(stored));
-        }
-        // Clear after reading
-        sessionStorage.removeItem('playMode');
-        sessionStorage.removeItem('selectedLLMs');
-      }
-    }
-  }, []);
-
-  // Auto-connect and auto-start game on mount
+  // Auto-connect on mount
   useEffect(() => {
     if (!isConnected && !isLoading) {
-      connect().then(() => {
-        // Connection successful, game will auto-start
-      }).catch(err => {
+      connect().catch(err => {
         console.error('Failed to auto-connect:', err);
       });
     }
     // Only run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Spectators just watch the shared table the server is running. Only the private
-  // play/test modes create a game of their own.
-  useEffect(() => {
-    if (gameMode === 'spectate') return;
-    if (isConnected && !gameState?.id && !isLoading) {
-      if (gameMode === 'play' && selectedLLMs.length === 8) {
-        // Play mode: user vs selected LLMs
-        newGame({
-          playerNames: ['You', ...selectedLLMs],
-          ...DEFAULT_GAME_CONFIG,
-          mode: 'play',
-        });
-      } else {
-        // Test mode: all LLM seats, controlled by hand
-        newGame({
-          playerNames: [...ALL_LLMS],
-          ...DEFAULT_GAME_CONFIG,
-          mode: 'test',
-        });
-      }
-    }
-  }, [isConnected, gameState?.id, isLoading, gameMode, selectedLLMs]);
-
-  // Auto-start first hand when game is created AND button determination is complete
-  useEffect(() => {
-    if (gameMode === 'spectate') return; // the server deals the shared table
-    if (isConnected && gameState?.id && gameState?.handNumber === 0 && !isLoading) {
-      // If button determination is in progress, wait for it to complete
-      if (buttonDetermination && !buttonDetermination.isComplete) {
-        return; // Still determining button
-      }
-      // If button determination is complete, wait 5 seconds so user can read who got the button
-      if (buttonDetermination?.isComplete) {
-        const timer = setTimeout(() => {
-          startHand();
-        }, 5000);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [isConnected, gameState?.id, gameState?.handNumber, isLoading, buttonDetermination, startHand, gameMode]);
 
   // Refresh usage stats when an LLM action is revealed
   useEffect(() => {
@@ -152,87 +121,72 @@ export default function Home() {
   // Derived state
   const players = gameState?.players || [];
   const layout = getPlayerLayout(players.length || 9);
-  const currentBet = gameState?.currentBet || 0;
-  const minRaise = gameState?.minRaise || 10;
   const pot = gameState?.pot || 0;
   const communityCards = gameState?.communityCards || [];
   const street = gameState?.street || 'preflop';
   // Use displayState.playerIdx for highlight when actively displaying a player's turn
   // This keeps the highlight on the current player during reasoning + 5s wait
   const currentPlayerIdx = displayState?.playerIdx ?? (gameState?.currentPlayerIdx ?? -1);
-  const validActions = gameState?.validActions || [];
   const stakes = gameState?.stakes || { smallBlind: 5, bigBlind: 10 };
   const handNumber = gameState?.handNumber || 0;
-  const buttonIdx = gameState?.buttonIdx ?? -1;
   const winners = gameState?.winners || lastHandResult?.winners || [];
   const isHandComplete = street === 'complete';
 
-  // Next hand countdown. On the shared table the server deals the next hand and tells
-  // us how long is left; in private modes we count down and start it ourselves.
+  // All-time stats feed the leaderboard and drawer; the session picker below the table may
+  // narrow the sections. Both refetch as each hand finishes; a finished session never changes.
+  const [session, setSession] = useState('');
+  const all = useStats(undefined, true, handNumber);
+  const pickedLive = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
+  const picked = useStats(session || undefined, !!session, pickedLive ? handNumber : undefined);
+  // The HUD reads the same all-time fetch; the bundled dev sample never feeds the seats.
+  const hud = useHudState(all.sample ? null : all.data?.models);
+
+  const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
+  const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
+
+  const tableRef = useRef<HTMLDivElement>(null);
+  // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
+  // starts out of view, as it does after a deep link to #stats.
+  const [tableInView, setTableInView] = useState(true);
+  useEffect(() => {
+    // The top 44px sit under the bar itself, so they do not count as visible.
+    const io = new IntersectionObserver(([e]) => setTableInView(e.isIntersecting), { rootMargin: '-44px 0px 0px 0px' });
+    if (tableRef.current) io.observe(tableRef.current);
+    return () => io.disconnect();
+  }, []);
+
+  // ← → and PageUp/PageDown page between screens, unless a field or the drawer has the keys.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const dir = PAGE_KEYS[e.key];
+      if (!dir || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (e.target instanceof Element && e.target.closest('input, select, textarea, [contenteditable], dialog')) return;
+      e.preventDefault();
+      pageBy(dir);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Next hand countdown: the server deals the next hand and tells us how long is left.
   const nextHandInMs = gameState?.nextHandInMs;
   useEffect(() => {
     if (!isHandComplete) {
       setNextHandCountdown(null);
-    } else if (gameMode === 'spectate') {
-      if (nextHandInMs) setNextHandCountdown(Math.ceil(nextHandInMs / 1000));
-    } else if (nextHandCountdown === null) {
-      setNextHandCountdown(7);
+    } else if (nextHandInMs) {
+      setNextHandCountdown(Math.ceil(nextHandInMs / 1000));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHandComplete, nextHandInMs, gameMode]);
+  }, [isHandComplete, nextHandInMs]);
 
   useEffect(() => {
-    if (nextHandCountdown === null) return;
-
-    if (nextHandCountdown <= 0) {
-      if (gameMode === 'spectate') return; // wait for the server's next hand
-      // Start next hand
-      setNextHandCountdown(null);
-      clearError(); // Clear any previous errors
-      startHand();
-      return;
-    }
+    if (nextHandCountdown === null || nextHandCountdown <= 0) return;
 
     const timer = setTimeout(() => {
       setNextHandCountdown(prev => prev !== null ? prev - 1 : null);
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [nextHandCountdown, startHand, clearError, gameMode]);
-
-  const handleStartHand = () => {
-    clearError();
-    startHand();
-  };
-
-  const handleAction = (action: 'fold' | 'check' | 'call' | 'raise' | 'all-in', amount?: number) => {
-    submitAction(action, amount);
-  };
-
-  const handleBackToSpectate = () => {
-    setGameMode('spectate');
-    setSelectedLLMs([]);
-    newGame({
-      playerNames: [...ALL_LLMS],
-      ...DEFAULT_GAME_CONFIG,
-      mode: 'simulate',
-    });
-  };
-
-  // Determine if action panel should be shown
-  const showActionPanel = (() => {
-    // Test mode: always show action panel (for dev testing all players)
-    if (gameMode === 'test') return true;
-    
-    // Play mode: always show action panel (user plays against LLMs)
-    if (gameMode === 'play') return true;
-    
-    // Spectate mode: never show action panel
-    return false;
-  })();
-  
-  // Determine if actions are currently available (for disabling buttons)
-  const canAct = currentPlayerIdx >= 0 && !isHandComplete && !!players[currentPlayerIdx];
+  }, [nextHandCountdown]);
 
   // Calculate winners by player index for display on player cards
   const winnersByIdx = isHandComplete && winners.length > 0
@@ -247,66 +201,68 @@ export default function Home() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <div className="flex flex-col min-h-screen p-3 lg:p-4 overflow-auto" style={{ background: '#FFFFFF' }}>
-      <main className="flex-1 flex flex-col items-center-safe">
-        
+    <HudContext.Provider value={hud}>
+    <div className="px-3 lg:px-4" style={{ background: '#FFFFFF' }}>
+      <main className="flex flex-col items-center-safe">
+      {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
+      <section data-screen aria-label="Live table" className="relative w-full min-h-dvh snap-start snap-normal flex flex-col items-center-safe pt-3 pb-9 lg:pt-4">
       {/* Header - Title centered */}
-        <div className="mb-2 text-center">
+        <div className="mb-1 text-center">
           <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
-          <p className="text-[15px] mt-1" style={{ color: 'rgb(55, 53, 47)' }}>
-            9 LLMs play No Limit Hold&apos;em against each other, live. Watch each one explain its move.{' '}
+          <p className="text-[12px] mt-0.5" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+            Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
             <Link 
               href="/about" 
-              className="hover:underline whitespace-nowrap"
+              className="hover:underline"
               style={{ color: 'rgb(35, 131, 226)' }}
             >
-              About
+              ⓘ About
             </Link>
           </p>
         </div>
 
-        {/* Play mode: way back to the shared table */}
-        {gameMode === 'play' && (
-          <div className="mb-2 flex items-center justify-center gap-3">
-            <button
-              onClick={handleBackToSpectate}
-              className="btn-brutal px-3 py-1 text-[11px] flex items-center gap-2"
-            >
-              <Television size={12} weight="bold" />
-              Back to Spectate
-            </button>
-          </div>
-        )}
+        {/* Action buttons row */}
+        <div className="mb-2 flex items-center justify-center gap-3">
+          <button
+            disabled
+            className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
+          >
+            <GameController size={12} weight="bold" />
+            Play vs. LLMs — (coming soon)!
+          </button>
+          <button
+            disabled
+            className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
+          >
+            <Brain size={12} weight="bold" />
+            Train an LLM to play like you (coming soon)!
+          </button>
+        </div>
 
-        {/* Status row - Mode indicator, hand counter, blinds, timer */}
+        {/* Status row - live indicator, hand counter, blinds, timer */}
         <div className="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
-          {/* Mode indicator */}
+          {/* Live indicator */}
           <div className="flex items-center gap-2">
-            {gameMode === 'spectate' && (
-              <>
-                <span
-                  aria-hidden
-                  className="inline-block w-2 h-2 rounded-full"
-                  style={{ background: isLive ? 'rgb(220, 38, 38)' : 'rgba(55, 53, 47, 0.65)' }}
-                />
-                <span className="text-[12px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
-                  {!isConnected ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
-                  {watching !== undefined && ` · ${watching.toLocaleString()} watching`}
-                </span>
-              </>
-            )}
-            {gameMode === 'play' && (
-              <>
-                <GameController size={14} weight="bold" style={{ color: 'rgb(15, 123, 108)' }} />
-                <span className="text-[12px] font-medium" style={{ color: 'rgb(15, 123, 108)' }}>Playing</span>
-              </>
-            )}
-            {gameMode === 'test' && (
-              <>
-                <Wrench size={14} weight="bold" style={{ color: 'rgb(203, 145, 47)' }} />
-                <span className="text-[12px] font-medium" style={{ color: 'rgb(203, 145, 47)' }}>Test Mode</span>
-              </>
-            )}
+            <span
+              aria-hidden
+              className="inline-block w-2 h-2 rounded-full"
+              style={{ background: isLive ? 'rgb(220, 38, 38)' : 'rgba(55, 53, 47, 0.65)' }}
+            />
+            <span className="text-[12px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
+              {!isConnected ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+              {watching !== undefined && ` · ${watching.toLocaleString()} watching`}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={hud.on}
+              onClick={() => hud.setOn(!hud.on)}
+              title="Show bb/100, VPIP, PFR and AF under every seat"
+              className="text-[12px] font-medium px-1.5 rounded hover:bg-[rgba(55,53,47,0.06)]"
+              style={{ color: hud.on ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)', background: hud.on ? 'rgba(35, 131, 226, 0.1)' : undefined }}
+            >
+              HUD
+            </button>
           </div>
 
           {/* Hand counter, blinds, timer */}
@@ -320,44 +276,27 @@ export default function Home() {
               <span className="text-[12px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
             </>
           )}
-
-          {/* Next hand button (countdown now shown on felt) */}
-          {gameMode !== 'spectate' && isHandComplete && nextHandCountdown !== null && nextHandCountdown <= 0 && (
-            <>
-              <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <button
-                onClick={handleStartHand}
-                disabled={isLoading}
-                className="btn-brutal px-3 py-1 text-[12px] flex items-center gap-2"
-              >
-                {isLoading ? <CircleNotch size={12} className="animate-spin" /> : <ArrowClockwise size={12} weight="bold" />}
-                Next Hand
-              </button>
-            </>
-          )}
+          <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+          <SoundToggle />
         </div>
 
-
+        <SessionProgress table={usageError ? undefined : usage?.table} />
 
         {/* Main content */}
         <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
-          <div className="flex flex-col w-full md:w-auto">
+          <div className="screen-fit flex flex-col w-full md:w-auto">
             {/* Row 1: Table + Winnings (stacked on phones) */}
-            <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
+            <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
               {/* Main game grid */}
               <PokerTable
                 players={players}
                 layout={layout}
                 currentPlayerIdx={currentPlayerIdx}
-                buttonIdx={buttonIdx}
                 communityCards={communityCards}
                 pot={pot}
+                handNumber={handNumber}
                 winnersByIdx={winnersByIdx}
                 nextHandCountdown={nextHandCountdown}
-                onSkipCountdown={gameMode === 'spectate' ? undefined : () => {
-                  setNextHandCountdown(null);
-                  startHand();
-                }}
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
                 buttonDetermination={buttonDetermination}
                 hidePositions={!!buttonDetermination}
@@ -367,7 +306,7 @@ export default function Home() {
               {/* Right sidebar column - leaderboard, then API usage */}
               <div className="flex flex-col w-full md:w-[240px] shrink-0">
                 <div className="flex-1 flex flex-col min-h-0">
-                  <WinningsPanel players={players} />
+                  <WinningsPanel players={players} stats={all.sample ? null : all.data} />
                 </div>
                 <div className="mt-4">
                   <UsageIndicator usage={usage} error={usageError} />
@@ -375,84 +314,36 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Reasoning Panel - LLM thinking + reasoning (always visible in spectate) */}
-            {gameMode === 'spectate' && (
-              <div className="mt-4 w-full">
-                <ReasoningPanel
-                  displayState={displayState}
-                  shotClockRemaining={shotClockRemaining}
-                  isPaused={isPaused}
-                />
-              </div>
-            )}
-
-            {/* Action Panel - shown in play/test modes */}
-            {showActionPanel && (
-              <div className="mt-4 flex w-full justify-start">
-                <ActionPanel
-                  currentPlayer={canAct ? players[currentPlayerIdx] : null}
-                  currentBet={currentBet}
-                  minRaise={minRaise}
-                  validActions={canAct ? validActions : []}
-                  stakes={stakes}
-                  actionRequired={!!actionRequired && canAct}
-                  onAction={handleAction}
-                  disabled={!canAct}
-                />
-              </div>
-            )}
+            {/* Reasoning Panel - LLM thinking + reasoning */}
+            <div className="mt-4 w-full">
+              <ReasoningPanel
+                displayState={displayState}
+                shotClockRemaining={shotClockRemaining}
+              />
+            </div>
           </div>
         </div>
+
+        <button
+          onClick={() => pageBy(1)}
+          className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded px-2 py-1 text-[12px] font-medium hover:bg-[rgba(55,53,47,0.06)]"
+          style={{ color: MUTED }}
+        >
+          Stats <ArrowDown size={12} weight="bold" aria-hidden />
+        </button>
+      </section>
+
+      {/* Screen 2 (one per section on phones): race, stats and head-to-head. */}
+      <StatsSections
+        all={all}
+        picked={session ? picked : all}
+        session={session}
+        onSession={setSession}
+      />
       </main>
 
-      {/* Dev controls - top left */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="fixed top-4 left-4 flex flex-col gap-2 z-50">
-          {/* Pause/Resume button */}
-          {gameMode !== 'spectate' && !isHandComplete && (
-            <button
-              onClick={() => isPaused ? resume() : pause()}
-              className={`${
-                isPaused ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 hover:bg-gray-600'
-              } text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold`}
-              title={isPaused ? 'Resume Game' : 'Pause Game'}
-            >
-              {isPaused ? (
-                <>
-                  <ArrowClockwise size={14} weight="bold" />
-                  RESUME
-                </>
-              ) : (
-                <>
-                  <Timer size={14} weight="bold" />
-                  PAUSE
-                </>
-              )}
-            </button>
-          )}
-
-          {/* Test mode toggle */}
-          {gameMode !== 'test' ? (
-            <button
-              onClick={() => { window.location.href = '/?test=true'; }}
-              className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold"
-              title="Enter Test Mode (dev only, needs the engine started with PRIVATE_GAMES=1)"
-            >
-              <Bug size={14} weight="bold" />
-              TEST MODE
-            </button>
-          ) : (
-            <button
-              onClick={() => { window.location.href = '/'; }}
-              className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold"
-              title="Exit Test Mode"
-            >
-              <Bug size={14} weight="bold" />
-              EXIT TEST
-            </button>
-          )}
-        </div>
-      )}
+      <StickyBar show={!tableInView && players.length > 0} pot={pot} handNumber={handNumber} display={displayState} />
+      <ModelDrawer models={all.data?.models ?? []} error={all.error} loading={all.loading} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status/errors */}
       {(!isConnected || error) && (
@@ -483,6 +374,7 @@ export default function Home() {
         </div>
       )}
     </div>
+    </HudContext.Provider>
     </MotionConfig>
   );
 }

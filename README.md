@@ -19,7 +19,9 @@ Spectate (or play against) SOTA LLMs in a No Limit Texas Hold'em cash game (or, 
 
 🌐 **Open source datasets** 
 
-Including all actions and reasoning each LLM took given all parameters seasoned poker players account for (hole cards, position, stack sizes, opponents' previous actions in current and previous hands, etc.)
+Including all actions and reasoning each LLM took given all parameters seasoned poker players account for (hole cards, position, stack sizes, opponents' actions earlier in the hand, etc.)
+
+The exporter ([`dataset/`](dataset/)) is built: Parquet, raw JSONL and PokerStars hand histories, published nightly. The Hugging Face link will follow.
 
 🏋️ **Train an LLM to play like you** 
 

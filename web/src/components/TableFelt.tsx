@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { TableNoticePayload } from "@/lib/api";
 import { formatDuration, formatLocalTime } from "@/lib/time";
+import type { ButtonDetermination } from "@/hooks/useGameState";
 
 interface WinnerDisplay {
   name: string;
@@ -14,25 +15,11 @@ interface WinnerDisplay {
   handDesc: string;
 }
 
-interface ButtonCard {
-  playerIdx: number;
-  playerName: string;
-  card: string;
-}
-
-interface ButtonDetermination {
-  cards: ButtonCard[];
-  winnerIdx: number | null;
-  winnerName: string | null;
-  isComplete: boolean;
-}
-
 interface TableFeltProps {
   cards: string[];
   pot: number;
   winners?: WinnerDisplay[];
   nextHandCountdown?: number | null;
-  onSkipCountdown?: () => void;
   buttonDetermination?: ButtonDetermination | null;
   notice?: TableNoticePayload | null;
 }
@@ -74,7 +61,6 @@ export default function TableFelt({
   pot, 
   winners = [],
   nextHandCountdown,
-  onSkipCountdown,
   buttonDetermination,
   notice,
 }: TableFeltProps) {
@@ -92,7 +78,7 @@ export default function TableFelt({
       }}
     >
       {/* Winner announcement or Pot */}
-      <div className="h-[44px] w-full flex items-center justify-center">
+      <div data-pot className="h-[44px] w-full flex items-center justify-center">
         {winners.length > 0 ? (
           <div className="flex flex-col items-center bg-green-50 p-2 px-3 border border-green-500 max-w-full overflow-hidden">
             {winners.slice(0, 1).map((w, i) => (
@@ -117,7 +103,7 @@ export default function TableFelt({
       </div>
 
       {/* Community cards or Button Determination */}
-      <div className="flex gap-2 min-h-[70px] items-center">
+      <div data-felt-cards className="flex gap-2 min-h-[70px] items-center">
         {notice ? (
           <TableNoticeCard notice={notice} />
         ) : showButtonDetermination ? (
@@ -140,7 +126,7 @@ export default function TableFelt({
           </div>
         ) : cards.length > 0 ? (
           cards.map((card, i) => (
-            <Card key={`${card}-${i}`} value={card} className="w-11 h-16" />
+            <Card key={`${card}-${i}`} value={card} className="w-11 h-16" flip delay={i < 3 ? i * 0.08 : 0} />
           ))
         ) : (
           <div className="text-[11px] text-gray-600 uppercase">No cards dealt</div>
@@ -157,15 +143,6 @@ export default function TableFelt({
           <span className="text-[12px]" style={{ color: 'rgb(55, 53, 47)' }}>
             Next hand in <span className="font-bold">{nextHandCountdown}s</span>
           </span>
-          {onSkipCountdown && (
-            <button
-              onClick={onSkipCountdown}
-              className="text-[11px] hover:underline ml-1"
-              style={{ color: 'rgb(35, 131, 226)' }}
-            >
-              Skip
-            </button>
-          )}
         </div>
       )}
     </div>

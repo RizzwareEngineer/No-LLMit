@@ -2,7 +2,11 @@
 
 import Card from "@/components/Card";
 import LLMLogo from "@/components/LLMLogo";
+import { useId, useState } from "react";
+import NumberFlow from "@number-flow/react";
+import { motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
+import { HudCard, HudLine, useHud, type CardAlign } from "@/components/Hud";
 
 interface PlayerProps {
   player: PlayerState;
@@ -12,6 +16,10 @@ interface PlayerProps {
   winAmount?: number;
   winDesc?: string;
   isThinking?: boolean;
+  cardAlign?: CardAlign;
+  seatIdx?: number;
+  handNumber?: number;
+  dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
 }
 
 // Position badge colors
@@ -21,8 +29,8 @@ const POSITION_COLORS: Record<string, string> = {
   'BB': 'bg-blue-700 text-white',
   'UTG': 'bg-red-700 text-white',
   'UTG+1': 'bg-red-600 text-white',
-  'UTG+2': 'bg-orange-700 text-white',
-  'LJ': 'bg-purple-700 text-white',
+  'MP': 'bg-orange-700 text-white',
+  'MP+1': 'bg-purple-700 text-white',
   'HJ': 'bg-purple-600 text-white',
   'CO': 'bg-green-700 text-white',
 };
@@ -35,25 +43,48 @@ function getPositionFullName(pos: string): string {
     'BB': 'Big Blind',
     'UTG': 'Under The Gun',
     'UTG+1': 'Under The Gun +1',
-    'UTG+2': 'Under The Gun +2',
-    'LJ': 'Lojack',
+    'MP': 'Middle Position',
+    'MP+1': 'Middle Position +1',
     'HJ': 'Hijack',
     'CO': 'Cutoff',
   };
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, cardAlign = "center", seatIdx, handNumber = 0, dealDelays }: PlayerProps) {
+  const reduce = useReducedMotion();
+  const { stats, on: hudOn, followed, toggleFollow } = useHud();
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const cardId = useId();
+  const pinned = followed === player.name;
+  const cardOpen = !hudOn && (hovered || focused || pinned);
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const isWinner = winAmount !== undefined && winAmount > 0;
   
   return (
-    <div 
-      className={`overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`}
+    <div
+      className="relative h-full w-full"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
+      onKeyDown={(e) => { if (e.key === "Escape") { setHovered(false); setFocused(false); } }}
+    >
+    <div
+      data-seat={seatIdx}
+      role="button"
+      tabIndex={0}
+      aria-pressed={pinned}
+      aria-describedby={hudOn ? undefined : cardId}
+      aria-label={`${player.name}, stack ${player.stack.toLocaleString()}${pinned ? ", following" : ""}`}
+      onClick={() => toggleFollow(player.name)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleFollow(player.name); } }}
+      className={`cursor-pointer outline-offset-2 overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} motion-safe:transition-[opacity,background-color] motion-safe:duration-300 rounded`}
       style={{ 
         boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px',
-        background: isWinner ? 'rgb(237, 253, 244)' : '#ffffff'
+        background: isWinner ? 'rgb(237, 253, 244)' : pinned ? 'rgba(35, 131, 226, 0.08)' : '#ffffff'
       }}
     >
       <div 
@@ -67,13 +98,20 @@ export default function Player({ player, active, position, folded = false, winAm
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
               <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.stack.toLocaleString()}</div>
+              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤<NumberFlow value={player.stack} /></div>
             </div>
           </div>
-          <div className="flex flex-row items-center gap-1 shrink-0">
+          {/* A folded hand slides down while the seat dims */}
+          <motion.div
+            data-hole
+            className="flex flex-row items-center gap-1 shrink-0"
+            initial={false}
+            animate={{ y: folded ? 4 : 0 }}
+            transition={{ duration: reduce ? 0 : 0.3 }}
+          >
             {cards.length > 0 ? (
               cards.map((card, i) => (
-                <Card key={`${card}-${i}`} value={card} className="w-7 h-10" />
+                <Card key={`${handNumber}-${card}-${i}`} value={card} className="w-7 h-10" delay={dealDelays?.[i] ?? 0} />
               ))
             ) : (
               <>
@@ -81,8 +119,10 @@ export default function Player({ player, active, position, folded = false, winAm
                 <Card value="" className="w-7 h-10" />
               </>
             )}
-          </div>
+          </motion.div>
         </div>
+
+        {hudOn && <HudLine stats={stats?.[player.name]} />}
 
         <div className="flex flex-col mt-auto p-3 pt-0 min-w-0 overflow-hidden">
           <div className="flex items-center gap-2 min-w-0">
@@ -129,6 +169,8 @@ export default function Player({ player, active, position, folded = false, winAm
           </div>
         </div>
       </div>
+    </div>
+    <HudCard id={cardId} stats={stats?.[player.name]} loaded={stats !== null} open={cardOpen} align={cardAlign} />
     </div>
   );
 }
