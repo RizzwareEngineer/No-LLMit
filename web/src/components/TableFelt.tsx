@@ -78,7 +78,7 @@ export default function TableFelt({
       }}
     >
       {/* Winner announcement or Pot */}
-      <div className="h-[44px] w-full flex items-center justify-center">
+      <div data-pot className="h-[44px] w-full flex items-center justify-center">
         {winners.length > 0 ? (
           <div className="flex flex-col items-center bg-green-50 p-2 px-3 border border-green-500 max-w-full overflow-hidden">
             {winners.slice(0, 1).map((w, i) => (
@@ -103,7 +103,7 @@ export default function TableFelt({
       </div>
 
       {/* Community cards or Button Determination */}
-      <div className="flex gap-2 min-h-[70px] items-center">
+      <div data-felt-cards className="flex gap-2 min-h-[70px] items-center">
         {notice ? (
           <TableNoticeCard notice={notice} />
         ) : showButtonDetermination ? (
@@ -126,7 +126,7 @@ export default function TableFelt({
           </div>
         ) : cards.length > 0 ? (
           cards.map((card, i) => (
-            <Card key={`${card}-${i}`} value={card} className="w-11 h-16" />
+            <Card key={`${card}-${i}`} value={card} className="w-11 h-16" flip delay={i < 3 ? i * 0.08 : 0} />
           ))
         ) : (
           <div className="text-[11px] text-gray-600 uppercase">No cards dealt</div>

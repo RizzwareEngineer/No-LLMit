@@ -2,6 +2,7 @@
 
 import Player from "@/components/Player";
 import TableFelt from "@/components/TableFelt";
+import TableMotion, { DEAL_STAGGER, FLIGHT, dealOrder } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import type { ButtonDetermination } from "@/hooks/useGameState";
 
@@ -23,6 +24,7 @@ interface PokerTableProps {
   currentPlayerIdx: number;
   communityCards: string[];
   pot: number;
+  handNumber: number;
   winnersByIdx?: Record<number, WinnerInfo>;
   nextHandCountdown?: number | null;
   thinkingPlayerIdx?: number;
@@ -37,6 +39,7 @@ export default function PokerTable({
   currentPlayerIdx,
   communityCards,
   pot,
+  handNumber,
   winnersByIdx = {},
   nextHandCountdown,
   thinkingPlayerIdx,
@@ -66,6 +69,8 @@ export default function PokerTable({
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
+      seatIdx={idx}
+      dealDelay={dealOrder(players, idx) * DEAL_STAGGER + FLIGHT}
     />
   );
 
@@ -94,6 +99,12 @@ export default function PokerTable({
 
   return (
     <>
+      <TableMotion
+        players={players}
+        handNumber={handNumber}
+        boardCount={communityCards.length}
+        winnerIdxs={Object.keys(winnersByIdx).map(Number)}
+      />
       {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>

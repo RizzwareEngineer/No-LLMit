@@ -1,7 +1,7 @@
 'use client'
 
 import { Club, Diamond, Heart, Spade } from '@phosphor-icons/react';
-import { motion } from "motion/react"
+import { motion, useReducedMotion } from "motion/react"
 import React, { useState } from 'react';
 
 
@@ -9,6 +9,8 @@ interface CardProps {
   value: string;
   className?: string;
   faceDown?: boolean;
+  delay?: number; // seconds before it appears (dealt cards land one after another)
+  flip?: boolean; // turn over in place instead of sliding up (community cards)
 }
 
 const RANK_NAMES: Record<string, string> = {
@@ -16,8 +18,9 @@ const RANK_NAMES: Record<string, string> = {
 };
 const SUIT_NAMES: Record<string, string> = { h: 'hearts', d: 'diamonds', c: 'clubs', s: 'spades' };
 
-const Card = ({ value, className = "", faceDown = false }: CardProps) => {
+const Card = ({ value, className = "", faceDown = false, delay = 0, flip = false }: CardProps) => {
   const [isHovered, setIsHovered] = useState(false);
+  const reduce = useReducedMotion();
   
   // Determine card color based on suit
   const suit = value.slice(-1);
@@ -46,14 +49,13 @@ const Card = ({ value, className = "", faceDown = false }: CardProps) => {
   
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      transition={{ duration: 0.2 }}
+      initial={reduce ? false : flip ? { opacity: 0, rotateY: 90 } : { opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0, rotateY: 0 }}
+      transition={{ duration: flip ? 0.35 : 0.2, delay }}
       role="img"
       aria-label={label}
       className={`relative bg-white flex items-center justify-center rounded ${className}`}
-      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px' }}
+      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px', transformPerspective: 400 }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >

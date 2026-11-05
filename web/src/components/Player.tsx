@@ -2,6 +2,8 @@
 
 import Card from "@/components/Card";
 import LLMLogo from "@/components/LLMLogo";
+import NumberFlow from "@number-flow/react";
+import { motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 
 interface PlayerProps {
@@ -12,6 +14,8 @@ interface PlayerProps {
   winAmount?: number;
   winDesc?: string;
   isThinking?: boolean;
+  seatIdx?: number;
+  dealDelay?: number; // seconds until this seat's dealt cards land
 }
 
 // Position badge colors
@@ -43,14 +47,16 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, seatIdx, dealDelay = 0 }: PlayerProps) {
+  const reduce = useReducedMotion();
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const isWinner = winAmount !== undefined && winAmount > 0;
   
   return (
     <div 
-      className={`overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`}
+      data-seat={seatIdx}
+      className={`overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} motion-safe:transition-[opacity,background-color] motion-safe:duration-300 rounded`}
       style={{ 
         boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px',
         background: isWinner ? 'rgb(237, 253, 244)' : '#ffffff'
@@ -67,13 +73,20 @@ export default function Player({ player, active, position, folded = false, winAm
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
               <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.stack.toLocaleString()}</div>
+              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤<NumberFlow value={player.stack} /></div>
             </div>
           </div>
-          <div className="flex flex-row items-center gap-1 shrink-0">
+          {/* A folded hand slides down and fades while the seat dims */}
+          <motion.div
+            data-hole
+            className="flex flex-row items-center gap-1 shrink-0"
+            initial={false}
+            animate={folded ? { y: 6, opacity: 0.5 } : { y: 0, opacity: 1 }}
+            transition={{ duration: reduce ? 0 : 0.3 }}
+          >
             {cards.length > 0 ? (
               cards.map((card, i) => (
-                <Card key={`${card}-${i}`} value={card} className="w-7 h-10" />
+                <Card key={`${card}-${i}`} value={card} className="w-7 h-10" delay={dealDelay} />
               ))
             ) : (
               <>
@@ -81,7 +94,7 @@ export default function Player({ player, active, position, folded = false, winAm
                 <Card value="" className="w-7 h-10" />
               </>
             )}
-          </div>
+          </motion.div>
         </div>
 
         <div className="flex flex-col mt-auto p-3 pt-0 min-w-0 overflow-hidden">

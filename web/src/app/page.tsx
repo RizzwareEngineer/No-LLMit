@@ -188,6 +188,7 @@ export default function Home() {
                 currentPlayerIdx={currentPlayerIdx}
                 communityCards={communityCards}
                 pot={pot}
+                handNumber={handNumber}
                 winnersByIdx={winnersByIdx}
                 nextHandCountdown={nextHandCountdown}
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
