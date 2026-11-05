@@ -6,39 +6,40 @@ export type SoundKind = 'deal' | 'chip' | 'showdown';
 
 const STORAGE_KEY = 'nollmit:sound';
 let ctx: AudioContext | null = null;
+let noise: AudioBuffer | null = null;
 let enabled: boolean | null = null; // null until read from storage
 const listeners = new Set<() => void>();
 
-function readStored(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) === 'on';
-  } catch {
-    return false;
-  }
-}
-
-// Called only from gesture handlers.
+// Called only from gesture handlers. Throws where Web Audio is missing.
 function unlock() {
   ctx ??= new AudioContext();
   if (ctx.state === 'suspended') void ctx.resume();
 }
 
-function unlockOnFirstGesture() {
+// The stored choice. Pure, so it can be a useSyncExternalStore snapshot.
+export function isSoundOn(): boolean {
+  if (enabled === null) {
+    try {
+      enabled = localStorage.getItem(STORAGE_KEY) === 'on';
+    } catch {
+      enabled = false;
+    }
+  }
+  return enabled;
+}
+
+// With sound stored as on, audio can only start at the viewer's first click or key press.
+export function unlockOnFirstGesture() {
   const once = () => {
     window.removeEventListener('pointerdown', once);
     window.removeEventListener('keydown', once);
-    if (enabled) unlock();
+    try {
+      if (isSoundOn()) unlock();
+    } catch {}
   };
   window.addEventListener('pointerdown', once);
   window.addEventListener('keydown', once);
-}
-
-export function isSoundOn(): boolean {
-  if (enabled === null) {
-    enabled = readStored();
-    if (enabled) unlockOnFirstGesture();
-  }
-  return enabled;
+  return once;
 }
 
 export function subscribeSound(listener: () => void) {
@@ -48,12 +49,15 @@ export function subscribeSound(listener: () => void) {
 
 // Toggle from a click handler: that click is the gesture that unlocks audio.
 export function setSoundOn(on: boolean) {
-  enabled = on;
   try {
+    if (on) unlock();
+    enabled = on;
     localStorage.setItem(STORAGE_KEY, on ? 'on' : 'off');
-  } catch {}
-  if (on) unlock();
-  listeners.forEach(l => l());
+  } catch {
+    // No Web Audio here (unlock threw before `enabled` changed) or no storage: keep going.
+  } finally {
+    listeners.forEach(l => l());
+  }
 }
 
 function tone(c: AudioContext, freq: number, start: number, length: number, type: OscillatorType, peak: number) {
@@ -75,14 +79,15 @@ export function playSound(kind: SoundKind) {
   const now = c.currentTime;
   if (kind === 'deal') {
     // A short band-passed noise burst: a card sliding on felt.
-    const length = 0.08;
-    const buffer = c.createBuffer(1, Math.ceil(c.sampleRate * length), c.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    if (!noise) {
+      noise = c.createBuffer(1, Math.ceil(c.sampleRate * 0.08), c.sampleRate);
+      const data = noise.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    }
     const src = c.createBufferSource();
     const filter = c.createBiquadFilter();
     const gain = c.createGain();
-    src.buffer = buffer;
+    src.buffer = noise;
     filter.type = 'bandpass';
     filter.frequency.value = 3000;
     gain.gain.value = 0.25;
