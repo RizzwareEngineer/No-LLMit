@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL } from '@/lib/api';
 
 // Shape of GET /api/stats, per docs/stats-api-contract.json. Rates are 0..1, or null when nothing
@@ -98,10 +98,11 @@ interface StatsState {
 type Settled = Omit<StatsState, 'current'> & { session?: string };
 
 // Fetches /api/stats, retrying every 10s while the engine answers 503 and every 30s while
-// the response is partial.
+// the response is partial. A new refreshKey (the hand number) refetches; the last data stays up meanwhile.
 // In development any other failure falls back to the bundled sample for the same session.
-export function useStats(session?: string, enabled = true): StatsState {
+export function useStats(session?: string, enabled = true, refreshKey?: number): StatsState {
   const [state, setState] = useState<Settled>({ data: null, sample: false, loading: false, error: null, session: '\0' }); // '\0': nothing settled yet
+  const goodFor = useRef<string | undefined | null>(null); // the session the last good response was for
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
@@ -111,6 +112,7 @@ export function useStats(session?: string, enabled = true): StatsState {
     const load = () =>
       fetchStats(session)
         .then(data => {
+          goodFor.current = session;
           settle({ data });
           if (data.partial && !cancelled) timer = setTimeout(load, PARTIAL_REFRESH_MS);
         })
@@ -119,7 +121,7 @@ export function useStats(session?: string, enabled = true): StatsState {
           if (err instanceof StatsLoadingError) {
             settle({ loading: true });
             timer = setTimeout(load, LOADING_RETRY_MS);
-          } else if (process.env.NODE_ENV === 'development') {
+          } else if (process.env.NODE_ENV === 'development' && goodFor.current !== session) {
             // Loaded lazily so the sample never ships in the production bundle.
             const sample = session
               ? import('@/lib/stats-fixture-sessions.json').then(f => (f.default as unknown as Record<string, StatsResponse>)[session])
@@ -131,10 +133,17 @@ export function useStats(session?: string, enabled = true): StatsState {
         });
     load();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [session, enabled]);
-  const { session: settledFor, ...rest } = state;
-  return { ...rest, current: settledFor === session };
+  }, [session, enabled, refreshKey]);
+  // Errors and 503s keep the last good data; callers show them as a status beside it.
+  // Memoized so memo() children skip renders while nothing changed.
+  return useMemo(() => {
+    const { session: settledFor, ...rest } = state;
+    return { ...rest, current: settledFor === session };
+  }, [state, session]);
 }
+
+// In-page link that opens a model's drawer (the page watches the hash).
+export const modelHref = (name: string) => `#model=${modelSlug(name)}`;
 
 export const modelSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 

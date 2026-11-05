@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { CircleNotch } from "@phosphor-icons/react";
@@ -9,7 +9,44 @@ import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import { HudContext, useHudState } from "@/components/Hud";
+import StatsSections from "@/components/StatsSections";
+import ModelDrawer from "@/components/ModelDrawer";
+import StickyBar from "@/components/StickyBar";
+import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
+import { useStats } from "@/lib/stats";
+
+// The URL hash: #model=<slug> opens the model drawer, and Back closes it.
+// openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
+// closing it should step back instead of leaving an extra entry behind.
+const isModelHash = (h: string) => h.startsWith("#model=");
+let lastHash = "";
+let openedInPage = false;
+let goingBack = false; // history.back() is async: ignore a second close until the hash changes
+const subscribeHash = (cb: () => void) => {
+  lastHash = window.location.hash;
+  openedInPage = false;
+  const onChange = () => {
+    const h = window.location.hash;
+    if (isModelHash(h) && !isModelHash(lastHash)) openedInPage = true;
+    lastHash = h;
+    goingBack = false;
+    cb();
+  };
+  window.addEventListener("hashchange", onChange);
+  return () => window.removeEventListener("hashchange", onChange);
+};
+const closeModel = () => {
+  if (!isModelHash(window.location.hash) || goingBack) return; // Back already left the drawer's entry
+  if (openedInPage) {
+    openedInPage = false;
+    goingBack = true;
+    history.back();
+    return;
+  }
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
+};
 
 export default function Home() {
   const {
@@ -92,6 +129,27 @@ export default function Home() {
   const winners = gameState?.winners || lastHandResult?.winners || [];
   const isHandComplete = street === 'complete';
 
+  // All-time stats feed the leaderboard and drawer; the session picker below the table may
+  // narrow the sections. Both refetch as each hand finishes; a finished session never changes.
+  const [session, setSession] = useState('');
+  const all = useStats(undefined, true, handNumber);
+  const pickedLive = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
+  const picked = useStats(session || undefined, !!session, pickedLive ? handNumber : undefined);
+
+  const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
+  const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
+
+  const tableRef = useRef<HTMLDivElement>(null);
+  // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
+  // starts out of view, as it does after a deep link to #stats.
+  const [tableInView, setTableInView] = useState(true);
+  useEffect(() => {
+    // The top 44px sit under the bar itself, so they do not count as visible.
+    const io = new IntersectionObserver(([e]) => setTableInView(e.isIntersecting), { rootMargin: '-44px 0px 0px 0px' });
+    if (tableRef.current) io.observe(tableRef.current);
+    return () => io.disconnect();
+  }, []);
+
   // Next hand countdown: the server deals the next hand and tells us how long is left.
   const nextHandInMs = gameState?.nextHandInMs;
   useEffect(() => {
@@ -141,13 +199,9 @@ export default function Home() {
             >
               About
             </Link>{' · '}
-            <Link
-              href="/stats"
-              className="hover:underline whitespace-nowrap"
-              style={{ color: 'rgb(35, 131, 226)' }}
-            >
+            <a href="#stats" className="hover:underline whitespace-nowrap" style={{ color: 'rgb(35, 131, 226)' }}>
               Stats
-            </Link>
+            </a>
           </p>
         </div>
 
@@ -190,11 +244,13 @@ export default function Home() {
           )}
         </div>
 
+        <SessionProgress table={usageError ? undefined : usage?.table} />
+
         {/* Main content */}
         <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
           <div className="flex flex-col w-full md:w-auto">
             {/* Row 1: Table + Winnings (stacked on phones) */}
-            <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
+            <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
               {/* Main game grid */}
               <PokerTable
                 players={players}
@@ -213,7 +269,7 @@ export default function Home() {
               {/* Right sidebar column - leaderboard, then API usage */}
               <div className="flex flex-col w-full md:w-[240px] shrink-0">
                 <div className="flex-1 flex flex-col min-h-0">
-                  <WinningsPanel players={players} handNumber={handNumber} />
+                  <WinningsPanel players={players} stats={all.sample ? null : all.data} />
                 </div>
                 <div className="mt-4">
                   <UsageIndicator usage={usage} error={usageError} />
@@ -228,9 +284,22 @@ export default function Home() {
                 shotClockRemaining={shotClockRemaining}
               />
             </div>
+
+            {/* Race, stats and head-to-head. w-0 min-w-full: as wide as the table above, never wider. */}
+            <div className="w-full md:w-0 md:min-w-full pb-16">
+              <StatsSections
+                all={all}
+                picked={session ? picked : all}
+                session={session}
+                onSession={setSession}
+              />
+            </div>
           </div>
         </div>
       </main>
+
+      <StickyBar show={!tableInView && players.length > 0} pot={pot} handNumber={handNumber} display={displayState} />
+      <ModelDrawer models={all.data?.models ?? []} error={all.error} loading={all.loading} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status/errors */}
       {(!isConnected || error) && (
