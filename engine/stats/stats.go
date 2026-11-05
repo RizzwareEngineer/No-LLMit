@@ -74,8 +74,8 @@ type Model struct {
 }
 
 type FlopBucket struct {
-	Pots     int      `json:"pots"`
-	Won      int      `json:"won"`
+	Hands    int      `json:"hands"`
+	Won      int      `json:"won"` // hands it won at least one pot in, even at a net loss
 	NetChips int      `json:"net_chips"`
 	BB100    *float64 `json:"bb100"`
 }
@@ -83,7 +83,7 @@ type FlopBucket struct {
 // MultiwayShare is over the hands the model saw a flop with two or more others.
 type MultiwayShare struct {
 	ChipsWonPct  *float64 `json:"chips_won_pct"`  // chips collected over chips in those pots
-	FairSharePct *float64 `json:"fair_share_pct"` // the average of 1/players-to-flop
+	FairSharePct *float64 `json:"fair_share_pct"` // sum of pot/players-to-flop over the same chips
 }
 
 type Position struct {
@@ -137,13 +137,12 @@ type acc struct {
 	vs                                map[string]*vsAcc
 	flop                              map[string]*flopAcc
 	mwWon, mwPot, mwFair              float64
-	mwHands                           int
 	hu                                map[string]*vsAcc
 }
 
 type flopAcc struct {
-	pots, won, net int
-	bb             float64
+	hands, won, net int
+	bb              float64
 }
 
 type posAcc struct {
@@ -426,7 +425,7 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 
 		if bucket != "" && !s.foldedPre {
 			f := a.flop[bucket]
-			f.pots++
+			f.hands++
 			if s.wonPot {
 				f.won++
 			}
@@ -436,8 +435,7 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 				// Collected is net plus what the model put in, less any uncalled part.
 				a.mwWon += float64(net) + min(contrib[seat.Seat], put[1])
 				a.mwPot += float64(totalPot)
-				a.mwFair += 1 / float64(len(flop))
-				a.mwHands++
+				a.mwFair += float64(totalPot) / float64(len(flop))
 			}
 		}
 		if len(flop) == 2 && !s.foldedPre {
@@ -516,15 +514,15 @@ func (a *acc) result() Model {
 		m.HeadsUpVs[name] = Vs{Pots: v.pots, NetChips: int(math.Round(v.net))}
 	}
 	for key, f := range a.flop {
-		b := FlopBucket{Pots: f.pots, Won: f.won, NetChips: f.net}
-		if f.pots > 0 {
-			r := 100 * f.bb / float64(f.pots)
+		b := FlopBucket{Hands: f.hands, Won: f.won, NetChips: f.net}
+		if f.hands > 0 {
+			r := 100 * f.bb / float64(f.hands)
 			b.BB100 = &r
 		}
 		m.ByPlayersToFlop[key] = b
 	}
-	if a.mwHands > 0 && a.mwPot > 0 {
-		won, fair := a.mwWon/a.mwPot, a.mwFair/float64(a.mwHands)
+	if a.mwPot > 0 {
+		won, fair := a.mwWon/a.mwPot, a.mwFair/a.mwPot
 		m.MultiwayShare = MultiwayShare{ChipsWonPct: &won, FairSharePct: &fair}
 	}
 	return m

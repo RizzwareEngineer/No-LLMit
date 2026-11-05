@@ -21,11 +21,11 @@ func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (history.Ha
 // nil keeps the shuffled ones.
 func playDealt(t *testing.T, holes [][]string, board []string, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
 	t.Helper()
-	return playTable(t, []string{"A", "B", "C"}, holes, board, script)
+	return playTable(t, []string{"A", "B", "C"}, nil, holes, board, script)
 }
 
-// playTable is playDealt with the given players.
-func playTable(t *testing.T, names []string, holes [][]string, board []string, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
+// playTable is playDealt with the given players and starting stacks (nil: 2000 each).
+func playTable(t *testing.T, names []string, stacks []int, holes [][]string, board []string, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
 	t.Helper()
 	gs := game.NewGame(game.GameConfig{
 		PlayerNames:   names,
@@ -37,6 +37,9 @@ func playTable(t *testing.T, names []string, holes [][]string, board []string, s
 	}
 	for i, h := range holes {
 		gs.Players[i].HoleCards = mustCards(t, h)
+	}
+	for i, st := range stacks {
+		gs.Players[i].Stack = st - gs.Players[i].TotalBetThisHand // blinds are already posted
 	}
 	setBoard := func(n int) { // replace the first n board cards with the fixed ones
 		if board != nil {

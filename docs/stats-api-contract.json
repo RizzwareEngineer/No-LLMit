@@ -17,9 +17,9 @@
       "cumulative_bb": [ [0, 0.0], [10, 4.5], [20, -3.0] ],
       "vs": { "Llama 3.1 8B": { "pots": 21, "net_chips": 150 } },
       "by_players_to_flop": {
-        "2": { "pots": 18, "won": 11, "net_chips": 260, "bb100": 144.4 },
-        "3": { "pots": 9, "won": 3, "net_chips": -40, "bb100": -44.4 },
-        "4+": { "pots": 0, "won": 0, "net_chips": 0, "bb100": null }
+        "2": { "hands": 18, "won": 11, "net_chips": 260, "bb100": 144.4 },
+        "3": { "hands": 9, "won": 3, "net_chips": -40, "bb100": -44.4 },
+        "4+": { "hands": 0, "won": 0, "net_chips": 0, "bb100": null }
       },
       "multiway_share": { "chips_won_pct": 0.29, "fair_share_pct": 0.33 },
       "heads_up_vs": { "Llama 3.1 8B": { "pots": 7, "net_chips": 90 } }
