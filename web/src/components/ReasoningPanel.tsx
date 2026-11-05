@@ -1,5 +1,6 @@
 "use client";
 
+import { useHud } from "@/components/Hud";
 import TypewriterText from "@/components/TypewriterText";
 import type { DisplayState } from "@/hooks/useGameState";
 
@@ -32,6 +33,7 @@ export default function ReasoningPanel({
 
   const phase = displayState?.phase || 'idle';
   const playerName = displayState?.playerName || '—';
+  const following = useHud().followed === playerName;
   const reason = displayState?.reason;
   const action = displayState?.action;
   const amount = displayState?.amount || 0;
@@ -69,7 +71,7 @@ export default function ReasoningPanel({
             background: !isIdle ? 'rgba(35, 131, 226, 0.06)' : 'rgba(55, 53, 47, 0.02)'
           }}
         >
-          <span className="text-xs font-bold truncate max-w-[100px] px-2" style={{ color: 'rgb(55, 53, 47)' }}>
+          <span className="text-xs font-bold truncate max-w-[100px] px-2 rounded" style={{ color: following ? 'rgb(35, 131, 226)' : 'rgb(55, 53, 47)', background: following ? 'rgba(35, 131, 226, 0.12)' : undefined }} title={following ? 'Following' : undefined}>
             {playerName}
           </span>
           

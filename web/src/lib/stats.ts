@@ -161,7 +161,7 @@ export const STAT_DEFINITIONS: Record<string, string> = {
   vpip: 'Voluntarily put money in pot: share of hands where it called or raised preflop (posting blinds does not count).',
   pfr: 'Preflop raise: share of hands where it raised preflop.',
   three_bet: 'Share of chances to re-raise a preflop raise where it did.',
-  af: 'Aggression factor: (bets + raises) / calls after the flop. Above 1 means it bets more than it calls.',
+  af: 'Aggression factor: bets and raises divided by calls. 1 is balanced; above 3 is aggressive.',
   cbet: 'Continuation bet: share of flops where the preflop raiser bet when it had the chance.',
   fold_to_cbet: 'Share of continuation bets faced that it folded to.',
   wtsd: 'Went to showdown: share of hands that saw the flop and reached showdown.',

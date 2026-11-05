@@ -1,5 +1,6 @@
 "use client";
 
+import { useHud, type CardAlign } from "@/components/Hud";
 import Player from "@/components/Player";
 import TableFelt from "@/components/TableFelt";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
@@ -44,6 +45,7 @@ export default function PokerTable({
   hidePositions = false,
   notice,
 }: PokerTableProps) {
+  const { on: hudOn } = useHud();
   if (players.length === 0) {
     return (
       <div 
@@ -57,7 +59,7 @@ export default function PokerTable({
     );
   }
 
-  const seat = (idx: number) => players[idx] && (
+  const seat = (idx: number, cardAlign?: CardAlign) => players[idx] && (
     <Player
       player={players[idx]}
       active={idx === currentPlayerIdx}
@@ -66,6 +68,7 @@ export default function PokerTable({
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
+      cardAlign={cardAlign}
     />
   );
 
@@ -101,7 +104,7 @@ export default function PokerTable({
         </div>
         <div className="grid grid-cols-3 gap-2">
           {players.map((p, idx) => (
-            <div key={p.id} className="h-[150px]">{seat(idx)}</div>
+            <div key={p.id} className={hudOn ? "h-[170px]" : "h-[150px]"}>{seat(idx, `${idx < 3 ? "up-" : ""}${(["left", "center", "right"] as const)[idx % 3]}` as CardAlign)}</div>
           ))}
         </div>
       </div>
@@ -138,7 +141,7 @@ export default function PokerTable({
                 {layout.left.length > 0 && (
                   <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }}>
                     <div className="flex justify-end h-full">
-                      {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx])}
+                      {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx], "felt-left")}
                     </div>
                   </td>
                 )}
@@ -152,7 +155,7 @@ export default function PokerTable({
                 {layout.right.length > 0 && (
                   <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }}>
                     <div className="flex justify-start h-full">
-                      {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx])}
+                      {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx], "felt-right")}
                     </div>
                   </td>
                 )}
