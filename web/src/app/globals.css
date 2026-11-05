@@ -37,21 +37,21 @@
 .border-animation {
   outline: 3px solid rgb(35, 131, 226) !important;
   outline-offset: -3px;
-  /* Static highlight: the pulse read as flashing. */
-  outline-color: rgb(35, 131, 226);
-  background-color: rgba(35, 131, 226, 0.06);
+  /* Slow breathe so the seat to act is obvious without flashing. */
+  outline-width: 3px;
+  animation: notion-pulse 4s ease-in-out infinite;
   position: relative;
   z-index: 10;
 }
 
 @keyframes notion-pulse {
-  0%, 100% { 
+  0%, 100% {
     outline-color: rgb(35, 131, 226);
-    background-color: rgba(35, 131, 226, 0.04);
+    background-color: rgba(35, 131, 226, 0.05);
   }
-  50% { 
-    outline-color: rgb(55, 131, 226);
-    background-color: rgba(35, 131, 226, 0.08);
+  50% {
+    outline-color: rgba(35, 131, 226, 0.45);
+    background-color: rgba(35, 131, 226, 0.12);
   }
 }
 
