@@ -29,10 +29,14 @@ export function useHudState(handNumber: number): HudValue {
 
   useEffect(() => {
     let cancelled = false;
-    fetchStats()
-      .then(s => !cancelled && setStats(Object.fromEntries(s.models.map(m => [m.name, m]))))
-      .catch(() => {}); // 503 or missing: keep the last good stats, cards say "Stats loading…" until there are some
-    return () => { cancelled = true; };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () =>
+      fetchStats()
+        .then(s => !cancelled && setStats(Object.fromEntries(s.models.map(m => [m.name, m]))))
+        // 503 or missing: keep the last good stats and retry like useStats, so a 503 on load recovers before the next hand
+        .catch(() => { if (!cancelled) timer = setTimeout(load, 10_000); });
+    load();
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [handNumber]);
 
   const setOn = useCallback((v: boolean) => {
@@ -72,7 +76,21 @@ export function HudLine({ stats }: { stats: ModelStats | undefined }) {
 }
 
 // Hover/pin card. Always in the DOM so aria-describedby on the seat resolves; hidden unless open.
-export function HudCard({ id, stats, open, align }: { id: string; stats: ModelStats | undefined; open: boolean; align: "left" | "center" | "right" }) {
+// Where the card opens, relative to the seat; it touches the seat so the mouse can travel into it.
+// down-*: below; up-*: above; felt-left/felt-right: beside a side-column seat, toward the felt.
+export type CardAlign = "left" | "center" | "right" | "up-left" | "up-center" | "up-right" | "felt-left" | "felt-right";
+const POS: Record<CardAlign, string> = {
+  left: "top-full left-0",
+  center: "top-full left-1/2 -translate-x-1/2",
+  right: "top-full right-0",
+  "up-left": "bottom-full left-0",
+  "up-center": "bottom-full left-1/2 -translate-x-1/2",
+  "up-right": "bottom-full right-0",
+  "felt-left": "top-0 left-full",
+  "felt-right": "top-0 right-full",
+};
+
+export function HudCard({ id, stats, loaded, open, align }: { id: string; stats: ModelStats | undefined; loaded: boolean; open: boolean; align: CardAlign }) {
   const rows = stats
     ? [
         { key: "bb100", label: "bb/100", value: <>{bb100(stats).value} <span style={{ color: MUTED }}>{bb100(stats).ci}</span></> },
@@ -81,13 +99,12 @@ export function HudCard({ id, stats, open, align }: { id: string; stats: ModelSt
         { key: "af", label: "AF", value: af(stats) },
       ]
     : [];
-  const pos = align === "left" ? "left-0" : align === "right" ? "right-0" : "left-1/2 -translate-x-1/2";
   return (
     <div
       id={id}
       role="group"
       hidden={!open}
-      className={`absolute top-full mt-1 z-30 w-[168px] rounded bg-white p-2.5 text-[12px] tabular-nums ${pos}`}
+      className={`absolute z-30 w-[168px] rounded bg-white p-2.5 text-[12px] tabular-nums ${POS[align]}`}
       style={{ color: TEXT, boxShadow: "rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px" }}
     >
       {stats ? (
@@ -110,7 +127,7 @@ export function HudCard({ id, stats, open, align }: { id: string; stats: ModelSt
           ))}
         </dl>
       ) : (
-        <span style={{ color: MUTED }}>Stats loading…</span>
+        <span style={{ color: MUTED }}>{loaded ? "No stats yet" : "Stats loading…"}</span>
       )}
     </div>
   );

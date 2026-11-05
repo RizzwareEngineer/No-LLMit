@@ -4,7 +4,7 @@ import Card from "@/components/Card";
 import LLMLogo from "@/components/LLMLogo";
 import { useId, useState } from "react";
 import { PlayerState } from "@/lib/api";
-import { HudCard, HudLine, useHud } from "@/components/Hud";
+import { HudCard, HudLine, useHud, type CardAlign } from "@/components/Hud";
 
 interface PlayerProps {
   player: PlayerState;
@@ -14,7 +14,7 @@ interface PlayerProps {
   winAmount?: number;
   winDesc?: string;
   isThinking?: boolean;
-  cardAlign?: "left" | "center" | "right";
+  cardAlign?: CardAlign;
 }
 
 // Position badge colors
@@ -156,7 +156,7 @@ export default function Player({ player, active, position, folded = false, winAm
         </div>
       </div>
     </div>
-    <HudCard id={cardId} stats={stats?.[player.name]} open={cardOpen} align={cardAlign} />
+    <HudCard id={cardId} stats={stats?.[player.name]} loaded={stats !== null} open={cardOpen} align={cardAlign} />
     </div>
   );
 }
