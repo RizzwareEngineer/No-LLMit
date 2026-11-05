@@ -1,7 +1,7 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore } from "react";
-import { DASH, MUTED, ModelStats, STAT_DEFINITIONS, TEXT, ciHalf, fetchStats, pct, signed } from "@/lib/stats";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { DASH, MUTED, ModelStats, STAT_DEFINITIONS, TEXT, ciHalf, pct, signed } from "@/lib/stats";
 
 const STORAGE_KEY = "nollmit.hud";
 
@@ -21,23 +21,12 @@ const readOn = () => { try { return localStorage.getItem(STORAGE_KEY) === "1"; }
 
 export const useHud = () => useContext(HudContext);
 
-// One /api/stats fetch shared by every seat, refreshed after each hand like WinningsPanel.
-export function useHudState(handNumber: number): HudValue {
-  const [stats, setStats] = useState<HudValue["stats"]>(null);
+// HUD state. `models` comes from the page's one all-time /api/stats fetch (null until a good
+// response), so the seats, leaderboard and sections never fetch twice.
+export function useHudState(models: ModelStats[] | null | undefined): HudValue {
+  const stats = useMemo(() => (models ? Object.fromEntries(models.map(m => [m.name, m])) : null), [models]);
   const on = useSyncExternalStore(subscribe, readOn, () => false);
   const [followed, setFollowed] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = () =>
-      fetchStats()
-        .then(s => !cancelled && setStats(Object.fromEntries(s.models.map(m => [m.name, m]))))
-        // 503 or missing: keep the last good stats and retry like useStats, so a 503 on load recovers before the next hand
-        .catch(() => { if (!cancelled) timer = setTimeout(load, 10_000); });
-    load();
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [handNumber]);
 
   const setOn = useCallback((v: boolean) => {
     try { localStorage.setItem(STORAGE_KEY, v ? "1" : "0"); } catch { /* not persisted; stays off */ }
