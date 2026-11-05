@@ -5,6 +5,7 @@ package stats
 import (
 	"math"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
@@ -66,6 +67,23 @@ type Model struct {
 	ByPosition     map[string]Position `json:"by_position"`
 	CumulativeBB   [][2]float64        `json:"cumulative_bb"`
 	Vs             map[string]Vs       `json:"vs"`
+	// Keyed "2", "3" and "4+": hands the model saw the flop in, by how many saw it.
+	ByPlayersToFlop map[string]FlopBucket `json:"by_players_to_flop"`
+	MultiwayShare   MultiwayShare         `json:"multiway_share"`
+	HeadsUpVs       map[string]Vs         `json:"heads_up_vs"` // only flops seen by exactly these two
+}
+
+type FlopBucket struct {
+	Pots     int      `json:"pots"`
+	Won      int      `json:"won"`
+	NetChips int      `json:"net_chips"`
+	BB100    *float64 `json:"bb100"`
+}
+
+// MultiwayShare is over the hands the model saw a flop with two or more others.
+type MultiwayShare struct {
+	ChipsWonPct  *float64 `json:"chips_won_pct"`  // chips collected over chips in those pots
+	FairSharePct *float64 `json:"fair_share_pct"` // the average of 1/players-to-flop
 }
 
 type Position struct {
@@ -117,6 +135,15 @@ type acc struct {
 	potWon, potLost                   int
 	pos                               map[string]*posAcc
 	vs                                map[string]*vsAcc
+	flop                              map[string]*flopAcc
+	mwWon, mwPot, mwFair              float64
+	mwHands                           int
+	hu                                map[string]*vsAcc
+}
+
+type flopAcc struct {
+	pots, won, net int
+	bb             float64
 }
 
 type posAcc struct {
@@ -138,7 +165,8 @@ func Compute(hands []history.HandRecord) Stats {
 	accs := map[string]*acc{}
 	get := func(name string) *acc {
 		if accs[name] == nil {
-			accs[name] = &acc{name: name, pos: map[string]*posAcc{}, vs: map[string]*vsAcc{}}
+			accs[name] = &acc{name: name, pos: map[string]*posAcc{}, vs: map[string]*vsAcc{},
+				flop: map[string]*flopAcc{"2": {}, "3": {}, "4+": {}}, hu: map[string]*vsAcc{}}
 		}
 		return accs[name]
 	}
@@ -314,7 +342,8 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 	}
 	// The pot is every chip put in, less the part of the biggest bet nobody called.
 	var put []float64
-	for _, c := range contributions(h) {
+	contrib := contributions(h)
+	for _, c := range contrib {
 		put = append(put, c)
 	}
 	sort.Sort(sort.Reverse(sort.Float64Slice(put)))
@@ -334,6 +363,23 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 		if n > 0 {
 			totalWon += float64(n)
 		}
+	}
+
+	// Players still in when the flop was dealt; empty for a hand that ended preflop.
+	var flop []int
+	if len(h.Board) >= 3 {
+		for _, s := range h.Seats {
+			if !sh[s.Seat].foldedPre {
+				flop = append(flop, s.Seat)
+			}
+		}
+	}
+	bucket := ""
+	switch n := len(flop); {
+	case n >= 4:
+		bucket = "4+"
+	case n >= 2:
+		bucket = strconv.Itoa(n)
 	}
 
 	aiev, evDone := aievNet(h)
@@ -378,6 +424,41 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 			a.potLost = max(a.potLost, totalPot)
 		}
 
+		if bucket != "" && !s.foldedPre {
+			f := a.flop[bucket]
+			f.pots++
+			if s.wonPot {
+				f.won++
+			}
+			f.net += net
+			f.bb += float64(net) / bb
+			if len(flop) >= 3 {
+				// Collected is net plus what the model put in, less any uncalled part.
+				a.mwWon += float64(net) + min(contrib[seat.Seat], put[1])
+				a.mwPot += float64(totalPot)
+				a.mwFair += 1 / float64(len(flop))
+				a.mwHands++
+			}
+		}
+		if len(flop) == 2 && !s.foldedPre {
+			other := flop[0]
+			if other == seat.Seat {
+				other = flop[1]
+			}
+			v := a.hu[names[other]]
+			if v == nil {
+				v = &vsAcc{}
+				a.hu[names[other]] = v
+			}
+			v.pots++
+			// Only these two can finish ahead, so a loss by one is a win for the other.
+			if on := netOf(h, other); net > 0 && on < 0 {
+				v.net -= float64(on)
+			} else if net < 0 && on > 0 {
+				v.net += float64(net)
+			}
+		}
+
 		// Head to head: each loser's chips are shared among the winners in proportion
 		// to what they won, and only hands where both put chips in or reached showdown count.
 		for _, other := range h.Seats {
@@ -413,6 +494,7 @@ func (a *acc) result() Model {
 		ErrorRate: a.errs.rate(), RetryRate: a.retry.rate(),
 		CostUSD: a.cost, BiggestPotWon: a.potWon, BiggestPotLost: a.potLost,
 		ByPosition: map[string]Position{}, CumulativeBB: curve(a.bbs), Vs: map[string]Vs{},
+		ByPlayersToFlop: map[string]FlopBucket{}, HeadsUpVs: map[string]Vs{},
 	}
 	if a.calls > 0 {
 		af := a.aggr / a.calls
@@ -429,6 +511,21 @@ func (a *acc) result() Model {
 	}
 	for name, v := range a.vs {
 		m.Vs[name] = Vs{Pots: v.pots, NetChips: int(math.Round(v.net))}
+	}
+	for name, v := range a.hu {
+		m.HeadsUpVs[name] = Vs{Pots: v.pots, NetChips: int(math.Round(v.net))}
+	}
+	for key, f := range a.flop {
+		b := FlopBucket{Pots: f.pots, Won: f.won, NetChips: f.net}
+		if f.pots > 0 {
+			r := 100 * f.bb / float64(f.pots)
+			b.BB100 = &r
+		}
+		m.ByPlayersToFlop[key] = b
+	}
+	if a.mwHands > 0 && a.mwPot > 0 {
+		won, fair := a.mwWon/a.mwPot, a.mwFair/float64(a.mwHands)
+		m.MultiwayShare = MultiwayShare{ChipsWonPct: &won, FairSharePct: &fair}
 	}
 	return m
 }

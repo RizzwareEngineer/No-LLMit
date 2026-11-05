@@ -21,8 +21,14 @@ func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (history.Ha
 // nil keeps the shuffled ones.
 func playDealt(t *testing.T, holes [][]string, board []string, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
 	t.Helper()
+	return playTable(t, []string{"A", "B", "C"}, holes, board, script)
+}
+
+// playTable is playDealt with the given players.
+func playTable(t *testing.T, names []string, holes [][]string, board []string, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
+	t.Helper()
 	gs := game.NewGame(game.GameConfig{
-		PlayerNames:   []string{"A", "B", "C"},
+		PlayerNames:   names,
 		StartingStack: 2000,
 		Stakes:        game.Stakes{SmallBlind: 5, BigBlind: 10},
 	})

@@ -54,6 +54,19 @@ A rate with nothing to count, such as c-bet for a model that never had the chanc
   reached showdown, `pots` is how many there were and `net_chips` is what flowed between
   them. In a pot with several players, each loser's chips are shared among the winners
   in proportion to what each won.
+- **By players to flop**: the hands where the model was still in when the flop was dealt,
+  split by how many players were still in then: `"2"`, `"3"` and `"4+"`. Hands that end
+  before the flop are in none of them. For each, `pots` is how many hands, `won` how many
+  of them the model won at least one pot in, `net_chips` its net over them, and `bb100` that
+  net in big blinds per 100 of those hands (`null` with none). All three keys are always present.
+- **Multiway share**: over the hands where the model saw the flop with two or more others,
+  `chips_won_pct` is the chips it collected divided by all the chips in those pots (a pot
+  leaves out the part of a bet nobody called), and `fair_share_pct` is the average of
+  1 ÷ players to flop over the same hands: what it would collect if every player there won
+  equally often. Both are 0..1 and `null` when the model never saw such a flop.
+- **Heads-up head to head (heads_up_vs)**: like `vs`, but only the hands where exactly
+  these two models saw the flop. `net_chips` is what the loser of the two lost (blinds
+  folded by others are not counted), so A's number against B is minus B's against A.
 
 ## Style
 

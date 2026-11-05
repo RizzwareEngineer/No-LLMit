@@ -296,3 +296,96 @@ func TestLoadSupabaseHandsWithSmallRowCap(t *testing.T) {
 		t.Errorf("ranges %v, want %v", ranges, want)
 	}
 }
+
+// Four-handed through the engine: A is the button, B the small blind, C the big blind and
+// D under the gun every time; stacks are 2000 and blinds 5/10.
+func TestPotStatsByPlayersToFlop(t *testing.T) {
+	var hands []history.HandRecord
+	play := func(holes [][]string, board []string, script replies) {
+		h, _ := playTable(t, []string{"A", "B", "C", "D"}, holes, board, script)
+		h.HandID = fmt.Sprintf("tbl_pots-%06d", len(hands)+1)
+		hands = append(hands, h)
+	}
+	// 1. Everyone folds to C: ends preflop, in no bucket.
+	play(nil, nil, replies{reply("FOLD", 0), reply("FOLD", 0), reply("FOLD", 0)})
+	// 2. A opens to 30 and C calls; A c-bets 40 and C folds. Two see the flop.
+	play(nil, nil, replies{reply("FOLD", 0), reply("RAISE", 30), reply("FOLD", 0), reply("CALL", 0),
+		reply("CHECK", 0), reply("RAISE", 40), reply("FOLD", 0)})
+	// 3. D and B limp, C checks; checked flop; B bets 20 on the turn, C folds, D calls;
+	// checked river and B's aces beat D's kings. Three see the flop.
+	play([][]string{{"2c", "7d"}, {"As", "Ad"}, {"5h", "6h"}, {"Ks", "Kd"}}, []string{"Qh", "9s", "4c", "3d", "8h"},
+		replies{reply("CALL", 0), reply("FOLD", 0), reply("CALL", 0), reply("CHECK", 0),
+			reply("CHECK", 0), reply("CHECK", 0), reply("CHECK", 0),
+			reply("RAISE", 20), reply("FOLD", 0), reply("CALL", 0),
+			reply("CHECK", 0), reply("CHECK", 0)})
+	// 4. Everyone limps; B bets 40 on the flop and the rest fold. Four see the flop.
+	play(nil, nil, replies{reply("CALL", 0), reply("CALL", 0), reply("CALL", 0), reply("CHECK", 0),
+		reply("RAISE", 40), reply("FOLD", 0), reply("FOLD", 0), reply("FOLD", 0)})
+
+	wantNet := [][4]int{{0, -5, 5, 0}, {35, -5, -30, 0}, {0, 40, -10, -30}, {-10, 30, -10, -10}}
+	for i, h := range hands {
+		for seat, want := range wantNet[i] {
+			if got := h.Result.Net[fmt.Sprint(seat)]; got != want {
+				t.Fatalf("hand %d seat %d net %d, want %d", i+1, seat, got, want)
+			}
+		}
+	}
+
+	s := stats.Compute(hands)
+	m := map[string]stats.Model{}
+	for _, x := range s.Models {
+		m[x.Name] = x
+	}
+	bucket := func(pots, won, net int) stats.FlopBucket {
+		b := stats.FlopBucket{Pots: pots, Won: won, NetChips: net}
+		if pots > 0 {
+			r := 100 * float64(net) / 10 / float64(pots)
+			b.BB100 = &r
+		}
+		return b
+	}
+	// Pots 2: 65 (A's uncalled 40 is not in it). 3: 70. 4: 40 (B's uncalled 40 is not in it).
+	want := map[string]map[string]stats.FlopBucket{
+		"A": {"2": bucket(1, 1, 35), "3": bucket(0, 0, 0), "4+": bucket(1, 0, -10)},
+		"B": {"2": bucket(0, 0, 0), "3": bucket(1, 1, 40), "4+": bucket(1, 1, 30)},
+		"C": {"2": bucket(1, 0, -30), "3": bucket(1, 0, -10), "4+": bucket(1, 0, -10)},
+		"D": {"2": bucket(0, 0, 0), "3": bucket(1, 0, -30), "4+": bucket(1, 0, -10)},
+	}
+	for name, buckets := range want {
+		got := m[name].ByPlayersToFlop
+		if len(got) != 3 {
+			t.Errorf("%s buckets %v", name, got)
+		}
+		for key, w := range buckets {
+			g := got[key]
+			if g.Pots != w.Pots || g.Won != w.Won || g.NetChips != w.NetChips || fmt.Sprint(deref(g.BB100)) != fmt.Sprint(deref(w.BB100)) {
+				t.Errorf("%s %s = %+v bb100 %v, want %+v bb100 %v", name, key, g, deref(g.BB100), w, deref(w.BB100))
+			}
+		}
+	}
+
+	// Multiway: hands 3 and 4. B collected all 70 + 40; fair share is the mean of 1/3 and 1/4.
+	share := map[string][2]float64{"A": {0, 0.25}, "B": {1, 7.0 / 24}, "C": {0, 7.0 / 24}, "D": {0, 7.0 / 24}}
+	for name, w := range share {
+		ms := m[name].MultiwayShare
+		if ms.ChipsWonPct == nil || ms.FairSharePct == nil || math.Abs(*ms.ChipsWonPct-w[0]) > 1e-9 || math.Abs(*ms.FairSharePct-w[1]) > 1e-9 {
+			t.Errorf("%s multiway %v %v, want %v", name, deref(ms.ChipsWonPct), deref(ms.FairSharePct), w)
+		}
+	}
+
+	// Heads up: only hand 2. A won C's 30; B's dead 5 is not C's loss to A.
+	if a, c := m["A"].HeadsUpVs, m["C"].HeadsUpVs; len(a) != 1 || len(c) != 1 || a["C"] != (stats.Vs{Pots: 1, NetChips: 30}) || c["A"].NetChips != -a["C"].NetChips || c["A"].Pots != 1 {
+		t.Errorf("heads up: A %+v, C %+v", a, c)
+	}
+	if len(m["B"].HeadsUpVs) != 0 || len(m["D"].HeadsUpVs) != 0 {
+		t.Errorf("B and D never saw a heads-up flop: %+v %+v", m["B"].HeadsUpVs, m["D"].HeadsUpVs)
+	}
+
+	// The JSON carries every bucket, with bb100 null when empty.
+	b, _ := json.Marshal(m["A"])
+	for _, frag := range []string{`"by_players_to_flop":{"2":`, `"3":{"pots":0,"won":0,"net_chips":0,"bb100":null}`, `"multiway_share":{"chips_won_pct":0,"fair_share_pct":0.25}`, `"heads_up_vs":{"C":{"pots":1,"net_chips":30}}`} {
+		if !strings.Contains(string(b), frag) {
+			t.Errorf("JSON lacks %s: %s", frag, b)
+		}
+	}
+}
