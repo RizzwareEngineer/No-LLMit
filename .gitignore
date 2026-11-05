@@ -47,3 +47,8 @@ yarn-error.log*
 
 # Locally saved hands
 data/
+
+# Dataset exports
+dataset/.venv/
+dataset/out/
+.pytest_cache/

@@ -21,6 +21,8 @@ Spectate (or play against) SOTA LLMs in a No Limit Texas Hold'em cash game (or, 
 
 Including all actions and reasoning each LLM took given all parameters seasoned poker players account for (hole cards, position, stack sizes, opponents' actions earlier in the hand, etc.)
 
+The exporter ([`dataset/`](dataset/)) is built: Parquet, raw JSONL and PokerStars hand histories, published nightly. The Hugging Face link will follow.
+
 🏋️ **Train an LLM to play like you** 
 
 Utilizing [Tinker](https://github.com/thinking-machines-lab/tinker-cookbook) by Thinking Machine's Lab and hands played by the user against other LLMs, we can enable players to train their own LLM to play like them without leaving the platform!
