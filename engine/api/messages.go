@@ -10,27 +10,19 @@ type MessageType string
 
 const (
 	// Client → Server
-	MsgNewGame   MessageType = "new_game"
-	MsgStartHand MessageType = "start_hand"
-	MsgAction    MessageType = "action"
-	MsgGetState  MessageType = "get_state"
-	MsgPause     MessageType = "pause"
-	MsgResume    MessageType = "resume"
+	MsgGetState MessageType = "get_state"
 
 	// Server → Client
-	MsgGameState      MessageType = "game_state"
-	MsgError          MessageType = "error"
-	MsgHandStart      MessageType = "hand_start"
-	MsgActionReq      MessageType = "action_required"
-	MsgStreetChange   MessageType = "street_change"
-	MsgHandComplete   MessageType = "hand_complete"
-	MsgLLMThinking    MessageType = "llm_thinking"
-	MsgLLMAction      MessageType = "llm_action"
-	MsgPaused         MessageType = "paused"
-	MsgResumed        MessageType = "resumed"
-	MsgButtonCard     MessageType = "button_card"     // Card dealt for button determination
-	MsgButtonWinner   MessageType = "button_winner"   // Who won the button
-	MsgTableNotice    MessageType = "table_notice"    // Table closed or capped; an empty kind clears it
+	MsgGameState    MessageType = "game_state"
+	MsgError        MessageType = "error"
+	MsgHandStart    MessageType = "hand_start"
+	MsgStreetChange MessageType = "street_change"
+	MsgHandComplete MessageType = "hand_complete"
+	MsgLLMThinking  MessageType = "llm_thinking"
+	MsgLLMAction    MessageType = "llm_action"
+	MsgButtonCard   MessageType = "button_card"   // Card dealt for button determination
+	MsgButtonWinner MessageType = "button_winner" // Who won the button
+	MsgTableNotice  MessageType = "table_notice"  // Table closed or capped; an empty kind clears it
 )
 
 type ClientMessage struct {
@@ -41,21 +33,6 @@ type ClientMessage struct {
 type ServerMessage struct {
 	Type    MessageType `json:"type"`
 	Payload interface{} `json:"payload,omitempty"`
-}
-
-type NewGamePayload struct {
-	PlayerNames   []string `json:"playerNames"`
-	StartingStack int      `json:"startingStack"`
-	SmallBlind    int      `json:"smallBlind"`
-	BigBlind      int      `json:"bigBlind"`
-	Mode          string   `json:"mode"` // "simulate", "play", "test"
-	UserSeatIdx   int      `json:"userSeatIdx"`
-}
-
-type ActionPayload struct {
-	PlayerIdx int    `json:"playerIdx"`
-	Action    string `json:"action"`
-	Amount    int    `json:"amount,omitempty"`
 }
 
 type GameStatePayload struct {
@@ -71,7 +48,6 @@ type GameStatePayload struct {
 	Players          []PlayerStatePayload `json:"players"`
 	ValidActions     []ValidActionPayload `json:"validActions,omitempty"`
 	Winners          []WinnerPayload      `json:"winners,omitempty"`
-	Mode             string               `json:"mode"`
 	Stakes           StakesPayload        `json:"stakes"`
 	GameStartTime    string               `json:"gameStartTime"`
 	NextHandInMs     int                  `json:"nextHandInMs,omitempty"` // Shared table: time until the next hand is dealt
@@ -87,6 +63,7 @@ type PlayerStatePayload struct {
 	LastAction string   `json:"lastAction,omitempty"`
 	LastAmount int      `json:"lastAmount,omitempty"`
 	IsButton   bool     `json:"isButton"`
+	Position   string   `json:"position"` // BTN, SB, BB, UTG, ... as the models are told
 	Winnings   int      `json:"winnings"`
 }
 
@@ -122,13 +99,6 @@ type ErrorPayload struct {
 	Message string `json:"message"`
 }
 
-type ActionRequiredPayload struct {
-	PlayerIdx    int                  `json:"playerIdx"`
-	PlayerName   string               `json:"playerName"`
-	ValidActions []ValidActionPayload `json:"validActions"`
-	TimeoutMs    int                  `json:"timeoutMs,omitempty"`
-}
-
 type HandCompletePayload struct {
 	Winners    []WinnerPayload `json:"winners"`
 	HandNumber int             `json:"handNumber"`
@@ -159,22 +129,10 @@ type ButtonWinnerPayload struct {
 	PlayerName string `json:"playerName"`
 }
 
-func ConvertGameState(gs *game.GameState, showAllCards bool) GameStatePayload {
+// ConvertGameState builds the spectator view; spectators see every hole card.
+func ConvertGameState(gs *game.GameState) GameStatePayload {
 	players := make([]PlayerStatePayload, len(gs.Players))
 	for i, p := range gs.Players {
-		var holeCards []string
-		canSeeCards := showAllCards ||
-			gs.Mode == game.ModeSimulate ||
-			gs.Street == game.StreetShowdown ||
-			gs.Street == game.StreetComplete ||
-			(gs.Mode == game.ModePlay && i == gs.UserSeatIdx)
-
-		if canSeeCards {
-			for _, c := range p.HoleCards {
-				holeCards = append(holeCards, c.String())
-			}
-		}
-
 		var lastAction string
 		var lastAmount int
 		if p.LastAction != nil {
@@ -186,19 +144,15 @@ func ConvertGameState(gs *game.GameState, showAllCards bool) GameStatePayload {
 			ID:         p.ID,
 			Name:       p.Name,
 			Stack:      p.Stack,
-			HoleCards:  holeCards,
+			HoleCards:  game.CardStrings(p.HoleCards),
 			Status:     p.Status.String(),
 			CurrentBet: p.CurrentBet,
 			LastAction: lastAction,
 			LastAmount: lastAmount,
 			IsButton:   i == gs.ButtonIdx,
+			Position:   gs.PositionName(i),
 			Winnings:   p.Winnings,
 		}
-	}
-
-	var communityCards []string
-	for _, c := range gs.CommunityCards {
-		communityCards = append(communityCards, c.String())
 	}
 
 	var validActions []ValidActionPayload
@@ -227,7 +181,7 @@ func ConvertGameState(gs *game.GameState, showAllCards bool) GameStatePayload {
 		HandNumber:       gs.HandNumber,
 		Street:           gs.Street.String(),
 		Pot:              gs.GetTotalPot(),
-		CommunityCards:   communityCards,
+		CommunityCards:   game.CardStrings(gs.CommunityCards),
 		CurrentBet:       gs.CurrentBet,
 		MinRaise:         gs.MinRaise,
 		CurrentPlayerIdx: gs.CurrentPlayerIdx,
@@ -235,7 +189,6 @@ func ConvertGameState(gs *game.GameState, showAllCards bool) GameStatePayload {
 		Players:          players,
 		ValidActions:     validActions,
 		Winners:          winners,
-		Mode:             gs.Mode.String(),
 		Stakes: StakesPayload{
 			SmallBlind: gs.Stakes.SmallBlind,
 			BigBlind:   gs.Stakes.BigBlind,
@@ -260,18 +213,5 @@ func ParseActionType(s string) (game.ActionType, bool) {
 		return game.ActionAllIn, true
 	default:
 		return game.ActionFold, false
-	}
-}
-
-func ParseGameMode(s string) game.GameMode {
-	switch s {
-	case "simulate":
-		return game.ModeSimulate
-	case "play":
-		return game.ModePlay
-	case "test":
-		return game.ModeTest
-	default:
-		return game.ModeTest
 	}
 }

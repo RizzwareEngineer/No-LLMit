@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { TableNoticePayload } from "@/lib/api";
 import { formatDuration, formatLocalTime } from "@/lib/time";
+import type { ButtonDetermination } from "@/hooks/useGameState";
 
 interface WinnerDisplay {
   name: string;
@@ -14,25 +15,11 @@ interface WinnerDisplay {
   handDesc: string;
 }
 
-interface ButtonCard {
-  playerIdx: number;
-  playerName: string;
-  card: string;
-}
-
-interface ButtonDetermination {
-  cards: ButtonCard[];
-  winnerIdx: number | null;
-  winnerName: string | null;
-  isComplete: boolean;
-}
-
 interface TableFeltProps {
   cards: string[];
   pot: number;
   winners?: WinnerDisplay[];
   nextHandCountdown?: number | null;
-  onSkipCountdown?: () => void;
   buttonDetermination?: ButtonDetermination | null;
   notice?: TableNoticePayload | null;
 }
@@ -74,7 +61,6 @@ export default function TableFelt({
   pot, 
   winners = [],
   nextHandCountdown,
-  onSkipCountdown,
   buttonDetermination,
   notice,
 }: TableFeltProps) {
@@ -157,15 +143,6 @@ export default function TableFelt({
           <span className="text-[12px]" style={{ color: 'rgb(55, 53, 47)' }}>
             Next hand in <span className="font-bold">{nextHandCountdown}s</span>
           </span>
-          {onSkipCountdown && (
-            <button
-              onClick={onSkipCountdown}
-              className="text-[11px] hover:underline ml-1"
-              style={{ color: 'rgb(35, 131, 226)' }}
-            >
-              Skip
-            </button>
-          )}
         </div>
       )}
     </div>

@@ -4,7 +4,6 @@ class DecisionRequest(BaseModel):
     player_name: str
     prompt: str
     valid_actions: list[dict] = []
-    mode: str | None = None
     # Set when re-asking after an invalid reply; sent as a second user message.
     retry_note: str | None = None
 

@@ -1,4 +1,4 @@
-// Called by engine/api/llm_handlers.go during an LLM's turn.
+// Called by engine/api/table.go during an LLM's turn.
 // Then sends an HTTP request to llm/app.py to get an LLM's decision/action given the current game state.
 package client
 
@@ -27,7 +27,6 @@ type LLMDecisionRequest struct {
 	PlayerName   string      `json:"player_name"`
 	Prompt       string      `json:"prompt"`
 	ValidActions interface{} `json:"valid_actions"`
-	Mode         string      `json:"mode,omitempty"`
 }
 
 type LLMDecisionResponse struct {
@@ -48,12 +47,11 @@ type LLMDecisionResponse struct {
 	PromptVersion string   `json:"prompt_version"`
 }
 
-func GetLLMDecision(playerName, prompt string, validActions interface{}, mode string) (*LLMDecisionResponse, error) {
+func GetLLMDecision(playerName, prompt string, validActions interface{}) (*LLMDecisionResponse, error) {
 	reqBody := LLMDecisionRequest{
 		PlayerName:   playerName,
 		Prompt:       prompt,
 		ValidActions: validActions,
-		Mode:         mode,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)

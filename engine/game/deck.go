@@ -57,7 +57,3 @@ func (d *Deck) Deal(n int) []Card {
 func (d *Deck) Burn() {
 	d.index++
 }
-
-func (d *Deck) Reset() {
-	d.Shuffle()
-}

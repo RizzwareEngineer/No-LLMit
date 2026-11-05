@@ -36,7 +36,6 @@ type handSaver interface {
 type HandStore struct {
 	saver     handSaver
 	queue     chan savedHand
-	wg        sync.WaitGroup
 	spillPath string
 	spillMu   sync.Mutex
 	retryWait time.Duration // first wait between attempts; doubles each time
@@ -63,7 +62,6 @@ func NewHandStore() *HandStore {
 		spillPath: filepath.Join(dir, "unsaved.jsonl"),
 		retryWait: 2 * time.Second,
 	}
-	s.wg.Add(1)
 	go s.run()
 	return s
 }
@@ -80,7 +78,6 @@ func (s *HandStore) Save(h savedHand) {
 }
 
 func (s *HandStore) run() {
-	defer s.wg.Done()
 	s.replaySpill()
 	for h := range s.queue {
 		s.saveWithRetry(h)

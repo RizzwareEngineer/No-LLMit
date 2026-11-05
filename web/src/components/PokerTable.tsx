@@ -1,9 +1,9 @@
 "use client";
 
-import CornerBorders from "@/components/CornerBorders";
 import Player from "@/components/Player";
 import TableFelt from "@/components/TableFelt";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
+import type { ButtonDetermination } from "@/hooks/useGameState";
 
 interface PlayerLayout {
   top: number[];
@@ -17,100 +17,39 @@ interface WinnerInfo {
   handDesc: string;
 }
 
-interface ButtonCard {
-  playerIdx: number;
-  playerName: string;
-  card: string;
-}
-
-interface ButtonDetermination {
-  cards: ButtonCard[];
-  winnerIdx: number | null;
-  winnerName: string | null;
-  isComplete: boolean;
-}
-
 interface PokerTableProps {
   players: PlayerState[];
   layout: PlayerLayout;
   currentPlayerIdx: number;
-  buttonIdx: number;
   communityCards: string[];
   pot: number;
   winnersByIdx?: Record<number, WinnerInfo>;
   nextHandCountdown?: number | null;
-  onSkipCountdown?: () => void;
   thinkingPlayerIdx?: number;
   buttonDetermination?: ButtonDetermination | null;
   hidePositions?: boolean;
   notice?: TableNoticePayload | null;
 }
 
-// Calculate position name based on seat relative to button
-function getPosition(playerIdx: number, buttonIdx: number, totalPlayers: number): string {
-  if (buttonIdx < 0) return '';
-  
-  // Calculate how many seats after the button this player is
-  const seatsFromButton = (playerIdx - buttonIdx + totalPlayers) % totalPlayers;
-  
-  // Positions depend on table size
-  // 9-max: BTN, SB, BB, UTG, UTG+1, UTG+2, LJ, HJ, CO
-  // 8-max: BTN, SB, BB, UTG, UTG+1, LJ, HJ, CO
-  // 7-max: BTN, SB, BB, UTG, LJ, HJ, CO
-  // 6-max: BTN, SB, BB, UTG, HJ, CO
-  
-  if (seatsFromButton === 0) return 'BTN';
-  if (seatsFromButton === 1) return 'SB';
-  if (seatsFromButton === 2) return 'BB';
-  
-  // Remaining positions depend on table size
-  const posFromUTG = seatsFromButton - 3; // 0 = UTG
-  
-  if (totalPlayers === 9) {
-    // 9-max: UTG, UTG+1, UTG+2, LJ, HJ, CO
-    const positions = ['UTG', 'UTG+1', 'UTG+2', 'LJ', 'HJ', 'CO'];
-    return positions[posFromUTG] || '';
-  } else if (totalPlayers === 8) {
-    // 8-max: UTG, UTG+1, LJ, HJ, CO
-    const positions = ['UTG', 'UTG+1', 'LJ', 'HJ', 'CO'];
-    return positions[posFromUTG] || '';
-  } else if (totalPlayers === 7) {
-    // 7-max: UTG, LJ, HJ, CO
-    const positions = ['UTG', 'LJ', 'HJ', 'CO'];
-    return positions[posFromUTG] || '';
-  } else if (totalPlayers === 6) {
-    // 6-max: UTG, HJ, CO
-    const positions = ['UTG', 'HJ', 'CO'];
-    return positions[posFromUTG] || '';
-  }
-  
-  return '';
-}
-
 export default function PokerTable({
   players,
   layout,
   currentPlayerIdx,
-  buttonIdx,
   communityCards,
   pot,
   winnersByIdx = {},
   nextHandCountdown,
-  onSkipCountdown,
   thinkingPlayerIdx,
   buttonDetermination,
   hidePositions = false,
   notice,
 }: PokerTableProps) {
-  const totalPlayers = players.length;
-  
   if (players.length === 0) {
     return (
       <div 
         className="relative bg-white rounded overflow-hidden"
         style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
       >
-        <CornerBorders />
         <div className="w-full md:w-[600px] h-[300px] flex items-center justify-center text-sm italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
           Connecting to the table…
         </div>
@@ -122,7 +61,7 @@ export default function PokerTable({
     <Player
       player={players[idx]}
       active={idx === currentPlayerIdx}
-      position={hidePositions ? '' : getPosition(idx, buttonIdx, totalPlayers)}
+      position={hidePositions ? '' : players[idx].position}
       folded={players[idx]?.status === 'folded'}
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
@@ -140,7 +79,6 @@ export default function PokerTable({
         handDesc: info.handDesc,
       }))}
       nextHandCountdown={nextHandCountdown}
-      onSkipCountdown={onSkipCountdown}
       buttonDetermination={buttonDetermination}
       notice={notice}
     />
@@ -159,7 +97,6 @@ export default function PokerTable({
       {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
-          <CornerBorders />
           {felt}
         </div>
         <div className="grid grid-cols-3 gap-2">
@@ -174,7 +111,6 @@ export default function PokerTable({
         className="hidden md:block relative bg-white shrink-0 self-stretch rounded"
         style={{ width: tableWidth, ...cardStyle }}
       >
-        <CornerBorders />
         <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
           <tbody>
             {/* TOP ROW */}

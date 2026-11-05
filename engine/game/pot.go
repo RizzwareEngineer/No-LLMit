@@ -9,7 +9,6 @@ import "sort"
 type Pot struct {
 	Amount          int   `json:"amount"`
 	EligiblePlayers []int `json:"eligiblePlayers"`
-	ContributedBy   []int `json:"contributedBy"`
 }
 
 type Winner struct {
