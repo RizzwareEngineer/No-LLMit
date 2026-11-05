@@ -98,9 +98,9 @@ interface StatsState {
 type Settled = Omit<StatsState, 'current'> & { session?: string };
 
 // Fetches /api/stats, retrying every 10s while the engine answers 503 and every 30s while
-// the response is partial.
+// the response is partial. A new refreshKey (the hand number) refetches; the last data stays up meanwhile.
 // In development any other failure falls back to the bundled sample for the same session.
-export function useStats(session?: string, enabled = true): StatsState {
+export function useStats(session?: string, enabled = true, refreshKey?: number): StatsState {
   const [state, setState] = useState<Settled>({ data: null, sample: false, loading: false, error: null, session: '\0' }); // '\0': nothing settled yet
   useEffect(() => {
     if (!enabled) return;
@@ -131,7 +131,7 @@ export function useStats(session?: string, enabled = true): StatsState {
         });
     load();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [session, enabled]);
+  }, [session, enabled, refreshKey]);
   const { session: settledFor, ...rest } = state;
   return { ...rest, current: settledFor === session };
 }
