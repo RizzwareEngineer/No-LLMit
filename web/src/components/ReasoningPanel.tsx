@@ -1,8 +1,18 @@
 "use client";
 
 import { useHud } from "@/components/Hud";
+import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import TypewriterText from "@/components/TypewriterText";
 import type { DisplayState } from "@/hooks/useGameState";
+
+interface Decision {
+  key: string;
+  playerName: string;
+  action: string;
+  amount: number;
+  reason: string;
+}
 
 interface ReasoningPanelProps {
   displayState: DisplayState | null;
@@ -33,7 +43,8 @@ export default function ReasoningPanel({
 
   const phase = displayState?.phase || 'idle';
   const playerName = displayState?.playerName || '—';
-  const following = useHud().followed === playerName;
+  const { followed } = useHud();
+  const following = followed === playerName;
   const reason = displayState?.reason;
   const action = displayState?.action;
   const amount = displayState?.amount || 0;
@@ -53,13 +64,23 @@ export default function ReasoningPanel({
     return 'text-[11px]';
   };
   const reasonFontSize = getReasonFontSize(reason);
+
+  // The last three decisions: the newest is typed out on top, the two before it sit below.
+  const reduce = useReducedMotion();
+  const [history, setHistory] = useState<Decision[]>([]);
+  // One entry per turn: the same player can give the same reason twice in a row.
+  const currentKey = showReason && reason && action ? String(displayState?.turnStartTime) : null;
+  if (currentKey && history[0]?.key !== currentKey) {
+    setHistory([{ key: currentKey, playerName, action: action!, amount, reason: reason! }, ...history].slice(0, 3));
+  }
+  const older = currentKey ? history.slice(1, 3) : history.slice(0, 2);
   // Full text for screen readers, announced once per action (not the typewriter partials)
   const spokenAction = action ? `${action.toLowerCase().replace('_', '-')}${amount > 0 ? ` ${amount}` : ''}` : '';
   const announcement = showReason && reason ? `${playerName}: ${spokenAction}. ${reason}` : '';
 
   return (
     <div 
-      className="relative bg-white h-[100px] rounded overflow-hidden"
+      className="relative bg-white h-[156px] rounded overflow-hidden"
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
       <p className="sr-only" aria-live="polite">{announcement}</p>
@@ -91,7 +112,8 @@ export default function ReasoningPanel({
         </div>
 
         {/* Right section - Thinking or Reasoning text */}
-        <div className="flex-1 flex flex-col justify-center px-4 min-w-0">
+        <div className="flex-1 flex flex-col px-4 py-2 min-w-0 overflow-hidden">
+        <div className="h-[84px] shrink-0 flex flex-col justify-center min-w-0">
           {isThinking && (
             <div className="text-sm italic flex items-center gap-2" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
               <span className="inline-block w-2 h-2 rounded-full" style={{ background: 'rgba(55, 53, 47, 0.65)', animation: 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite' }} />
@@ -121,6 +143,29 @@ export default function ReasoningPanel({
               Waiting for next action…
             </div>
           )}
+        </div>
+
+        {/* Earlier decisions, smaller and fading with age */}
+        <ul className="flex flex-col gap-1 min-w-0" aria-label="Earlier decisions">
+          <AnimatePresence initial={false}>
+            {older.map((d, i) => (
+              <motion.li
+                key={d.key}
+                layout={!reduce}
+                initial={reduce ? false : { opacity: 0, y: -8 }}
+                animate={{ opacity: i === 0 ? 0.65 : 0.4, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: reduce ? 0 : 0.25 }}
+                className="text-[11px] italic truncate"
+                style={{ color: 'rgb(55, 53, 47)' }}
+              >
+                <span className="not-italic font-bold px-0.5 rounded" style={d.playerName === followed ? { color: 'rgb(35, 131, 226)', background: 'rgba(35, 131, 226, 0.12)' } : undefined}>{d.playerName}</span>
+                <span className="not-italic" style={{ color: 'rgb(15, 123, 108)' }}> → {formatAction(d.action, d.amount)}</span>
+                {' '}{d.reason}
+              </motion.li>
+            ))}
+          </AnimatePresence>
+        </ul>
         </div>
       </div>
     </div>

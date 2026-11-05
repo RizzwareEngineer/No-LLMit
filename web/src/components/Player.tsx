@@ -3,6 +3,8 @@
 import Card from "@/components/Card";
 import LLMLogo from "@/components/LLMLogo";
 import { useId, useState } from "react";
+import NumberFlow from "@number-flow/react";
+import { motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { HudCard, HudLine, useHud, type CardAlign } from "@/components/Hud";
 
@@ -15,6 +17,9 @@ interface PlayerProps {
   winDesc?: string;
   isThinking?: boolean;
   cardAlign?: CardAlign;
+  seatIdx?: number;
+  handNumber?: number;
+  dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
 }
 
 // Position badge colors
@@ -46,7 +51,8 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, cardAlign = "center" }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, cardAlign = "center", seatIdx, handNumber = 0, dealDelays }: PlayerProps) {
+  const reduce = useReducedMotion();
   const { stats, on: hudOn, followed, toggleFollow } = useHud();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -67,6 +73,7 @@ export default function Player({ player, active, position, folded = false, winAm
       onKeyDown={(e) => { if (e.key === "Escape") { setHovered(false); setFocused(false); } }}
     >
     <div
+      data-seat={seatIdx}
       role="button"
       tabIndex={0}
       aria-pressed={pinned}
@@ -74,7 +81,7 @@ export default function Player({ player, active, position, folded = false, winAm
       aria-label={`${player.name}, stack ${player.stack.toLocaleString()}${pinned ? ", following" : ""}`}
       onClick={() => toggleFollow(player.name)}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleFollow(player.name); } }}
-      className={`cursor-pointer outline-offset-2 overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`}
+      className={`cursor-pointer outline-offset-2 overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} motion-safe:transition-[opacity,background-color] motion-safe:duration-300 rounded`}
       style={{ 
         boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px',
         background: isWinner ? 'rgb(237, 253, 244)' : pinned ? 'rgba(35, 131, 226, 0.08)' : '#ffffff'
@@ -91,13 +98,20 @@ export default function Player({ player, active, position, folded = false, winAm
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
               <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.stack.toLocaleString()}</div>
+              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤<NumberFlow value={player.stack} /></div>
             </div>
           </div>
-          <div className="flex flex-row items-center gap-1 shrink-0">
+          {/* A folded hand slides down while the seat dims */}
+          <motion.div
+            data-hole
+            className="flex flex-row items-center gap-1 shrink-0"
+            initial={false}
+            animate={{ y: folded ? 4 : 0 }}
+            transition={{ duration: reduce ? 0 : 0.3 }}
+          >
             {cards.length > 0 ? (
               cards.map((card, i) => (
-                <Card key={`${card}-${i}`} value={card} className="w-7 h-10" />
+                <Card key={`${handNumber}-${card}-${i}`} value={card} className="w-7 h-10" delay={dealDelays?.[i] ?? 0} />
               ))
             ) : (
               <>
@@ -105,7 +119,7 @@ export default function Player({ player, active, position, folded = false, winAm
                 <Card value="" className="w-7 h-10" />
               </>
             )}
-          </div>
+          </motion.div>
         </div>
 
         {hudOn && <HudLine stats={stats?.[player.name]} />}
