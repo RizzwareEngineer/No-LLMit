@@ -4,7 +4,7 @@ import Card from "@/components/Card";
 import NumberFlow from '@number-flow/react';
 import { CircleNotch, Moon } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { TableNoticePayload } from "@/lib/api";
 import { formatDuration, formatLocalTime } from "@/lib/time";
 import type { ButtonDetermination } from "@/hooks/useGameState";
@@ -15,9 +15,19 @@ interface WinnerDisplay {
   handDesc: string;
 }
 
+// A bet in front of a seat, on the felt's edge facing it. `at` is 0..1 along that edge.
+export interface FeltBet {
+  seat: number;
+  amount: number;
+  side: 'top' | 'bottom' | 'left' | 'right';
+  at: number;
+}
+
 interface TableFeltProps {
   cards: string[];
-  pot: number;
+  pot: number; // the engine's pot, which already includes the bets still in front of the seats
+  betsOut: number; // sum of those bets
+  bets?: FeltBet[]; // desktop only: placed on the felt's edges, which are reserved for them
   winners?: WinnerDisplay[];
   nextHandCountdown?: number | null;
   buttonDetermination?: ButtonDetermination | null;
@@ -56,9 +66,33 @@ function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
   );
 }
 
+// A small chip stack and the amount. Rendered (invisible) for every seat even with no bet, so
+// TableMotion can still find where a bet sat when the street closes and slide it to the pot.
+// Chips fly to and from the chip icon ([data-bet] .chip-stack).
+export function BetStack({ seat, amount, className = '', style }: { seat: number; amount: number; className?: string; style?: CSSProperties }) {
+  // Keeps the last amount while hidden, so the box (and its chip) stays where the stack sat.
+  const [last, setLast] = useState(amount);
+  if (amount > 0 && amount !== last) setLast(amount);
+  return (
+    <div data-bet={seat} className={`flex items-center gap-1.5 ${amount > 0 ? '' : 'invisible'} ${className}`} style={style} title={amount > 0 ? `Bet ${amount.toLocaleString()}` : undefined}>
+      <span aria-hidden className="chip-stack" />
+      <span className="text-[14px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{last.toLocaleString()}</span>
+    </div>
+  );
+}
+
+const EDGE: Record<FeltBet['side'], (at: number) => CSSProperties> = {
+  top: at => ({ top: 8, left: `${at * 100}%`, transform: 'translateX(-50%)' }),
+  bottom: at => ({ bottom: 8, left: `${at * 100}%`, transform: 'translateX(-50%)' }),
+  left: at => ({ left: 10, top: `${at * 100}%`, transform: 'translateY(-50%)' }),
+  right: at => ({ right: 10, top: `${at * 100}%`, transform: 'translateY(-50%)' }),
+};
+
 export default function TableFelt({ 
   cards, 
   pot, 
+  betsOut,
+  bets,
   winners = [],
   nextHandCountdown,
   buttonDetermination,
@@ -68,7 +102,7 @@ export default function TableFelt({
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
   return (
     <div 
-      className="flex flex-col items-center justify-center gap-3 w-full h-full py-2"
+      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'py-[36px]' : 'py-2'}`}
       style={{
         backgroundImage: `
           linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
@@ -77,27 +111,34 @@ export default function TableFelt({
         backgroundSize: '20px 20px',
       }}
     >
+      {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} className="absolute" style={EDGE[b.side](b.at)} />)}
+
       {/* Winner announcement or Pot */}
       <div data-pot className="h-[44px] w-full flex items-center justify-center">
         {winners.length > 0 ? (
           <div className="flex flex-col items-center bg-green-50 p-2 px-3 border border-green-500 max-w-full overflow-hidden">
             {winners.slice(0, 1).map((w, i) => (
               <div key={i} className="text-center">
-                <span className="text-green-700 font-bold text-xs">{w.name}</span>
-                <span className="text-green-700 text-xs"> +{w.amount.toLocaleString()}</span>
-                <div className="text-green-700 text-[11px] truncate">{w.handDesc}</div>
+                <span className="text-green-700 font-bold text-[14px]">{w.name}</span>
+                <span className="text-green-700 text-[14px] tabular-nums"> +{w.amount.toLocaleString()}</span>
+                <div className="text-green-700 text-[12px] truncate">{w.handDesc}</div>
               </div>
             ))}
             {winners.length > 1 && (
-              <span className="text-green-700 text-[11px]">+{winners.length - 1} more</span>
+              <span className="text-green-700 text-[12px]">+{winners.length - 1} more</span>
             )}
           </div>
         ) : (
-          <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm">
-            <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>
-            <div className="text-lg text-gray-700 font-bold tabular-nums">
-              <NumberFlow value={pot} />
-            </div>
+          // The total, bets included, is the number pot odds need; the split is secondary. Fixed width:
+          // the box never resizes as the text changes, so its centre (the chip target) holds still.
+          <div
+            aria-label={`Pot ${pot.toLocaleString()}${betsOut > 0 ? `: ${Math.max(0, pot - betsOut).toLocaleString()} in the middle, ${betsOut.toLocaleString()} in bets` : ''}`}
+            className="w-[340px] max-w-full flex flex-row items-baseline justify-center gap-2 bg-white py-1 px-3 border-2 border-gray-700 shadow-sm leading-7 tabular-nums whitespace-nowrap text-gray-700"
+          >
+            <span className="text-[20px]">Pot <b><NumberFlow value={pot} /></b></span>
+            {betsOut > 0 && (
+              <span className="text-[12px] text-gray-600">{Math.max(0, pot - betsOut).toLocaleString()} in the middle + {betsOut.toLocaleString()} in bets</span>
+            )}
           </div>
         )}
       </div>
@@ -112,7 +153,7 @@ export default function TableFelt({
               {buttonDetermination.cards.map((bc, i) => (
                 <div key={i} className="flex flex-col items-center gap-0.5">
                   <Card value={bc.card} className="w-7 h-10" />
-                  <span className="text-[11px] text-gray-600 truncate max-w-[40px]">{bc.playerName.split(' ')[0]}</span>
+                  <span className="text-[12px] text-gray-600 truncate max-w-[48px]">{bc.playerName.split(' ')[0]}</span>
                 </div>
               ))}
             </div>
@@ -129,7 +170,7 @@ export default function TableFelt({
             <Card key={`${card}-${i}`} value={card} className="w-11 h-16" flip delay={i < 3 ? i * 0.08 : 0} />
           ))
         ) : (
-          <div className="text-[11px] text-gray-600 uppercase">No cards dealt</div>
+          <div className="text-[12px] text-gray-600 uppercase">No cards dealt</div>
         )}
       </div>
 

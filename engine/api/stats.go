@@ -40,9 +40,11 @@ type statsCache struct {
 	all       []byte
 	bySession map[string][]byte
 
-	live string // the session of the latest hand; only run touches it
+	live string // the live session last encoded; only run touches it
 
-	seated []string // the table's lineup; set before run starts, never changed after
+	seated    []string  // the table's lineup; set before run starts, never changed after
+	tableID   string    // the table this engine is playing: the live session, even before its first hand
+	tableFrom time.Time // when that table started; the live session's start until it has a hand
 }
 
 func newStatsCache() *statsCache {
@@ -162,10 +164,9 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	for _, i := range warmed {
 		changed[stats.SessionID(hands[i])] = true
 	}
-	live := ""
-	if len(hands) > 0 {
-		live = stats.SessionID(hands[len(hands)-1])
-	}
+	// The live session is the table being played, never the last one in the log: right after a
+	// restart that is the previous run's table.
+	live := c.tableID
 	if live != c.live { // the old live session has ended
 		changed[live], changed[c.live] = true, true
 		c.live = live
@@ -178,10 +179,14 @@ func (c *statsCache) recompute(full bool) (more bool) {
 		if current {
 			s.Seated = c.seated
 		}
+		found := false
 		for i := range s.Sessions {
 			if s.Sessions[i].ID == live {
-				s.Sessions[i].EndedAt = nil
+				s.Sessions[i].EndedAt, found = nil, true
 			}
+		}
+		if current && live != "" && !found { // no hand saved yet this run
+			s.Sessions = append(s.Sessions, stats.Session{ID: live, StartedAt: c.tableFrom})
 		}
 		b, err := json.Marshal(s)
 		if err != nil {
@@ -194,6 +199,9 @@ func (c *statsCache) recompute(full bool) (more bool) {
 		if id := stats.SessionID(h); full || changed[id] {
 			sessions[id] = append(sessions[id], h)
 		}
+	}
+	if _, ok := sessions[live]; live != "" && !ok && (full || changed[live]) {
+		sessions[live] = nil // answer ?session=<live> with zero hands until the first one is saved
 	}
 	updated := map[string][]byte{}
 	for id, hs := range sessions {

@@ -1,13 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { DASH, MUTED, ModelStats, STAT_DEFINITIONS, TEXT, ciHalf, pct, signed } from "@/lib/stats";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
+import { DASH, MUTED, ModelStats, STAT_DEFINITIONS, TEXT, brief, ciHalf, pct, signed } from "@/lib/stats";
 
 const STORAGE_KEY = "nollmit.hud";
 
 export interface HudValue {
   stats: Record<string, ModelStats> | null; // by model name; null until the first good /api/stats response
-  on: boolean; // the always-on tracker line under each seat name
+  on: boolean; // fills the HUD row on every seat
   setOn: (on: boolean) => void;
   followed: string | null; // pinned model name
   toggleFollow: (name: string) => void;
@@ -52,27 +53,74 @@ export function useHudState(models: ModelStats[] | null | undefined): HudValue {
   );
 }
 
-const bb100 = (m: ModelStats) => {
-  const half = ciHalf(m);
-  return { value: signed(m.bb100), ci: half === null ? DASH : `±${half.toFixed(0)}` };
-};
 const af = (m: ModelStats) => (m.af === null ? DASH : m.af.toFixed(1));
+const num = (n: number | null) => pct(n).replace("%", "");
 
-// Four numbers on one line, like a tracker overlay. `swap` is the hover/focus/pin version: it fills
-// its container (which keeps its size) and, on phones, drops PFR and AF unless the seat is pinned.
-export function HudLine({ stats, swap = false, full = true }: { stats: ModelStats | undefined; swap?: boolean; full?: boolean }) {
-  const box = swap ? "absolute inset-0 px-3 flex items-center bg-white leading-[11px]" : "px-3 -mt-1 mb-1";
-  if (!stats) return <div className={`${box} text-[10px] tabular-nums`} style={{ color: MUTED }}>{DASH}</div>;
-  const b = bb100(stats);
-  const title = `bb/100 ${b.value} ${b.ci}, VPIP ${pct(stats.vpip)}, PFR ${pct(stats.pfr)}, AF ${af(stats)}`;
-  const extra = swap && !full ? "max-md:hidden" : "";
-  const def = (k: string, label: string) => `${label}: ${STAT_DEFINITIONS[k]}`;
+// A stat name with a dotted underline and its definition: shown on mouse hover or focus (a tap
+// focuses it on touch; tapping elsewhere closes it). Portalled to <body> so no card clips it.
+function StatLabel({ k, label, children }: { k: string; label: string; children: ReactNode }) {
+  const [at, setAt] = useState<DOMRect | null>(null);
+  const id = useId();
+  const open = (el: Element) => setAt(el.getBoundingClientRect());
+  const close = () => setAt(null);
+  const left = at ? Math.min(Math.max(8, at.left + at.width / 2 - 120), window.innerWidth - 248) : 0;
   return (
-    <div className={`${box} text-[10px] tabular-nums flex flex-wrap gap-x-1.5 content-center`} style={{ color: TEXT }} aria-label={title}>
-      <span title={def("bb100", "bb/100")}>{b.value} <span style={{ color: MUTED }}>{b.ci}</span></span>
-      <span title={def("vpip", "VPIP")}>V{pct(stats.vpip).replace("%", "")}</span>
-      <span className={extra} title={def("pfr", "PFR")}>P{pct(stats.pfr).replace("%", "")}</span>
-      <span className={extra} title={def("af", "AF")}>AF{af(stats)}</span>
+    <>
+      <span
+        tabIndex={0}
+        aria-describedby={id}
+        className="underline decoration-dotted underline-offset-2 cursor-help"
+        onPointerEnter={e => e.pointerType === "mouse" && open(e.currentTarget)}
+        onPointerLeave={e => e.pointerType === "mouse" && close()}
+        onFocus={e => open(e.currentTarget)}
+        onBlur={close}
+        onClick={e => e.stopPropagation()} // a tap on the label must not unpin the seat
+      >
+        {label}
+      </span>{" "}{children}
+      <span id={id} className="sr-only">. {STAT_DEFINITIONS[k]}</span>
+      {at && createPortal(
+        <div
+          role="tooltip"
+          className="fixed z-[60] w-[240px] rounded px-2.5 py-1.5 text-[12px] leading-snug pointer-events-none"
+          style={{ left, top: at.top - 6, transform: "translateY(-100%)", background: "rgb(37, 37, 35)", color: "#fff", boxShadow: "rgba(15, 15, 15, 0.2) 0 4px 12px" }}
+        >
+          <b>{label}</b>: {STAT_DEFINITIONS[k]}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+const compact = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${brief(n, 0)}`; // 41, 1.3k
+
+const Dot = () => <span aria-hidden className="max-md:hidden" style={{ color: MUTED }}>·</span>;
+
+// The seat's third row: always reserved (two lines on desktop, four on phones, where bb/100 uses
+// compact figures and its ± may wrap) so nothing in the card moves. Filled while hovered, focused or pinned, or always when the header HUD toggle is on.
+// `id` lets the seat point aria-describedby at this row, so a screen reader hears the stats and
+// their definitions when the seat is focused.
+export function HudRow({ id, stats, show }: { id?: string; stats: ModelStats | undefined; show: boolean }) {
+  const half = stats ? ciHalf(stats) : null;
+  return (
+    <div id={id} data-hud-row className="h-[64px] md:h-[34px] shrink-0 overflow-hidden px-2 pb-1.5 text-[12px] leading-[15px] tabular-nums" style={{ color: TEXT }}>
+      {show && (stats ? (
+        <div className="flex flex-wrap gap-x-1.5">
+          <span className="whitespace-nowrap"><StatLabel k="vpip" label="VPIP">{num(stats.vpip)}</StatLabel></span>
+          <Dot />
+          <span className="whitespace-nowrap"><StatLabel k="pfr" label="PFR">{num(stats.pfr)}</StatLabel></span>
+          <Dot />
+          <span className="whitespace-nowrap"><StatLabel k="af" label="AF">{af(stats)}</StatLabel></span>
+          <span className="md:whitespace-nowrap md:basis-full">
+            <StatLabel k="bb100" label="bb/100">
+              <span className="whitespace-nowrap max-md:hidden">{signed(stats.bb100, 0)} <span style={{ color: MUTED }}>{half === null ? DASH : `±${half.toFixed(0)}`}</span></span>
+              <span className="whitespace-nowrap md:hidden">{compact(stats.bb100)}</span>{" "}
+              <span className="whitespace-nowrap md:hidden" style={{ color: MUTED }}>{half === null ? DASH : `±${brief(half, 0)}`}</span>
+            </StatLabel>
+          </span>
+        </div>
+      ) : <span style={{ color: MUTED }}>{DASH}</span>)}
     </div>
   );
 }
