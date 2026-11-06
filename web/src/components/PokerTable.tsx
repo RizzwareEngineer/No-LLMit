@@ -136,8 +136,7 @@ export default function PokerTable({
 
   const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
 
-  // 200px a column, grown to fill the window beside the 240px sidebar (up to 20% wider). --fit is
-  // the CSS zoom on short windows (globals.css), so the zoomed table still reaches the edge.
+  // 200px a column, like the original table: the seats keep their proportions on every window.
   const numCols = layout.top.length + (layout.left.length > 0 ? 1 : 0) + (layout.right.length > 0 ? 1 : 0);
   const tableWidth = numCols * 200;
   const line = '1px solid rgba(55, 53, 47, 0.09)';
@@ -168,26 +167,26 @@ export default function PokerTable({
       {/* md and up: seats around the felt. The table is only for layout. */}
       <div
         className="hidden md:block relative bg-white shrink-0 self-stretch rounded"
-        style={{ width: `clamp(${tableWidth}px, calc((100vw - 3rem - 252px) / var(--fit, 1)), ${tableWidth * 1.2}px)`, ...cardStyle }}
+        style={{ width: tableWidth, ...cardStyle }}
       >
         <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
           <tbody>
             {/* TOP ROW */}
             <tr>
               {layout.left.length > 0 && (
-                <td className="w-[200px] h-[118px]" style={{ borderRight: line, borderBottom: line }} />
+                <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }} />
               )}
               {layout.top.map((idx, i) => (
                 <td
                   key={`top-${idx}`}
-                  className="w-[200px] h-[118px]"
+                  className="w-[200px] h-[100px]"
                   style={{ borderBottom: line, borderRight: i < layout.top.length - 1 ? line : undefined }}
                 >
                   {seat(idx)}
                 </td>
               ))}
               {layout.right.length > 0 && (
-                <td className="w-[200px] h-[118px]" style={{ borderLeft: line, borderBottom: line }} />
+                <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }} />
               )}
             </tr>
 
@@ -195,7 +194,7 @@ export default function PokerTable({
             {Array.from({ length: rows }).map((_, rowIdx) => (
               <tr key={`middle-${rowIdx}`}>
                 {layout.left.length > 0 && (
-                  <td className="w-[200px] h-[118px]" style={{ borderRight: line, borderBottom: line }}>
+                  <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }}>
                     <div className="flex justify-end h-full">
                       {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx])}
                     </div>
@@ -209,7 +208,7 @@ export default function PokerTable({
                 )}
 
                 {layout.right.length > 0 && (
-                  <td className="w-[200px] h-[118px]" style={{ borderLeft: line, borderBottom: line }}>
+                  <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }}>
                     <div className="flex justify-start h-full">
                       {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx])}
                     </div>
@@ -221,9 +220,9 @@ export default function PokerTable({
             {/* BOTTOM ROW */}
             <tr>
               {layout.left.length > 0 && (
-                <td className="w-[200px] h-[118px]" style={{ borderRight: line }} />
+                <td className="w-[200px] h-[100px]" style={{ borderRight: line }} />
               )}
-              <td colSpan={layout.top.length} className="h-[118px] p-0">
+              <td colSpan={layout.top.length} className="h-[100px] p-0">
                 <div className="flex h-full">
                   {layout.bottom.map((playerIdx, i) => (
                     <div
@@ -237,7 +236,7 @@ export default function PokerTable({
                 </div>
               </td>
               {layout.right.length > 0 && (
-                <td className="w-[200px] h-[118px]" style={{ borderLeft: line }} />
+                <td className="w-[200px] h-[100px]" style={{ borderLeft: line }} />
               )}
             </tr>
           </tbody>

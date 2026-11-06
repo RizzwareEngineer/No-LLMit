@@ -106,7 +106,7 @@ export default function Player({ player, active, position, folded = false, winAm
         aria-label={`${player.name}, stack ${player.stack.toLocaleString()}${pinned ? ", following" : ""}`}
         onClick={() => toggleFollow(player.name)}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleFollow(player.name); } }}
-        className="flex-1 min-h-0 flex flex-col gap-1.5 p-2 pb-1 cursor-pointer outline-offset-2 rounded-t overflow-hidden hover:bg-[rgba(55,53,47,0.03)]"
+        className="flex-1 min-h-0 flex flex-col gap-3 p-3 pb-0 cursor-pointer outline-offset-2 rounded-t overflow-hidden hover:bg-[rgba(55,53,47,0.03)]"
       >
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1.5 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
@@ -135,7 +135,7 @@ export default function Player({ player, active, position, folded = false, winAm
         </div>
 
         {/* Stack, action and amount: one run of text, so one font size and one baseline. */}
-        <div className="flex flex-wrap items-baseline gap-x-1.5 min-w-0">
+        <div className="mt-auto flex flex-wrap items-baseline gap-x-1.5 min-w-0">
           {position && (
             <span
               className={`min-w-8 px-1 rounded text-[12px] leading-[18px] font-bold shrink-0 text-center ${positionColor}`}
