@@ -21,11 +21,14 @@ export function pairwiseLeader(models: ModelStats[]) {
 
 // Two short sentences: the chip leader's net chips against the models shown (the Net the
 // Pairwise rows add up to), then the opponent it took the most from.
-export function pairwiseVerdict(models: ModelStats[]) {
+// `among` names the set the net is counted over ("the 9 at the table"), so the figure is never
+// read as the model's overall result; `scope` adds the time range when it differs from all-time.
+export function pairwiseVerdict(models: ModelStats[], among: string, scope = '') {
   const top = pairwiseLeader(models);
-  if (!top) return 'Nobody is up against the field yet.';
+  const where = `${among}${scope ? ` ${scope}` : ''}`;
+  if (!top) return `Nobody is up among ${where} yet.`;
   const fmt = (n: number) => n.toLocaleString();
-  return `${top.leader} is up ${fmt(top.total)}.` + (top.from ? ` It took the most from ${top.from.name}, ${fmt(top.from.net)}.` : '');
+  return `${top.leader} is up ${fmt(top.total)} among ${where}.` + (top.from ? ` It took the most from ${top.from.name}, ${fmt(top.from.net)}.` : '');
 }
 
 // +53,743 as +54k, for cells too narrow for the full figure.
@@ -224,7 +227,7 @@ export const PairwiseBars = memo(function PairwiseBars({ models, only }: { model
   const nets = byNet(models).filter(r => !only || r.m.name === only);
   const sorted = nets.map(r => r.m);
   const scale = Math.max(1, ...sorted.map(m => { const s = sides(m); return Math.max(s.sum(s.took), s.sum(s.gave)); }));
-  const show = (e: React.MouseEvent, text: string) => {
+  const show = (e: React.SyntheticEvent, text: string) => {
     const o = outer.current!.getBoundingClientRect();
     const r = e.currentTarget.getBoundingClientRect();
     const below = r.top - o.top < 32; // the first row: no room above it inside a scrolling panel
@@ -233,13 +236,20 @@ export const PairwiseBars = memo(function PairwiseBars({ models, only }: { model
   const segment = (row: string, [name, v]: [string, VsStats], took: boolean) => {
     const text = `${took ? 'took' : 'gave'} ${Math.abs(v.net_chips).toLocaleString()} ${took ? 'from' : 'to'} ${name}`;
     return (
+      // Focusable (except in the teaser, whose card is its one stop) with the tooltip on focus and
+      // tap; at least 3px wide so every opponent can be hovered, the tooltip giving the true amount.
       <span
         key={name}
         role="img"
         aria-label={`${row} ${text}`}
+        tabIndex={only ? undefined : 0}
         onMouseEnter={e => show(e, text)}
-        className="@container h-full min-w-0 flex items-center justify-center overflow-hidden border-white first:border-0"
-        style={{ width: `${(Math.abs(v.net_chips) / scale) * 100}%`, background: took ? GREEN : RED, opacity: 0.85, [took ? 'borderLeftWidth' : 'borderRightWidth']: 1 }}
+        onMouseLeave={() => setTip(null)}
+        onFocus={e => show(e, text)}
+        onBlur={() => setTip(null)}
+        onClick={e => show(e, text)}
+        className="@container h-full min-w-[3px] flex items-center justify-center overflow-hidden outline-offset-1 focus-visible:outline-2 focus-visible:outline-[rgb(35,131,226)]"
+        style={{ width: `${(Math.abs(v.net_chips) / scale) * 100}%`, background: took ? GREEN : RED, opacity: 0.85 }}
       >
         {/* The opponent's logo where the segment has room for it. */}
         <span className="hidden @min-[24px]:block rounded-full bg-white p-px"><LLMLogo model={name} size={16} /></span>
@@ -253,15 +263,23 @@ export const PairwiseBars = memo(function PairwiseBars({ models, only }: { model
           const { took, gave } = sides(m);
           return (
             <li key={m.name} className="h-11 grid items-center gap-3 grid-cols-[24px_76px_minmax(0,1fr)] @md:grid-cols-[minmax(0,200px)_88px_minmax(0,1fr)] border-b border-notion last:border-0 text-[14px] md:text-[15px] tabular-nums">
-              <a href={modelHref(m.name)} className="flex items-center gap-2 min-w-0 font-medium hover:underline" style={{ color: TEXT }} title={m.name}>
-                <LLMLogo model={m.name} size={22} />
-                <span className="truncate @max-md:sr-only">{m.name}</span>
-              </a>
+              {/* In the teaser the name is plain text: the whole card opens Pairwise. */}
+              {only ? (
+                <span className="flex items-center gap-2 min-w-0 font-medium" style={{ color: TEXT }} title={m.name}>
+                  <LLMLogo model={m.name} size={22} />
+                  <span className="truncate @max-md:sr-only">{m.name}</span>
+                </span>
+              ) : (
+                <a href={modelHref(m.name)} className="flex items-center gap-2 min-w-0 font-medium hover:underline" style={{ color: TEXT }} title={m.name}>
+                  <LLMLogo model={m.name} size={22} />
+                  <span className="truncate @max-md:sr-only">{m.name}</span>
+                </a>
+              )}
               <span className="text-right font-bold" style={{ color: netColor(net) }}>{chips(net)}</span>
               {/* Left half: chips given away, growing left from the centre; right half: chips taken. */}
               <span className="h-6 grid grid-cols-2">
-                <span className="h-full flex flex-row-reverse border-r" style={{ borderColor: 'rgba(55, 53, 47, 0.35)' }}>{gave.map(g => segment(m.name, g, false))}</span>
-                <span className="h-full flex">{took.map(t => segment(m.name, t, true))}</span>
+                <span className="h-full flex flex-row-reverse gap-px border-r" style={{ borderColor: 'rgba(55, 53, 47, 0.35)' }}>{gave.map(g => segment(m.name, g, false))}</span>
+                <span className="h-full flex gap-px">{took.map(t => segment(m.name, t, true))}</span>
               </span>
             </li>
           );
