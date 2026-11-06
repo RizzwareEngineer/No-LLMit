@@ -108,15 +108,14 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2' }: { col: { ke
   );
 }
 
-// Every model's stats, sortable, never wider than its panel. Collapsed to the core columns until
-// "All stats" is pressed; without `expandable` (the overview preview) it stays collapsed and compact.
-// Expandable means zoomed: larger type, rows that fill the panel, and "All stats" grouped as one
-// wide table, or one table per group in a narrow panel.
+// The seated models' stats, sortable, never wider than its panel; "All models" appends everyone
+// else below a divider. Collapsed to the core columns until "All stats" is pressed, which shows
+// every group as one wide table, or one table per group in a narrow panel.
 // Memoized: the stats screens re-render on the Race zoom, and the table only changes with its data.
-export default memo(function StatsTable({ models, seated, expandable = true }: { models: ModelStats[]; seated?: string[]; expandable?: boolean }) {
+export default memo(function StatsTable({ models, seated }: { models: ModelStats[]; seated?: string[] }) {
   const [sort, setSort] = useState({ key: 'bb100', desc: true });
-  const [all, setAll] = useState(false);
-  const expanded = all && expandable;
+  const [expanded, setAll] = useState(false);
+  const [everyone, setEveryone] = useState(false);
   const col = COLUMNS.find(c => c.key === sort.key) ?? BB100;
   // Nulls (nothing to count yet) sort last in both directions.
   const sorted = [...models].sort((a, b) => {
@@ -131,13 +130,18 @@ export default memo(function StatsTable({ models, seated, expandable = true }: {
   // Seated models without hands get a row of dashes in every grid; roster models not seated are
   // listed once, under the last grid.
   const { noHands, unseated } = rosterGroups(models, seated);
+  // Without a lineup (a past session, an older engine) every model is a row.
+  const atTable = seated ? sorted.filter(m => seated.includes(m.name)) : sorted;
+  const rest = seated ? sorted.filter(m => !seated.includes(m.name)) : [];
+  const more = rest.length + unseated.length;
   const grid = (groups: typeof GROUPS, grouped: boolean, caption: string, last = true) => (
-    <Grid groups={groups} rows={sorted} noHands={noHands} waiting={last ? unseated : []} sort={sort} onSort={toggleSort} zoomed={expandable} grouped={grouped} scale={scale} caption={caption} />
+    <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone ? rest : []} waiting={last && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} scale={scale} caption={caption} />
   );
+  const toggle = 'text-[14px] hover:underline';
 
   return (
     <>
-      <div className={`@container relative min-w-0 ${expandable ? 'flex-1 flex flex-col' : ''}`}>
+      <div className="@container relative min-w-0">
         {!expanded ? grid(CORE, false, 'Stats per model.') : (
           <>
             <div className="hidden @3xl:flex flex-1 flex-col">{grid(GROUPS, true, 'Every stat per model.')}</div>
@@ -147,19 +151,21 @@ export default memo(function StatsTable({ models, seated, expandable = true }: {
           </>
         )}
       </div>
-      {expandable && <button
-        onClick={() => setAll(v => !v)}
-        aria-expanded={all}
-        className="mt-2 self-start text-[13px] md:text-[14px] hover:underline"
-        style={{ color: 'rgb(35, 131, 226)' }}
-      >
-        {all ? 'Fewer stats' : `All stats (${COLUMNS.length - COLUMNS.filter(c => c.core).length} more)`}
-      </button>}
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1">
+        <button onClick={() => setAll(v => !v)} aria-expanded={expanded} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>
+          {expanded ? 'Fewer stats' : `All stats (${COLUMNS.length - COLUMNS.filter(c => c.core).length} more)`}
+        </button>
+        {seated && more > 0 && (
+          <button onClick={() => setEveryone(v => !v)} aria-pressed={everyone} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>
+            {everyone ? 'Seated models only' : `All models (${more} more)`}
+          </button>
+        )}
+      </div>
     </>
   );
 });
 
-// bb/100 in its colour and the ± half-width; zoomed, a small bar spans the 95% interval on a
+// bb/100 in its colour and the ± half-width; outside All stats, a small bar spans the 95% interval on a
 // scale shared by every row, with a tick at zero.
 function Bb100({ m, scale, bar }: { m: ModelStats; scale: number; bar: boolean }) {
   const W = 44;
@@ -184,10 +190,10 @@ function Grid({
   groups,
   rows,
   noHands,
+  rest,
   waiting,
   sort,
   onSort,
-  zoomed,
   grouped,
   scale,
   caption,
@@ -195,10 +201,10 @@ function Grid({
   groups: typeof GROUPS;
   rows: ModelStats[];
   noHands: string[]; // seated, no hands yet: a row of dashes
+  rest: ModelStats[]; // models with hands that are not seated: below a divider, no shading or marks
   waiting: string[]; // on the roster, not seated: a muted group below the rows
   sort: { key: string; desc: boolean };
   onSort: (c: Column) => void;
-  zoomed: boolean;
   grouped: boolean; // a group header row above the column headers
   scale: number;
   caption: string;
@@ -207,30 +213,53 @@ function Grid({
   // The sorted column is painted strong at the top row and faint at the bottom; VPIP, PFR and AF
   // mark their highest and lowest value.
   const sortedCol = columns.find(c => c.key === sort.key);
+  // Nulls sort last and stay unshaded, so the gradient spans the rows with a value.
+  const valued = sortedCol ? rows.filter(r => sortedCol.value(r) !== null).length : 0;
   const shade = (c: Column, i: number) =>
-    c === sortedCol && c.value(rows[i]) !== null ? `rgba(35, 131, 226, ${(0.2 - (0.17 * i) / Math.max(1, rows.length - 1)).toFixed(3)})` : undefined;
+    c === sortedCol && c.value(rows[i]) !== null ? `rgba(35, 131, 226, ${(0.2 - (0.17 * i) / Math.max(1, valued - 1)).toFixed(3)})` : undefined;
+  // Extremes compare what the cell shows, so every row that reads the same as the top (or bottom) value is marked.
   const ends = (c: Column) => {
-    const vs = rows.map(c.value).filter((v): v is number => v !== null);
-    return vs.length > 1 && Math.max(...vs) > Math.min(...vs) ? { hi: Math.max(...vs), lo: Math.min(...vs) } : null;
+    const vs = rows.filter(m => c.value(m) !== null).sort((a, b) => c.value(a)! - c.value(b)!);
+    if (vs.length < 2) return null;
+    const [lo, hi] = [c.render(vs[0]), c.render(vs.at(-1)!)];
+    return lo === hi ? null : { hi, lo };
   };
   const marks = new Map(columns.filter(c => c.extremes).map(c => [c, ends(c)]));
   const mark = (c: Column, m: ModelStats) => {
-    const e = marks.get(c), v = c.value(m);
+    const e = marks.get(c), v = c.value(m) === null ? null : c.render(m);
     if (!e || v === null || (v !== e.hi && v !== e.lo)) return null;
     const hi = v === e.hi;
-    return <span className="mr-1 text-[13px]" style={{ color: MUTED }} title={hi ? 'Highest' : 'Lowest'} aria-label={hi ? 'highest' : 'lowest'}>{hi ? '▲' : '▼'}</span>;
+    return <span className="mr-1 text-[13px] @max-md:hidden" style={{ color: MUTED }} title={hi ? 'Highest' : 'Lowest'} aria-label={hi ? 'highest' : 'lowest'}>{hi ? '▲' : '▼'}</span>;
   };
   // Every column of All stats shares the width, so its cells pad less.
-  const head = zoomed ? (grouped ? 'p-1 md:text-[13px]' : 'p-1.5 md:p-2 md:text-[14px]') : 'px-1.5 py-1';
-  const cell = zoomed ? (grouped ? 'px-1 py-1' : 'px-1.5 py-1 md:px-2') : 'px-1.5 py-0.5';
+  const head = grouped ? 'p-1 text-[13px]' : 'px-1.5 py-2 md:px-3 text-[14px]';
+  const cell = grouped ? 'px-1' : 'px-1.5 md:px-3';
+  const row = (m: ModelStats, i: number | null) => (
+    <tr key={m.name} className="lift h-11">
+      <th scope="row" className={`${cell} text-left font-bold`}>
+        <a href={modelHref(m.name)} className="flex items-center gap-2 min-w-0 hover:underline" style={{ color: TEXT }} title={m.name}>
+          <LLMLogo model={m.name} size={22} />
+          <span className="truncate @max-md:sr-only">{m.name}</span>
+          {m.hands < MIN_HANDS && (
+            <Warning size={14} weight="bold" className="shrink-0 @max-md:hidden" style={{ color: 'rgb(140, 95, 20)' }} aria-label={`Fewer than ${MIN_HANDS} hands`} />
+          )}
+        </a>
+      </th>
+      {columns.map(c => (
+        <td key={c.key} className={`${cell} text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
+          {c === BB100 ? <Bb100 m={m} scale={scale} bar={!grouped} /> : <>{i !== null && mark(c, m)}{c.render(m)}</>}
+        </td>
+      ))}
+    </tr>
+  );
   return (
     // Fixed layout: the table takes its panel's width and the cells truncate, so nothing scrolls sideways.
-    <table className={`w-full table-fixed tabular-nums text-[12px] ${zoomed ? 'md:text-[15px] h-full' : ''}`}>
+    <table className="w-full table-fixed tabular-nums text-[14px] md:text-[15px]">
       <caption className="sr-only">{caption} Column headers sort the table; the info buttons explain each stat.</caption>
       <colgroup>
-        {/* Narrow panels show logos only; the preview truncates names; zoomed, names get the room they need. */}
-        <col className={zoomed ? (grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : 'w-[44px] @md:w-[32%] @4xl:w-[18%]') : 'w-[40px] @md:w-[34%]'} />
-        {columns.map(c => <col key={c.key} className={c === BB100 ? (zoomed ? (grouped ? 'w-[104px] @lg:w-[150px] @4xl:w-[172px]' : 'w-[104px] @lg:w-[160px] @4xl:w-[196px]') : 'w-[96px] @md:w-[118px]') : ''} />)}
+        {/* Narrow panels show logos only; wider ones give names the room they need. */}
+        <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : 'w-[44px] @md:w-[32%] @4xl:w-[24%]'} />
+        {columns.map(c => <col key={c.key} className={c === BB100 ? (grouped ? 'w-[104px] @lg:w-[150px] @4xl:w-[172px]' : 'w-[110px] @lg:w-[170px] @4xl:w-[210px]') : ''} />)}
       </colgroup>
       <thead>
         {grouped && (
@@ -249,29 +278,12 @@ function Grid({
         </tr>
       </thead>
       <tbody className="divide-y divide-black/10">
-        {rows.map((m, i) => (
-          <tr key={m.name} className="lift">
-            <th scope="row" className={`${cell} text-left font-bold`}>
-              <a href={modelHref(m.name)} className="flex items-center gap-2 min-w-0 hover:underline" style={{ color: TEXT }} title={m.name}>
-                <LLMLogo model={m.name} size={zoomed ? 22 : 18} />
-                <span className="truncate @max-md:sr-only">{m.name}</span>
-                {m.hands < MIN_HANDS && (
-                  <Warning size={13} weight="bold" className="shrink-0 @max-md:hidden" style={{ color: 'rgb(140, 95, 20)' }} aria-label={`Fewer than ${MIN_HANDS} hands`} />
-                )}
-              </a>
-            </th>
-            {columns.map(c => (
-              <td key={c.key} className={`${cell} text-right whitespace-nowrap`} style={{ background: shade(c, i) }}>
-                {c === BB100 ? <Bb100 m={m} scale={scale} bar={zoomed && !grouped} /> : <>{mark(c, m)}{c.render(m)}</>}
-              </td>
-            ))}
-          </tr>
-        ))}
+        {rows.map((m, i) => row(m, i))}
         {noHands.map(name => (
-          <tr key={name}>
+          <tr key={name} className="h-11">
             <th scope="row" className={`${cell} text-left font-bold`}>
               <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>
-                <LLMLogo model={name} size={zoomed ? 22 : 18} />
+                <LLMLogo model={name} size={22} />
                 <span className="truncate @max-md:sr-only">{name}</span>
               </span>
             </th>
@@ -279,6 +291,13 @@ function Grid({
           </tr>
         ))}
       </tbody>
+      {/* Everyone else with hands, under a divider: shown by "All models". */}
+      {rest.length > 0 && (
+        <tbody className="divide-y divide-black/10 border-t-2 border-[rgba(55,53,47,0.16)]">
+          <tr><td colSpan={columns.length + 1} className={`${cell} pt-3 pb-1 text-[13px] font-medium`} style={{ color: MUTED }}>Not at the table</td></tr>
+          {rest.map(m => row(m, null))}
+        </tbody>
+      )}
       {/* Roster models not seated: one wrapped row of names, so a long roster never adds a row each. */}
       {waiting.length > 0 && (
         <tbody style={{ color: MUTED }}>
@@ -289,7 +308,7 @@ function Grid({
               <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                 {waiting.map(name => (
                   <li key={name} className="flex items-center gap-1.5 opacity-60">
-                    <LLMLogo model={name} size={16} />
+                    <LLMLogo model={name} size={18} />
                     {name}
                   </li>
                 ))}

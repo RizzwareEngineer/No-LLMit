@@ -36,10 +36,20 @@ export function pageBy(dir: 1 | -1) {
   return true;
 }
 
-// Scroll to the screen with this id (the overview's click-to-zoom).
+// Scroll to the screen with this id (the overview's click-to-jump). A screen further on than the
+// next one skips the screens between: the page lands on the screen just before it at once
+// (announced as 'screenjump', so StatsSections can hide what that screen would show) and only
+// the target's own card slides in.
 export function goToScreen(id: string) {
-  const el = document.getElementById(id);
-  if (el) scrollToTop(topOf(el), id);
+  const list = screens();
+  const i = list.findIndex(s => s.id === id);
+  if (i < 0) return;
+  const prev = list[i - 1];
+  if (prev && topOf(prev) > window.scrollY + 1) {
+    window.dispatchEvent(new CustomEvent('screenjump', { detail: id }));
+    window.scrollTo({ top: topOf(prev), behavior: 'instant' });
+  }
+  scrollToTop(topOf(list[i]), id);
 }
 
 // A paged scroll is underway (it ends on a screen edge by itself).
@@ -88,7 +98,7 @@ export function scrollsInside(el: Element | null, dir: number) {
 
 const SPRING = { type: 'spring', stiffness: 260, damping: 32 } as const;
 
-// A panel of the overview: a small linked title and a card. A click (or Enter or Space with the
+// A panel of the overview: a linked title, a teaser and an "Open ↓" affordance. A click (or Enter or Space with the
 // panel focused) scrolls to the panel's own screen, except on links and controls inside it.
 // `focused` (the Race panel only) lifts it out of the grid to fill the stage; motion's layout
 // animation turns that jump into the page's one zoom (transforms only, nothing under reduced
@@ -137,15 +147,15 @@ export default function Panel({
         if (t.closest(`#${id}-title a`) || !t.closest('a, button, select, input, label')) zoom(e);
       } : undefined}
       onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && zoom(e) : undefined}
-      className={`flex flex-col min-h-0 min-w-0 bg-white p-3 ${focused ? 'absolute inset-0 z-20' : `relative z-0 ${className}`} ${overview ? 'cursor-zoom-in' : ''}`}
+      className={`flex flex-col min-h-0 min-w-0 bg-white p-3 lg:p-4 ${focused ? 'absolute inset-0 z-20' : `relative z-0 ${className}`} ${overview ? 'cursor-pointer' : ''}`}
       style={{ borderRadius: 4, boxShadow: SHADOW }}
     >
-      <motion.div layout={id === 'race-panel' && 'position'} transition={SPRING} className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 id={`${id}-title`} className={`font-bold ${focused ? 'text-[18px]' : 'text-[14px]'}`} style={{ color: TEXT }}>
-          {/* Not a tab stop: the panel itself is the one stop that zooms. */}
+      <motion.div layout={id === 'race-panel' && 'position'} transition={SPRING} className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id={`${id}-title`} className="text-[18px] font-bold" style={{ color: TEXT }}>
+          {/* Not a tab stop: the panel itself is the one stop that opens it. */}
           <a href={href} tabIndex={-1} className="hover:underline">{title}</a>
         </h2>
-        {aside}
+        {overview ? <span aria-hidden className="text-[14px] font-medium" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span> : aside}
       </motion.div>
       <motion.div layout={id === 'race-panel'} transition={SPRING} className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">
         {children}

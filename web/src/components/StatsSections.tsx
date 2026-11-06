@@ -3,12 +3,12 @@
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
-import Panel, { CountUp } from '@/components/Section';
+import Panel, { CountUp, SHADOW } from '@/components/Section';
 import CumulativeChart from '@/components/CumulativeChart';
 import StatsTable from '@/components/StatsTable';
-import HeadToHead, { pairwiseVerdict } from '@/components/HeadToHead';
+import HeadToHead, { PairwiseBars, pairwiseLeader, pairwiseVerdict } from '@/components/HeadToHead';
 import { SampleBadge, SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
-import { MIN_HANDS, MUTED, TEXT, netColor, signed, useStats } from '@/lib/stats';
+import { MIN_HANDS, MUTED, TEXT, netColor, seatedModels, signed, signedBrief, useStats } from '@/lib/stats';
 
 type Stats = ReturnType<typeof useStats>;
 
@@ -40,17 +40,20 @@ const useNativeTimeline = () =>
 export default memo(function StatsSections({
   all,
   picked,
+  seated: lineup,
   session,
   onSession,
 }: {
   all: Stats;
   picked: Stats;
+  seated?: string[]; // the page's lineup (with its fallback for an older engine), when `picked` is all-time or live
   session: string;
   onSession: (id: string) => void;
 }) {
   const { data, sample, loading, error, current } = picked;
   const [selected, setSelected] = useState('');
   const [highlight, setHighlight] = useState<string | undefined>();
+  const [matrix, setMatrix] = useState(false); // Pairwise: the 9x9 grid instead of the bars
   // Race stays zoomed on every screen after it: the cards slide over it, it never zooms back out.
   const [zoomed, setZoomed] = useState(false);
   const stage = useRef<HTMLDivElement>(null);
@@ -64,13 +67,19 @@ export default memo(function StatsSections({
   // the overview. pageBy announces its target first so the zoom starts with the key press.
   // While a scroll to an announced screen runs, the screens it passes on the way are ignored.
   // Cards under another card leave the tab order (set directly: no re-render mid-scroll).
+  // A click on the Stats or Pairwise teaser skips Race (goToScreen's 'screenjump'): Race stays
+  // unzoomed, and for Pairwise the Stats card hides and the overview recedes on Pairwise's
+  // timeline, so only the target card slides over the overview. The jump ends when that slide
+  // does (the instant landing before it ends its own scroll at once, hence the 150ms).
   useEffect(() => {
     let target: string | null = null;
+    let jumpAt = 0;
+    let jumpTimer: ReturnType<typeof setTimeout> | undefined;
     // `arrived`: the page is on that screen now. Inert waits for it: making the focused panel
     // inert as a click on it starts the scroll would cancel that scroll.
     const show = (id: string, arrived = true) => {
       const i = order(id);
-      setZoomed(i >= 1);
+      if (!jumpAt) setZoomed(i >= 1);
       if (!arrived) return;
       stage.current?.toggleAttribute('inert', i >= 2);
       statsCard.current?.toggleAttribute('inert', i >= 3);
@@ -89,19 +98,40 @@ export default memo(function StatsSections({
       target = (e as CustomEvent<string>).detail;
       show(target, false);
     };
+    const middle = () => [...screens].find(s => { const r = s.getBoundingClientRect(); return r.top <= innerHeight / 2 && r.bottom > innerHeight / 2; });
+    const onJump = (e: Event) => {
+      jumpAt = performance.now();
+      clearTimeout(jumpTimer);
+      jumpTimer = setTimeout(endJump, 1500); // browsers without scrollend
+      if ((e as CustomEvent<string>).detail !== 'pairwise') return;
+      statsCard.current?.style.setProperty('visibility', 'hidden');
+      stage.current?.style.setProperty('--recede-by', '--card-pairwise');
+    };
+    const endJump = () => {
+      if (!jumpAt) return;
+      jumpAt = 0;
+      clearTimeout(jumpTimer);
+      statsCard.current?.style.removeProperty('visibility');
+      stage.current?.style.setProperty('--recede-by', '--card-stats');
+      const el = middle();
+      if (el) show(el.id);
+    };
     // An interrupted scroll never reaches its target: settle on the screen in the middle.
     const onEnd = () => {
+      if (jumpAt && performance.now() - jumpAt > 150) endJump();
       if (target === null) return;
       target = null;
-      const mid = innerHeight / 2;
-      const el = [...screens].find(s => { const r = s.getBoundingClientRect(); return r.top <= mid && r.bottom > mid; });
+      const el = middle();
       if (el) show(el.id);
     };
     window.addEventListener('screenchange', onScreen);
+    window.addEventListener('screenjump', onJump);
     window.addEventListener('scrollend', onEnd);
     return () => {
       io.disconnect();
+      clearTimeout(jumpTimer);
       window.removeEventListener('screenchange', onScreen);
+      window.removeEventListener('screenjump', onJump);
       window.removeEventListener('scrollend', onEnd);
     };
   }, []);
@@ -144,21 +174,31 @@ export default memo(function StatsSections({
     </p>
   );
   const models = ready ? data.models : [];
-  // Pairwise compares the models at the table now (past sessions carry no lineup: everyone).
-  const pairwise = useMemo(() => {
-    const seated = data?.seated ? data.models.filter(m => data.seated!.includes(m.name)) : [];
-    return seated.length >= 2 ? seated : data?.models ?? [];
-  }, [data]);
+  // Race, the overview and Pairwise show the models at the table now (past sessions carry no
+  // lineup: everyone). The Stats screen has its own "All models" toggle.
+  const seated = data?.seated ?? lineup;
+  const field = useMemo(() => seatedModels(data?.models ?? [], seated), [data, seated]);
   const final = (pts: [number, number][]) => pts.at(-1)?.[1] ?? 0;
-  const race = [...models].sort((a, b) => final(b.cumulative_bb) - final(a.cumulative_bb));
+  const race = [...field].sort((a, b) => final(b.cumulative_bb) - final(a.cumulative_bb));
   const [leader, second] = race;
-  const bestRate = models.reduce<typeof models[number] | undefined>((a, b) => (!a || b.bb100 > a.bb100 ? b : a), undefined);
-  const sel = selected || bestRate?.name || '';
+  const topRate = [...field].sort((a, b) => b.bb100 - a.bb100).slice(0, 3);
+  const chipLeader = pairwiseLeader(field)?.leader;
   const hands = ready && (
     <span className="tabular-nums">
       <CountUp value={data.scope.hands} /> hands · blinds {data.scope.big_blind / 2}/{data.scope.big_blind}
     </span>
   );
+  const lead = leader && second && (
+    <div className="flex items-center gap-2 tabular-nums text-[15px]" style={{ color: TEXT }}>
+      <LLMLogo model={leader.name} size={20} />
+      <span className="font-bold">{leader.name}</span>
+      <span style={{ color: MUTED }}>leads by</span>
+      <span className="font-bold" style={{ color: netColor(1) }}>
+        <CountUp value={final(leader.cumulative_bb) - final(second.cumulative_bb)} format={{ maximumFractionDigits: 1, minimumFractionDigits: 1 }} suffix=" bb" />
+      </span>
+    </div>
+  );
+  const verdict = (size: string) => ready && <p className={`${size} font-medium leading-snug`} style={{ color: TEXT }}>{pairwiseVerdict(field)}</p>;
 
   return (
     <div className="relative w-full" style={{ timelineScope: '--card-stats, --card-pairwise' } as React.CSSProperties}>
@@ -174,12 +214,13 @@ export default memo(function StatsSections({
         />
       ))}
       <div data-stage className="absolute inset-0">
-        {/* The overview stage: pinned from the overview to the end. pt-14 clears the sticky bar;
-            the clip keeps a zoom's spring overshoot from adding a page scrollbar. */}
+        {/* The overview stage: pinned from the overview to the end. The top padding clears the
+            sticky bar (44px) plus the table screen's own outer padding; the clip keeps a zoom's
+            spring overshoot from adding a page scrollbar. */}
         <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh">
-          <div className="h-full max-w-[1300px] mx-auto pt-14 pb-[calc(0.75rem+var(--bar-h,0px))] overflow-clip [overflow-clip-margin:8px]">
-            {/* Overview: Race on top, the Stats and Pairwise previews below (stacked on phones). */}
-            <div className="relative h-full grid gap-2 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:gap-3 md:grid-cols-2 md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className={`h-full max-w-[1300px] mx-auto ${EDGE} overflow-clip [overflow-clip-margin:8px]`}>
+            {/* Overview: three teaser cards in the table screen's card style, Race on top (stacked on phones). */}
+            <div className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-2 md:grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)]">
               <Panel
                 id="race-panel"
                 title="Race"
@@ -187,41 +228,33 @@ export default memo(function StatsSections({
                 land="race-panel"
                 focused={zoomed}
                 className="row-start-1 md:col-span-2"
-                aside={leader && second && (
-                  <div className={`flex items-center gap-1.5 tabular-nums ${zoomed ? 'text-[15px]' : 'text-[13px]'}`} style={{ color: TEXT }}>
-                    <LLMLogo model={leader.name} size={16} />
-                    <span className="font-bold">{leader.name}</span>
-                    <span style={{ color: MUTED }}>leads by</span>
-                    <span className="font-bold" style={{ color: netColor(1) }}>
-                      <CountUp value={final(leader.cumulative_bb) - final(second.cumulative_bb)} format={{ maximumFractionDigits: 1, minimumFractionDigits: 1 }} suffix=" bb" />
-                    </span>
-                  </div>
-                )}
+                aside={lead}
               >
                 {stale}
                 {ready ? (
                   // Zoomed: the chart in a fixed 16:7 box (never stretched to the window) and the
                   // standings beside it, which are its legend. One tree either way, so the lines never redraw.
-                  <div className={zoomed ? 'flex-1 flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8' : 'flex-1 min-h-0 flex flex-col'}>
-                    <div className={zoomed ? 'flex flex-col w-full aspect-[4/3] md:aspect-[16/7] md:w-[min(calc(100%-340px),calc(62vh*16/7))]' : 'flex-1 min-h-0 flex flex-col'}>
-                      <CumulativeChart race models={models} selected={sel} highlight={highlight} onSelect={zoomed ? setSelected : undefined} />
+                  <div className={zoomed ? 'flex-1 flex flex-col md:flex-row items-center justify-center gap-6 md:gap-10 lg:gap-14 md:px-4 lg:px-8' : 'flex-1 min-h-0 flex flex-col gap-3'}>
+                    {!zoomed && lead}
+                    <div className={zoomed ? 'flex flex-col w-full aspect-[4/3] md:aspect-[16/7] md:w-[min(calc(100%-360px),calc(60vh*16/7))]' : 'flex-1 min-h-0 flex flex-col'}>
+                      <CumulativeChart race spark={!zoomed} models={field} selected={selected} highlight={highlight} onSelect={zoomed ? setSelected : undefined} />
                     </div>
                     {zoomed && (
                       <ol className="w-full md:w-[300px] shrink-0 flex flex-col gap-0.5" aria-label="Standings: pick a model to shade its 95% band" onMouseLeave={() => setHighlight(undefined)}>
                         {race.map((m, i) => (
                           <li key={m.name}>
                             <button
-                              onClick={() => setSelected(m.name)}
+                              onClick={() => setSelected(s => (s === m.name ? '' : m.name))}
                               onMouseEnter={() => setHighlight(m.name)}
                               onFocus={() => setHighlight(m.name)}
                               onBlur={() => setHighlight(undefined)}
-                              aria-pressed={m.name === sel}
-                              className="w-full flex items-center gap-2 rounded px-2 py-1.5 text-[14px] text-left tabular-nums transition-colors hover:bg-[rgba(55,53,47,0.06)]"
-                              style={{ color: TEXT, background: m.name === highlight ? 'rgba(55, 53, 47, 0.06)' : undefined, boxShadow: m.name === sel ? `inset 3px 0 0 ${modelColor(m.name)}` : undefined }}
+                              aria-pressed={m.name === selected}
+                              className="w-full flex items-center gap-2.5 rounded px-2 py-1.5 text-[14px] text-left tabular-nums transition-colors hover:bg-[rgba(55,53,47,0.06)]"
+                              style={{ color: TEXT, background: m.name === highlight ? 'rgba(55, 53, 47, 0.06)' : undefined, boxShadow: m.name === selected ? `inset 3px 0 0 ${modelColor(m.name)}` : undefined }}
                             >
                               <span className="w-4 text-right text-[13px]" style={{ color: MUTED }}>{i + 1}</span>
                               <LLMLogo model={m.name} size={20} />
-                              <span className={`flex-1 min-w-0 truncate ${m.name === sel ? 'font-bold' : 'font-medium'}`}>{m.name}</span>
+                              <span className={`flex-1 min-w-0 truncate ${m.name === selected || i < 3 ? 'font-bold' : 'font-medium'}`}>{m.name}</span>
                               <span className="font-bold" style={{ color: netColor(final(m.cumulative_bb)) }}>{signed(final(m.cumulative_bb))} bb</span>
                             </button>
                           </li>
@@ -233,13 +266,29 @@ export default memo(function StatsSections({
               </Panel>
 
               <Panel id="stats-panel" title={<>Stats {sample && <SampleBadge />}</>} href="#stats-table" land="stats-card" covered={zoomed} className="row-start-2 md:col-start-1">
-                <div className="mb-2 text-[12px]" style={{ color: MUTED }}>{hands}</div>
-                {ready ? <StatsTable models={models} seated={data.seated} expandable={false} /> : message}
+                {ready ? (
+                  <div className="flex-1 flex flex-col justify-center">
+                    <p className="mb-1 text-[13px]" style={{ color: MUTED }}>Best bb/100 at the table</p>
+                    <ol>
+                      {topRate.map(m => (
+                        <li key={m.name} className="h-11 flex items-center gap-3 border-b border-notion last:border-0 text-[15px] tabular-nums" style={{ color: TEXT }}>
+                          <LLMLogo model={m.name} size={22} />
+                          <span className="flex-1 min-w-0 truncate font-medium">{m.name}</span>
+                          <span className="font-bold" style={{ color: netColor(m.bb100) }}>{signedBrief(m.bb100)}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ) : message}
               </Panel>
 
               <Panel id="pairwise-panel" title="Pairwise results" href="#pairwise" land="pairwise-card" covered={zoomed} className="row-start-3 md:row-start-2 md:col-start-2">
-                {ready && <p className="mb-1 text-[13px] md:text-[14px] font-medium leading-snug" style={{ color: TEXT }}>{pairwiseVerdict(pairwise)}</p>}
-                {ready ? <HeadToHead models={pairwise} bigBlind={data.scope.big_blind} /> : message}
+                {ready ? (
+                  <div className="flex-1 flex flex-col justify-center gap-3">
+                    {verdict('text-[15px]')}
+                    {chipLeader && <PairwiseBars models={field} only={chipLeader} />}
+                  </div>
+                ) : message}
               </Panel>
             </div>
           </div>
@@ -250,17 +299,17 @@ export default memo(function StatsSections({
 
         <Card id="stats-card" title={<>Stats {sample && <SampleBadge />}</>} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10">
           <Definition>
-            <span className="block">How each model has done per 100 hands, and how it plays.</span>
+            <span className="block">How each model at the table has done per 100 hands, and how it plays.</span>
             <span className="block">Click a header to sort by it; hover it for its definition.</span>
           </Definition>
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[13px] md:text-[14px]" style={{ color: MUTED }}>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[14px]" style={{ color: MUTED }}>
             {hands}
             <label className="flex items-center gap-2" style={{ color: TEXT }}>
               Session
               <select
                 value={session}
                 onChange={e => onSession(e.target.value)}
-                className="rounded border border-[rgba(55,53,47,0.16)] bg-white px-2 py-0.5 text-[13px]"
+                className="rounded border border-[rgba(55,53,47,0.16)] bg-white px-2 py-0.5 text-[14px]"
               >
                 <option value="">All time</option>
                 {(all.data?.sessions ?? []).map(s => (
@@ -281,21 +330,41 @@ export default memo(function StatsSections({
               {data.partial && (
                 <p className="mb-2 text-[13px]" style={{ color: MUTED }} role="status">All-in EV still computing…</p>
               )}
-              <StatsTable models={models} seated={data.seated} />
+              <StatsTable models={models} seated={seated} />
             </>
           )}
         </Card>
 
         <Card id="pairwise-card" title="Pairwise results · chips" z="z-20">
-          <Definition>Each row: what that model won from each column model.</Definition>
-          {ready && <p className="mb-2 text-[15px] md:text-[17px] font-medium leading-snug" style={{ color: TEXT }}>{pairwiseVerdict(pairwise)}</p>}
-          {ready ? <HeadToHead models={pairwise} bigBlind={data.scope.big_blind} zoomed /> : message}
-          <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Net chips over every pot both were in; a multiway pot counts toward every pair in it.</p>
+          <div className="mb-2 flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+            {verdict('text-[16px] md:text-[17px]')}
+            <div role="group" aria-label="View" className="flex shrink-0 rounded p-0.5 text-[14px]" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
+              {(['Bars', 'Matrix'] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setMatrix(v === 'Matrix')}
+                  aria-pressed={matrix === (v === 'Matrix')}
+                  className="rounded px-3 py-1 font-medium"
+                  style={matrix === (v === 'Matrix') ? { background: 'white', color: TEXT, boxShadow: SHADOW } : { color: MUTED }}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Definition>
+            {matrix ? 'Each row: what that model won from each column model.' : 'Each row: green for the chips that model took from an opponent, red for the chips it gave one. Hover a segment for the amount.'}
+          </Definition>
+          {!ready ? message : matrix ? <HeadToHead models={field} bigBlind={data.scope.big_blind} zoomed /> : <PairwiseBars models={field} />}
+          <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Net: chips won from the models shown only, over every pot both were in; a multiway pot counts toward every pair in it.</p>
         </Card>
       </div>
     </div>
   );
 });
+
+// The table screen's outer padding under the 44px sticky bar, and above the connection bar.
+const EDGE = 'pt-[56px] lg:pt-[60px] pb-[calc(0.75rem+var(--bar-h,0px))] lg:pb-[calc(1rem+var(--bar-h,0px))]';
 
 // Shrinks and dims its content as the screen `by` slides up over it: a CSS scroll-driven
 // animation on the named view timeline of that screen where supported, motion's useScroll
@@ -352,8 +421,8 @@ function Card({
   return (
     <section ref={ref} id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className={`sticky top-0 h-svh outline-none ${z}`}>
       <Recede by={by} timeline={timeline} className="card-edge h-full">
-        <div className="h-full max-w-[1300px] mx-auto px-1 md:px-3 pt-14 pb-[calc(0.75rem+var(--bar-h,0px))] flex flex-col">
-          <h2 id={`${id}-title`} className="mb-1 text-[18px] md:text-[20px] font-bold" style={{ color: TEXT }}>{title}</h2>
+        <div className={`h-full max-w-[1300px] mx-auto px-3 lg:px-4 ${EDGE} flex flex-col`}>
+          <h2 id={`${id}-title`} className="mb-2 text-[18px] font-bold" style={{ color: TEXT }}>{title}</h2>
           <div className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{children}</div>
         </div>
       </Recede>
@@ -363,5 +432,5 @@ function Card({
 
 // One muted line under a card title saying what the card counts.
 function Definition({ children }: { children: React.ReactNode }) {
-  return <p className="mb-2 text-[13px] md:text-[14px] leading-snug" style={{ color: MUTED }}>{children}</p>;
+  return <p className="mb-3 text-[14px] leading-snug" style={{ color: MUTED }}>{children}</p>;
 }

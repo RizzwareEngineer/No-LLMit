@@ -167,6 +167,17 @@ export function rosterGroups(models: { name: string }[], seated: string[] | unde
   };
 }
 
+// The models at the table: those in `seated` when at least two of them have stats, else all
+// (a past session, or a lineup still filling up). One rule for Race, Stats and Pairwise.
+export function seatedModels<T extends { name: string }>(models: T[], seated: string[] | undefined) {
+  const at = seated ? models.filter(m => seated.includes(m.name)) : [];
+  return at.length >= 2 ? at : models;
+}
+
+// Net chips a model won from the opponents in `names` only, so a row's net is the sum of what it shows.
+export const netAmong = (m: ModelStats, names: Set<string>) =>
+  Object.entries(m.vs ?? {}).reduce((sum, [n, v]) => (names.has(n) && n !== m.name ? sum + v.net_chips : sum), 0);
+
 export const NOT_SEATED = 'Not seated yet';
 export const NOT_SEATED_HINT = 'Listed for future sessions; no hands played.';
 
