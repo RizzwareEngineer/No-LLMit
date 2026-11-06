@@ -22,7 +22,6 @@ interface TableFeltProps {
   nextHandCountdown?: number | null;
   buttonDetermination?: ButtonDetermination | null;
   notice?: TableNoticePayload | null;
-  hudSlot?: React.ReactNode; // under the board, above the countdown
 }
 
 // Shown on the felt while the table is closed or at its daily call cap.
@@ -64,7 +63,6 @@ export default function TableFelt({
   nextHandCountdown,
   buttonDetermination,
   notice,
-  hudSlot,
 }: TableFeltProps) {
   // Show button determination if in progress
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
@@ -134,8 +132,6 @@ export default function TableFelt({
           <div className="text-[11px] text-gray-600 uppercase">No cards dealt</div>
         )}
       </div>
-
-      {hudSlot}
 
       {/* Next hand countdown. Its height is always reserved so the board never moves when it shows. */}
       <div className="h-[34px] flex items-center">

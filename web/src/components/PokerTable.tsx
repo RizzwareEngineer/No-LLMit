@@ -1,9 +1,9 @@
 "use client";
 
-import { HudSlot, useHud } from "@/components/Hud";
+import { useHud } from "@/components/Hud";
 import Player from "@/components/Player";
 import TableFelt from "@/components/TableFelt";
-import { useId, useState } from "react";
+import { useState } from "react";
 import TableMotion, { FLIGHT, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import type { ButtonDetermination } from "@/hooks/useGameState";
@@ -52,7 +52,6 @@ export default function PokerTable({
   const { on: hudOn } = useHud();
   // A late joiner sees the hand already dealt; only hands dealt while watching wait for their flight.
   const [firstHand, setFirstHand] = useState(0);
-  const slotIds = { phone: useId(), desk: useId() }; // each layout has its own felt and slot
   if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
   const dealt = firstHand > 0 && handNumber !== firstHand;
 
@@ -69,7 +68,7 @@ export default function PokerTable({
     );
   }
 
-  const seat = (idx: number, hudSlotId: string) => players[idx] && (
+  const seat = (idx: number) => players[idx] && (
     <Player
       player={players[idx]}
       active={idx === currentPlayerIdx}
@@ -78,14 +77,13 @@ export default function PokerTable({
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
-      hudSlotId={hudSlotId}
       seatIdx={idx}
       handNumber={handNumber}
       dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + FLIGHT) : undefined}
     />
   );
 
-  const felt = (slotId: string) => (
+  const felt = () => (
     <TableFelt
       cards={communityCards}
       pot={pot}
@@ -97,7 +95,6 @@ export default function PokerTable({
       nextHandCountdown={nextHandCountdown}
       buttonDetermination={buttonDetermination}
       notice={notice}
-      hudSlot={<HudSlot id={slotId} />}
     />
   );
 
@@ -121,11 +118,11 @@ export default function PokerTable({
       {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
-          {felt(slotIds.phone)}
+          {felt()}
         </div>
         <div className="grid grid-cols-3 gap-2">
           {players.map((p, idx) => (
-            <div key={p.id} className={hudOn ? "h-[170px]" : "h-[150px]"}>{seat(idx, slotIds.phone)}</div>
+            <div key={p.id} className={hudOn ? "h-[170px]" : "h-[150px]"}>{seat(idx)}</div>
           ))}
         </div>
       </div>
@@ -148,7 +145,7 @@ export default function PokerTable({
                   className="w-[200px] h-[100px]"
                   style={{ borderBottom: line, borderRight: i < layout.top.length - 1 ? line : undefined }}
                 >
-                  {seat(idx, slotIds.desk)}
+                  {seat(idx)}
                 </td>
               ))}
               {layout.right.length > 0 && (
@@ -162,21 +159,21 @@ export default function PokerTable({
                 {layout.left.length > 0 && (
                   <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }}>
                     <div className="flex justify-end h-full">
-                      {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx], slotIds.desk)}
+                      {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx])}
                     </div>
                   </td>
                 )}
 
                 {rowIdx === 0 && (
                   <td colSpan={layout.top.length} rowSpan={rows} style={{ borderBottom: line }}>
-                    <div className="flex items-center justify-center h-full">{felt(slotIds.desk)}</div>
+                    <div className="flex items-center justify-center h-full">{felt()}</div>
                   </td>
                 )}
 
                 {layout.right.length > 0 && (
                   <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }}>
                     <div className="flex justify-start h-full">
-                      {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx], slotIds.desk)}
+                      {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx])}
                     </div>
                   </td>
                 )}
@@ -196,7 +193,7 @@ export default function PokerTable({
                       className="flex-1"
                       style={{ borderRight: i < layout.bottom.length - 1 ? line : undefined }}
                     >
-                      {seat(playerIdx, slotIds.desk)}
+                      {seat(playerIdx)}
                     </div>
                   ))}
                 </div>
