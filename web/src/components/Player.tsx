@@ -15,7 +15,6 @@ interface PlayerProps {
   winAmount?: number;
   winDesc?: string;
   isThinking?: boolean;
-  hudSlotId?: string; // the felt's HUD slot, which describes this seat while the tracker line is off
   seatIdx?: number;
   handNumber?: number;
   dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
@@ -50,10 +49,12 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, hudSlotId, seatIdx, handNumber = 0, dealDelays }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, seatIdx, handNumber = 0, dealDelays }: PlayerProps) {
   const reduce = useReducedMotion();
-  const { stats, on: hudOn, followed, toggleFollow, hover } = useHud();
+  const { stats, on: hudOn, followed, toggleFollow, hovered, hover } = useHud();
   const pinned = followed === player.name;
+  // Hover, focus or pin swaps the badge row for the four numbers; the row keeps its size.
+  const swapHud = !hudOn && (pinned || hovered === player.name);
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const isWinner = winAmount !== undefined && winAmount > 0;
@@ -61,9 +62,9 @@ export default function Player({ player, active, position, folded = false, winAm
   return (
     <div
       className="relative h-full w-full"
-      onMouseEnter={() => hover(player.name)}
-      onMouseLeave={() => hover(null)}
-      onFocus={() => hover(player.name)}
+      onPointerEnter={(e) => { if (e.pointerType === "mouse") hover(player.name); }} // touch taps pin instead
+      onPointerLeave={(e) => { if (e.pointerType === "mouse") hover(null); }}
+      onFocus={(e) => { if (e.target.matches(":focus-visible")) hover(player.name); }}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) hover(null); }}
       onKeyDown={(e) => { if (e.key === "Escape") hover(null); }}
     >
@@ -72,7 +73,6 @@ export default function Player({ player, active, position, folded = false, winAm
       role="button"
       tabIndex={0}
       aria-pressed={pinned}
-      aria-describedby={hudOn ? undefined : hudSlotId}
       aria-label={`${player.name}, stack ${player.stack.toLocaleString()}${pinned ? ", following" : ""}`}
       onClick={() => toggleFollow(player.name)}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleFollow(player.name); } }}
@@ -119,7 +119,8 @@ export default function Player({ player, active, position, folded = false, winAm
 
         {hudOn && <HudLine stats={stats?.[player.name]} />}
 
-        <div className="flex flex-col mt-auto p-3 pt-0 min-w-0 overflow-hidden">
+        <div className="relative flex flex-col mt-auto p-3 pt-0 min-w-0 overflow-hidden">
+          {swapHud && <HudLine swap full={pinned} stats={stats?.[player.name]} />}
           <div className="flex items-center gap-2 min-w-0">
             {/* Position Badge */}
             {position && (
