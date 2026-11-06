@@ -21,14 +21,13 @@ export function pairwiseLeader(models: ModelStats[]) {
 
 // Two short sentences: the chip leader's net chips against the models shown (the Net the
 // Pairwise rows add up to), then the opponent it took the most from.
-// `among` names the set the net is counted over ("the 9 at the table"), so the figure is never
-// read as the model's overall result; `scope` adds the time range when it differs from all-time.
-export function pairwiseVerdict(models: ModelStats[], among: string, scope = '') {
+// `scope` names the time range and the set the net is counted over ("this session, among the 9
+// at the table"), so the figure is never read as the model's overall result.
+export function pairwiseVerdict(models: ModelStats[], scope: string) {
   const top = pairwiseLeader(models);
-  const where = `${among}${scope ? ` ${scope}` : ''}`;
-  if (!top) return `Nobody is up among ${where} yet.`;
+  if (!top) return `Nobody is up yet (${scope}).`;
   const fmt = (n: number) => n.toLocaleString();
-  return `${top.leader} is up ${fmt(top.total)} among ${where}.` + (top.from ? ` It took the most from ${top.from.name}, ${fmt(top.from.net)}.` : '');
+  return `${top.leader} is up ${fmt(top.total)} ${scope}.` + (top.from ? ` It took the most from ${top.from.name}, ${fmt(top.from.net)}.` : '');
 }
 
 // +53,743 as +54k, for cells too narrow for the full figure.

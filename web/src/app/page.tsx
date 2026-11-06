@@ -134,8 +134,11 @@ export default function Home() {
 
   // All-time stats feed the leaderboard and drawer; the session picker below the table may
   // narrow the sections. Both refetch as each hand finishes; a finished session never changes.
-  const [session, setSession] = useState('');
+  // The session the stats screens show: the live table session by default, the scope of Profits
+  // & Losses, until the visitor picks another one or all time ('') in the Stats screen's picker.
+  const [chosen, setSession] = useState<string | null>(null);
   const all = useStats(undefined, true, handNumber);
+  const session = chosen ?? all.data?.sessions.find(s => !s.ended_at)?.id ?? '';
   const pickedLive = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
   const picked = useStats(session || undefined, !!session, pickedLive ? handNumber : undefined);
   // Profits & Losses covers the live table session (the one not ended yet).

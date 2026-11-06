@@ -202,8 +202,9 @@ export default memo(function StatsSections({
   );
   // Pairwise nets count only the opponents in `field`, so the verdict names that set, and the
   // session when one is picked (the P&L beside the table is always all-time).
-  const among = field !== data?.models ? `the ${field.length} at the table` : `these ${field.length} models`;
-  const verdict = (size: string) => ready && <p className={`${size} font-medium leading-snug`} style={{ color: TEXT }}>{pairwiseVerdict(field, among, session ? 'in this session' : '')}</p>;
+  const live = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
+  const scope = `${session === '' ? 'all time' : live ? 'this session' : 'that session'}, among ${field !== data?.models ? `the ${field.length} at the table` : `these ${field.length} models`}`;
+  const verdict = (size: string) => ready && <p className={`${size} font-medium leading-snug`} style={{ color: TEXT }}>{pairwiseVerdict(field, scope)}</p>;
 
   return (
     <div className="relative w-full" style={{ timelineScope: '--card-stats, --card-pairwise' } as React.CSSProperties}>
