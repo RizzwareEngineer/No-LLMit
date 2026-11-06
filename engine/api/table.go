@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -32,8 +33,9 @@ const (
 	nextHandDelay     = 7 * time.Second
 )
 
-// Seat names. Each must have a model in llm/registry.py.
-var tablePlayers = []string{
+// Seats the table when the LLM service cannot say who is seated (llm/registry.py
+// DEFAULT_LINEUP). The real lineup comes from GET /models at startup; see lineup.
+var defaultPlayers = []string{
 	"GPT-OSS 20B", "Claude Haiku 5.5", "Gemma 3 12B", "Llama 3.1 8B", "Mistral Nemo",
 	"DeepSeek V4 Flash", "Phi-4", "Qwen 3.7 Flash", "Cohere Command R7B",
 }
@@ -76,6 +78,8 @@ type Table struct {
 	openHour  int
 	closeHour int
 	hoursZone *time.Location
+
+	seated []string // the lineup, from lineup(); set before Run
 }
 
 // onSaved, if set, is called with each hand once it is saved.
@@ -90,6 +94,7 @@ func NewTable(onSaved func(history.HandRecord)) *Table {
 		pace:         envFloat("TABLE_PACE", 1),
 		openHour:     envInt("TABLE_OPEN_HOUR", 0),
 		closeHour:    envInt("TABLE_CLOSE_HOUR", 24),
+		seated:       defaultPlayers,
 	}
 	if zone := os.Getenv("TABLE_TIMEZONE"); zone != "" && t.closeHour > t.openHour {
 		loc, err := time.LoadLocation(zone)
@@ -409,7 +414,7 @@ func (t *Table) Run() {
 func (t *Table) startGame() {
 	t.mu.Lock()
 	t.gs = game.NewGame(game.GameConfig{
-		PlayerNames:   tablePlayers,
+		PlayerNames:   t.seated,
 		StartingStack: tableStartingStack,
 		Stakes:        game.Stakes{SmallBlind: tableSmallBlind, BigBlind: tableBigBlind},
 	})
@@ -435,6 +440,54 @@ func (t *Table) startGame() {
 	t.broadcast(ServerMessage{Type: MsgButtonWinner, Payload: *t.buttonWinner})
 	t.mu.Unlock()
 	t.sleep(buttonWinnerDelay)
+}
+
+// lineup asks the LLM service who is seated: LINEUP in production, a rotation over the
+// whole roster with the mock provider. The session index it sends is the number of
+// sessions already in the local hand log (0 when hands go to Supabase).
+func (t *Table) lineup() []string {
+	session := 0
+	if fs, ok := t.store.saver.(*fileSaver); ok {
+		// shortcut: parses the whole local log once at startup; fine for dev-sized files.
+		hands, err := loadHandFile(filepath.Join(fs.dir, "hands.jsonl"))
+		if err != nil {
+			log.Printf("Lineup: reading local hands: %v", err)
+		}
+		ids := map[string]bool{}
+		for _, h := range hands {
+			ids[h.TableID] = true
+		}
+		session = len(ids)
+	}
+	return seatedPlayers(func() ([]string, error) { return client.GetSeated(session) }, lineupTries, lineupWait)
+}
+
+// About a minute: long enough for the LLM service to boot after the engine, so a custom
+// LINEUP is not silently replaced by the default nine.
+const (
+	lineupTries = 12
+	lineupWait  = 5 * time.Second
+)
+
+// seatedPlayers returns what fetch reports, asking up to tries times wait apart, or
+// defaultPlayers when every attempt fails.
+func seatedPlayers(fetch func() ([]string, error), tries int, wait time.Duration) []string {
+	var err error
+	for i := 0; i < tries; i++ {
+		if i > 0 {
+			time.Sleep(wait)
+		}
+		var names []string
+		if names, err = fetch(); err == nil && len(names) < 2 {
+			err = fmt.Errorf("only %d seated", len(names))
+		}
+		if err == nil {
+			log.Printf("Lineup: %v", names)
+			return names
+		}
+	}
+	log.Printf("!!! Lineup unavailable after %d tries (%v); seating the default nine, LINEUP is ignored until restart", tries, err)
+	return defaultPlayers
 }
 
 func (t *Table) playHand() {

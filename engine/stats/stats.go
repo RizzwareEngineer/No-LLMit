@@ -12,11 +12,14 @@ import (
 )
 
 type Stats struct {
-	GeneratedAt    time.Time `json:"generated_at"`
-	Scope          Scope     `json:"scope"`
-	Sessions       []Session `json:"sessions"`
-	Models         []Model   `json:"models"`
-	DefinitionsURL string    `json:"definitions_url"`
+	GeneratedAt time.Time `json:"generated_at"`
+	Scope       Scope     `json:"scope"`
+	Sessions    []Session `json:"sessions"`
+	Models      []Model   `json:"models"`
+	// Seated is the table's current lineup, set by the engine on the all-time and live
+	// session payloads; absent elsewhere.
+	Seated         []string `json:"seated,omitempty"`
+	DefinitionsURL string   `json:"definitions_url"`
 	// Partial is true while some all-ins are still being worked out; those hands count at
 	// their actual result in aiev_bb100 until then.
 	Partial bool `json:"partial"`

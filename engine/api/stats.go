@@ -41,6 +41,8 @@ type statsCache struct {
 	bySession map[string][]byte
 
 	live string // the session of the latest hand; only run touches it
+
+	seated []string // the table's lineup; set before run starts, never changed after
 }
 
 func newStatsCache() *statsCache {
@@ -54,8 +56,7 @@ func newStatsCache() *statsCache {
 		}
 		c.load = func() ([]history.HandRecord, error) { return loadHandFile(filepath.Join(dir, "hands.jsonl")) }
 	}
-	go c.run()
-	return c
+	return c // the caller sets seated, then starts run
 }
 
 // run loads every hand on start and every statsReloadEvery, and recomputes whenever a
@@ -171,9 +172,12 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	}
 
 	now := time.Now().UTC()
-	encode := func(hs []history.HandRecord) []byte {
+	encode := func(hs []history.HandRecord, current bool) []byte {
 		s := stats.Compute(hs)
 		s.GeneratedAt = now
+		if current {
+			s.Seated = c.seated
+		}
 		for i := range s.Sessions {
 			if s.Sessions[i].ID == live {
 				s.Sessions[i].EndedAt = nil
@@ -193,9 +197,9 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	}
 	updated := map[string][]byte{}
 	for id, hs := range sessions {
-		updated[id] = encode(hs)
+		updated[id] = encode(hs, id == live)
 	}
-	all := encode(hands)
+	all := encode(hands, true)
 
 	c.mu.Lock()
 	if full || c.bySession == nil {

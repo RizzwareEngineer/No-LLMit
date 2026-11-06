@@ -3,7 +3,7 @@
 import { useId, useState } from 'react';
 import { CaretDown, CaretUp, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
-import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signed } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signed, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
 interface Column {
   key: keyof typeof STAT_DEFINITIONS;
@@ -111,7 +111,7 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2' }: { col: { ke
 // "All stats" is pressed; without `expandable` (the overview preview) it stays collapsed and compact.
 // Expandable means zoomed: larger type, rows that fill the panel, and "All stats" grouped as one
 // wide table, or one table per group in a narrow panel.
-export default function StatsTable({ models, expandable = true }: { models: ModelStats[]; expandable?: boolean }) {
+export default function StatsTable({ models, seated, expandable = true }: { models: ModelStats[]; seated?: string[]; expandable?: boolean }) {
   const [sort, setSort] = useState({ key: 'bb100', desc: true });
   const [all, setAll] = useState(false);
   const expanded = all && expandable;
@@ -126,18 +126,21 @@ export default function StatsTable({ models, expandable = true }: { models: Mode
     setSort(s => (s.key === c.key ? { key: c.key, desc: !s.desc } : { key: c.key, desc: !c.lowerIsBetter }));
   // The ± bars share one scale: the farthest interval end from zero across models.
   const scale = Math.max(1, ...models.flatMap(m => (m.bb100_ci ?? [m.bb100]).map(Math.abs)));
-  const grid = (groups: typeof GROUPS, grouped: boolean, caption: string) => (
-    <Grid groups={groups} rows={sorted} sort={sort} onSort={toggleSort} zoomed={expandable} grouped={grouped} scale={scale} caption={caption} />
+  // Seated models without hands get a row of dashes in every grid; roster models not seated are
+  // listed once, under the last grid.
+  const { noHands, unseated } = rosterGroups(models, seated);
+  const grid = (groups: typeof GROUPS, grouped: boolean, caption: string, last = true) => (
+    <Grid groups={groups} rows={sorted} noHands={noHands} waiting={last ? unseated : []} sort={sort} onSort={toggleSort} zoomed={expandable} grouped={grouped} scale={scale} caption={caption} />
   );
 
   return (
     <>
-      <div className={`@container relative min-w-0 ${expandable ? 'flex-1 min-h-0 flex flex-col' : ''}`}>
+      <div className={`@container relative min-w-0 ${expandable ? 'flex-1 flex flex-col' : ''}`}>
         {!expanded ? grid(CORE, false, 'Stats per model.') : (
           <>
-            <div className="hidden @3xl:flex flex-1 min-h-0 flex-col">{grid(GROUPS, true, 'Every stat per model.')}</div>
+            <div className="hidden @3xl:flex flex-1 flex-col">{grid(GROUPS, true, 'Every stat per model.')}</div>
             <div className="@3xl:hidden flex flex-col gap-4">
-              {GROUPS.map(g => <div key={g.label}>{grid([g], true, `${g.label} stats per model.`)}</div>)}
+              {GROUPS.map((g, i) => <div key={g.label}>{grid([g], true, `${g.label} stats per model.`, i === GROUPS.length - 1)}</div>)}
             </div>
           </>
         )}
@@ -178,6 +181,8 @@ function Bb100({ m, scale, bar }: { m: ModelStats; scale: number; bar: boolean }
 function Grid({
   groups,
   rows,
+  noHands,
+  waiting,
   sort,
   onSort,
   zoomed,
@@ -187,6 +192,8 @@ function Grid({
 }: {
   groups: typeof GROUPS;
   rows: ModelStats[];
+  noHands: string[]; // seated, no hands yet: a row of dashes
+  waiting: string[]; // on the roster, not seated: a muted group below the rows
   sort: { key: string; desc: boolean };
   onSort: (c: Column) => void;
   zoomed: boolean;
@@ -242,7 +249,37 @@ function Grid({
             ))}
           </tr>
         ))}
+        {noHands.map(name => (
+          <tr key={name}>
+            <th scope="row" className={`${cell} text-left font-bold`}>
+              <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>
+                <LLMLogo model={name} size={zoomed ? 22 : 18} />
+                <span className="truncate @max-md:sr-only">{name}</span>
+              </span>
+            </th>
+            {columns.map(c => <td key={c.key} className={`${cell} text-right`} style={{ color: MUTED }}>{DASH}</td>)}
+          </tr>
+        ))}
       </tbody>
+      {/* Roster models not seated: one wrapped row of names, so a long roster never adds a row each. */}
+      {waiting.length > 0 && (
+        <tbody style={{ color: MUTED }}>
+          <tr className="border-t border-notion" title={NOT_SEATED_HINT}>
+            <td colSpan={columns.length + 1} className={`${cell} pt-2`}>
+              <span className="font-medium">{NOT_SEATED}</span>
+              <span className="sr-only">: {NOT_SEATED_HINT}</span>
+              <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                {waiting.map(name => (
+                  <li key={name} className="flex items-center gap-1.5 opacity-60">
+                    <LLMLogo model={name} size={16} />
+                    {name}
+                  </li>
+                ))}
+              </ul>
+            </td>
+          </tr>
+        </tbody>
+      )}
     </table>
   );
 }

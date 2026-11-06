@@ -8,7 +8,8 @@ interface LLMLogoProps {
 
 // Brand logos in public/logos, from @lobehub/icons-static-svg (MIT). The marks belong to
 // their owners and are used only to identify each model.
-const LLM_KEYS = ['gpt', 'claude', 'gemini', 'gemma', 'llama', 'mistral', 'deepseek', 'grok', 'phi', 'qwen', 'cohere'];
+// glm is Z.ai's mark, kimi Moonshot's and nemotron NVIDIA's.
+const LLM_KEYS = ['gpt', 'claude', 'gemini', 'gemma', 'llama', 'mistral', 'deepseek', 'grok', 'phi', 'qwen', 'cohere', 'glm', 'kimi', 'nemotron'];
 
 // Initials shown for a model we have no logo for
 const LLM_ABBREV: Record<string, string> = {
@@ -21,6 +22,9 @@ const LLM_ABBREV: Record<string, string> = {
   'grok': 'GRK',
   'qwen': 'QW',
   'cohere': 'CO',
+  'glm': 'GLM',
+  'kimi': 'KI',
+  'nemotron': 'NV',
 };
 
 function getModelKey(name: string): string {
@@ -46,7 +50,16 @@ const LLM_COLORS: Record<string, string> = {
   phi: '#5E8C00',
   qwen: '#9333EA',
   cohere: '#39594D',
+  glm: '#C2185B',
+  kimi: '#6D4C41',
+  nemotron: '#3A6B35',
 };
+
+// The logo file for a model, or null when it has none (the initials are shown instead).
+export function modelLogo(name: string): string | null {
+  const key = getModelKey(name);
+  return key ? `/logos/${key}.svg` : null;
+}
 
 export function modelColor(name: string): string {
   return LLM_COLORS[getModelKey(name)] || 'rgb(120, 119, 116)';
@@ -54,16 +67,17 @@ export function modelColor(name: string): string {
 
 export default function LLMLogo({ model, size = 28, className = '' }: LLMLogoProps) {
   const key = getModelKey(model);
+  const logo = modelLogo(model);
   const box = { width: size, height: size, minWidth: size, minHeight: size };
 
-  if (key) {
+  if (logo) {
     return (
       <div
         className={`bg-white border border-neutral-200 rounded-sm flex items-center justify-center shrink-0 ${className}`}
         style={box}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={`/logos/${key}.svg`} alt={`${model} logo`} width={size * 0.68} height={size * 0.68} />
+        <img src={logo} alt={`${model} logo`} width={size * 0.68} height={size * 0.68} />
       </div>
     );
   }

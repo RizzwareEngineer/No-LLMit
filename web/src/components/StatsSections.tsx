@@ -204,7 +204,7 @@ export default memo(function StatsSections({
                   {data.partial && (
                     <p className="mb-2 text-[12px]" style={{ color: MUTED }} role="status">All-in EV still computing…</p>
                   )}
-                  <StatsTable models={models} expandable={zoomed === 'stats-table'} />
+                  <StatsTable models={models} seated={data.seated} expandable={zoomed === 'stats-table'} />
                 </>
               )}
             </Panel>

@@ -37,7 +37,14 @@ func NewServer() *Server {
 func (s *Server) Start(port int) error {
 	stats := newStatsCache()
 	s.table = NewTable(stats.Add)
-	go s.table.Run()
+	// The lineup can take up to a minute while the LLM service starts; /api/stats answers
+	// 503 until then so it never reports a lineup the table will not play.
+	go func() {
+		s.table.seated = s.table.lineup()
+		stats.seated = s.table.seated
+		go stats.run()
+		s.table.Run()
+	}()
 
 	http.HandleFunc("/ws", s.handleWebSocket)
 	http.HandleFunc("/health", s.handleHealth)
