@@ -1,6 +1,7 @@
 "use client";
 
 import CornerBorders from "@/components/CornerBorders";
+import LLMLogo from "@/components/LLMLogo";
 import TypewriterText from "@/components/TypewriterText";
 
 type DisplayPhase = 'idle' | 'waiting' | 'thinking' | 'reasoning' | 'revealed';
@@ -39,7 +40,7 @@ export default function ReasoningPanel({
     };
     const formatted = actionMap[action] || action;
     if (amount > 0 && (action === 'RAISE' || action === 'BET' || action === 'CALL' || action === 'ALL_IN')) {
-      return `${formatted} ¤${amount.toLocaleString()}`;
+      return `${formatted} ${amount.toLocaleString()}`;
     }
     return formatted;
   };
@@ -86,13 +87,15 @@ export default function ReasoningPanel({
                         'rgba(55, 53, 47, 0.02)'
           }}
         >
-          <span className="text-xs font-bold truncate max-w-[180px] px-2" style={{ color: 'rgb(55, 53, 47)' }}>
-            {playerName}
-          </span>
+          <div className="flex items-center gap-2 max-w-[180px] px-2">
+            {!isIdle && <LLMLogo model={playerName} size={18} />}
+            <span className="text-sm font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }}>{playerName}</span>
+          </div>
           
-          {/* Shot clock countdown - visible during thinking and reasoning only */}
-          {showShotClock && (
-            <div className="flex items-center gap-1 mt-1">
+          {/* Shot clock countdown - visible during thinking and reasoning only. Its line is always
+              reserved, so the name does not jump when the clock goes. */}
+          {(
+            <div className={`flex items-center gap-1 mt-1 ${showShotClock ? '' : 'invisible'}`}>
               <span 
                 className="font-mono text-lg font-bold"
                 style={{ 

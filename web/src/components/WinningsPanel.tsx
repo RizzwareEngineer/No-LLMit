@@ -43,7 +43,7 @@ function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
       <div className="flex flex-row items-center gap-1 text-[12px] font-bold tabular-nums" style={{ color }}>
         {winnings > 0 && <CaretUp size={11} weight="bold" aria-hidden />}
         {winnings < 0 && <CaretDown size={11} weight="bold" aria-hidden />}
-        {winnings > 0 ? '+' : winnings < 0 ? '−' : ''}¤{Math.abs(winnings).toLocaleString()}
+        {winnings > 0 ? '+' : winnings < 0 ? '−' : ''}{Math.abs(winnings).toLocaleString()}
       </div>
     </div>
   );

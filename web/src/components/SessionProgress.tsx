@@ -47,7 +47,7 @@ export default function SessionProgress({ table }: { table?: UsageData['table'] 
           style={{ transform: `scaleX(${fill ?? 0})`, background: 'rgb(35, 131, 226)' }}
         />
       </div>
-      <p className="mt-1 h-4 text-center text-[11px] tabular-nums" style={{ color: MUTED }}>
+      <p className="mt-1 h-5 text-center text-[14px] tabular-nums" style={{ color: MUTED }}>
         Today&apos;s session · closes {closes}
       </p>
     </div>

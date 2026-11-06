@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useSyncExternalStore } from "react";
+import { useMemo, useState, useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { ArrowDown, Brain, CircleNotch, GameController } from "@phosphor-icons/react";
@@ -147,6 +147,8 @@ export default function Home() {
   const live = useStats(liveId, !!liveId, handNumber);
   // Who is at the table now: the engine's lineup, else (an older engine) the live session's models.
   const seated = all.data?.seated ?? live.data?.models.map(m => m.name);
+  // Hover stats on the seats: all-time, from the same fetch; the bundled dev sample never feeds them.
+  const seatStats = useMemo(() => (all.data && !all.sample ? Object.fromEntries(all.data.models.map(m => [m.name, m])) : undefined), [all.data, all.sample]);
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
   const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
@@ -294,8 +296,8 @@ export default function Home() {
       <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-clip flex flex-col items-center-safe pt-3 pb-[calc(2.25rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
         <div className="mb-1 text-center">
-          <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
-          <p className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+          <h1 className="text-[28px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
+          <p className="text-[14px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
             Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
             <Link 
               href="/about" 
@@ -311,16 +313,16 @@ export default function Home() {
         <div className="mb-1.5 flex items-center justify-center gap-3">
           <button
             disabled
-            className="btn-brutal-disabled px-3 py-0.5 text-[12px] flex items-center gap-2"
+            className="btn-brutal-disabled px-3 py-1 text-[14px] flex items-center gap-2"
           >
-            <GameController size={12} weight="bold" />
+            <GameController size={14} weight="bold" />
             Play vs. LLMs — (coming soon)!
           </button>
           <button
             disabled
-            className="btn-brutal-disabled px-3 py-0.5 text-[12px] flex items-center gap-2"
+            className="btn-brutal-disabled px-3 py-1 text-[14px] flex items-center gap-2"
           >
-            <Brain size={12} weight="bold" />
+            <Brain size={14} weight="bold" />
             Train an LLM to play like you (coming soon)!
           </button>
         </div>
@@ -331,10 +333,10 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <span
               aria-hidden
-              className="inline-block w-2 h-2 rounded-full"
+              className="inline-block w-2.5 h-2.5 rounded-full"
               style={{ background: isLive ? 'rgb(220, 38, 38)' : 'rgba(55, 53, 47, 0.65)' }}
             />
-            <span className="text-[12px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
+            <span className="text-[14px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
               {!isConnected ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
               {watching !== undefined && ` · ${watching.toLocaleString()} watching`}
             </span>
@@ -344,11 +346,11 @@ export default function Home() {
           {handNumber > 0 && (
             <>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[12px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber}</span>
+              <span className="text-[14px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber}</span>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
+              <span className="text-[14px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[12px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
+              <span className="text-[14px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
             </>
           )}
           <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
@@ -376,6 +378,7 @@ export default function Home() {
                 buttonDetermination={buttonDetermination}
                 hidePositions={!!buttonDetermination}
                 notice={tableNotice}
+                stats={seatStats}
               />
 
               {/* Right sidebar column - leaderboard, then API usage */}

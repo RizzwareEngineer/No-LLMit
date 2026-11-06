@@ -4,7 +4,7 @@ import Card from "@/components/Card";
 import NumberFlow from '@number-flow/react';
 import { CircleNotch, Moon } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import { TableNoticePayload } from "@/lib/api";
 import { formatDuration, formatLocalTime } from "@/lib/time";
 
@@ -27,9 +27,19 @@ interface ButtonDetermination {
   isComplete: boolean;
 }
 
+// A bet in front of a seat, on the felt's edge facing it. `at` is 0..1 along that edge.
+export interface FeltBet {
+  seat: number;
+  side: 'top' | 'bottom' | 'left' | 'right';
+  at: number;
+  amount: number;
+}
+
 interface TableFeltProps {
   cards: string[];
-  pot: number;
+  pot: number; // the engine's pot, which already includes the bets still in front of the seats
+  betsOut?: number; // sum of those bets
+  bets?: FeltBet[]; // desktop only: placed on the felt's edges
   winners?: WinnerDisplay[];
   nextHandCountdown?: number | null;
   onSkipCountdown?: () => void;
@@ -69,9 +79,29 @@ function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
   );
 }
 
+// A small chip stack and the amount, like CoinPoker: each street's bets sit in front of the seats.
+function BetStack({ amount, style }: { amount: number; style: CSSProperties }) {
+  if (amount <= 0) return null;
+  return (
+    <div className="absolute flex items-center gap-1.5" style={style} title={`Bet ${amount.toLocaleString()}`}>
+      <span aria-hidden className="chip-stack" />
+      <span className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{amount.toLocaleString()}</span>
+    </div>
+  );
+}
+
+const EDGE: Record<FeltBet['side'], (at: number) => CSSProperties> = {
+  top: at => ({ top: 8, left: `${at * 100}%`, transform: 'translateX(-50%)' }),
+  bottom: at => ({ bottom: 8, left: `${at * 100}%`, transform: 'translateX(-50%)' }),
+  left: at => ({ left: 10, top: `${at * 100}%`, transform: 'translateY(-50%)' }),
+  right: at => ({ right: 10, top: `${at * 100}%`, transform: 'translateY(-50%)' }),
+};
+
 export default function TableFelt({ 
   cards, 
   pot, 
+  betsOut = 0,
+  bets,
   winners = [],
   nextHandCountdown,
   onSkipCountdown,
@@ -82,7 +112,7 @@ export default function TableFelt({
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
   return (
     <div 
-      className="flex flex-col items-center justify-center gap-3 w-full h-full py-2"
+      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'py-[36px]' : 'py-2'}`}
       style={{
         backgroundImage: `
           linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
@@ -91,6 +121,8 @@ export default function TableFelt({
         backgroundSize: '20px 20px',
       }}
     >
+      {bets?.map(b => <BetStack key={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} />)}
+
       {/* Winner announcement or Pot */}
       <div className="h-[44px] w-full flex items-center justify-center">
         {winners.length > 0 ? (
@@ -98,7 +130,7 @@ export default function TableFelt({
             {winners.slice(0, 1).map((w, i) => (
               <div key={i} className="text-center">
                 <span className="text-green-700 font-bold text-xs">{w.name}</span>
-                <span className="text-green-700 text-xs"> +¤{w.amount.toLocaleString()}</span>
+                <span className="text-green-700 text-xs"> +{w.amount.toLocaleString()}</span>
                 <div className="text-green-700 text-[11px] truncate">{w.handDesc}</div>
               </div>
             ))}
@@ -107,10 +139,17 @@ export default function TableFelt({
             )}
           </div>
         ) : (
-          <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm">
-            <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>
-            <div className="text-lg text-gray-700 font-bold tabular-nums">
-              ¤<NumberFlow value={pot} />
+          // Three counters, like CoinPoker: bets in front of the seats, the chips already collected
+          // in the middle (POT), and both together above it (TOTAL POT).
+          <div className="flex flex-col items-center gap-0.5">
+            <div className="text-[11px] uppercase tracking-widest text-gray-600 tabular-nums h-4" aria-label={`Total pot ${pot.toLocaleString()}`}>
+              Total pot <b className="text-gray-700">{pot.toLocaleString()}</b>
+            </div>
+            <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm" aria-label={`Pot ${Math.max(0, pot - betsOut).toLocaleString()}`}>
+              <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>
+              <div className="text-lg text-gray-700 font-bold tabular-nums">
+                <NumberFlow value={Math.max(0, pot - betsOut)} />
+              </div>
             </div>
           </div>
         )}

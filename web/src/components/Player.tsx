@@ -2,7 +2,9 @@
 
 import Card from "@/components/Card";
 import LLMLogo from "@/components/LLMLogo";
+import { useState } from "react";
 import { PlayerState } from "@/lib/api";
+import { DASH, ModelStats, ciHalf, pct, signed } from "@/lib/stats";
 
 interface PlayerProps {
   player: PlayerState;
@@ -12,6 +14,7 @@ interface PlayerProps {
   winAmount?: number;
   winDesc?: string;
   isThinking?: boolean;
+  stats?: ModelStats; // all-time stats, shown while the seat is hovered
 }
 
 // Position badge colors
@@ -43,7 +46,8 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, stats }: PlayerProps) {
+  const [hovered, setHovered] = useState(false);
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const isWinner = winAmount !== undefined && winAmount > 0;
@@ -59,15 +63,15 @@ export default function Player({ player, active, position, folded = false, winAm
       <div 
         className="relative flex-1 flex flex-col overflow-hidden transition-colors"
         style={{ background: 'inherit' }}
-        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(55, 53, 47, 0.03)'}
-        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'inherit'}
+        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(55, 53, 47, 0.03)'; setHovered(true); }}
+        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'inherit'; setHovered(false); }}
       >
         <div className="flex flex-col lg:flex-row items-start gap-3 justify-between p-3 overflow-hidden">
           <div className="flex items-center gap-2 min-w-0 overflow-hidden">
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
               <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.stack.toLocaleString()}</div>
+              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{player.stack.toLocaleString()}</div>
             </div>
           </div>
           <div className="flex flex-row items-center gap-1 shrink-0">
@@ -84,6 +88,17 @@ export default function Player({ player, active, position, folded = false, winAm
           </div>
         </div>
 
+        {/* Hover stats in the card's empty middle band; absolute, so the seat never changes size. */}
+        {hovered && (
+          <div className="absolute left-3 right-3 top-[62px] text-[11px] leading-[15px] tabular-nums whitespace-nowrap overflow-hidden" style={{ color: 'rgba(55, 53, 47, 0.65)' }} aria-hidden>
+            {stats ? (
+              <>
+                <div><b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.vpip).replace('%', '')}</b> VPIP · <b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.pfr).replace('%', '')}</b> PFR · <b style={{ color: 'rgb(55, 53, 47)' }}>{stats.af === null ? DASH : stats.af.toFixed(1)}</b> AF</div>
+                <div><b style={{ color: 'rgb(55, 53, 47)' }}>{signed(stats.bb100, 0)}</b> bb/100{ciHalf(stats) !== null && ` ±${ciHalf(stats)!.toFixed(0)}`} · {stats.hands.toLocaleString()} hands</div>
+              </>
+            ) : 'No stats yet'}
+          </div>
+        )}
         <div className="flex flex-col mt-auto p-3 pt-0 min-w-0 overflow-hidden">
           <div className="flex items-center gap-2 min-w-0">
             {/* Position Badge */}
@@ -99,7 +114,7 @@ export default function Player({ player, active, position, folded = false, winAm
             {/* Winner display */}
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
-                <span className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+¤{winAmount.toLocaleString()}</span>
+                <span className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+{winAmount.toLocaleString()}</span>
                 <span className="text-[11px] truncate min-w-0" style={{ color: 'rgb(15, 123, 108)' }}>({winDesc})</span>
               </div>
             ) : player.lastAction ? (
@@ -109,14 +124,16 @@ export default function Player({ player, active, position, folded = false, winAm
                 </div>
                 {(player.lastAmount ?? 0) > 0 && (
                   <div className="flex flex-row items-center shrink-0">
-                    <div className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.lastAmount?.toLocaleString()}</div>
+                    <div className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{player.lastAmount?.toLocaleString()}</div>
                   </div>
                 )}
               </div>
             ) : player.currentBet > 0 ? (
               <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
-                <div className="text-[11px] font-mono uppercase tracking-wider shrink-0" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>BET</div>
-                <div className="text-[11px] shrink-0" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.currentBet.toLocaleString()}</div>
+                {/* Chips out with no action yet: the blinds. Their amount sits in front of the seat. */}
+                <div className="text-[11px] font-mono uppercase tracking-wider truncate" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+                  {position === 'SB' ? 'SMALL BLIND' : position === 'BB' ? 'BIG BLIND' : `BET ${player.currentBet.toLocaleString()}`}
+                </div>
               </div>
             ) : (
               <div className="text-[11px] font-mono uppercase truncate" style={{ color: isThinking ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)' }}>

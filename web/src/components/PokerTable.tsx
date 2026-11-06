@@ -2,8 +2,9 @@
 
 import CornerBorders from "@/components/CornerBorders";
 import Player from "@/components/Player";
-import TableFelt from "@/components/TableFelt";
+import TableFelt, { FeltBet } from "@/components/TableFelt";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
+import { ModelStats } from "@/lib/stats";
 
 interface PlayerLayout {
   top: number[];
@@ -44,6 +45,7 @@ interface PokerTableProps {
   buttonDetermination?: ButtonDetermination | null;
   hidePositions?: boolean;
   notice?: TableNoticePayload | null;
+  stats?: Record<string, ModelStats>; // by model name, for the hover stats on each seat
 }
 
 // Calculate position name based on seat relative to button
@@ -101,6 +103,7 @@ export default function PokerTable({
   buttonDetermination,
   hidePositions = false,
   notice,
+  stats,
 }: PokerTableProps) {
   const totalPlayers = players.length;
   
@@ -127,13 +130,28 @@ export default function PokerTable({
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
+      stats={stats?.[players[idx].name]}
     />
   );
+
+  // Each seat's bet sits on the felt edge it faces, centred on the seat's column or row.
+  const rows = Math.max(layout.left.length, layout.right.length); // left/right seats per side
+  const betsOut = players.reduce((sum, p) => sum + p.currentBet, 0);
+  const edge = (side: FeltBet['side'], seats: number[], n: number) =>
+    seats.map((seat, i) => ({ seat, side, at: (i + 0.5) / n, amount: players[seat]?.currentBet ?? 0 }));
+  const feltBets: FeltBet[] = [
+    ...edge('top', layout.top, layout.top.length),
+    ...edge('bottom', layout.bottom, layout.bottom.length),
+    ...edge('left', layout.left, rows),
+    ...edge('right', layout.right, rows),
+  ];
 
   const felt = (
     <TableFelt
       cards={communityCards}
       pot={pot}
+      betsOut={betsOut}
+      bets={feltBets}
       winners={Object.entries(winnersByIdx).map(([idx, info]) => ({
         name: players[Number(idx)]?.name || `Player ${idx}`,
         amount: info.amount,
@@ -152,7 +170,6 @@ export default function PokerTable({
   const numCols = layout.top.length + (layout.left.length > 0 ? 1 : 0) + (layout.right.length > 0 ? 1 : 0);
   const tableWidth = numCols * 200;
   const line = '1px solid rgba(55, 53, 47, 0.09)';
-  const rows = Math.max(layout.left.length, layout.right.length);
 
   return (
     <>
