@@ -77,12 +77,12 @@ export default function ReasoningPanel({
       <div className="flex h-full">
         {/* Left section - Player name + countdown */}
         <div 
-          className={`w-[120px] shrink-0 flex flex-col items-center justify-center border-r border-notion`}
+          className={`w-[200px] shrink-0 flex flex-col items-center justify-center border-r border-notion`}
           style={{ 
             background: !isIdle ? 'rgba(35, 131, 226, 0.06)' : 'rgba(55, 53, 47, 0.02)'
           }}
         >
-          <span className="text-[14px] font-bold truncate max-w-[110px] px-2 rounded" style={{ color: following ? 'rgb(35, 131, 226)' : 'rgb(55, 53, 47)', background: following ? 'rgba(35, 131, 226, 0.12)' : undefined }} title={following ? 'Following' : undefined}>
+          <span className="text-[14px] font-bold truncate max-w-[190px] px-2 rounded" style={{ color: following ? 'rgb(35, 131, 226)' : 'rgb(55, 53, 47)', background: following ? 'rgba(35, 131, 226, 0.12)' : undefined }} title={following ? 'Following' : undefined}>
             {playerName}
           </span>
           
