@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL } from '@/lib/api';
+import { ALL_LLMS } from '@/lib/constants';
 
 // Shape of GET /api/stats, per docs/stats-api-contract.json. Rates are 0..1, or null when nothing
 // qualified for them; bb = big blinds.
@@ -73,6 +74,7 @@ export interface StatsResponse {
   sessions: StatsSession[];
   models: ModelStats[];
   partial: boolean; // all-in EV still computing in the background; aiev_bb100 is provisional
+  seated?: string[]; // the table's current lineup; only on the all-time and live session payloads
   definitions_url: string;
 }
 
@@ -96,6 +98,7 @@ export async function fetchStats(session?: string): Promise<StatsResponse> {
   if (!res.ok) throw new Error(`stats ${res.status}`);
   const json = await res.json();
   if (!Array.isArray(json?.models) || !Array.isArray(json?.sessions)) throw new Error('stats: unexpected shape');
+  if (Array.isArray(json.seated)) seatedOf.set(json.models, json.seated);
   return json as StatsResponse;
 }
 
@@ -153,6 +156,24 @@ export function useStats(session?: string, enabled = true, refreshKey?: number):
     return { ...rest, current: settledFor === session };
   }, [state, session]);
 }
+
+// The lineup each fetched models array came with, so StatsTable can read it from its models prop.
+// shortcut: StatsTable only receives models because StatsSections is being edited elsewhere; pass seated as a prop once it is free.
+const seatedOf = new WeakMap<object, string[]>();
+
+// Splits the roster for display. noHands: seated models without hands yet, listed with dashes.
+// unseated: roster models neither seated nor in these stats, shown muted under "Not seated yet".
+// Without a lineup (older engine, sample data, past session) unseated is every roster model without hands.
+export function rosterGroups(models: { name: string }[], seated: string[] | undefined = seatedOf.get(models)) {
+  const has = new Set(models.map(m => m.name));
+  return {
+    noHands: (seated ?? []).filter(name => !has.has(name)),
+    unseated: ALL_LLMS.filter(name => !has.has(name) && !seated?.includes(name)),
+  };
+}
+
+export const NOT_SEATED = 'Not seated yet';
+export const NOT_SEATED_HINT = 'Listed for future sessions; no hands played.';
 
 // In-page link that opens a model's drawer (the page watches the hash).
 export const modelHref = (name: string) => `#model=${modelSlug(name)}`;

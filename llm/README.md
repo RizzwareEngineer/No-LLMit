@@ -24,6 +24,43 @@ PORT=5001
 Without `OPENROUTER_API_KEY` the service runs the mock provider, which plays random legal
 actions and calls no model. Set `LLM_PROVIDER=mock` or `LLM_PROVIDER=openrouter` to force one.
 
+`LINEUP` picks the nine seated models: comma-separated display names from the roster below,
+for example `LINEUP="GPT-OSS 120B,Qwen3 32B,DeepSeek V3.2,..."`. Unset means the default nine.
+A name not in the roster, a repeat, or a count other than nine stops the service at startup.
+The engine reads the lineup from `GET /models` when it starts. With the mock provider the
+lineup instead rotates over the whole roster, nine seats per engine session, so every model
+gets mock hands locally.
+
+## Roster
+
+`registry.py` `MODELS` is the roster and `PRICES` the OpenRouter list price in USD per
+million tokens, checked against https://openrouter.ai/api/v1/models on 2026-11-05.
+
+| Model | OpenRouter slug | Prompt | Completion | Default seat |
+|---|---|---|---|---|
+| GPT-OSS 20B | `openai/gpt-oss-20b` | 0.03 | 0.13 | yes |
+| Claude Haiku 5.5 | `anthropic/claude-haiku-5.5` | 0.10 | 0.50 | yes |
+| Gemma 3 12B | `google/gemma-3-12b-it` | 0.05 | 0.15 | yes |
+| Llama 3.1 8B | `meta-llama/llama-3.1-8b-instruct` | 0.05 | 0.08 | yes |
+| Mistral Nemo | `mistralai/mistral-nemo` | 0.029 | 0.03 | yes |
+| DeepSeek V4 Flash | `deepseek/deepseek-v4-flash` | 0.091 | 0.182 | yes |
+| Phi-4 | `microsoft/phi-4` | 0.07 | 0.14 | yes |
+| Qwen 3.7 Flash | `qwen/qwen3.7-flash` | 0.03 | 0.13 | yes |
+| Cohere Command R7B | `cohere/command-r7b-12-2024` | 0.0375 | 0.15 | yes |
+| Qwen3 235B A22B | `qwen/qwen3-235b-a22b-2507` | 0.14 | 0.80 | |
+| Qwen3 32B | `qwen/qwen3-32b` | 0.08 | 0.28 | |
+| DeepSeek V3.2 | `deepseek/deepseek-v3.2` | 0.26 | 0.38 | |
+| Llama 4 Maverick | `meta-llama/llama-4-maverick` | 0.35 | 1.00 | |
+| Mistral Large 3 | `mistralai/mistral-large-2512` | 0.50 | 1.50 | |
+| Gemma 3 27B | `google/gemma-3-27b-it` | 0.08 | 0.35 | |
+| GLM-4.6 | `z-ai/glm-4.6` | 0.50 | 2.00 | |
+| Kimi K2 | `moonshotai/kimi-k2-0905` | 0.60 | 2.50 | |
+| GPT-OSS 120B | `openai/gpt-oss-120b` | 0.022 | 0.083 | |
+| Nemotron 3.5 Super | `nvidia/nemotron-3.5-super-vl` | 0.15 | 0.50 | |
+
+MiniMax M2 is not listed: `minimax/minimax-m2` is no longer on OpenRouter (M2.5 and M2.7 are).
+`web/src/lib/constants.ts` `ALL_LLMS` mirrors the roster; `tests/test_registry.py` keeps them in sync.
+
 ## Run
 
 ```bash
@@ -42,11 +79,14 @@ uvicorn app:app --reload --port 5001
 .venv/bin/python -m pytest -q
 ```
 
+`test_every_roster_slug_is_on_openrouter` is marked `network` and skips when OpenRouter is unreachable.
+
 ## API Endpoints
 
 - `GET /health` - Health check
 - `GET /usage` - `{"provider", "spend"}`: the provider and OpenRouter spend against the key's limit
 - `GET /prompt` - The system prompt and its version
+- `GET /models?session=N` - `{"provider", "seated", "models": [{"name", "slug", "price_per_mtok", "seated"}]}`; `session` only matters to the mock provider's rotation
 - `POST /decide` - Get LLM decision
 
 ### POST /decide
