@@ -134,8 +134,11 @@ export default function Home() {
 
   // All-time stats feed the leaderboard and drawer; the session picker below the table may
   // narrow the sections. Both refetch as each hand finishes; a finished session never changes.
-  const [session, setSession] = useState('');
+  // The session the stats screens show: the live table session by default, the scope of Profits
+  // & Losses, until the visitor picks another one or all time ('') in the Stats screen's picker.
+  const [chosen, setSession] = useState<string | null>(null);
   const all = useStats(undefined, true, handNumber);
+  const session = chosen ?? all.data?.sessions.find(s => !s.ended_at)?.id ?? '';
   const pickedLive = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
   const picked = useStats(session || undefined, !!session, pickedLive ? handNumber : undefined);
   // Who is at the table now: the engine's lineup, else (an older engine) the models with hands in
@@ -181,6 +184,12 @@ export default function Home() {
     // swallow the reversal that follows (the trap on the last screen).
     let lockUntil = 0;
     let lockDir = 0;
+    let insideUntil = 0; // the gesture scrolled a panel: its rest never pages
+    let lastAbs = 0;
+    let rises = 0; // events in a row with a growing |deltaY|: momentum only decays, a new swipe ramps up
+    let lastT = 0;
+    let riseAt = -1; // when the current ramp began, if it began from rest (a gap or a near-zero delta): a new touch
+    let armedAt = 0; // when the lock or the panel guard was last armed
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.defaultPrevented || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       const t = e.target instanceof Element ? e.target : null;
@@ -190,15 +199,33 @@ export default function Home() {
       // A reversal pages only when it is deliberate: one small opposite event in a noisy
       // momentum tail just extends the lock. The lock comes before the panel check: the tail of a
       // flick that paged onto a card must not scroll that card's panel, then page again at its end.
-      if (now < lockUntil && (dir === lockDir || Math.abs(e.deltaY) < 10)) {
+      const abs = Math.abs(e.deltaY);
+      if (abs > lastAbs) {
+        if (!rises) riseAt = now - lastT > 30 || lastAbs <= 2 ? now : -1;
+        rises++;
+      } else rises = 0;
+      lastAbs = abs;
+      lastT = now;
+      const fresh = rises >= 3 && abs >= 8 && riseAt > armedAt; // fingers down again after this gesture was handled (3 rises: a coalescing spike in a momentum tail gives 2)
+      if (now < lockUntil && !fresh && (dir === lockDir || abs < 10)) {
         e.preventDefault();
         lockUntil = Math.max(lockUntil, now + 200);
         return;
       }
-      if (scrollsInside(t, dir)) return;
+      // A gesture that scrolls a panel stops at the panel's end; only a new one pages on.
+      if (scrollsInside(t, dir)) {
+        if (now >= insideUntil) armedAt = now;
+        insideUntil = now + 200;
+        return;
+      }
       e.preventDefault();
+      if (now < insideUntil && !fresh) {
+        insideUntil = now + 200;
+        return;
+      }
       if (Math.abs(e.deltaY) < 4) return;
       lockUntil = pageBy(dir) ? now + 700 : 0;
+      armedAt = now;
       lockDir = dir;
     };
     // Keyboard focus scrolls the focused element into view, which can stop between screens;
@@ -212,11 +239,16 @@ export default function Home() {
       requestAnimationFrame(() => !isPaging() && resnap(min)); // a click-to-jump focuses its destination as it pages
     };
     const onResize = () => window.innerWidth >= 768 && resnap();
+    // A scrollbar drag, Home/End or autoscroll can stop between screens; put the page back on one
+    // (desktop only, like onResize). A paged scroll ends on an edge by itself.
+    const onScrollEnd = () => window.innerWidth >= 768 && !isPaging() && resnap();
     window.addEventListener('keydown', onKey);
     window.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('focusin', onFocus);
     window.addEventListener('resize', onResize);
+    window.addEventListener('scrollend', onScrollEnd);
     return () => {
+      window.removeEventListener('scrollend', onScrollEnd);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('wheel', onWheel);
       window.removeEventListener('focusin', onFocus);
@@ -394,6 +426,7 @@ export default function Home() {
       <StatsSections
         all={all}
         picked={session ? picked : all}
+        seated={!session || pickedLive ? seated : undefined}
         session={session}
         onSession={setSession}
       />

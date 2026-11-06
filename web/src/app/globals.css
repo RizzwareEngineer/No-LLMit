@@ -352,7 +352,9 @@ html:has([data-screen]) {
 }
 @keyframes recede { to { transform: scale(0.94); } }
 @keyframes recede-dim { to { opacity: 0.14; } }
+/* Only where scroll timelines exist: elsewhere a time-based run would fill straight to the end state. */
 @media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) and (timeline-scope: --a) {
   .recede {
     animation: recede linear both;
     animation-timeline: var(--recede-by);
@@ -362,6 +364,7 @@ html:has([data-screen]) {
     animation: recede-dim linear both;
     animation-timeline: var(--recede-by);
     animation-range: entry 0% entry 100%;
+  }
   }
 }
 .card-edge {

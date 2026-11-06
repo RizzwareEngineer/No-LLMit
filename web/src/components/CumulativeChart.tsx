@@ -10,6 +10,7 @@ const GRID = 'rgba(55, 53, 47, 0.09)';
 // path but not its shape and motion can tween the old line into the new one.
 const SAMPLES = 160;
 const PAD = { top: 12, right: 12, bottom: 24 };
+const GREY = 'rgba(55, 53, 47, 0.28)'; // race lines outside the top three
 
 // The value of a cumulative curve at hand n, linearly interpolated (0 before its first point,
 // flat after its last).
@@ -71,12 +72,14 @@ export default function CumulativeChart({
   onSelect,
   highlight,
   race = false,
+  spark = false,
 }: {
   models: ModelStats[];
   selected: string;
   onSelect?: (name: string) => void; // interactive (the zoomed Race screen); the standings beside it pick
   highlight?: string; // a line to bring forward while the pointer is not on the plot (standings hover)
-  race?: boolean; // several lines: a logo at each line's end and a hover readout of every line
+  race?: boolean; // several lines: the top three (and the picked or hovered one) in colour with end logos, the rest grey, and a hover readout
+  spark?: boolean; // the overview teaser: the top three lines only, no axes, no interaction
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // The plot fills its box. `drawn` is the data the size was measured with: a resize (the Race
@@ -97,23 +100,30 @@ export default function CumulativeChart({
     return () => ro.disconnect();
   }, []);
 
-  const maxHand = Math.max(1, ...models.flatMap(m => m.cumulative_bb.map(p => p[0])));
+  const final = (m: ModelStats) => m.cumulative_bb.at(-1)?.[1] ?? 0;
+  const top3 = new Set([...models].sort((a, b) => final(b) - final(a)).slice(0, 3));
+  const shown = spark ? models.filter(m => top3.has(m)) : models;
+  const maxHand = Math.max(1, ...shown.flatMap(m => m.cumulative_bb.map(p => p[0])));
   // The axis fits the lines as drawn (resampled), so it never reaches past all of them.
-  const drawn = new Map(models.map(m => [m.name, resample(m.cumulative_bb)]));
+  const drawn = new Map(shown.map(m => [m.name, resample(m.cumulative_bb)]));
   const ys = [...drawn.values()].flatMap(pts => pts.map(p => p[1]));
-  const sel = models.find(m => m.name === selected) ?? models[0];
+  // The band only for a model someone picked (the drawer always picks its one model).
+  const sel = spark ? undefined : models.find(m => m.name === selected);
   if (sel) drawn.get(sel.name)!.forEach(([n, v]) => ys.push(v + band(sel, n), v - band(sel, n)));
-  const yTicks = niceTicks(Math.min(0, ...ys), Math.max(0, ...ys), 5);
+  // At most four horizontal gridlines.
+  let yTicks = niceTicks(Math.min(0, ...ys), Math.max(0, ...ys), 3);
+  for (let c = 2; yTicks.length > 4 && c >= 1; c--) yTicks = niceTicks(Math.min(0, ...ys), Math.max(0, ...ys), c);
   const yMin = yTicks[0];
   const yMax = yTicks[yTicks.length - 1];
   const w = Math.max(width, 200);
   // End logos sit in a right-hand gutter; smaller in the overview preview.
-  const logo = height < 260 ? 14 : height < 400 ? 16 : 20;
-  const fs = height < 260 ? 11 : 13; // axis labels: compact in the overview preview
-  const right = race ? logo + 10 : PAD.right;
-  const left = 12 + (fs * 0.62) * Math.max(...yTicks.map(t => String(t).length)); // room for the widest y label
+  const logo = height < 400 ? 18 : 22;
+  const fs = 13;
+  const right = spark ? 4 : race ? logo + 10 : PAD.right;
+  const left = spark ? 4 : 12 + (fs * 0.62) * Math.max(...yTicks.map(t => String(t).length)); // room for the widest y label
+  const [padTop, padBottom] = spark ? [6, 6] : [PAD.top, PAD.bottom];
   const x = (n: number) => left + (n / maxHand) * (w - left - right);
-  const y = (v: number) => PAD.top + ((yMax - v) / (yMax - yMin || 1)) * (height - PAD.top - PAD.bottom);
+  const y = (v: number) => padTop + ((yMax - v) / (yMax - yMin || 1)) * (height - padTop - padBottom);
   const line = (pts: [number, number][]) => pts.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
   const selPts = sel ? drawn.get(sel.name)! : [];
   const bandPath = sel
@@ -122,15 +132,25 @@ export default function CumulativeChart({
     : '';
   const tween = { duration: reduce || drawnFor === models ? 0 : 0.6, ease: [0.22, 1, 0.36, 1] as const };
   const hot = models.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
-  const ordered = [...models.filter(m => m !== sel && m !== hot), ...(sel && sel !== hot ? [sel] : []), ...(hot ? [hot] : [])]; // selected, then hovered, on top
+  // In colour: every line outside a race; in a race the top three plus the picked and hovered one.
+  const colored = (m: ModelStats) => !race || top3.has(m) || m === sel || m === hot;
+  const ordered = [...shown.filter(m => !colored(m)), ...shown.filter(m => colored(m) && m !== sel && m !== hot), ...(sel && sel !== hot ? [sel] : []), ...(hot ? [hot] : [])]; // coloured, then selected, then hovered on top
   // End logos: each line's last value, nudged apart so none overlap.
   // Lines that reach (nearly) the last hand get a logo in the right gutter, spread so none overlap
   // and never past the plot (they may overlap a little when there are too many to fit). A line
   // that stopped early (a model that left the table) gets its logo where its data ends.
-  const ends = [...models].map(m => ({ m, n: m.cumulative_bb.at(-1)?.[0] ?? 0, v: m.cumulative_bb.at(-1)?.[1] ?? 0 })).sort((a, b) => y(a.v) - y(b.v));
+  const ends = shown.filter(colored).map(m => ({ m, n: m.cumulative_bb.at(-1)?.[0] ?? 0, v: m.cumulative_bb.at(-1)?.[1] ?? 0 })).sort((a, b) => y(a.v) - y(b.v));
   const full = ends.filter(e => e.n >= maxHand * 0.95);
   const early = ends.filter(e => e.n < maxHand * 0.95);
-  const [lo, hi] = [PAD.top + logo / 2, height - PAD.bottom - logo / 2];
+  // Early logos that would land on one another (lines ending at about the same hand and value)
+  // step down below the one already placed.
+  const earlyAt: { x: number; y: number }[] = [];
+  for (const e of early) {
+    const p = { x: x(e.n) + 3, y: y(e.v) - logo / 2 + 2 };
+    while (earlyAt.some(q => Math.abs(q.x - p.x) < logo && Math.abs(q.y - p.y) < logo)) p.y += logo;
+    earlyAt.push(p);
+  }
+  const [lo, hi] = [padTop + logo / 2, height - padBottom - logo / 2];
   const endYs = spread(full.map(e => y(e.v)), Math.min(logo + 2, (hi - lo) / Math.max(1, full.length - 1)), lo, hi);
   const readout = hover ? [...models].map(m => ({ m, v: valueAt(m.cumulative_bb, hover.n) })).sort((a, b) => b.v - a.v) : [];
 
@@ -144,12 +164,12 @@ export default function CumulativeChart({
     setHover({ n, name: near.name });
   };
   // Rows of the readout that fit the plot's height: the top ones, the hovered one and the last.
-  const fit = Math.max(3, Math.floor((height - PAD.top - 30) / 18));
+  const fit = Math.max(3, Math.floor((height - padTop - 30) / 18));
   const rows = readout.length <= fit ? readout : readout.filter((r, i) => i < fit - 2 || i === readout.length - 1 || r.m === hot);
-  const summary = models
+  const summary = shown
     .map(m => `${m.name} ${signed(m.cumulative_bb.at(-1)?.[1] ?? 0)} bb after ${m.cumulative_bb.at(-1)?.[0] ?? 0} hands`)
     .join('; ');
-  const label = `Cumulative big blinds won over hands. ${summary}. Shaded: 95% band for ${sel?.name}.`;
+  const label = `Cumulative big blinds won over hands. ${summary}.${sel ? ` Shaded: 95% band for ${sel.name}.` : ''}`;
   const lead = readout[0];
   const said = hover && lead
     ? `Hand ${hover.n}: ${lead.m.name} leads at ${signed(lead.v)} bb` + (hot && hot !== lead.m ? `; ${hot.name} ${signed(readout.find(r => r.m === hot)!.v)} bb.` : '.')
@@ -179,10 +199,10 @@ export default function CumulativeChart({
       {/* The svg is absolute so its height comes from the panel, never the other way round. */}
       <div
         ref={ref}
-        className="relative w-full flex-1 min-h-[120px] outline-offset-2 overflow-hidden"
-        onPointerMove={race ? e => e.pointerType !== 'touch' && pick(e.clientX, e.clientY) : undefined}
-        onPointerDown={race ? e => pick(e.clientX, e.clientY) : undefined}
-        onPointerLeave={race ? e => e.pointerType !== 'touch' && setHover(null) : undefined} // a tap keeps its readout
+        className={`relative w-full flex-1 ${spark ? 'min-h-[64px]' : 'min-h-[120px]'} outline-offset-2 overflow-hidden`}
+        onPointerMove={race && !spark ? e => e.pointerType !== 'touch' && pick(e.clientX, e.clientY) : undefined}
+        onPointerDown={race && !spark ? e => pick(e.clientX, e.clientY) : undefined}
+        onPointerLeave={race && !spark ? e => e.pointerType !== 'touch' && setHover(null) : undefined} // a tap keeps its readout
         // Focusable only where the chart is interactive (the zoomed Race screen).
         tabIndex={race && onSelect ? 0 : undefined}
         onKeyDown={race && onSelect ? onKey : undefined}
@@ -191,26 +211,27 @@ export default function CumulativeChart({
         aria-label={race && onSelect ? `${label} Left and right arrows step through the hands.` : label}
       >
         <svg className="absolute inset-0" width="100%" height={height} viewBox={`0 0 ${w} ${height}`} aria-hidden>
-          {yTicks.map(t => (
+          {!spark && yTicks.map(t => (
             <g key={t}>
               <line x1={left} x2={w - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.35)' : GRID} />
               <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={fs} fill={MUTED} className="tabular-nums">{t}</text>
             </g>
           ))}
-          {niceTicks(0, maxHand, 4, true).filter(t => t <= maxHand).map(t => (
+          {!spark && niceTicks(0, maxHand, 4, true).filter(t => t <= maxHand).map(t => (
             <text key={t} x={x(t)} y={height - 6} textAnchor="middle" fontSize={fs} fill={MUTED} className="tabular-nums">{t}</text>
           ))}
           {sel && <motion.path initial={false} animate={{ d: bandPath }} transition={tween} fill={modelColor(sel.name)} opacity={0.14} />}
           {ordered.map(m => {
             const d = line(drawn.get(m.name)!);
+            const on = colored(m);
             return (
               <motion.path
                 key={m.name}
                 fill="none"
-                stroke={modelColor(m.name)}
-                strokeWidth={m === sel || m === hot ? 2.5 : 1.5}
+                stroke={on ? modelColor(m.name) : GREY}
+                strokeWidth={race ? (on ? 2 : 1) : 2}
                 strokeLinejoin="round"
-                opacity={m === sel || m === hot ? 1 : hot ? 0.2 : 0.35}
+                opacity={!race || m === sel || m === hot ? 1 : hot ? (on ? 0.4 : 0.6) : 1}
                 // Lines draw in the first time the chart scrolls into view, then tween as hands finish.
                 initial={{ d, pathLength: reduce ? 1 : 0 }}
                 animate={{ d }}
@@ -220,26 +241,26 @@ export default function CumulativeChart({
               />
             );
           })}
-          {race && full.map((e, i) => (
+          {race && !spark && full.map((e, i) => (
             // A dotted leader from the line's end to its logo, so a nudged logo never reads as data.
             <path key={e.m.name} d={`M${x(e.n)},${y(e.v)}L${w - right + 2},${endYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" opacity={0.45} fill="none" />
           ))}
           {hover && (
             <g pointerEvents="none">
-              <line x1={x(hover.n)} x2={x(hover.n)} y1={PAD.top} y2={height - PAD.bottom} stroke="rgba(55, 53, 47, 0.45)" strokeDasharray="3 3" />
+              <line x1={x(hover.n)} x2={x(hover.n)} y1={padTop} y2={height - padBottom} stroke="rgba(55, 53, 47, 0.45)" strokeDasharray="3 3" />
               {readout.map(({ m, v }) => (
                 <circle key={m.name} cx={x(hover.n)} cy={y(v)} r={m === hot ? 4 : 2.5} fill={modelColor(m.name)} stroke="white" strokeWidth={1} />
               ))}
             </g>
           )}
         </svg>
-        {race && full.map((e, i) => (
+        {race && !spark && full.map((e, i) => (
           <div key={e.m.name} className="absolute pointer-events-none" style={{ left: w - right + 4, top: endYs[i] - logo / 2 }} title={e.m.name}>
             <LLMLogo model={e.m.name} size={logo} />
           </div>
         ))}
-        {race && early.map(e => (
-          <div key={e.m.name} className="absolute pointer-events-none" style={{ left: x(e.n) + 3, top: y(e.v) - logo / 2 + 2 }} title={e.m.name}>
+        {race && !spark && early.map((e, i) => (
+          <div key={e.m.name} className="absolute pointer-events-none" style={{ left: earlyAt[i].x, top: earlyAt[i].y }} title={e.m.name}>
             <LLMLogo model={e.m.name} size={logo - 4} />
           </div>
         ))}
@@ -252,7 +273,7 @@ export default function CumulativeChart({
             aria-hidden
             className="absolute z-10 pointer-events-none rounded bg-white px-2 py-1.5 text-[13px] tabular-nums max-w-[calc(100%-8px)]"
             style={{
-              top: PAD.top,
+              top: padTop,
               left: Math.min(crossX + 10, w - 4),
               boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px',
             }}
@@ -268,7 +289,7 @@ export default function CumulativeChart({
           </div>
         )}
       </div>
-      <p className={`mt-1 ${fs > 11 ? 'text-[13px]' : 'text-[11px]'}`} style={{ color: MUTED }}>x: hands played · y: big blinds won · shaded: 95% band for the selected model</p>
+      {!spark && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>x: hands played · y: big blinds won{race ? ' · pick a model to shade its 95% band' : ' · shaded: 95% band'}</p>}
 
       {/* The chart's numbers for screen readers; tables ignore sr-only's 1px box, so a div clips it. */}
       {sel && (

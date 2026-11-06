@@ -61,8 +61,20 @@ export function modelLogo(name: string): string | null {
   return key ? `/logos/${key}.svg` : null;
 }
 
+// A vendor's second and third models get their own hue, so two Qwens never share a Race line
+// colour. Same rule as above: at least 3:1 on white and about 34+ ΔE from every other colour.
+const MODEL_COLORS: Record<string, string> = {
+  'GPT-OSS 120B': '#440044',
+  'Gemma 3 27B': '#665500',
+  'Llama 4 Maverick': '#0000FF',
+  'Mistral Large 3': '#660000',
+  'DeepSeek V3.2': '#000088',
+  'Qwen3 235B A22B': '#FF33CC',
+  'Qwen3 32B': '#BB77BB',
+};
+
 export function modelColor(name: string): string {
-  return LLM_COLORS[getModelKey(name)] || 'rgb(120, 119, 116)';
+  return MODEL_COLORS[name] || LLM_COLORS[getModelKey(name)] || 'rgb(120, 119, 116)';
 }
 
 export default function LLMLogo({ model, size = 28, className = '' }: LLMLogoProps) {
