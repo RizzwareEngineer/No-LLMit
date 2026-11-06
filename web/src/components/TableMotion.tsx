@@ -23,6 +23,7 @@ export function dealStart(players: PlayerState[], idx: number, round: number) {
 interface Snapshot {
   hand: number;
   stacks: Record<string, number>;
+  bets: Record<string, number>;
   board: number;
   winners: string;
 }
@@ -77,6 +78,7 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
     const now: Snapshot = {
       hand: handNumber,
       stacks: Object.fromEntries(players.map(p => [p.id, p.stack])),
+      bets: Object.fromEntries(players.map(p => [p.id, p.currentBet])),
       board: boardCount,
       winners,
     };
@@ -105,14 +107,23 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
       playSound('deal');
     }
 
-    // Chips in: the stack went down. The engine zeroes currentBet before it broadcasts the
-    // action that closes a street, so currentBet is only used for the blinds of a new hand.
+    // Chips out: the stack went down (or, on a new hand, the blinds were posted). They land on the
+    // seat's bet in front of it. The engine zeroes every currentBet before it broadcasts the action
+    // that closes a street, so the closing call flies straight to the pot, and the bets left in front
+    // of the seats slide in from their spots (BetStack keeps an invisible box there for this).
+    const pot = visibleRect('[data-pot]');
+    const bet = (idx: number) => visibleRect(`[data-bet="${idx}"]`);
+    const streetClosed = !newHand && players.every(p => p.currentBet === 0) && Object.values(before.bets).some(b => b > 0);
     let chips = false;
     players.forEach((p, idx) => {
       const put = newHand ? p.currentBet > 0 : p.stack < (before.stacks[p.id] ?? p.stack);
       if (put) {
         chips = true;
-        if (layer) fly(layer, 'chip', seat(idx), visibleRect('[data-pot]'));
+        if (layer) fly(layer, 'chip', seat(idx), p.currentBet > 0 ? bet(idx) : pot);
+      }
+      if (streetClosed && (before.bets[p.id] ?? 0) > 0) {
+        chips = true;
+        if (layer) fly(layer, 'chip', bet(idx), pot);
       }
     });
     if (chips) playSound('chip');

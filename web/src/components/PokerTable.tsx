@@ -1,8 +1,7 @@
 "use client";
 
-import { useHud } from "@/components/Hud";
 import Player from "@/components/Player";
-import TableFelt from "@/components/TableFelt";
+import TableFelt, { BetStack, FeltBet } from "@/components/TableFelt";
 import { useState } from "react";
 import TableMotion, { FLIGHT, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
@@ -49,7 +48,6 @@ export default function PokerTable({
   hidePositions = false,
   notice,
 }: PokerTableProps) {
-  const { on: hudOn } = useHud();
   // A late joiner sees the hand already dealt; only hands dealt while watching wait for their flight.
   const [firstHand, setFirstHand] = useState(0);
   if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
@@ -83,10 +81,24 @@ export default function PokerTable({
     />
   );
 
-  const felt = () => (
+  // Each seat's bet sits on the felt edge it faces, centred on the seat's column or row.
+  const rows = Math.max(layout.left.length, layout.right.length);
+  const betsOut = players.reduce((sum, p) => sum + p.currentBet, 0);
+  const edge = (side: FeltBet['side'], seats: number[], n: number) =>
+    seats.map((seat, i) => ({ seat, side, at: (i + 0.5) / n, amount: players[seat]?.currentBet ?? 0 }));
+  const feltBets: FeltBet[] = [
+    ...edge('top', layout.top, layout.top.length),
+    ...edge('bottom', layout.bottom, layout.bottom.length),
+    ...edge('left', layout.left, rows),
+    ...edge('right', layout.right, rows),
+  ];
+
+  const felt = (bets?: FeltBet[]) => (
     <TableFelt
       cards={communityCards}
       pot={pot}
+      betsOut={betsOut}
+      bets={bets}
       winners={Object.entries(winnersByIdx).map(([idx, info]) => ({
         name: players[Number(idx)]?.name || `Player ${idx}`,
         amount: info.amount,
@@ -105,7 +117,6 @@ export default function PokerTable({
   const numCols = layout.top.length + (layout.left.length > 0 ? 1 : 0) + (layout.right.length > 0 ? 1 : 0);
   const tableWidth = numCols * 200;
   const line = '1px solid rgba(55, 53, 47, 0.09)';
-  const rows = Math.max(layout.left.length, layout.right.length);
 
   return (
     <>
@@ -115,14 +126,17 @@ export default function PokerTable({
         boardCount={communityCards.length}
         winnerIdxs={Object.keys(winnersByIdx).map(Number)}
       />
-      {/* Phones: felt on top, seats in a 3-column grid in seat order */}
+      {/* Phones: felt on top, seats in a 3-column grid in seat order, each bet just above its seat */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
           {felt()}
         </div>
         <div className="grid grid-cols-3 gap-2">
           {players.map((p, idx) => (
-            <div key={p.id} className={hudOn ? "h-[170px]" : "h-[150px]"}>{seat(idx)}</div>
+            <div key={p.id} className="flex flex-col gap-1">
+              <BetStack seat={idx} amount={p.currentBet} className="h-5 justify-center" />
+              <div className="h-[172px]">{seat(idx)}</div>
+            </div>
           ))}
         </div>
       </div>
@@ -137,19 +151,19 @@ export default function PokerTable({
             {/* TOP ROW */}
             <tr>
               {layout.left.length > 0 && (
-                <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }} />
+                <td className="w-[200px] h-[118px]" style={{ borderRight: line, borderBottom: line }} />
               )}
               {layout.top.map((idx, i) => (
                 <td
                   key={`top-${idx}`}
-                  className="w-[200px] h-[100px]"
+                  className="w-[200px] h-[118px]"
                   style={{ borderBottom: line, borderRight: i < layout.top.length - 1 ? line : undefined }}
                 >
                   {seat(idx)}
                 </td>
               ))}
               {layout.right.length > 0 && (
-                <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }} />
+                <td className="w-[200px] h-[118px]" style={{ borderLeft: line, borderBottom: line }} />
               )}
             </tr>
 
@@ -157,7 +171,7 @@ export default function PokerTable({
             {Array.from({ length: rows }).map((_, rowIdx) => (
               <tr key={`middle-${rowIdx}`}>
                 {layout.left.length > 0 && (
-                  <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }}>
+                  <td className="w-[200px] h-[118px]" style={{ borderRight: line, borderBottom: line }}>
                     <div className="flex justify-end h-full">
                       {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx])}
                     </div>
@@ -166,12 +180,12 @@ export default function PokerTable({
 
                 {rowIdx === 0 && (
                   <td colSpan={layout.top.length} rowSpan={rows} style={{ borderBottom: line }}>
-                    <div className="flex items-center justify-center h-full">{felt()}</div>
+                    <div className="flex items-center justify-center h-full">{felt(feltBets)}</div>
                   </td>
                 )}
 
                 {layout.right.length > 0 && (
-                  <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }}>
+                  <td className="w-[200px] h-[118px]" style={{ borderLeft: line, borderBottom: line }}>
                     <div className="flex justify-start h-full">
                       {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx])}
                     </div>
@@ -183,9 +197,9 @@ export default function PokerTable({
             {/* BOTTOM ROW */}
             <tr>
               {layout.left.length > 0 && (
-                <td className="w-[200px] h-[100px]" style={{ borderRight: line }} />
+                <td className="w-[200px] h-[118px]" style={{ borderRight: line }} />
               )}
-              <td colSpan={layout.top.length} className="h-[100px] p-0">
+              <td colSpan={layout.top.length} className="h-[118px] p-0">
                 <div className="flex h-full">
                   {layout.bottom.map((playerIdx, i) => (
                     <div
@@ -199,7 +213,7 @@ export default function PokerTable({
                 </div>
               </td>
               {layout.right.length > 0 && (
-                <td className="w-[200px] h-[100px]" style={{ borderLeft: line }} />
+                <td className="w-[200px] h-[118px]" style={{ borderLeft: line }} />
               )}
             </tr>
           </tbody>
