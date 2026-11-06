@@ -114,7 +114,7 @@ export default function TableFelt({
       {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} className="absolute" style={EDGE[b.side](b.at)} />)}
 
       {/* Winner announcement or Pot */}
-      <div data-pot className="h-[44px] w-full flex items-center justify-center">
+      <div data-pot className="h-[64px] w-full flex items-center justify-center">
         {winners.length > 0 ? (
           <div className="flex flex-col items-center bg-green-50 p-2 px-3 border border-green-500 max-w-full overflow-hidden">
             {winners.slice(0, 1).map((w, i) => (
@@ -129,16 +129,19 @@ export default function TableFelt({
             )}
           </div>
         ) : (
-          // The total, bets included, is the number pot odds need; the split is secondary. Fixed width:
-          // the box never resizes as the text changes, so its centre (the chip target) holds still.
-          <div
-            aria-label={`Pot ${pot.toLocaleString()}${betsOut > 0 ? `: ${Math.max(0, pot - betsOut).toLocaleString()} in the middle, ${betsOut.toLocaleString()} in bets` : ''}`}
-            className="w-[340px] max-w-full flex flex-row items-baseline justify-center gap-2 bg-white py-1 px-3 border-2 border-gray-700 shadow-sm leading-7 tabular-nums whitespace-nowrap text-gray-700"
-          >
-            <span className="text-[20px]">Pot <b><NumberFlow value={pot} /></b></span>
-            {betsOut > 0 && (
-              <span className="text-[12px] text-gray-600">{Math.max(0, pot - betsOut).toLocaleString()} in the middle + {betsOut.toLocaleString()} in bets</span>
-            )}
+          // Like CoinPoker: the chips collected so far sit in the middle ("Pot"), each street's bets
+          // sit in front of the seats, and "Total pot" above is both together. The box keeps a
+          // fixed width so its centre (the chip target) holds still as the numbers change.
+          <div className="flex flex-col items-center gap-1">
+            <span className="text-[12px] leading-4 uppercase tracking-wide text-gray-600 tabular-nums" aria-label={`Total pot ${pot.toLocaleString()}`}>
+              Total pot <b className="text-gray-700">{pot.toLocaleString()}</b>
+            </span>
+            <div
+              aria-label={`Pot ${Math.max(0, pot - betsOut).toLocaleString()}`}
+              className="w-[220px] max-w-full flex flex-row items-baseline justify-center gap-2 bg-white py-1 px-3 border-2 border-gray-700 shadow-sm leading-7 tabular-nums whitespace-nowrap text-gray-700"
+            >
+              <span className="text-[20px]">Pot <b><NumberFlow value={Math.max(0, pot - betsOut)} /></b></span>
+            </div>
           </div>
         )}
       </div>
