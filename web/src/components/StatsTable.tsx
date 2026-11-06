@@ -61,7 +61,7 @@ const CORE = GROUPS.map(g => ({ ...g, columns: g.columns.filter(c => c.core) }))
 
 // A column header with its definition on hover or focus. Without `onSort` it is a plain label
 // (a fixed-order table); `sort` then only marks the column the rows are ordered by.
-export function HeaderCell({ col, sort, onSort, className = 'p-2' }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string }) {
+export function HeaderCell({ col, sort, onSort, className = 'p-2', wrap = false }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string; wrap?: boolean }) {
   const [open, setOpen] = useState(false);
   const tipId = useId();
   const active = sort.key === col.key;
@@ -76,7 +76,7 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2' }: { col: { ke
     >
       <span className="inline-flex flex-wrap items-end justify-end gap-0.5">
         {onSort ? (
-          <button onClick={onSort} className="inline-flex items-center gap-0.5 whitespace-nowrap hover:underline text-right">
+          <button onClick={onSort} className={`inline-flex items-center gap-0.5 hover:underline text-right ${wrap ? '' : 'whitespace-nowrap'}`}>
             {col.label}
             {active && (sort.desc ? <CaretDown size={10} weight="bold" aria-hidden /> : <CaretUp size={10} weight="bold" aria-hidden />)}
           </button>
@@ -156,7 +156,7 @@ export default memo(function StatsTable({ models, seated }: { models: ModelStats
           {expanded ? 'Fewer stats' : `All stats (${COLUMNS.length - COLUMNS.filter(c => c.core).length} more)`}
         </button>
         {seated && more > 0 && (
-          <button onClick={() => setEveryone(v => !v)} aria-pressed={everyone} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>
+          <button onClick={() => setEveryone(v => !v)} aria-expanded={everyone} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>
             {everyone ? 'Seated models only' : `All models (${more} more)`}
           </button>
         )}
@@ -274,7 +274,7 @@ function Grid({
         )}
         <tr className="border-b border-notion">
           <th scope="col" className={`${head} text-left font-medium align-bottom`} style={{ color: MUTED }}><span className="@max-md:sr-only">Model</span></th>
-          {columns.map(c => <HeaderCell key={c.key} col={c} sort={sort} onSort={() => onSort(c)} className={head} />)}
+          {columns.map(c => <HeaderCell key={c.key} col={c} sort={sort} onSort={() => onSort(c)} className={head} wrap={grouped} />)}
         </tr>
       </thead>
       <tbody className="divide-y divide-black/10">

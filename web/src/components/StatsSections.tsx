@@ -56,6 +56,8 @@ export default memo(function StatsSections({
   const [matrix, setMatrix] = useState(false); // Pairwise: the 9x9 grid instead of the bars
   // Race stays zoomed on every screen after it: the cards slide over it, it never zooms back out.
   const [zoomed, setZoomed] = useState(false);
+  // The screen whose card the overview recedes under: Pairwise's during a jump straight to it.
+  const [recedeBy, setRecedeBy] = useState<'stats' | 'pairwise'>('stats');
   const stage = useRef<HTMLDivElement>(null);
   const statsCard = useRef<HTMLElement>(null);
   const statsScreen = useRef<HTMLDivElement>(null);
@@ -105,14 +107,14 @@ export default memo(function StatsSections({
       jumpTimer = setTimeout(endJump, 1500); // browsers without scrollend
       if ((e as CustomEvent<string>).detail !== 'pairwise') return;
       statsCard.current?.style.setProperty('visibility', 'hidden');
-      stage.current?.style.setProperty('--recede-by', '--card-pairwise');
+      setRecedeBy('pairwise'); // flushed before paint: the jump comes from a click or key
     };
     const endJump = () => {
       if (!jumpAt) return;
       jumpAt = 0;
       clearTimeout(jumpTimer);
       statsCard.current?.style.removeProperty('visibility');
-      stage.current?.style.setProperty('--recede-by', '--card-stats');
+      setRecedeBy('stats');
       const el = middle();
       if (el) show(el.id);
     };
@@ -198,7 +200,10 @@ export default memo(function StatsSections({
       </span>
     </div>
   );
-  const verdict = (size: string) => ready && <p className={`${size} font-medium leading-snug`} style={{ color: TEXT }}>{pairwiseVerdict(field)}</p>;
+  // Pairwise nets count only the opponents in `field`, so the verdict names that set, and the
+  // session when one is picked (the P&L beside the table is always all-time).
+  const among = field !== data?.models ? `the ${field.length} at the table` : `these ${field.length} models`;
+  const verdict = (size: string) => ready && <p className={`${size} font-medium leading-snug`} style={{ color: TEXT }}>{pairwiseVerdict(field, among, session ? 'in this session' : '')}</p>;
 
   return (
     <div className="relative w-full" style={{ timelineScope: '--card-stats, --card-pairwise' } as React.CSSProperties}>
@@ -217,8 +222,8 @@ export default memo(function StatsSections({
         {/* The overview stage: pinned from the overview to the end. The top padding clears the
             sticky bar (44px) plus the table screen's own outer padding; the clip keeps a zoom's
             spring overshoot from adding a page scrollbar. */}
-        <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh">
-          <div className={`h-full max-w-[1300px] mx-auto ${EDGE} overflow-clip [overflow-clip-margin:8px]`}>
+        <Recede by={recedeBy === 'pairwise' ? pairwiseScreen : statsScreen} timeline={`--card-${recedeBy}`} ref={stage} className="sticky top-0 z-0 h-svh">
+          <div className={`h-full ${WIDTH} mx-auto ${EDGE} overflow-clip [overflow-clip-margin:8px]`}>
             {/* Overview: three teaser cards in the table screen's card style, Race on top (stacked on phones). */}
             <div className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-2 md:grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)]">
               <Panel
@@ -235,12 +240,25 @@ export default memo(function StatsSections({
                   // Zoomed: the chart in a fixed 16:7 box (never stretched to the window) and the
                   // standings beside it, which are its legend. One tree either way, so the lines never redraw.
                   <div className={zoomed ? 'flex-1 flex flex-col md:flex-row items-center justify-center gap-6 md:gap-10 lg:gap-14 md:px-4 lg:px-8' : 'flex-1 min-h-0 flex flex-col gap-3'}>
-                    {!zoomed && lead}
-                    <div className={zoomed ? 'flex flex-col w-full aspect-[4/3] md:aspect-[16/7] md:w-[min(calc(100%-360px),calc(60vh*16/7))]' : 'flex-1 min-h-0 flex flex-col'}>
+                    {!zoomed && (
+                      <div className="flex flex-col gap-1.5">
+                        {lead}
+                        {/* The sparkline's legend: its three lines, in their colours. */}
+                        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]" style={{ color: MUTED }}>
+                          {race.slice(0, 3).map(m => (
+                            <li key={m.name} className="flex items-center gap-1.5">
+                              <span aria-hidden className="inline-block w-3 h-0.5 rounded" style={{ background: modelColor(m.name) }} />
+                              {m.name}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <div className={zoomed ? 'flex flex-col w-full aspect-[4/3] md:aspect-[16/7] md:w-[min(calc(100%-400px),calc(60vh*16/7))]' : 'flex-1 min-h-0 flex flex-col'}>
                       <CumulativeChart race spark={!zoomed} models={field} selected={selected} highlight={highlight} onSelect={zoomed ? setSelected : undefined} />
                     </div>
                     {zoomed && (
-                      <ol className="w-full md:w-[300px] shrink-0 flex flex-col gap-0.5" aria-label="Standings: pick a model to shade its 95% band" onMouseLeave={() => setHighlight(undefined)}>
+                      <ol className="w-full md:w-[340px] shrink-0 flex flex-col gap-0.5" aria-label="Standings: pick a model to shade its 95% band" onMouseLeave={() => setHighlight(undefined)}>
                         {race.map((m, i) => (
                           <li key={m.name}>
                             <button
@@ -249,7 +267,7 @@ export default memo(function StatsSections({
                               onFocus={() => setHighlight(m.name)}
                               onBlur={() => setHighlight(undefined)}
                               aria-pressed={m.name === selected}
-                              className="w-full flex items-center gap-2.5 rounded px-2 py-1.5 text-[14px] text-left tabular-nums transition-colors hover:bg-[rgba(55,53,47,0.06)]"
+                              className="w-full flex items-center gap-2.5 rounded px-2 py-2.5 md:py-1.5 text-[14px] text-left tabular-nums transition-colors hover:bg-[rgba(55,53,47,0.06)]"
                               style={{ color: TEXT, background: m.name === highlight ? 'rgba(55, 53, 47, 0.06)' : undefined, boxShadow: m.name === selected ? `inset 3px 0 0 ${modelColor(m.name)}` : undefined }}
                             >
                               <span className="w-4 text-right text-[13px]" style={{ color: MUTED }}>{i + 1}</span>
@@ -363,6 +381,9 @@ export default memo(function StatsSections({
   );
 });
 
+// As wide as the live table at 1440x900 (1392px), so the edges line up with it there.
+const WIDTH = 'max-w-[1392px]';
+
 // The table screen's outer padding under the 44px sticky bar, and above the connection bar.
 const EDGE = 'pt-[56px] lg:pt-[60px] pb-[calc(0.75rem+var(--bar-h,0px))] lg:pb-[calc(1rem+var(--bar-h,0px))]';
 
@@ -421,7 +442,7 @@ function Card({
   return (
     <section ref={ref} id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className={`sticky top-0 h-svh outline-none ${z}`}>
       <Recede by={by} timeline={timeline} className="card-edge h-full">
-        <div className={`h-full max-w-[1300px] mx-auto px-3 lg:px-4 ${EDGE} flex flex-col`}>
+        <div className={`h-full ${WIDTH} mx-auto px-3 lg:px-4 ${EDGE} flex flex-col`}>
           <h2 id={`${id}-title`} className="mb-2 text-[18px] font-bold" style={{ color: TEXT }}>{title}</h2>
           <div className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{children}</div>
         </div>

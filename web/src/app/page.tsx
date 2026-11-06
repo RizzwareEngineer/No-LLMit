@@ -184,6 +184,9 @@ export default function Home() {
     let insideUntil = 0; // the gesture scrolled a panel: its rest never pages
     let lastAbs = 0;
     let rises = 0; // events in a row with a growing |deltaY|: momentum only decays, a new swipe ramps up
+    let lastT = 0;
+    let riseAt = -1; // when the current ramp began, if it began from rest (a gap or a near-zero delta): a new touch
+    let armedAt = 0; // when the lock or the panel guard was last armed
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.defaultPrevented || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       const t = e.target instanceof Element ? e.target : null;
@@ -194,9 +197,13 @@ export default function Home() {
       // momentum tail just extends the lock. The lock comes before the panel check: the tail of a
       // flick that paged onto a card must not scroll that card's panel, then page again at its end.
       const abs = Math.abs(e.deltaY);
-      rises = abs > lastAbs ? rises + 1 : 0;
+      if (abs > lastAbs) {
+        if (!rises) riseAt = now - lastT > 30 || lastAbs <= 2 ? now : -1;
+        rises++;
+      } else rises = 0;
       lastAbs = abs;
-      const fresh = rises >= 2 && abs >= 8 && !isPaging(); // fingers down again after the page landed
+      lastT = now;
+      const fresh = rises >= 3 && abs >= 8 && riseAt > armedAt; // fingers down again after this gesture was handled (3 rises: a coalescing spike in a momentum tail gives 2)
       if (now < lockUntil && !fresh && (dir === lockDir || abs < 10)) {
         e.preventDefault();
         lockUntil = Math.max(lockUntil, now + 200);
@@ -204,6 +211,7 @@ export default function Home() {
       }
       // A gesture that scrolls a panel stops at the panel's end; only a new one pages on.
       if (scrollsInside(t, dir)) {
+        if (now >= insideUntil) armedAt = now;
         insideUntil = now + 200;
         return;
       }
@@ -214,6 +222,7 @@ export default function Home() {
       }
       if (Math.abs(e.deltaY) < 4) return;
       lockUntil = pageBy(dir) ? now + 700 : 0;
+      armedAt = now;
       lockDir = dir;
     };
     // Keyboard focus scrolls the focused element into view, which can stop between screens;

@@ -142,6 +142,14 @@ export default function CumulativeChart({
   const ends = shown.filter(colored).map(m => ({ m, n: m.cumulative_bb.at(-1)?.[0] ?? 0, v: m.cumulative_bb.at(-1)?.[1] ?? 0 })).sort((a, b) => y(a.v) - y(b.v));
   const full = ends.filter(e => e.n >= maxHand * 0.95);
   const early = ends.filter(e => e.n < maxHand * 0.95);
+  // Early logos that would land on one another (lines ending at about the same hand and value)
+  // step down below the one already placed.
+  const earlyAt: { x: number; y: number }[] = [];
+  for (const e of early) {
+    const p = { x: x(e.n) + 3, y: y(e.v) - logo / 2 + 2 };
+    while (earlyAt.some(q => Math.abs(q.x - p.x) < logo && Math.abs(q.y - p.y) < logo)) p.y += logo;
+    earlyAt.push(p);
+  }
   const [lo, hi] = [padTop + logo / 2, height - padBottom - logo / 2];
   const endYs = spread(full.map(e => y(e.v)), Math.min(logo + 2, (hi - lo) / Math.max(1, full.length - 1)), lo, hi);
   const readout = hover ? [...models].map(m => ({ m, v: valueAt(m.cumulative_bb, hover.n) })).sort((a, b) => b.v - a.v) : [];
@@ -158,7 +166,7 @@ export default function CumulativeChart({
   // Rows of the readout that fit the plot's height: the top ones, the hovered one and the last.
   const fit = Math.max(3, Math.floor((height - padTop - 30) / 18));
   const rows = readout.length <= fit ? readout : readout.filter((r, i) => i < fit - 2 || i === readout.length - 1 || r.m === hot);
-  const summary = models
+  const summary = shown
     .map(m => `${m.name} ${signed(m.cumulative_bb.at(-1)?.[1] ?? 0)} bb after ${m.cumulative_bb.at(-1)?.[0] ?? 0} hands`)
     .join('; ');
   const label = `Cumulative big blinds won over hands. ${summary}.${sel ? ` Shaded: 95% band for ${sel.name}.` : ''}`;
@@ -251,8 +259,8 @@ export default function CumulativeChart({
             <LLMLogo model={e.m.name} size={logo} />
           </div>
         ))}
-        {race && !spark && early.map(e => (
-          <div key={e.m.name} className="absolute pointer-events-none" style={{ left: x(e.n) + 3, top: y(e.v) - logo / 2 + 2 }} title={e.m.name}>
+        {race && !spark && early.map((e, i) => (
+          <div key={e.m.name} className="absolute pointer-events-none" style={{ left: earlyAt[i].x, top: earlyAt[i].y }} title={e.m.name}>
             <LLMLogo model={e.m.name} size={logo - 4} />
           </div>
         ))}

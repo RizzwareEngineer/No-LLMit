@@ -32,7 +32,9 @@ export function pageBy(dir: 1 | -1) {
   let top = dir > 0 ? tops.find(t => t > y + 1) : tops.findLast(t => t < y - 1);
   if (top === undefined) return false;
   top = dir > 0 ? Math.min(top, y + h) : Math.max(top, y - h);
-  scrollToTop(Math.min(top, document.documentElement.scrollHeight - h), list[tops.indexOf(top)]?.id ?? '');
+  const at = top;
+  // A fractional screen top (a table screen 709.14px tall) must still name its screen.
+  scrollToTop(Math.min(top, document.documentElement.scrollHeight - h), list[tops.findIndex(t => Math.abs(t - at) < 2)]?.id ?? '');
   return true;
 }
 
