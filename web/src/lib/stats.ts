@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL } from '@/lib/api';
+import { ALL_LLMS } from '@/lib/constants';
 
 // Shape of GET /api/stats, per docs/stats-api-contract.json. Rates are 0..1, or null when nothing
 // qualified for them; bb = big blinds.
@@ -73,6 +74,7 @@ export interface StatsResponse {
   sessions: StatsSession[];
   models: ModelStats[];
   partial: boolean; // all-in EV still computing in the background; aiev_bb100 is provisional
+  seated?: string[]; // the table's current lineup; only on the all-time and live session payloads
   definitions_url: string;
 }
 
@@ -154,6 +156,20 @@ export function useStats(session?: string, enabled = true, refreshKey?: number):
   }, [state, session]);
 }
 
+// Splits the roster for display. noHands: seated models without hands yet, listed with dashes.
+// unseated: roster models neither seated nor in these stats, shown muted under "Not seated yet".
+// Without a lineup (older engine, sample data, past session) unseated is every roster model without hands.
+export function rosterGroups(models: { name: string }[], seated: string[] | undefined) {
+  const has = new Set(models.map(m => m.name));
+  return {
+    noHands: (seated ?? []).filter(name => !has.has(name)),
+    unseated: ALL_LLMS.filter(name => !has.has(name) && !seated?.includes(name)),
+  };
+}
+
+export const NOT_SEATED = 'Not seated yet';
+export const NOT_SEATED_HINT = 'Listed for future sessions; no hands played.';
+
 // In-page link that opens a model's drawer (the page watches the hash).
 export const modelHref = (name: string) => `#model=${modelSlug(name)}`;
 
@@ -165,6 +181,13 @@ export const DASH = '—';
 
 export const signed = (n: number, digits = 1) =>
   `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toFixed(digits)}`;
+
+// A magnitude for a narrow cell: 12.3 below a thousand, 12.6k above, so it never needs clipping.
+export const brief = (n: number, digits = 1) =>
+  Math.abs(n) < 1000 ? Math.abs(n).toFixed(digits) : Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase();
+
+// signed() in brief form: +12.3, −12.6k.
+export const signedBrief = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${brief(n)}`;
 
 export const chips = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}¤${Math.abs(n).toLocaleString()}`;
 
@@ -192,6 +215,7 @@ export const STAT_DEFINITIONS: Record<string, string> = {
   fold_when_check_free: 'Share of decisions where it folded although checking was free. Always a mistake.',
   error_rate: 'Share of decisions where the reply was unusable (unparseable, illegal or timed out) and the engine acted for it.',
   cost_per_hand_usd: 'API cost per hand played, in US dollars.',
+  avg_latency_ms: 'Average time the model took to answer one decision, in seconds.',
   hu_bb100: 'Big blinds won per 100 hands over flops only two players saw. It counts blinds folded by the other players, which the cells leave out, so it can differ from the row\'s chips.',
   mw_bb: 'Big blinds won per 100 hands over all flops with 3 or more players. The table is sorted by it.',
   mw_hands: 'Hands where this model saw a flop with 3 or more players.',

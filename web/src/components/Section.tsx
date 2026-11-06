@@ -23,15 +23,17 @@ const settle = () => {
 // Scroll one screen down (1) or up (-1); a screen taller than the window (the phone table)
 // moves one window at a time inside it. Smooth through scroll-behavior in globals.css, which
 // prefers-reduced-motion turns off. Announces the target screen so the zoom can start at once.
+// Returns false at either end of the page, where there is nowhere to go.
 export function pageBy(dir: 1 | -1) {
   const y = pendingY ?? window.scrollY;
   const h = window.innerHeight;
   const list = screens();
   const tops = list.map(topOf);
   let top = dir > 0 ? tops.find(t => t > y + 1) : tops.findLast(t => t < y - 1);
-  if (top === undefined) return;
+  if (top === undefined) return false;
   top = dir > 0 ? Math.min(top, y + h) : Math.max(top, y - h);
   scrollToTop(Math.min(top, document.documentElement.scrollHeight - h), list[tops.indexOf(top)]?.id ?? '');
+  return true;
 }
 
 // Scroll to the screen with this id (the overview's click-to-zoom).
@@ -71,11 +73,12 @@ function scrollToTop(top: number, id: string) {
 }
 
 // True when `el` or an ancestor would scroll itself for a wheel or key in direction `dir`.
+// Overflow of a pixel or two (subpixel rounding) does not count: it would eat a whole gesture.
 export function scrollsInside(el: Element | null, dir: number) {
   for (; el && el !== document.documentElement && el !== document.body; el = el.parentElement) {
     const { overflowY } = getComputedStyle(el);
-    if (overflowY !== 'auto' && overflowY !== 'scroll') continue;
-    if (dir > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0) return true;
+    if ((overflowY !== 'auto' && overflowY !== 'scroll') || el.scrollHeight - el.clientHeight <= 2) continue;
+    if (dir > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop >= 1) return true;
   }
   return false;
 }

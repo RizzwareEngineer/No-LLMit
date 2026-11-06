@@ -5,7 +5,7 @@ import LLMLogo from '@/components/LLMLogo';
 import Panel, { CountUp } from '@/components/Section';
 import CumulativeChart from '@/components/CumulativeChart';
 import StatsTable from '@/components/StatsTable';
-import HeadToHead from '@/components/HeadToHead';
+import HeadToHead, { pairwiseVerdict } from '@/components/HeadToHead';
 import { SampleBadge, SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, TEXT, netColor, useStats } from '@/lib/stats';
 
@@ -95,10 +95,10 @@ export default memo(function StatsSections({
     // Screen 1 can still change height as the table fills in (and scroll anchoring may move the
     // page with it); keep the landing on the screen's edge for a few seconds, until the visitor
     // scrolls or presses a key. A scroll that leaves the screen's edge without one of those inputs
-    // (scrollbar drag, find in page, a script) also ends it; anchoring keeps the edge in place.
+    // (the rest of the browser's smooth fragment scroll, anchoring) lands it again.
     const land = () => window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' });
     const ro = new ResizeObserver(land);
-    const onScroll = () => Math.abs(el.getBoundingClientRect().top) > 2 && stop();
+    const onScroll = () => Math.abs(el.getBoundingClientRect().top) > 2 && land();
     const stop = () => {
       ro.disconnect();
       clearTimeout(timer);
@@ -159,11 +159,17 @@ export default memo(function StatsSections({
             >
               {stale}
               {ready ? (
-                <CumulativeChart models={models} selected={selected || bestRate?.name || ''} onSelect={zoomed === 'race' ? setSelected : undefined} />
+                <CumulativeChart race models={models} selected={selected || bestRate?.name || ''} onSelect={zoomed === 'race' ? setSelected : undefined} />
               ) : message}
             </Panel>
 
             <Panel id="stats-panel" title={<>Stats {sample && <SampleBadge />}</>} {...panel('stats-table')} className="row-start-2 md:col-start-1">
+              {zoomed === 'stats-table' && (
+                <Definition>
+                  <span className="block">How each model has done per 100 hands, and how it plays.</span>
+                  <span className="block">Hover a header for its definition.</span>
+                </Definition>
+              )}
               <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[12px]" style={{ color: MUTED }}>
                 {ready && (
                   <span className="tabular-nums">
@@ -198,14 +204,15 @@ export default memo(function StatsSections({
                   {data.partial && (
                     <p className="mb-2 text-[12px]" style={{ color: MUTED }} role="status">All-in EV still computing…</p>
                   )}
-                  <StatsTable models={models} expandable={zoomed === 'stats-table'} />
+                  <StatsTable models={models} seated={data.seated} expandable={zoomed === 'stats-table'} />
                 </>
               )}
             </Panel>
 
             <Panel id="pairwise-panel" title="Pairwise results" {...panel('pairwise')} className="row-start-3 md:row-start-2 md:col-start-2">
+              {ready && <p className="mb-1 text-[13px] md:text-[14px] font-medium leading-snug" style={{ color: TEXT }}>{pairwiseVerdict(models)}</p>}
               {zoomed === 'pairwise' && <Definition>Net chips between each pair over every pot both were in; a multiway pot counts toward every pair in it.</Definition>}
-              {ready ? <HeadToHead models={race} /> : message}
+              {ready ? <HeadToHead models={models} bigBlind={data.scope.big_blind} zoomed={zoomed === 'pairwise'} /> : message}
             </Panel>
           </div>
         </div>

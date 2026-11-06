@@ -169,22 +169,28 @@ export default function Home() {
       pageBy(dir);
     };
     // One wheel or trackpad gesture moves exactly one screen. Wheel inside a panel scrolls the
-    // panel until it reaches its end. Events keep the lock alive, so momentum after a flick
-    // never pages twice.
+    // panel until it reaches its end. Events in the paged direction keep the lock alive, so
+    // momentum after a flick never pages twice; a reversal is a new gesture and pages at once.
+    // Only a page that moved arms the lock: scrolling into either end of the page must not
+    // swallow the reversal that follows (the trap on the last screen).
     let lockUntil = 0;
+    let lockDir = 0;
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.defaultPrevented || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       const t = e.target instanceof Element ? e.target : null;
-      if (t?.closest('dialog') || scrollsInside(t, Math.sign(e.deltaY))) return;
+      const dir = e.deltaY > 0 ? 1 : -1;
+      if (t?.closest('dialog') || scrollsInside(t, dir)) return;
       e.preventDefault();
-      const now = performance.now();
-      if (now < lockUntil) {
+      const now = e.timeStamp; // when the input happened, so main-thread jank never reads as a pause
+      // A reversal pages only when it is deliberate: one small opposite event in a noisy
+      // momentum tail just extends the lock.
+      if (now < lockUntil && (dir === lockDir || Math.abs(e.deltaY) < 10)) {
         lockUntil = Math.max(lockUntil, now + 200);
         return;
       }
       if (Math.abs(e.deltaY) < 4) return;
-      lockUntil = now + 700;
-      pageBy(e.deltaY > 0 ? 1 : -1);
+      lockUntil = pageBy(dir) ? now + 700 : 0;
+      lockDir = dir;
     };
     // Keyboard focus scrolls the focused element into view, which can stop between screens;
     // focus inside the stats stage lands on the overview at least. A resize moves every screen
