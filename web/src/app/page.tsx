@@ -375,7 +375,7 @@ export default function Home() {
         </button>
       </section>
 
-      {/* Screens 2-7: the overview, then race, stats, heads-up, multiway and pairwise one at a time. */}
+      {/* Screens 2-5: the overview, then race, stats and pairwise one at a time. */}
       <StatsSections
         all={all}
         picked={session ? picked : all}
