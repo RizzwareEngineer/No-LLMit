@@ -19,6 +19,24 @@ interface PlayerProps {
   seatIdx?: number;
   handNumber?: number;
   dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
+  showAction?: boolean; // false once a new street starts, until this seat acts on it
+  isBet?: boolean; // its RAISE opened the betting on this street, so it reads BET
+}
+
+// What the seat line says after the stack. Raises read as the total ("RAISE TO 100"), calls as
+// the chips added ("CALL 49"); posted blinds read "SB 5" / "BB 10"; nothing before the seat acts.
+export function seatAction(p: PlayerState, { shown, isBet, thinking }: { shown: boolean; isBet: boolean; thinking: boolean }): string {
+  const n = (v?: number) => ((v ?? 0) > 0 ? ` ${v!.toLocaleString()}` : '');
+  if (p.status === 'folded') return 'FOLD';
+  if (p.status === 'eliminated') return 'OUT';
+  if (thinking) return 'THINKING';
+  if (shown && p.lastAction) {
+    if (p.lastAction === 'RAISE') return `${isBet ? 'BET' : 'RAISE TO'}${n(p.lastAmount)}`;
+    return `${p.lastAction}${p.lastAction === 'CHECK' ? '' : n(p.lastAmount)}`;
+  }
+  if (p.status === 'all-in') return 'ALL-IN';
+  if (p.currentBet > 0) return `${p.position === 'SB' || p.position === 'BB' ? p.position : 'POST'}${n(p.currentBet)}`;
+  return '';
 }
 
 // Position badge colors
@@ -53,7 +71,7 @@ function getPositionFullName(pos: string): string {
 const GREEN = 'rgb(15, 123, 108)';
 const BLUE = 'rgb(35, 131, 226)';
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, seatIdx, handNumber = 0, dealDelays }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, seatIdx, handNumber = 0, dealDelays, showAction = true, isBet = false }: PlayerProps) {
   const reduce = useReducedMotion();
   const { stats, on: hudOn, followed, toggleFollow, hovered, hover } = useHud();
   const pinned = followed === player.name;
@@ -62,13 +80,7 @@ export default function Player({ player, active, position, folded = false, winAm
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const isWinner = winAmount !== undefined && winAmount > 0;
-  const amount = (n?: number) => (n ?? 0) > 0 ? ` ${n!.toLocaleString()}` : '';
-  const action = player.lastAction ? `${player.lastAction}${amount(player.lastAmount)}`
-    : player.currentBet > 0 ? `BET${amount(player.currentBet)}`
-    : player.status === 'folded' ? 'FOLD'
-    : player.status === 'all-in' ? 'ALL-IN'
-    : player.status === 'eliminated' ? 'OUT'
-    : isThinking ? 'THINKING' : 'WAITING';
+  const action = seatAction(player, { shown: showAction, isBet, thinking: isThinking });
 
   // Three fixed rows: name and cards; position, stack and action; the HUD row (reserved when empty).
   return (
@@ -134,7 +146,7 @@ export default function Player({ player, active, position, folded = false, winAm
           )}
           <span data-seat-line className="min-w-0 flex-1 max-md:basis-full truncate text-[12px] md:text-[14px] leading-5 tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
             <b data-stack><NumberFlow value={player.stack} /></b>
-            <span style={{ color: 'rgba(55, 53, 47, 0.65)' }}> · </span>
+            {(isWinner || action) && <span style={{ color: 'rgba(55, 53, 47, 0.65)' }}> · </span>}
             {isWinner ? (
               <span style={{ color: GREEN }}>+{winAmount.toLocaleString()} ({winDesc})</span>
             ) : (

@@ -27,7 +27,7 @@ export default function WinningsPanel({ players, stats }: WinningsPanelProps) {
       className="flex flex-col relative w-full bg-white flex-1 rounded overflow-hidden"
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
-      <div className="p-3 border-b border-notion">
+      <div className="px-3 py-2 border-b border-notion">
         <h2 className="text-[14px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>Profits &amp; Losses</h2>
       </div>
       <div className="flex-1 overflow-auto">
@@ -43,7 +43,7 @@ function RankingItem({ row, rank }: { row: Row; rank: number }) {
   const color = row.net === null ? MUTED : netColor(row.net);
 
   return (
-    <a href={modelHref(row.name)} className="lift flex flex-row items-center gap-2 p-2 px-3">
+    <a href={modelHref(row.name)} className="lift flex flex-row items-center gap-2 py-1.5 px-3">
       <span className="text-[13px] w-5 font-bold tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{rank}.</span>
       <LLMLogo model={row.name} size={20} />
       <div className="flex-1 min-w-0">
