@@ -1,14 +1,14 @@
 "use client";
 
 import { motion } from "motion/react";
-import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
-import { MUTED, NOT_SEATED, NOT_SEATED_HINT, StatsResponse, DASH, chips, modelHref, netColor, rosterGroups } from "@/lib/stats";
+import { StatsResponse, DASH, MUTED, chips, modelHref, netColor } from "@/lib/stats";
 
 interface WinningsPanelProps {
   players: PlayerState[];
   stats: StatsResponse | null; // all-time, refetched by the page after each hand
+  seated?: string[]; // who is at the table now: stats.seated, else the live session's models
 }
 
 interface Row {
@@ -16,12 +16,13 @@ interface Row {
   net: number | null; // null: seated, no hands yet
 }
 
-export default function WinningsPanel({ players, stats }: WinningsPanelProps) {
-  // All-time net chips from /api/stats; until the first good response the panel shows this
-  // game's in-memory winnings. The page keeps the last good response, so the source does not flip.
-  const groups = stats ? rosterGroups(stats.models, stats.seated) : null;
-  const statsRows: Row[] | null = stats && groups
-    ? [...stats.models.map(m => ({ name: m.name, net: m.net_chips })), ...groups.noHands.map(name => ({ name, net: null }))]
+export default function WinningsPanel({ players, stats, seated }: WinningsPanelProps) {
+  // All-time net chips from /api/stats for the models seated now (a seat with no hands yet shows
+  // a dash); until the first good response the panel shows this game's in-memory winnings.
+  // The page keeps the last good response, so the source does not flip.
+  const net = new Map(stats?.models.map(m => [m.name, m.net_chips]));
+  const statsRows: Row[] | null = stats && seated
+    ? seated.map(name => ({ name, net: net.get(name) ?? null }))
     : null;
 
   const rows: Row[] = statsRows ?? players.map(p => ({ name: p.name, net: p.winnings || 0 }));
@@ -33,7 +34,7 @@ export default function WinningsPanel({ players, stats }: WinningsPanelProps) {
     >
       <div className="flex items-start justify-between p-3 border-b border-notion">
         <div className="flex flex-col">
-          <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
+          <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses · chips</h2>
           <span className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{statsRows ? 'All-time' : 'This game'}</span>
         </div>
       </div>
@@ -41,7 +42,6 @@ export default function WinningsPanel({ players, stats }: WinningsPanelProps) {
         {/* Keyed by source: switching from this game's winnings to all-time stats remounts
             the list instead of sliding every row to its new place. */}
         {rows.length > 0 && <Rankings key={statsRows ? 'stats' : 'game'} rows={rows} />}
-        {groups && <NotSeated names={groups.unseated} />}
       </div>
     </div>
   );
@@ -57,33 +57,10 @@ function RankingItem({ row, rank }: { row: Row; rank: number }) {
       <div className="flex-1 min-w-0">
         <div className="text-[12px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={row.name}>{row.name}</div>
       </div>
-      <div className="flex flex-row items-center gap-1 text-[12px] font-bold tabular-nums" style={{ color }}>
-        {row.net !== null && row.net > 0 && <CaretUp size={11} weight="bold" aria-hidden />}
-        {row.net !== null && row.net < 0 && <CaretDown size={11} weight="bold" aria-hidden />}
+      <div className="text-[13px] font-bold tabular-nums" style={{ color }}>
         {row.net === null ? DASH : chips(row.net)}
       </div>
     </a>
-  );
-}
-
-// Roster models with no hands yet, muted and without numbers, below the ranking.
-function NotSeated({ names }: { names: string[] }) {
-  if (names.length === 0) return null;
-  return (
-    <div className="border-t border-notion" style={{ color: MUTED }}>
-      <h3 className="px-3 pt-3 pb-1 text-[11px] font-medium" title={NOT_SEATED_HINT}>
-        {NOT_SEATED} <span className="sr-only">: {NOT_SEATED_HINT}</span>
-      </h3>
-      <ul className="flex flex-col">
-        {names.map(name => (
-          <li key={name} className="flex flex-row items-center gap-2 p-2 px-3 opacity-60" title={NOT_SEATED_HINT}>
-            <span className="w-5" aria-hidden />
-            <LLMLogo model={name} size={20} />
-            <span className="text-[12px] truncate">{name}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 

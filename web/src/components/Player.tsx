@@ -93,7 +93,7 @@ export default function Player({ player, active, position, folded = false, winAm
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
               <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤<NumberFlow value={player.stack} /></div>
+              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}><NumberFlow value={player.stack} /></div>
             </div>
           </div>
           {/* A folded hand slides down while the seat dims */}
@@ -134,7 +134,7 @@ export default function Player({ player, active, position, folded = false, winAm
             {/* Winner display */}
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
-                <span className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+¤{winAmount.toLocaleString()}</span>
+                <span className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+{winAmount.toLocaleString()}</span>
                 <span className="text-[11px] truncate min-w-0" style={{ color: 'rgb(15, 123, 108)' }}>({winDesc})</span>
               </div>
             ) : player.lastAction ? (
@@ -144,14 +144,14 @@ export default function Player({ player, active, position, folded = false, winAm
                 </div>
                 {(player.lastAmount ?? 0) > 0 && (
                   <div className="flex flex-row items-center shrink-0">
-                    <div className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.lastAmount?.toLocaleString()}</div>
+                    <div className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{player.lastAmount?.toLocaleString()}</div>
                   </div>
                 )}
               </div>
             ) : player.currentBet > 0 ? (
               <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
                 <div className="text-[11px] font-mono uppercase tracking-wider shrink-0" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>BET</div>
-                <div className="text-[11px] shrink-0" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{player.currentBet.toLocaleString()}</div>
+                <div className="text-[11px] shrink-0" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{player.currentBet.toLocaleString()}</div>
               </div>
             ) : (
               <div className="text-[11px] font-mono uppercase truncate" style={{ color: isThinking ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)' }}>

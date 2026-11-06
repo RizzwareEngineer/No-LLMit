@@ -338,3 +338,32 @@ html:has([data-screen]) {
 @supports not selector(::-webkit-scrollbar) {
   .panel-scroll { scrollbar-width: thin; }
 }
+
+/* Stacked cards (StatsSections): each card after Race slides up over the one before it, which
+   shrinks a little and dims, pinned. Driven by the incoming screen's view timeline (named on its
+   snap point, scoped on the stats wrapper), so it tracks the scroll exactly both ways.
+   Transform and opacity only. Browsers without scroll-driven animations use motion's useScroll. */
+.recede-dim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgb(15, 15, 15);
+  opacity: 0;
+}
+@keyframes recede { to { transform: scale(0.94); } }
+@keyframes recede-dim { to { opacity: 0.14; } }
+@media (prefers-reduced-motion: no-preference) {
+  .recede {
+    animation: recede linear both;
+    animation-timeline: var(--recede-by);
+    animation-range: entry 0% entry 100%;
+  }
+  .recede > .recede-dim {
+    animation: recede-dim linear both;
+    animation-timeline: var(--recede-by);
+    animation-range: entry 0% entry 100%;
+  }
+}
+.card-edge {
+  box-shadow: 0 -12px 32px rgba(15, 15, 15, 0.12), 0 0 0 1px rgba(15, 15, 15, 0.06);
+}

@@ -36,7 +36,7 @@ export default function ReasoningPanel({
     };
     const formatted = actionMap[action] || action;
     if (amount > 0 && (action === 'RAISE' || action === 'BET' || action === 'CALL' || action === 'ALL_IN')) {
-      return `${formatted} ¤${amount.toLocaleString()}`;
+      return `${formatted} ${amount.toLocaleString()}`;
     }
     return formatted;
   };

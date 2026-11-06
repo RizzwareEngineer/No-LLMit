@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { memo, useId, useState } from 'react';
 import { CaretDown, CaretUp, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
 import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signedBrief, brief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
@@ -12,6 +12,7 @@ interface Column {
   render: (m: ModelStats) => React.ReactNode;
   lowerIsBetter?: boolean;
   core?: boolean; // shown before "All stats" is expanded
+  extremes?: boolean; // mark the highest and lowest value
 }
 
 // bb/100 renders separately (its ± bar needs the table-wide scale).
@@ -30,15 +31,15 @@ const GROUPS: { label: string; columns: Column[] }[] = [
   {
     label: 'Preflop',
     columns: [
-      { key: 'vpip', core: true, label: 'VPIP', value: m => m.vpip, render: m => pct(m.vpip) },
-      { key: 'pfr', core: true, label: 'PFR', value: m => m.pfr, render: m => pct(m.pfr) },
+      { key: 'vpip', core: true, extremes: true, label: 'VPIP', value: m => m.vpip, render: m => pct(m.vpip) },
+      { key: 'pfr', core: true, extremes: true, label: 'PFR', value: m => m.pfr, render: m => pct(m.pfr) },
       { key: 'three_bet', label: '3-bet', value: m => m.three_bet, render: m => pct(m.three_bet) },
     ],
   },
   {
     label: 'Postflop',
     columns: [
-      { key: 'af', core: true, label: 'AF', value: m => m.af, render: m => m.af?.toFixed(1) ?? DASH },
+      { key: 'af', core: true, extremes: true, label: 'AF', value: m => m.af, render: m => m.af?.toFixed(1) ?? DASH },
       { key: 'cbet', label: 'C-bet', value: m => m.cbet, render: m => pct(m.cbet) },
       { key: 'fold_to_cbet', label: 'Fold to c-bet', value: m => m.fold_to_cbet, render: m => pct(m.fold_to_cbet) },
       { key: 'wtsd', label: 'WTSD', value: m => m.wtsd, render: m => pct(m.wtsd) },
@@ -75,7 +76,7 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2' }: { col: { ke
     >
       <span className="inline-flex flex-wrap items-end justify-end gap-0.5">
         {onSort ? (
-          <button onClick={onSort} className="hover:underline text-right">
+          <button onClick={onSort} className="inline-flex items-center gap-0.5 whitespace-nowrap hover:underline text-right">
             {col.label}
             {active && (sort.desc ? <CaretDown size={10} weight="bold" aria-hidden /> : <CaretUp size={10} weight="bold" aria-hidden />)}
           </button>
@@ -98,7 +99,7 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2' }: { col: { ke
         id={tipId}
         role="tooltip"
         hidden={!open}
-        className="absolute right-0 top-full z-20 mt-1 w-56 rounded bg-white p-2 text-left text-[12px] font-normal whitespace-normal"
+        className="absolute right-0 top-full z-20 mt-1 w-56 rounded bg-white p-2 text-left text-[13px] font-normal whitespace-normal"
         style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}
       >
         {STAT_DEFINITIONS[col.key]}
@@ -111,7 +112,8 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2' }: { col: { ke
 // "All stats" is pressed; without `expandable` (the overview preview) it stays collapsed and compact.
 // Expandable means zoomed: larger type, rows that fill the panel, and "All stats" grouped as one
 // wide table, or one table per group in a narrow panel.
-export default function StatsTable({ models, seated, expandable = true }: { models: ModelStats[]; seated?: string[]; expandable?: boolean }) {
+// Memoized: the stats screens re-render on the Race zoom, and the table only changes with its data.
+export default memo(function StatsTable({ models, seated, expandable = true }: { models: ModelStats[]; seated?: string[]; expandable?: boolean }) {
   const [sort, setSort] = useState({ key: 'bb100', desc: true });
   const [all, setAll] = useState(false);
   const expanded = all && expandable;
@@ -148,14 +150,14 @@ export default function StatsTable({ models, seated, expandable = true }: { mode
       {expandable && <button
         onClick={() => setAll(v => !v)}
         aria-expanded={all}
-        className="mt-2 self-start text-[12px] md:text-[13px] hover:underline"
+        className="mt-2 self-start text-[13px] md:text-[14px] hover:underline"
         style={{ color: 'rgb(35, 131, 226)' }}
       >
         {all ? 'Fewer stats' : `All stats (${COLUMNS.length - COLUMNS.filter(c => c.core).length} more)`}
       </button>}
     </>
   );
-}
+});
 
 // bb/100 in its colour and the ± half-width; zoomed, a small bar spans the 95% interval on a
 // scale shared by every row, with a tick at zero.
@@ -202,12 +204,28 @@ function Grid({
   caption: string;
 }) {
   const columns = groups.flatMap(g => g.columns);
+  // The sorted column is painted strong at the top row and faint at the bottom; VPIP, PFR and AF
+  // mark their highest and lowest value.
+  const sortedCol = columns.find(c => c.key === sort.key);
+  const shade = (c: Column, i: number) =>
+    c === sortedCol && c.value(rows[i]) !== null ? `rgba(35, 131, 226, ${(0.2 - (0.17 * i) / Math.max(1, rows.length - 1)).toFixed(3)})` : undefined;
+  const ends = (c: Column) => {
+    const vs = rows.map(c.value).filter((v): v is number => v !== null);
+    return vs.length > 1 && Math.max(...vs) > Math.min(...vs) ? { hi: Math.max(...vs), lo: Math.min(...vs) } : null;
+  };
+  const marks = new Map(columns.filter(c => c.extremes).map(c => [c, ends(c)]));
+  const mark = (c: Column, m: ModelStats) => {
+    const e = marks.get(c), v = c.value(m);
+    if (!e || v === null || (v !== e.hi && v !== e.lo)) return null;
+    const hi = v === e.hi;
+    return <span className="mr-1 text-[13px]" style={{ color: MUTED }} title={hi ? 'Highest' : 'Lowest'} aria-label={hi ? 'highest' : 'lowest'}>{hi ? '▲' : '▼'}</span>;
+  };
   // Every column of All stats shares the width, so its cells pad less.
-  const head = zoomed ? (grouped ? 'p-1 md:text-[13px]' : 'p-1.5 md:p-2 md:text-[13px]') : 'px-1.5 py-1';
+  const head = zoomed ? (grouped ? 'p-1 md:text-[13px]' : 'p-1.5 md:p-2 md:text-[14px]') : 'px-1.5 py-1';
   const cell = zoomed ? (grouped ? 'px-1 py-1' : 'px-1.5 py-1 md:px-2') : 'px-1.5 py-0.5';
   return (
     // Fixed layout: the table takes its panel's width and the cells truncate, so nothing scrolls sideways.
-    <table className={`w-full table-fixed tabular-nums text-[12px] ${zoomed ? 'md:text-[14px] h-full' : ''}`}>
+    <table className={`w-full table-fixed tabular-nums text-[12px] ${zoomed ? 'md:text-[15px] h-full' : ''}`}>
       <caption className="sr-only">{caption} Column headers sort the table; the info buttons explain each stat.</caption>
       <colgroup>
         {/* Narrow panels show logos only; the preview truncates names; zoomed, names get the room they need. */}
@@ -231,7 +249,7 @@ function Grid({
         </tr>
       </thead>
       <tbody className="divide-y divide-black/10">
-        {rows.map(m => (
+        {rows.map((m, i) => (
           <tr key={m.name} className="lift">
             <th scope="row" className={`${cell} text-left font-bold`}>
               <a href={modelHref(m.name)} className="flex items-center gap-2 min-w-0 hover:underline" style={{ color: TEXT }} title={m.name}>
@@ -243,8 +261,8 @@ function Grid({
               </a>
             </th>
             {columns.map(c => (
-              <td key={c.key} className={`${cell} text-right whitespace-nowrap`}>
-                {c === BB100 ? <Bb100 m={m} scale={scale} bar={zoomed && !grouped} /> : c.render(m)}
+              <td key={c.key} className={`${cell} text-right whitespace-nowrap`} style={{ background: shade(c, i) }}>
+                {c === BB100 ? <Bb100 m={m} scale={scale} bar={zoomed && !grouped} /> : <>{mark(c, m)}{c.render(m)}</>}
               </td>
             ))}
           </tr>

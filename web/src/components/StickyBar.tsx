@@ -13,7 +13,7 @@ const ACTIONS: Record<string, string> = { FOLD: 'folds', CHECK: 'checks', CALL: 
 function acting(d: DisplayState | null) {
   if (!d || d.phase === 'idle' || d.phase === 'waiting') return null;
   if (d.phase === 'revealed' && d.action) {
-    const amount = d.amount > 0 && d.action !== 'FOLD' && d.action !== 'CHECK' ? ` ¤${d.amount.toLocaleString()}` : '';
+    const amount = d.amount > 0 && d.action !== 'FOLD' && d.action !== 'CHECK' ? ` ${d.amount.toLocaleString()}` : '';
     return `${ACTIONS[d.action] ?? d.action.toLowerCase()}${amount}`;
   }
   return 'thinking…';
@@ -37,7 +37,7 @@ export default function StickyBar({ show, pot, handNumber, display }: { show: bo
             {handNumber > 0 && <span className="tabular-nums hidden sm:inline" style={{ color: MUTED }}>#{handNumber}</span>}
             <span className="tabular-nums shrink-0">
               <span style={{ color: MUTED }}>Pot </span>
-              <span className="font-bold">¤<NumberFlow value={pot} /></span>
+              <span className="font-bold"><NumberFlow value={pot} /></span>
             </span>
             {display && doing && (
               <div className="flex items-center gap-1.5 min-w-0">
