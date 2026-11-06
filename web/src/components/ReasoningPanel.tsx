@@ -70,7 +70,7 @@ export default function ReasoningPanel({
 
   return (
     <div 
-      className="relative bg-white h-[156px] rounded overflow-hidden"
+      className="relative bg-white h-[148px] rounded overflow-hidden"
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
       <p className="sr-only" aria-live="polite">{announcement}</p>

@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { DASH, MUTED, ModelStats, STAT_DEFINITIONS, TEXT, ciHalf, pct, signed } from "@/lib/stats";
+import { DASH, MUTED, ModelStats, STAT_DEFINITIONS, TEXT, brief, ciHalf, pct, signed } from "@/lib/stats";
 
 const STORAGE_KEY = "nollmit.hud";
 
@@ -56,32 +56,22 @@ export function useHudState(models: ModelStats[] | null | undefined): HudValue {
 const af = (m: ModelStats) => (m.af === null ? DASH : m.af.toFixed(1));
 const num = (n: number | null) => pct(n).replace("%", "");
 
-// A stat name with a dotted underline and its definition: shown on mouse hover, keyboard focus,
-// or a touch press-and-hold. The tooltip is portalled to <body> so no card clips it.
+// A stat name with a dotted underline and its definition: shown on mouse hover or focus (a tap
+// focuses it on touch; tapping elsewhere closes it). Portalled to <body> so no card clips it.
 function StatLabel({ k, label, children }: { k: string; label: string; children: ReactNode }) {
   const [at, setAt] = useState<DOMRect | null>(null);
-  const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const id = useId();
   const open = (el: Element) => setAt(el.getBoundingClientRect());
-  const close = () => { clearTimeout(hold.current); setAt(null); };
-  useEffect(() => () => clearTimeout(hold.current), []);
+  const close = () => setAt(null);
   const left = at ? Math.min(Math.max(8, at.left + at.width / 2 - 120), window.innerWidth - 248) : 0;
   return (
     <>
       <span
         tabIndex={0}
         aria-describedby={id}
-        className="underline decoration-dotted underline-offset-2 cursor-help select-none [-webkit-touch-callout:none]"
+        className="underline decoration-dotted underline-offset-2 cursor-help"
         onPointerEnter={e => e.pointerType === "mouse" && open(e.currentTarget)}
         onPointerLeave={e => e.pointerType === "mouse" && close()}
-        onPointerDown={e => {
-          if (e.pointerType === "mouse") return;
-          const el = e.currentTarget;
-          hold.current = setTimeout(() => open(el), 350);
-        }}
-        onPointerUp={e => e.pointerType !== "mouse" && close()}
-        onPointerCancel={close}
-        onContextMenu={e => e.preventDefault()}
         onFocus={e => open(e.currentTarget)}
         onBlur={close}
         onClick={e => e.stopPropagation()} // a tap on the label must not unpin the seat
@@ -103,16 +93,18 @@ function StatLabel({ k, label, children }: { k: string; label: string; children:
   );
 }
 
+const compact = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${brief(n, 0)}`; // 41, 1.3k
+
 const Dot = () => <span aria-hidden className="max-md:hidden" style={{ color: MUTED }}>·</span>;
 
-// The seat's third row: always reserved (two lines on desktop, three on phones) so nothing in the
-// card moves. Filled while hovered, focused or pinned, or always when the header HUD toggle is on.
+// The seat's third row: always reserved (two lines on desktop, four on phones, where bb/100 uses
+// compact figures and its ± may wrap) so nothing in the card moves. Filled while hovered, focused or pinned, or always when the header HUD toggle is on.
 // `id` lets the seat point aria-describedby at this row, so a screen reader hears the stats and
 // their definitions when the seat is focused.
 export function HudRow({ id, stats, show }: { id?: string; stats: ModelStats | undefined; show: boolean }) {
   const half = stats ? ciHalf(stats) : null;
   return (
-    <div id={id} data-hud-row className="h-[49px] md:h-[34px] shrink-0 px-2 pb-1.5 text-[12px] leading-[15px] tabular-nums" style={{ color: TEXT }}>
+    <div id={id} data-hud-row className="h-[64px] md:h-[34px] shrink-0 overflow-hidden px-2 pb-1.5 text-[12px] leading-[15px] tabular-nums" style={{ color: TEXT }}>
       {show && (stats ? (
         <div className="flex flex-wrap gap-x-1.5">
           <span className="whitespace-nowrap"><StatLabel k="vpip" label="VPIP">{num(stats.vpip)}</StatLabel></span>
@@ -120,10 +112,11 @@ export function HudRow({ id, stats, show }: { id?: string; stats: ModelStats | u
           <span className="whitespace-nowrap"><StatLabel k="pfr" label="PFR">{num(stats.pfr)}</StatLabel></span>
           <Dot />
           <span className="whitespace-nowrap"><StatLabel k="af" label="AF">{af(stats)}</StatLabel></span>
-          <span className="whitespace-nowrap md:basis-full">
+          <span className="md:whitespace-nowrap md:basis-full">
             <StatLabel k="bb100" label="bb/100">
-              {signed(stats.bb100, 0)}{" "}
-              <span style={{ color: MUTED }}>{half === null ? DASH : `±${half.toFixed(0)}`}</span>
+              <span className="whitespace-nowrap max-md:hidden">{signed(stats.bb100, 0)} <span style={{ color: MUTED }}>{half === null ? DASH : `±${half.toFixed(0)}`}</span></span>
+              <span className="whitespace-nowrap md:hidden">{compact(stats.bb100)}</span>{" "}
+              <span className="whitespace-nowrap md:hidden" style={{ color: MUTED }}>{half === null ? DASH : `±${brief(half, 0)}`}</span>
             </StatLabel>
           </span>
         </div>

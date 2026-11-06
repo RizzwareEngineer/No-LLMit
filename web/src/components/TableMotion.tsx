@@ -110,9 +110,10 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
     // Chips out: the stack went down (or, on a new hand, the blinds were posted). They land on the
     // seat's bet in front of it. The engine zeroes every currentBet before it broadcasts the action
     // that closes a street, so the closing call flies straight to the pot, and the bets left in front
-    // of the seats slide in from their spots (BetStack keeps an invisible box there for this).
+    // of the seats slide in from their chip icons (BetStack keeps an invisible box, with its last
+    // amount, there for this, so the icon has not moved).
     const pot = visibleRect('[data-pot]');
-    const bet = (idx: number) => visibleRect(`[data-bet="${idx}"]`);
+    const bet = (idx: number) => visibleRect(`[data-bet="${idx}"] .chip-stack`);
     const streetClosed = !newHand && players.every(p => p.currentBet === 0) && Object.values(before.bets).some(b => b > 0);
     let chips = false;
     players.forEach((p, idx) => {

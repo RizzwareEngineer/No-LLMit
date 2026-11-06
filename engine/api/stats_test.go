@@ -164,7 +164,7 @@ func deref(p *float64) any {
 }
 
 func newTestCache(load func() ([]history.HandRecord, error)) *statsCache {
-	return &statsCache{load: load, dirty: make(chan struct{}, 1), retryWait: time.Hour, seen: map[string]bool{}, changed: map[string]bool{}}
+	return &statsCache{load: load, dirty: make(chan struct{}, 1), retryWait: time.Hour, seen: map[string]bool{}, changed: map[string]bool{}, tableID: "tbl_test"}
 }
 
 func (c *statsCache) get(url string) (int, stats.Stats) {
@@ -276,6 +276,39 @@ func TestStatsSessionsInPlayOrderAndLiveOnlyLast(t *testing.T) {
 	if cur := session("tbl_test"); cur.Hands != 3 {
 		t.Errorf("live session hands %d", cur.Hands)
 	}
+}
+
+// After a restart the log ends with the previous run's table; the live session is the new table,
+// with no hands until its first one is saved.
+func TestStatsLiveSessionIsTheRunningTableAfterRestart(t *testing.T) {
+	hands := statsHands(t) // all from tbl_test: the previous run
+	c := newTestCache(func() ([]history.HandRecord, error) { return hands, nil })
+	c.tableID, c.tableFrom = "tbl_new", time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	go c.run()
+	waitFor(t, "the load", func() bool { code, _ := c.get("/api/stats"); return code == 200 })
+
+	_, all := c.get("/api/stats")
+	var live []stats.Session
+	for _, s := range all.Sessions {
+		if s.EndedAt == nil {
+			live = append(live, s)
+		}
+	}
+	if len(live) != 1 || live[0].ID != "tbl_new" || live[0].Hands != 0 || !live[0].StartedAt.Equal(c.tableFrom) {
+		t.Fatalf("live sessions: %+v", live)
+	}
+	if code, s := c.get("/api/stats?session=tbl_new"); code != 200 || s.Scope.Hands != 0 || len(s.Models) != 0 {
+		t.Errorf("new live session: %d %+v %d models", code, s.Scope, len(s.Models))
+	}
+	if _, old := c.get("/api/stats?session=tbl_test"); len(old.Sessions) != 1 || old.Sessions[0].EndedAt == nil {
+		t.Errorf("previous run should be ended: %+v", old.Sessions)
+	}
+
+	// The first hand of the new table fills the live session.
+	h := hands[0]
+	h.HandID, h.TableID, h.StartedAt = "tbl_new-000001", "tbl_new", c.tableFrom.Add(time.Minute)
+	c.Add(h)
+	waitFor(t, "the first new hand", func() bool { _, s := c.get("/api/stats?session=tbl_new"); return s.Scope.Hands == 1 })
 }
 
 func TestLoadSupabaseHandsWithSmallRowCap(t *testing.T) {

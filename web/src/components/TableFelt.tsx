@@ -68,11 +68,15 @@ function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
 
 // A small chip stack and the amount. Rendered (invisible) for every seat even with no bet, so
 // TableMotion can still find where a bet sat when the street closes and slide it to the pot.
+// Chips fly to and from the chip icon ([data-bet] .chip-stack).
 export function BetStack({ seat, amount, className = '', style }: { seat: number; amount: number; className?: string; style?: CSSProperties }) {
+  // Keeps the last amount while hidden, so the box (and its chip) stays where the stack sat.
+  const [last, setLast] = useState(amount);
+  if (amount > 0 && amount !== last) setLast(amount);
   return (
     <div data-bet={seat} className={`flex items-center gap-1.5 ${amount > 0 ? '' : 'invisible'} ${className}`} style={style} title={amount > 0 ? `Bet ${amount.toLocaleString()}` : undefined}>
       <span aria-hidden className="chip-stack" />
-      <span className="text-[14px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{amount > 0 ? amount.toLocaleString() : 0}</span>
+      <span className="text-[14px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{last.toLocaleString()}</span>
     </div>
   );
 }
@@ -125,14 +129,16 @@ export default function TableFelt({
             )}
           </div>
         ) : (
-          // Before and after the bets out, so pot odds can be read straight off the table. Fixed
-          // width: the box never resizes as the text changes, so its centre (the chip target) holds still.
+          // The total, bets included, is the number pot odds need; the split is secondary. Fixed width:
+          // the box never resizes as the text changes, so its centre (the chip target) holds still.
           <div
-            aria-label={`Pot ${Math.max(0, pot - betsOut).toLocaleString()}${betsOut > 0 ? `, ${pot.toLocaleString()} with bets` : ''}`}
-            className="w-[340px] max-w-full flex flex-row items-baseline justify-center gap-2 bg-white py-1 px-4 border-2 border-gray-700 shadow-sm text-[20px] leading-7 tabular-nums whitespace-nowrap text-gray-700">
-            <span>Pot</span>
-            <b><NumberFlow value={Math.max(0, pot - betsOut)} /></b>
-            {betsOut > 0 && <span className="text-gray-600">· <NumberFlow value={pot} /> with bets</span>}
+            aria-label={`Pot ${pot.toLocaleString()}${betsOut > 0 ? `: ${Math.max(0, pot - betsOut).toLocaleString()} in the middle, ${betsOut.toLocaleString()} in bets` : ''}`}
+            className="w-[340px] max-w-full flex flex-row items-baseline justify-center gap-2 bg-white py-1 px-3 border-2 border-gray-700 shadow-sm leading-7 tabular-nums whitespace-nowrap text-gray-700"
+          >
+            <span className="text-[20px]">Pot <b><NumberFlow value={pot} /></b></span>
+            {betsOut > 0 && (
+              <span className="text-[12px] text-gray-600">{Math.max(0, pot - betsOut).toLocaleString()} in the middle + {betsOut.toLocaleString()} in bets</span>
+            )}
           </div>
         )}
       </div>

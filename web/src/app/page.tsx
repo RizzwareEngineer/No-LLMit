@@ -141,7 +141,8 @@ export default function Home() {
   const session = chosen ?? all.data?.sessions.find(s => !s.ended_at)?.id ?? '';
   const pickedLive = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
   const picked = useStats(session || undefined, !!session, pickedLive ? handNumber : undefined);
-  // Profits & Losses covers the live table session (the one not ended yet).
+  // Profits & Losses covers the live table session (the one not ended yet: the table the engine
+  // is playing). Until that session has a saved hand, the panel shows this game's winnings.
   const liveId = all.data?.sessions.find(s => !s.ended_at)?.id;
   const live = useStats(liveId, !!liveId, handNumber);
   // Who is at the table now: the engine's lineup, else (an older engine) the live session's models.
@@ -313,14 +314,14 @@ export default function Home() {
         <div className="mb-1.5 flex items-center justify-center gap-3">
           <button
             disabled
-            className="btn-brutal-disabled px-3 py-1 text-[12px] flex items-center gap-2"
+            className="btn-brutal-disabled px-3 py-0.5 text-[12px] flex items-center gap-2"
           >
             <GameController size={12} weight="bold" />
             Play vs. LLMs — (coming soon)!
           </button>
           <button
             disabled
-            className="btn-brutal-disabled px-3 py-1 text-[12px] flex items-center gap-2"
+            className="btn-brutal-disabled px-3 py-0.5 text-[12px] flex items-center gap-2"
           >
             <Brain size={12} weight="bold" />
             Train an LLM to play like you (coming soon)!
@@ -382,6 +383,7 @@ export default function Home() {
                 currentPlayerIdx={currentPlayerIdx}
                 communityCards={communityCards}
                 pot={pot}
+                street={street}
                 handNumber={handNumber}
                 winnersByIdx={winnersByIdx}
                 nextHandCountdown={nextHandCountdown}
@@ -394,7 +396,7 @@ export default function Home() {
               {/* Right sidebar column - leaderboard, then API usage */}
               <div className="flex flex-col w-full md:w-[240px] shrink-0">
                 <div className="flex-1 flex flex-col min-h-0">
-                  <WinningsPanel players={players} stats={live.current && !live.sample ? live.data : null} />
+                  <WinningsPanel players={players} stats={live.current && !live.sample && (live.data?.scope.hands ?? 0) > 0 ? live.data : null} />
                 </div>
                 <div className="mt-3">
                   <UsageIndicator usage={usage} error={usageError} />

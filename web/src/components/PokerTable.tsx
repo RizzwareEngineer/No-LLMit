@@ -25,6 +25,7 @@ interface PokerTableProps {
   currentPlayerIdx: number;
   communityCards: string[];
   pot: number;
+  street: string;
   handNumber: number;
   winnersByIdx?: Record<number, WinnerInfo>;
   nextHandCountdown?: number | null;
@@ -40,6 +41,7 @@ export default function PokerTable({
   currentPlayerIdx,
   communityCards,
   pot,
+  street,
   handNumber,
   winnersByIdx = {},
   nextHandCountdown,
@@ -52,6 +54,26 @@ export default function PokerTable({
   const [firstHand, setFirstHand] = useState(0);
   if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
   const dealt = firstHand > 0 && handNumber !== firstHand;
+
+  // The engine keeps each seat's last action until the hand ends. A seat shows it only once it has
+  // acted on the current street: its action, amount or stack changed since the street started, or
+  // it was on the clock during this street (that catches a second CHECK in a row).
+  const sig = (p: PlayerState) => `${p.lastAction}|${p.lastAmount}|${p.stack}`;
+  const streetKey = `${handNumber}:${street}`;
+  const [view, setView] = useState({ key: '', start: null as Record<string, string> | null, acted: [] as string[] });
+  if (players.length && view.key !== streetKey) {
+    // The first street seen (a late joiner) has no starting point: see `shown`.
+    setView({ key: streetKey, start: view.key ? Object.fromEntries(players.map(p => [p.id, sig(p)])) : null, acted: [] });
+  }
+  const onClock = thinkingPlayerIdx !== undefined ? players[thinkingPlayerIdx]?.id : undefined;
+  if (onClock && view.key === streetKey && !view.acted.includes(onClock)) setView({ ...view, acted: [...view.acted, onClock] });
+  // Without a starting point, after the flop only seats with chips in this street have surely acted.
+  const shown = (p: PlayerState) => view.start
+    ? view.acted.includes(p.id) || view.start[p.id] !== sig(p)
+    : street === 'preflop' || p.currentBet > 0;
+  // Raises only go up, so after the flop the smallest RAISE shown this street opened the betting.
+  const raises = players.filter(p => shown(p) && p.lastAction === 'RAISE').map(p => p.lastAmount ?? 0);
+  const opened = street !== 'preflop' && raises.length ? Math.min(...raises) : null;
 
   if (players.length === 0) {
     return (
@@ -78,6 +100,8 @@ export default function PokerTable({
       seatIdx={idx}
       handNumber={handNumber}
       dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + FLIGHT) : undefined}
+      showAction={shown(players[idx])}
+      isBet={players[idx].lastAction === 'RAISE' && players[idx].lastAmount === opened}
     />
   );
 
@@ -135,7 +159,7 @@ export default function PokerTable({
           {players.map((p, idx) => (
             <div key={p.id} className="flex flex-col gap-1">
               <BetStack seat={idx} amount={p.currentBet} className="h-5 justify-center" />
-              <div className="h-[172px]">{seat(idx)}</div>
+              <div className="h-[187px]">{seat(idx)}</div>
             </div>
           ))}
         </div>
