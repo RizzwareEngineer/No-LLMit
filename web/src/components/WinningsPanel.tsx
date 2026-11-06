@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
-import { MUTED, NOT_SEATED, NOT_SEATED_HINT, StatsResponse, chips, modelHref, netColor, unseated } from "@/lib/stats";
+import { MUTED, NOT_SEATED, NOT_SEATED_HINT, StatsResponse, DASH, chips, modelHref, netColor, rosterGroups } from "@/lib/stats";
 
 interface WinningsPanelProps {
   players: PlayerState[];
@@ -13,13 +13,16 @@ interface WinningsPanelProps {
 
 interface Row {
   name: string;
-  net: number;
+  net: number | null; // null: seated, no hands yet
 }
 
 export default function WinningsPanel({ players, stats }: WinningsPanelProps) {
   // All-time net chips from /api/stats; until the first good response the panel shows this
   // game's in-memory winnings. The page keeps the last good response, so the source does not flip.
-  const statsRows: Row[] | null = stats?.models.map(m => ({ name: m.name, net: m.net_chips })) ?? null;
+  const groups = stats ? rosterGroups(stats.models, stats.seated) : null;
+  const statsRows: Row[] | null = stats && groups
+    ? [...stats.models.map(m => ({ name: m.name, net: m.net_chips })), ...groups.noHands.map(name => ({ name, net: null }))]
+    : null;
 
   const rows: Row[] = statsRows ?? players.map(p => ({ name: p.name, net: p.winnings || 0 }));
 
@@ -38,14 +41,14 @@ export default function WinningsPanel({ players, stats }: WinningsPanelProps) {
         {/* Keyed by source: switching from this game's winnings to all-time stats remounts
             the list instead of sliding every row to its new place. */}
         {rows.length > 0 && <Rankings key={statsRows ? 'stats' : 'game'} rows={rows} />}
-        {statsRows && <NotSeated names={unseated(statsRows)} />}
+        {groups && <NotSeated names={groups.unseated} />}
       </div>
     </div>
   );
 }
 
 function RankingItem({ row, rank }: { row: Row; rank: number }) {
-  const color = netColor(row.net);
+  const color = row.net === null ? MUTED : netColor(row.net);
 
   return (
     <a href={modelHref(row.name)} className="lift flex flex-row items-center gap-2 p-2 px-3">
@@ -55,9 +58,9 @@ function RankingItem({ row, rank }: { row: Row; rank: number }) {
         <div className="text-[12px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={row.name}>{row.name}</div>
       </div>
       <div className="flex flex-row items-center gap-1 text-[12px] font-bold tabular-nums" style={{ color }}>
-        {row.net > 0 && <CaretUp size={11} weight="bold" aria-hidden />}
-        {row.net < 0 && <CaretDown size={11} weight="bold" aria-hidden />}
-        {chips(row.net)}
+        {row.net !== null && row.net > 0 && <CaretUp size={11} weight="bold" aria-hidden />}
+        {row.net !== null && row.net < 0 && <CaretDown size={11} weight="bold" aria-hidden />}
+        {row.net === null ? DASH : chips(row.net)}
       </div>
     </a>
   );
@@ -86,7 +89,9 @@ function NotSeated({ names }: { names: string[] }) {
 
 // Sorted by net chips. motion's layout animation slides rows to their new rank; not draggable.
 function Rankings({ rows }: { rows: Row[] }) {
-  const ranked = [...rows].sort((a, b) => b.net - a.net);
+  // Seated models with no hands yet (net null) go last.
+  const ranked = [...rows].sort((a, b) =>
+    a.net === null || b.net === null ? (a.net === null ? 1 : 0) - (b.net === null ? 1 : 0) : b.net - a.net);
 
   return (
     <ol className="flex flex-col divide-y divide-black/10">

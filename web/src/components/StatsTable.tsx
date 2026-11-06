@@ -3,7 +3,7 @@
 import { useId, useState } from 'react';
 import { CaretDown, CaretUp, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
-import { MIN_HANDS, MUTED, ModelStats, NOT_SEATED, NOT_SEATED_HINT, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signed, unseated } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, NOT_SEATED, NOT_SEATED_HINT, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signed, rosterGroups } from '@/lib/stats';
 
 interface Column {
   key: keyof typeof STAT_DEFINITIONS;
@@ -96,7 +96,7 @@ export default function StatsTable({ models, expandable = true }: { models: Mode
     if (va === null || vb === null) return (va === null ? 1 : 0) - (vb === null ? 1 : 0);
     return (sort.desc ? -1 : 1) * (va - vb);
   });
-  const waiting = unseated(models);
+  const { noHands, unseated: waiting } = rosterGroups(models);
   const toggleSort = (c: Column) =>
     setSort(s => (s.key === c.key ? { key: c.key, desc: !s.desc } : { key: c.key, desc: !c.lowerIsBetter }));
 
@@ -124,6 +124,17 @@ export default function StatsTable({ models, expandable = true }: { models: Mode
                   </a>
                 </th>
                 {columns.map(c => <td key={c.key} className="p-2 text-right whitespace-nowrap">{c.render(m)}</td>)}
+              </tr>
+            ))}
+            {noHands.map(name => (
+              <tr key={name}>
+                <th scope="row" className="p-2 text-left font-bold sticky left-0 bg-white whitespace-nowrap">
+                  <span className="flex items-center gap-2" style={{ color: TEXT }}>
+                    <LLMLogo model={name} size={20} />
+                    {name}
+                  </span>
+                </th>
+                {columns.map(c => <td key={c.key} className="p-2 text-right" style={{ color: MUTED }}>{DASH}</td>)}
               </tr>
             ))}
           </tbody>

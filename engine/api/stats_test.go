@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -190,11 +191,15 @@ func TestStatsEndpoint(t *testing.T) {
 		t.Errorf("before the first load: %d", code)
 	}
 
+	c.seated = []string{"A", "B"}
 	go c.run()
 	c.Add(hands[4]) // a hand saved while loading is kept
 	waitFor(t, "5 hands", func() bool { _, s := c.get("/api/stats"); return s.Scope.Hands == 5 })
-	if code, s := c.get("/api/stats?session=tbl_test"); code != 200 || s.Scope.Hands != 5 || s.GeneratedAt.IsZero() {
-		t.Errorf("session: %d %+v", code, s.Scope)
+	if _, s := c.get("/api/stats"); !reflect.DeepEqual(s.Seated, c.seated) {
+		t.Errorf("all-time seated: %v", s.Seated)
+	}
+	if code, s := c.get("/api/stats?session=tbl_test"); code != 200 || s.Scope.Hands != 5 || s.GeneratedAt.IsZero() || !reflect.DeepEqual(s.Seated, c.seated) {
+		t.Errorf("live session: %d %+v seated %v", code, s.Scope, s.Seated)
 	}
 	if code, _ := c.get("/api/stats?session=nope"); code != http.StatusNotFound {
 		t.Errorf("unknown session: %d", code)

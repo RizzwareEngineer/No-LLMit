@@ -46,13 +46,13 @@ def test_parse_lineup_custom():
     assert registry.parse_lineup(" , ".join(names)) == names
 
 
-@pytest.mark.parametrize("value", [
-    "Not A Model," + ",".join(list(registry.MODELS)[:8]),
-    ",".join(list(registry.MODELS)[:8]),
-    ",".join(list(registry.MODELS)[:8] + ["Phi-4"]),
+@pytest.mark.parametrize("value, message", [
+    ("Not A Model," + ",".join(list(registry.MODELS)[:8]), "entry 1 'Not A Model' is not in the roster"),
+    (",".join(list(registry.MODELS)[:8]), "has 8 names"),
+    (",".join(list(registry.MODELS)[:8] + ["Phi-4"]), "entry 9 'Phi-4' is listed twice"),
 ])
-def test_parse_lineup_rejects(value):
-    with pytest.raises(ValueError):
+def test_parse_lineup_rejects_naming_the_entry(value, message):
+    with pytest.raises(ValueError, match=re.escape(message)):
         registry.parse_lineup(value)
 
 

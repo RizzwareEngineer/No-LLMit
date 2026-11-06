@@ -78,6 +78,8 @@ type Table struct {
 	openHour  int
 	closeHour int
 	hoursZone *time.Location
+
+	seated []string // the lineup, from lineup(); set before Run
 }
 
 // onSaved, if set, is called with each hand once it is saved.
@@ -92,6 +94,7 @@ func NewTable(onSaved func(history.HandRecord)) *Table {
 		pace:         envFloat("TABLE_PACE", 1),
 		openHour:     envInt("TABLE_OPEN_HOUR", 0),
 		closeHour:    envInt("TABLE_CLOSE_HOUR", 24),
+		seated:       defaultPlayers,
 	}
 	if zone := os.Getenv("TABLE_TIMEZONE"); zone != "" && t.closeHour > t.openHour {
 		loc, err := time.LoadLocation(zone)
@@ -411,7 +414,7 @@ func (t *Table) Run() {
 func (t *Table) startGame() {
 	t.mu.Lock()
 	t.gs = game.NewGame(game.GameConfig{
-		PlayerNames:   t.lineup(),
+		PlayerNames:   t.seated,
 		StartingStack: tableStartingStack,
 		Stakes:        game.Stakes{SmallBlind: tableSmallBlind, BigBlind: tableBigBlind},
 	})
@@ -456,21 +459,35 @@ func (t *Table) lineup() []string {
 		}
 		session = len(ids)
 	}
-	return seatedPlayers(func() ([]string, error) { return client.GetSeated(session) })
+	return seatedPlayers(func() ([]string, error) { return client.GetSeated(session) }, lineupTries, lineupWait)
 }
 
-// seatedPlayers returns what fetch reports, or defaultPlayers when it fails.
-func seatedPlayers(fetch func() ([]string, error)) []string {
-	names, err := fetch()
-	if err == nil && len(names) < 2 {
-		err = fmt.Errorf("only %d seated", len(names))
+// About a minute: long enough for the LLM service to boot after the engine, so a custom
+// LINEUP is not silently replaced by the default nine.
+const (
+	lineupTries = 12
+	lineupWait  = 5 * time.Second
+)
+
+// seatedPlayers returns what fetch reports, asking up to tries times wait apart, or
+// defaultPlayers when every attempt fails.
+func seatedPlayers(fetch func() ([]string, error), tries int, wait time.Duration) []string {
+	var err error
+	for i := 0; i < tries; i++ {
+		if i > 0 {
+			time.Sleep(wait)
+		}
+		var names []string
+		if names, err = fetch(); err == nil && len(names) < 2 {
+			err = fmt.Errorf("only %d seated", len(names))
+		}
+		if err == nil {
+			log.Printf("Lineup: %v", names)
+			return names
+		}
 	}
-	if err != nil {
-		log.Printf("!!! Lineup unavailable (%v); seating the default nine", err)
-		return defaultPlayers
-	}
-	log.Printf("Lineup: %v", names)
-	return names
+	log.Printf("!!! Lineup unavailable after %d tries (%v); seating the default nine, LINEUP is ignored until restart", tries, err)
+	return defaultPlayers
 }
 
 func (t *Table) playHand() {

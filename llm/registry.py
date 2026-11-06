@@ -78,11 +78,13 @@ def parse_lineup(value: str | None) -> list[str]:
     if not value or not value.strip():
         return list(DEFAULT_LINEUP)
     names = [n.strip() for n in value.split(",") if n.strip()]
-    unknown = [n for n in names if n not in MODELS]
-    if unknown:
-        raise ValueError(f"LINEUP has names not in the roster: {unknown}")
-    if len(set(names)) != len(names) or len(names) != SEATS:
-        raise ValueError(f"LINEUP needs {SEATS} distinct names, got {names}")
+    for i, name in enumerate(names, 1):
+        if name not in MODELS:
+            raise ValueError(f"LINEUP entry {i} {name!r} is not in the roster (llm/registry.py MODELS)")
+        if name in names[:i - 1]:
+            raise ValueError(f"LINEUP entry {i} {name!r} is listed twice")
+    if len(names) != SEATS:
+        raise ValueError(f"LINEUP has {len(names)} names; it needs exactly {SEATS}")
     return names
 
 
