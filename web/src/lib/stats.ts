@@ -182,6 +182,13 @@ export const DASH = '—';
 export const signed = (n: number, digits = 1) =>
   `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toFixed(digits)}`;
 
+// A magnitude for a narrow cell: 12.3 below a thousand, 12.6k above, so it never needs clipping.
+export const brief = (n: number, digits = 1) =>
+  Math.abs(n) < 1000 ? Math.abs(n).toFixed(digits) : Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase();
+
+// signed() in brief form: +12.3, −12.6k.
+export const signedBrief = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${brief(n)}`;
+
 export const chips = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}¤${Math.abs(n).toLocaleString()}`;
 
 export const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;

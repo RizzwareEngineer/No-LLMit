@@ -3,7 +3,7 @@
 import { useId, useState } from 'react';
 import { CaretDown, CaretUp, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
-import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signed, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signedBrief, brief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
 interface Column {
   key: keyof typeof STAT_DEFINITIONS;
@@ -24,7 +24,7 @@ const GROUPS: { label: string; columns: Column[] }[] = [
     columns: [
       { key: 'hands', core: true, label: 'Hands', value: m => m.hands, render: m => m.hands.toLocaleString() },
       BB100,
-      { key: 'aiev_bb100', label: 'All-in adj.', value: m => m.aiev_bb100, render: m => signed(m.aiev_bb100) },
+      { key: 'aiev_bb100', label: 'All-in adj.', value: m => m.aiev_bb100, render: m => signedBrief(m.aiev_bb100) },
     ],
   },
   {
@@ -51,7 +51,7 @@ const GROUPS: { label: string; columns: Column[] }[] = [
     columns: [
       { key: 'error_rate', label: 'Errors', value: m => m.error_rate, render: m => pct(m.error_rate), lowerIsBetter: true },
       { key: 'avg_latency_ms', label: 'Latency', value: m => m.avg_latency_ms, render: m => `${(m.avg_latency_ms / 1000).toFixed(1)} s`, lowerIsBetter: true },
-      { key: 'cost_per_hand_usd', label: 'Cost/hand', value: m => m.cost_per_hand_usd, render: m => `$${m.cost_per_hand_usd.toFixed(4)}`, lowerIsBetter: true },
+      { key: 'cost_per_hand_usd', label: 'Cost / hand', value: m => m.cost_per_hand_usd, render: m => `$${m.cost_per_hand_usd.toFixed(4)}`, lowerIsBetter: true },
     ],
   },
 ];
@@ -73,7 +73,7 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2' }: { col: { ke
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
-      <span className="inline-flex flex-wrap items-end justify-end gap-0.5 [overflow-wrap:anywhere]">
+      <span className="inline-flex flex-wrap items-end justify-end gap-0.5">
         {onSort ? (
           <button onClick={onSort} className="hover:underline text-right">
             {col.label}
@@ -165,8 +165,8 @@ function Bb100({ m, scale, bar }: { m: ModelStats; scale: number; bar: boolean }
   const at = (v: number) => W / 2 + (v / scale) * (W / 2);
   return (
     <span className="inline-flex items-center justify-end gap-1.5">
-      <span style={{ color: netColor(m.bb100) }} className="font-bold">{signed(m.bb100)}</span>
-      <span style={{ color: MUTED }}>± {half === null ? DASH : half.toFixed(half >= 100 ? 0 : 1)}</span>
+      <span style={{ color: netColor(m.bb100) }} className="font-bold">{signedBrief(m.bb100)}</span>
+      <span style={{ color: MUTED }}>±{half === null ? DASH : brief(half, half >= 100 ? 0 : 1)}</span>
       {bar && (
         <svg width={W} height={10} aria-hidden className="shrink-0 @max-lg:hidden">
           <line x1={W / 2} x2={W / 2} y1={0} y2={10} stroke="rgba(55, 53, 47, 0.35)" />
@@ -226,7 +226,7 @@ function Grid({
           </tr>
         )}
         <tr className="border-b border-notion">
-          <th scope="col" className={`${head} text-left font-medium align-bottom`} style={{ color: MUTED }}>Model</th>
+          <th scope="col" className={`${head} text-left font-medium align-bottom`} style={{ color: MUTED }}><span className="@max-md:sr-only">Model</span></th>
           {columns.map(c => <HeaderCell key={c.key} col={c} sort={sort} onSort={() => onSort(c)} className={head} />)}
         </tr>
       </thead>
@@ -243,8 +243,8 @@ function Grid({
               </a>
             </th>
             {columns.map(c => (
-              <td key={c.key} className={`${cell} text-right whitespace-nowrap overflow-hidden`}>
-                {c === BB100 ? <Bb100 m={m} scale={scale} bar={zoomed} /> : c.render(m)}
+              <td key={c.key} className={`${cell} text-right whitespace-nowrap`}>
+                {c === BB100 ? <Bb100 m={m} scale={scale} bar={zoomed && !grouped} /> : c.render(m)}
               </td>
             ))}
           </tr>

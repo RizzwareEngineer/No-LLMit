@@ -4,20 +4,30 @@ import { useRef, useState } from 'react';
 import LLMLogo from '@/components/LLMLogo';
 import { MUTED, ModelStats, TEXT, chips, modelHref, netColor, plural, signed } from '@/lib/stats';
 
-// A model's net chips over every pot it shared with another model.
-export const pairwiseTotal = (m: ModelStats) => Object.values(m.vs ?? {}).reduce((s, v) => s + v.net_chips, 0);
-
-// One sentence naming the pairwise leader and where most of its chips came from.
+// One sentence naming the chip leader and where most of its chips came from. The figure is the
+// model's net chips, the same number as everywhere else on the page.
 export function pairwiseVerdict(models: ModelStats[]) {
-  const [leader] = [...models].sort((a, b) => pairwiseTotal(b) - pairwiseTotal(a));
-  const total = leader ? pairwiseTotal(leader) : 0;
+  const [leader] = [...models].sort((a, b) => b.net_chips - a.net_chips);
+  const total = leader?.net_chips ?? 0;
   if (!leader || total <= 0) return 'Nobody is up against the field yet.';
   const [from, v] = Object.entries(leader.vs).sort((a, b) => b[1].net_chips - a[1].net_chips)[0];
   return `${leader.name} is up ${chips(total).slice(1)}, ${v.net_chips > total / 2 ? 'most of it' : 'the biggest share'} from ${from}.`;
 }
 
-// +¤53,743 as +53.7k, for cells too narrow for the full figure.
-const short = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: Math.abs(n) < 1e4 ? 1 : 0 }).format(Math.abs(n))}`;
+// +¤53,743 as +54k, for cells too narrow for the full figure.
+const short = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: Math.abs(n) < 1e4 ? 1 : 0 }).format(Math.abs(n)).toLowerCase()}`;
+
+// A figure sized by its own cell (an inline-size container): the full figure where it fits at a
+// readable size, else the short one shrunk to the width, and in a sliver too narrow for 9px text
+// none (the tint and the tooltip carry it). Never clipped. Screen readers get the full figure.
+function Fit({ n }: { n: number }) {
+  return (
+    <div className="@container w-full" aria-hidden>
+      <span className="hidden @min-[70px]:inline" style={{ fontSize: 'min(1em, 19cqi)' }}>{chips(n)}</span>
+      <span className="hidden @min-[30px]:inline @min-[70px]:hidden" style={{ fontSize: 'min(1em, 29cqi)' }}>{short(n)}</span>
+    </div>
+  );
+}
 
 // Chips won from each opponent in pots they both played. With `focus`, one model's opponents
 // as a list (the drawer); without it, the full grid of row model against column model, rows
@@ -71,9 +81,9 @@ export default function HeadToHead({
     return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
   }
 
-  const sorted = [...models].sort((a, b) => pairwiseTotal(b) - pairwiseTotal(a));
+  const sorted = [...models].sort((a, b) => b.net_chips - a.net_chips);
   const maxCell = Math.max(1, ...sorted.flatMap(m => Object.values(m.vs ?? {}).map(v => Math.abs(v.net_chips))));
-  const maxTotal = Math.max(1, ...sorted.map(m => Math.abs(pairwiseTotal(m))));
+  const maxTotal = Math.max(1, ...sorted.map(m => Math.abs(m.net_chips)));
   // Cell tint: stronger with the size of the result, green when the row model won.
   const tint = (n: number) => `rgba(${n > 0 ? '15, 123, 108' : '200, 50, 50'}, ${(0.05 + 0.3 * Math.abs(n) / maxCell).toFixed(3)})`;
   const bb100 = (net: number, pots: number) => (bigBlind && pots ? signed((net / bigBlind / pots) * 100) : null);
@@ -111,7 +121,7 @@ export default function HeadToHead({
           </thead>
           <tbody>
             {sorted.map(row => {
-              const total = pairwiseTotal(row);
+              const total = row.net_chips;
               return (
                 <tr key={row.name}>
                   <th scope="row" className="text-left font-medium pr-1 overflow-hidden">
@@ -128,25 +138,28 @@ export default function HeadToHead({
                     return (
                       <td
                         key={col.name}
-                        className="text-center rounded-sm font-bold whitespace-nowrap overflow-hidden"
+                        className="text-center rounded-sm font-bold whitespace-nowrap"
                         style={{ color: netColor(v.net_chips), background: tint(v.net_chips) }}
                         onMouseEnter={e => show(e, row.name, col.name)}
                       >
-                        <span className="@max-4xl:hidden">{chips(v.net_chips)}</span>
-                        <span className="@4xl:hidden">{short(v.net_chips)}</span>
-                        <span className="sr-only"> vs {col.name} over {plural(v.pots, 'pot')}</span>
+                        <Fit n={v.net_chips} />
+                        <span className="sr-only">{chips(v.net_chips)} vs {col.name} over {plural(v.pots, 'pot')}</span>
                       </td>
                     );
                   })}
-                  <td className="pl-1 text-right font-bold whitespace-nowrap overflow-hidden" style={{ color: netColor(total), fontSize: zoomed ? 'max(14px, 1.1em)' : '1.05em' }}>
-                    <span className="flex items-center gap-1.5">
-                      {/* A bar as long as the total, against the largest total either way. */}
-                      <span aria-hidden className="flex-1 h-2 rounded-sm @max-xl:hidden" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
-                        <span className="block h-full rounded-sm" style={{ width: `${(Math.abs(total) / maxTotal) * 100}%`, background: netColor(total), opacity: 0.7 }} />
+                  <td className="pl-1 text-right font-bold whitespace-nowrap" style={{ color: netColor(total), fontSize: zoomed ? 'max(14px, 1.1em)' : '1.05em' }}>
+                    {/* Sized by its own cell: bar and full figure when wide, the short figure when narrow. */}
+                    <div className="@container w-full">
+                      <span className="flex items-center justify-end gap-1.5" aria-hidden>
+                        {/* A bar as long as the total, against the largest total either way. */}
+                        <span className="hidden @min-[150px]:block flex-1 h-2 rounded-sm" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
+                          <span className="block h-full rounded-sm" style={{ width: `${(Math.abs(total) / maxTotal) * 100}%`, background: netColor(total), opacity: 0.7 }} />
+                        </span>
+                        <span className="hidden @min-[84px]:inline" style={{ fontSize: 'min(1em, 17cqi)' }}>{chips(total)}</span>
+                        <span className="@min-[84px]:hidden" style={{ fontSize: 'min(1em, 26cqi)' }}>{short(total)}</span>
                       </span>
-                      <span className="@max-4xl:hidden">{chips(total)}</span>
-                      <span className="@4xl:hidden">{short(total)}</span>
-                    </span>
+                      <span className="sr-only">{chips(total)}</span>
+                    </div>
                   </td>
                 </tr>
               );

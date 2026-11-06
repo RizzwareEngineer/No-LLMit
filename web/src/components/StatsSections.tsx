@@ -95,10 +95,10 @@ export default memo(function StatsSections({
     // Screen 1 can still change height as the table fills in (and scroll anchoring may move the
     // page with it); keep the landing on the screen's edge for a few seconds, until the visitor
     // scrolls or presses a key. A scroll that leaves the screen's edge without one of those inputs
-    // (scrollbar drag, find in page, a script) also ends it; anchoring keeps the edge in place.
+    // (the rest of the browser's smooth fragment scroll, anchoring) lands it again.
     const land = () => window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' });
     const ro = new ResizeObserver(land);
-    const onScroll = () => Math.abs(el.getBoundingClientRect().top) > 2 && stop();
+    const onScroll = () => Math.abs(el.getBoundingClientRect().top) > 2 && land();
     const stop = () => {
       ro.disconnect();
       clearTimeout(timer);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { MUTED, ModelStats, ciHalf, signed } from '@/lib/stats';
@@ -81,6 +81,7 @@ export default function CumulativeChart({
   const reduce = useReducedMotion();
   // The hand under the pointer (or picked with the arrow keys) and the line nearest it.
   const [hover, setHover] = useState<{ n: number; name: string } | null>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -116,8 +117,14 @@ export default function CumulativeChart({
   const hot = hover ? models.find(m => m.name === hover.name) : undefined; // the hovered line
   const ordered = [...models.filter(m => m !== sel && m !== hot), ...(sel && sel !== hot ? [sel] : []), ...(hot ? [hot] : [])]; // selected, then hovered, on top
   // End logos: each line's last value, nudged apart so none overlap.
+  // Lines that reach (nearly) the last hand get a logo in the right gutter, spread so none overlap
+  // and never past the plot (they may overlap a little when there are too many to fit). A line
+  // that stopped early (a model that left the table) gets its logo where its data ends.
   const ends = [...models].map(m => ({ m, n: m.cumulative_bb.at(-1)?.[0] ?? 0, v: m.cumulative_bb.at(-1)?.[1] ?? 0 })).sort((a, b) => y(a.v) - y(b.v));
-  const endYs = spread(ends.map(e => y(e.v)), logo + 2, PAD.top + logo / 2 - 6, height - PAD.bottom - logo / 2 + 6);
+  const full = ends.filter(e => e.n >= maxHand * 0.95);
+  const early = ends.filter(e => e.n < maxHand * 0.95);
+  const [lo, hi] = [PAD.top + logo / 2, height - PAD.bottom - logo / 2];
+  const endYs = spread(full.map(e => y(e.v)), Math.min(logo + 2, (hi - lo) / Math.max(1, full.length - 1)), lo, hi);
   const readout = hover ? [...models].map(m => ({ m, v: valueAt(m.cumulative_bb, hover.n) })).sort((a, b) => b.v - a.v) : [];
 
   const pick = (clientX: number, clientY: number) => {
@@ -129,6 +136,28 @@ export default function CumulativeChart({
     }, { name: '', d: Infinity });
     setHover({ n, name: near.name });
   };
+  // Rows of the readout that fit the plot's height: the top ones, the hovered one and the last.
+  const fit = Math.max(3, Math.floor((height - PAD.top - 30) / 18));
+  const rows = readout.length <= fit ? readout : readout.filter((r, i) => i < fit - 2 || i === readout.length - 1 || r.m === hot);
+  const summary = models
+    .map(m => `${m.name} ${signed(m.cumulative_bb.at(-1)?.[1] ?? 0)} bb after ${m.cumulative_bb.at(-1)?.[0] ?? 0} hands`)
+    .join('; ');
+  const label = `Cumulative big blinds won over hands. ${summary}. Shaded: 95% band for ${sel?.name}.`;
+  const lead = readout[0];
+  const said = hover && lead
+    ? `Hand ${hover.n}: ${lead.m.name} leads at ${signed(lead.v)} bb` + (hot && hot !== lead.m ? `; ${hot.name} ${signed(readout.find(r => r.m === hot)!.v)} bb.` : '.')
+    : '';
+
+  // The readout sits beside the crosshair on whichever side it fits, clamped inside the plot.
+  const crossX = hover ? x(hover.n) : 0;
+  useLayoutEffect(() => {
+    const tip = tipRef.current;
+    if (!tip) return;
+    const tw = tip.offsetWidth;
+    const want = crossX + 10 + tw <= w - 4 ? crossX + 10 : crossX - 10 - tw;
+    tip.style.left = `${Math.max(4, Math.min(want, w - tw - 4))}px`;
+  });
+
   const step = Math.max(1, Math.round(maxHand / 40));
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') return setHover(null);
@@ -137,26 +166,24 @@ export default function CumulativeChart({
     const n0 = hover?.n ?? (e.key === 'ArrowLeft' ? maxHand + step : -step);
     setHover({ n: Math.min(Math.max(n0 + (e.key === 'ArrowRight' ? step : -step), 0), maxHand), name: hover?.name || sel?.name || '' });
   };
-  const summary = models
-    .map(m => `${m.name} ${signed(m.cumulative_bb.at(-1)?.[1] ?? 0)} bb after ${m.cumulative_bb.at(-1)?.[0] ?? 0} hands`)
-    .join('; ');
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {/* The svg is absolute so its height comes from the panel, never the other way round. */}
       <div
         ref={ref}
-        className="relative w-full flex-1 min-h-[120px] outline-offset-2"
+        className="relative w-full flex-1 min-h-[120px] outline-offset-2 overflow-hidden"
         onPointerMove={race ? e => e.pointerType !== 'touch' && pick(e.clientX, e.clientY) : undefined}
         onPointerDown={race ? e => pick(e.clientX, e.clientY) : undefined}
-        onPointerLeave={race ? () => setHover(null) : undefined}
+        onPointerLeave={race ? e => e.pointerType !== 'touch' && setHover(null) : undefined} // a tap keeps its readout
         // Focusable only where the chart is interactive (the zoomed Race screen).
         tabIndex={race && onSelect ? 0 : undefined}
         onKeyDown={race && onSelect ? onKey : undefined}
         onBlur={race ? () => setHover(null) : undefined}
-        aria-label={race && onSelect ? 'Race chart. Left and right arrows step through the hands and read out every model.' : undefined}
+        role="img"
+        aria-label={race && onSelect ? `${label} Left and right arrows step through the hands.` : label}
       >
-        <svg className="absolute inset-0" width="100%" height={height} viewBox={`0 0 ${w} ${height}`} role="img" aria-label={`Cumulative big blinds won over hands. ${summary}. Shaded: 95% band for ${sel?.name}.`}>
+        <svg className="absolute inset-0" width="100%" height={height} viewBox={`0 0 ${w} ${height}`} aria-hidden>
           {yTicks.map(t => (
             <g key={t}>
               <line x1={left} x2={w - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.35)' : GRID} />
@@ -186,9 +213,9 @@ export default function CumulativeChart({
               />
             );
           })}
-          {race && ends.map((e, i) => (
-            // A leader from the line's end to its logo, visible once the logo was nudged.
-            <path key={e.m.name} d={`M${x(e.n)},${y(e.v)}L${w - right + 2},${endYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} opacity={0.5} fill="none" />
+          {race && full.map((e, i) => (
+            // A dotted leader from the line's end to its logo, so a nudged logo never reads as data.
+            <path key={e.m.name} d={`M${x(e.n)},${y(e.v)}L${w - right + 2},${endYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" opacity={0.45} fill="none" />
           ))}
           {hover && (
             <g pointerEvents="none">
@@ -199,27 +226,35 @@ export default function CumulativeChart({
             </g>
           )}
         </svg>
-        {race && ends.map((e, i) => (
+        {race && full.map((e, i) => (
           <div key={e.m.name} className="absolute pointer-events-none" style={{ left: w - right + 4, top: endYs[i] - logo / 2 }} title={e.m.name}>
             <LLMLogo model={e.m.name} size={logo} />
           </div>
         ))}
+        {race && early.map(e => (
+          <div key={e.m.name} className="absolute pointer-events-none" style={{ left: x(e.n) + 3, top: y(e.v) - logo / 2 + 2 }} title={e.m.name}>
+            <LLMLogo model={e.m.name} size={logo - 4} />
+          </div>
+        ))}
         {/* The readout floats over the plot (no layout shift), on the side away from the cursor. */}
+        {/* Always mounted, so the first arrow press is announced too; it says the leader and the highlighted line. */}
+        {race && <div role="status" className="sr-only">{said}</div>}
         {hover && (
           <div
-            aria-live="polite"
-            className="absolute z-10 pointer-events-none rounded bg-white px-2 py-1.5 text-[12px] tabular-nums"
+            ref={tipRef}
+            aria-hidden
+            className="absolute z-10 pointer-events-none rounded bg-white px-2 py-1.5 text-[12px] tabular-nums max-w-[calc(100%-8px)]"
             style={{
               top: PAD.top,
-              ...(x(hover.n) > w / 2 ? { right: w - x(hover.n) + 10 } : { left: x(hover.n) + 10 }),
+              left: Math.min(crossX + 10, w - 4),
               boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px',
             }}
           >
             <div className="font-medium mb-0.5" style={{ color: MUTED }}>Hand {hover.n.toLocaleString()}</div>
-            {(height < 260 ? readout.filter((r, i) => i < 3 || i >= readout.length - 1 || r.m === hot) : readout).map(({ m, v }) => (
+            {rows.map(({ m, v }) => (
               <div key={m.name} className={`flex items-center gap-1.5 whitespace-nowrap ${m === hot ? 'font-bold' : ''}`} style={{ color: 'rgb(55, 53, 47)' }}>
                 <span aria-hidden className="inline-block w-2 h-2 rounded-full" style={{ background: modelColor(m.name) }} />
-                <span className="flex-1">{m.name}</span>
+                <span className="flex-1 min-w-0 truncate">{m.name}</span>
                 <span className="pl-3">{signed(v)} bb</span>
               </div>
             ))}

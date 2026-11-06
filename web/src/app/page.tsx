@@ -181,8 +181,10 @@ export default function Home() {
       const dir = e.deltaY > 0 ? 1 : -1;
       if (t?.closest('dialog') || scrollsInside(t, dir)) return;
       e.preventDefault();
-      const now = performance.now();
-      if (now < lockUntil && dir === lockDir) {
+      const now = e.timeStamp; // when the input happened, so main-thread jank never reads as a pause
+      // A reversal pages only when it is deliberate: one small opposite event in a noisy
+      // momentum tail just extends the lock.
+      if (now < lockUntil && (dir === lockDir || Math.abs(e.deltaY) < 10)) {
         lockUntil = Math.max(lockUntil, now + 200);
         return;
       }
