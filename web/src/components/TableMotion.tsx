@@ -43,7 +43,7 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: DOMRect | null, to
   el.className = `flight-${kind}`;
   el.style.opacity = '0';
   layer.appendChild(el);
-  // The layer may sit under CSS zoom (.screen-fit on short windows): convert viewport px to its px.
+  // The layer may sit under CSS zoom (.stage-zoom on wide windows): convert viewport px to its px.
   const z = layer.getBoundingClientRect().width / layer.offsetWidth || 1;
   const [x0, y0] = [(from.left + from.width / 2) / z, (from.top + from.height / 2) / z];
   const [x1, y1] = [(to.left + to.width / 2) / z, (to.top + to.height / 2) / z];

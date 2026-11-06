@@ -373,7 +373,7 @@ export default function Home() {
 
         {/* Main content */}
         <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
-          <div className="flex flex-col w-full md:w-auto">
+          <div className="stage-zoom flex flex-col w-full md:w-auto">
             {/* Row 1: Table + Winnings (stacked on phones) */}
             <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-3 items-stretch relative">
               {/* Main game grid */}
