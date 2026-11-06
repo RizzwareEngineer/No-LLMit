@@ -189,7 +189,7 @@ export const brief = (n: number, digits = 1) =>
 // signed() in brief form: +12.3, −12.6k.
 export const signedBrief = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${brief(n)}`;
 
-export const chips = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}¤${Math.abs(n).toLocaleString()}`;
+export const chips = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toLocaleString()}`;
 
 export const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 

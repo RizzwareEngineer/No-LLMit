@@ -16,7 +16,7 @@ import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
 import { MUTED, useStats } from "@/lib/stats";
-import { pageBy, resnap, scrollsInside } from "@/components/Section";
+import { isPaging, pageBy, resnap, scrollsInside } from "@/components/Section";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -138,6 +138,12 @@ export default function Home() {
   const all = useStats(undefined, true, handNumber);
   const pickedLive = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
   const picked = useStats(session || undefined, !!session, pickedLive ? handNumber : undefined);
+  // Who is at the table now: the engine's lineup, else (an older engine) the models with hands in
+  // the live session, fetched only for that fallback.
+  const liveId = all.data?.sessions.find(s => !s.ended_at)?.id;
+  const needLive = !!all.data && !all.data.seated && !!liveId;
+  const live = useStats(needLive ? liveId : undefined, needLive, handNumber);
+  const seated = all.data?.seated ?? (needLive ? live.data?.models.map(m => m.name) : undefined);
   // The HUD reads the same all-time fetch; the bundled dev sample never feeds the seats.
   const hud = useHudState(all.sample ? null : all.data?.models);
 
@@ -179,15 +185,18 @@ export default function Home() {
       if (e.ctrlKey || e.defaultPrevented || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       const t = e.target instanceof Element ? e.target : null;
       const dir = e.deltaY > 0 ? 1 : -1;
-      if (t?.closest('dialog') || scrollsInside(t, dir)) return;
-      e.preventDefault();
+      if (t?.closest('dialog')) return;
       const now = e.timeStamp; // when the input happened, so main-thread jank never reads as a pause
       // A reversal pages only when it is deliberate: one small opposite event in a noisy
-      // momentum tail just extends the lock.
+      // momentum tail just extends the lock. The lock comes before the panel check: the tail of a
+      // flick that paged onto a card must not scroll that card's panel, then page again at its end.
       if (now < lockUntil && (dir === lockDir || Math.abs(e.deltaY) < 10)) {
+        e.preventDefault();
         lockUntil = Math.max(lockUntil, now + 200);
         return;
       }
+      if (scrollsInside(t, dir)) return;
+      e.preventDefault();
       if (Math.abs(e.deltaY) < 4) return;
       lockUntil = pageBy(dir) ? now + 700 : 0;
       lockDir = dir;
@@ -200,7 +209,7 @@ export default function Home() {
       if (!t?.matches(':focus-visible') || t.closest('dialog')) return;
       const stats = document.getElementById('stats');
       const min = stats && t.closest('[data-stage]') ? stats.getBoundingClientRect().top + window.scrollY : 0;
-      requestAnimationFrame(() => resnap(min));
+      requestAnimationFrame(() => !isPaging() && resnap(min)); // a click-to-jump focuses its destination as it pages
     };
     const onResize = () => window.innerWidth >= 768 && resnap();
     window.addEventListener('keydown', onKey);
@@ -319,7 +328,7 @@ export default function Home() {
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
               <span className="text-[12px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber}</span>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{stakes.smallBlind}/{stakes.bigBlind}</span>
+              <span className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
               <span className="text-[12px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
             </>
@@ -354,7 +363,7 @@ export default function Home() {
               {/* Right sidebar column - leaderboard, then API usage */}
               <div className="flex flex-col w-full md:w-[240px] shrink-0">
                 <div className="flex-1 flex flex-col min-h-0">
-                  <WinningsPanel players={players} stats={all.sample ? null : all.data} />
+                  <WinningsPanel players={players} stats={all.sample ? null : all.data} seated={seated} />
                 </div>
                 <div className="mt-3">
                   <UsageIndicator usage={usage} error={usageError} />

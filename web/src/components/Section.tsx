@@ -42,6 +42,9 @@ export function goToScreen(id: string) {
   if (el) scrollToTop(topOf(el), id);
 }
 
+// A paged scroll is underway (it ends on a screen edge by itself).
+export const isPaging = () => pendingId !== null;
+
 // Puts the page back on a screen edge after a focus scroll or a resize left it between two:
 // the screen a running paged scroll was headed for, else the nearest one (never above `min`).
 // A screen taller than the window (the phone table) is fine anywhere inside it.
@@ -85,27 +88,29 @@ export function scrollsInside(el: Element | null, dir: number) {
 
 const SPRING = { type: 'spring', stiffness: 260, damping: 32 } as const;
 
-// A stats panel: a small linked title and a card. `focused` lifts it out of the overview grid
-// to fill the stage; motion's layout animation turns that jump into a zoom (transforms only,
-// and nothing under reduced motion). The body scrolls inside itself when it overflows.
-// In the overview a click (or Enter or Space with the panel focused) scrolls to the panel's own screen,
-// except on links and controls inside it.
+// A panel of the overview: a small linked title and a card. A click (or Enter or Space with the
+// panel focused) scrolls to the panel's own screen, except on links and controls inside it.
+// `focused` (the Race panel only) lifts it out of the grid to fill the stage; motion's layout
+// animation turns that jump into the page's one zoom (transforms only, nothing under reduced
+// motion). `covered`: the zoomed panel sits over this one. The body scrolls inside itself when it overflows.
 export default function Panel({
   id,
   href,
+  land,
   title,
   aside,
-  focused,
-  covered,
+  focused = false,
+  covered = false,
   className = '',
   children,
 }: {
   id: string;
   href: string;
+  land: string; // the element on that screen that takes focus
   title: React.ReactNode;
   aside?: React.ReactNode;
-  focused: boolean;
-  covered: boolean; // another panel fills the stage over this one
+  focused?: boolean;
+  covered?: boolean;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -113,15 +118,16 @@ export default function Panel({
   const zoom = (e: React.SyntheticEvent) => {
     e.preventDefault();
     history.replaceState(null, '', href); // shareable; fires no hashchange, so the #model= drawer is untouched
+    // Focus moves to the destination first: this panel goes inert under the zoom, and React putting
+    // focus back on it would scroll it into view and cancel the scroll.
+    document.getElementById(land)?.focus({ preventScroll: true });
     goToScreen(href.slice(1));
   };
   return (
     <motion.section
-      layout
+      layout={id === 'race-panel'}
       initial={false}
-      // Covered panels fade out, so a panel-to-panel zoom never shows the overview between.
-      animate={{ opacity: covered ? 0 : 1 }}
-      transition={{ ...SPRING, opacity: { duration: 0.2 } }}
+      transition={SPRING}
       id={id}
       aria-labelledby={`${id}-title`}
       inert={covered}
@@ -132,21 +138,23 @@ export default function Panel({
       } : undefined}
       onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && zoom(e) : undefined}
       className={`flex flex-col min-h-0 min-w-0 bg-white p-3 ${focused ? 'absolute inset-0 z-20' : `relative z-0 ${className}`} ${overview ? 'cursor-zoom-in' : ''}`}
-      style={{ borderRadius: 4, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
+      style={{ borderRadius: 4, boxShadow: SHADOW }}
     >
-      <motion.div layout="position" transition={SPRING} className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 id={`${id}-title`} className="text-[14px] font-bold" style={{ color: TEXT }}>
+      <motion.div layout={id === 'race-panel' && 'position'} transition={SPRING} className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id={`${id}-title`} className={`font-bold ${focused ? 'text-[18px]' : 'text-[14px]'}`} style={{ color: TEXT }}>
           {/* Not a tab stop: the panel itself is the one stop that zooms. */}
           <a href={href} tabIndex={-1} className="hover:underline">{title}</a>
         </h2>
         {aside}
       </motion.div>
-      <motion.div layout transition={SPRING} className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">
+      <motion.div layout={id === 'race-panel'} transition={SPRING} className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">
         {children}
       </motion.div>
     </motion.section>
   );
 }
+
+export const SHADOW = 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px';
 
 // A number that counts up from zero the first time it scrolls into view, then rolls to new
 // values. NumberFlow skips the animation under prefers-reduced-motion.

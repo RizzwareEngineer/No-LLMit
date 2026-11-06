@@ -1,20 +1,28 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import LLMLogo from '@/components/LLMLogo';
 import { MUTED, ModelStats, TEXT, chips, modelHref, netColor, plural, signed } from '@/lib/stats';
 
-// One sentence naming the chip leader and where most of its chips came from. The figure is the
-// model's net chips, the same number as everywhere else on the page.
-export function pairwiseVerdict(models: ModelStats[]) {
+// The chip leader among `models` and the opponent it took the most from (when it won from any).
+export function pairwiseLeader(models: ModelStats[]) {
   const [leader] = [...models].sort((a, b) => b.net_chips - a.net_chips);
-  const total = leader?.net_chips ?? 0;
-  if (!leader || total <= 0) return 'Nobody is up against the field yet.';
-  const [from, v] = Object.entries(leader.vs).sort((a, b) => b[1].net_chips - a[1].net_chips)[0];
-  return `${leader.name} is up ${chips(total).slice(1)}, ${v.net_chips > total / 2 ? 'most of it' : 'the biggest share'} from ${from}.`;
+  if (!leader || leader.net_chips <= 0) return null;
+  const names = new Set(models.map(m => m.name));
+  const [from, v] = Object.entries(leader.vs ?? {}).filter(([n]) => names.has(n)).sort((a, b) => b[1].net_chips - a[1].net_chips)[0] ?? [];
+  return { leader: leader.name, total: leader.net_chips, from: v && v.net_chips > 0 ? { name: from!, net: v.net_chips } : null };
 }
 
-// +¤53,743 as +54k, for cells too narrow for the full figure.
+// Two short sentences: the chip leader's net chips (the same number as everywhere else on the
+// page), then the opponent it took the most from.
+export function pairwiseVerdict(models: ModelStats[]) {
+  const top = pairwiseLeader(models);
+  if (!top) return 'Nobody is up against the field yet.';
+  const fmt = (n: number) => n.toLocaleString();
+  return `${top.leader} is up ${fmt(top.total)}.` + (top.from ? ` It took the most from ${top.from.name}, ${fmt(top.from.net)}.` : '');
+}
+
+// +53,743 as +54k, for cells too narrow for the full figure.
 const short = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: Math.abs(n) < 1e4 ? 1 : 0 }).format(Math.abs(n)).toLowerCase()}`;
 
 // A figure sized by its own cell (an inline-size container): the full figure where it fits at a
@@ -32,7 +40,7 @@ function Fit({ n }: { n: number }) {
 // Chips won from each opponent in pots they both played. With `focus`, one model's opponents
 // as a list (the drawer); without it, the full grid of row model against column model, rows
 // and columns sorted by net chips over all shared pots, with a Net column on the right.
-export default function HeadToHead({
+export default memo(function HeadToHead({
   models,
   focus,
   bigBlind = 0,
@@ -94,6 +102,9 @@ export default function HeadToHead({
     setTip({ row, col, x: Math.min(Math.max(r.left - o.left + r.width / 2, 110), o.width - 110), y: below ? r.bottom - o.top + 4 : r.top - o.top - 4, below });
   };
   const tipV = tip && sorted.find(m => m.name === tip.row)?.vs[tip.col];
+  // The verdict's leader (row) and the model it took the most from (column), marked in the headers.
+  const top = pairwiseLeader(sorted);
+  const HOT = 'rgba(35, 131, 226, 0.12)';
 
   // The grid fills its panel: a size container whose cells share the space and whose text scales
   // with it (cq units). Narrow panels show logos for row names and short figures in the cells.
@@ -103,16 +114,15 @@ export default function HeadToHead({
       <div className="flex-1 min-h-0" style={{ containerType: 'size' }} onMouseLeave={() => setTip(null)}>
         {/* cq units resolve against the wrapper above, never the element that sets them. */}
         <table
-          className="w-full h-full table-fixed tabular-nums border-separate border-spacing-px @3xl:border-spacing-[2px]"
-          style={{ fontSize: zoomed ? 'clamp(9px, min(2.6cqh, 1.35cqw), 20px)' : 'clamp(10px, min(2.4cqh, 1.3cqw), 15px)' }}
+          className={`w-full h-full table-fixed tabular-nums border-separate border-spacing-px @3xl:border-spacing-[2px] ${zoomed ? 'text-[clamp(11px,min(3cqh,1.5cqw),22px)] md:text-[clamp(14px,min(3cqh,1.5cqw),22px)]' : 'text-[clamp(10px,min(2.4cqh,1.3cqw),15px)]'}`}
         >
           <caption className="sr-only">Pairwise results: chips each row model won from each column model, sorted by net chips</caption>
           <thead>
             <tr>
               <td className="w-[30px] @3xl:w-[19%]" />
               {sorted.map(m => (
-                <th key={m.name} scope="col" className="p-0.5 font-medium" title={m.name}>
-                  <span className="flex justify-center"><LLMLogo model={m.name} size={zoomed ? 20 : 16} /></span>
+                <th key={m.name} scope="col" className="p-0.5 font-medium rounded-sm" title={m.name} style={{ background: m.name === top?.from?.name ? HOT : undefined }}>
+                  <span className="flex justify-center"><LLMLogo model={m.name} size={zoomed ? 24 : 16} /></span>
                   <span className="sr-only">{m.name}</span>
                 </th>
               ))}
@@ -124,9 +134,9 @@ export default function HeadToHead({
               const total = row.net_chips;
               return (
                 <tr key={row.name}>
-                  <th scope="row" className="text-left font-medium pr-1 overflow-hidden">
-                    <a href={modelHref(row.name)} className="flex items-center gap-1.5 min-w-0 hover:underline" style={{ color: TEXT }} title={row.name}>
-                      <LLMLogo model={row.name} size={zoomed ? 20 : 16} />
+                  <th scope="row" className={`text-left pr-1 overflow-hidden rounded-sm ${row.name === top?.leader ? 'font-bold' : 'font-medium'}`} style={{ background: row.name === top?.leader ? HOT : undefined }}>
+                    <a href={modelHref(row.name)} className="flex items-center gap-1.5 min-w-0 px-1 hover:underline" style={{ color: TEXT }} title={row.name}>
+                      <LLMLogo model={row.name} size={zoomed ? 24 : 16} />
                       <span className="truncate @max-3xl:sr-only">{row.name}</span>
                     </a>
                   </th>
@@ -171,7 +181,7 @@ export default function HeadToHead({
       {tip && tipV && (
         <div
           role="tooltip"
-          className="absolute z-10 pointer-events-none w-[220px] rounded bg-white px-2 py-1.5 text-[12px] tabular-nums"
+          className="absolute z-10 pointer-events-none w-[220px] rounded bg-white px-2 py-1.5 text-[13px] tabular-nums"
           style={{ left: tip.x, top: tip.y, transform: `translate(-50%, ${tip.below ? '0' : '-100%'})`, color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}
         >
           <div className="font-medium">{tip.row} vs {tip.col}</div>
@@ -181,4 +191,4 @@ export default function HeadToHead({
       )}
     </div>
   );
-}
+});

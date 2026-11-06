@@ -163,8 +163,8 @@ export default function ModelDrawer({
 
             <Block title="Biggest pots">
               <dl className="flex gap-8">
-                <Fact label="Won" value={`¤${m.biggest_pot_won.toLocaleString()}`} color={netColor(1)} />
-                <Fact label="Lost" value={`¤${m.biggest_pot_lost.toLocaleString()}`} color={netColor(-1)} />
+                <Fact label="Won" value={`${m.biggest_pot_won.toLocaleString()}`} color={netColor(1)} />
+                <Fact label="Lost" value={`${m.biggest_pot_lost.toLocaleString()}`} color={netColor(-1)} />
               </dl>
             </Block>
 

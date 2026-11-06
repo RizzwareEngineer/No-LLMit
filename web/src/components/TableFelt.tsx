@@ -86,7 +86,7 @@ export default function TableFelt({
             {winners.slice(0, 1).map((w, i) => (
               <div key={i} className="text-center">
                 <span className="text-green-700 font-bold text-xs">{w.name}</span>
-                <span className="text-green-700 text-xs"> +¤{w.amount.toLocaleString()}</span>
+                <span className="text-green-700 text-xs"> +{w.amount.toLocaleString()}</span>
                 <div className="text-green-700 text-[11px] truncate">{w.handDesc}</div>
               </div>
             ))}
@@ -98,7 +98,7 @@ export default function TableFelt({
           <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm">
             <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>
             <div className="text-lg text-gray-700 font-bold tabular-nums">
-              ¤<NumberFlow value={pot} />
+              <NumberFlow value={pot} />
             </div>
           </div>
         )}

@@ -100,7 +100,7 @@ export default function ActionPanel({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>To Call:</span>
-            <span className="text-[13px] font-semibold" style={{ color: 'rgb(55, 53, 47)' }}>¤{isWaiting ? '—' : toCall}</span>
+            <span className="text-[13px] font-semibold" style={{ color: 'rgb(55, 53, 47)' }}>{isWaiting ? '—' : toCall}</span>
           </div>
         </div>
         
@@ -126,7 +126,7 @@ export default function ActionPanel({
               disabled={!canCall}
               className="btn-brutal-primary w-[80px] h-8 text-[11px] font-medium flex items-center justify-center disabled:opacity-50 rounded"
             >
-              Call ¤{!isWaiting ? Math.min(toCall, currentPlayerStack) : '—'}
+              Call {!isWaiting ? Math.min(toCall, currentPlayerStack) : '—'}
             </button>
           )}
           
@@ -142,7 +142,6 @@ export default function ActionPanel({
               className={`relative bg-white h-8 w-[70px] rounded-r ${!canDoAction('raise') ? 'opacity-50' : ''}`}
               style={{ border: '1px solid rgb(203, 145, 47)', borderLeft: 'none' }}
             >
-              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] font-medium pointer-events-none" style={{ color: 'rgb(203, 145, 47)' }}>¤</span>
               <input
                 type="text"
                 inputMode="numeric"
@@ -161,13 +160,13 @@ export default function ActionPanel({
             disabled={!canDoAction('all-in')}
             className="btn-brutal-success h-8 px-3 text-[11px] font-medium ml-auto flex items-center justify-center disabled:opacity-50 rounded"
           >
-            All-In ¤{!isWaiting && currentPlayerStack > 0 ? currentPlayerStack : '—'}
+            All-In {!isWaiting && currentPlayerStack > 0 ? currentPlayerStack : '—'}
           </button>
         </div>
         
         {/* Always show slider - disabled when raise not available */}
         <div className={`flex items-center gap-2 ${!canAffordRaise || !canDoAction('raise') ? 'opacity-40' : ''}`}>
-          <span className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{effectiveMinRaise || 0}</span>
+          <span className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{effectiveMinRaise || 0}</span>
           <input
             type="range"
             min={effectiveMinRaise || 0}
@@ -178,7 +177,7 @@ export default function ActionPanel({
             disabled={isWaiting || !canAffordRaise || !canDoAction('raise')}
             className="flex-1 h-1 bg-gray-200 rounded appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-gray-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:disabled:bg-gray-300"
           />
-          <span className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{maxRaise || 0}</span>
+          <span className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{maxRaise || 0}</span>
         </div>
       </div>
     </div>

@@ -69,15 +69,21 @@ export default function CumulativeChart({
   models,
   selected,
   onSelect,
+  highlight,
   race = false,
 }: {
   models: ModelStats[];
   selected: string;
-  onSelect?: (name: string) => void;
+  onSelect?: (name: string) => void; // interactive (the zoomed Race screen); the standings beside it pick
+  highlight?: string; // a line to bring forward while the pointer is not on the plot (standings hover)
   race?: boolean; // several lines: a logo at each line's end and a hover readout of every line
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [{ width, height }, setSize] = useState({ width: 720, height: 300 }); // the plot fills its panel
+  // The plot fills its box. `drawn` is the data the size was measured with: a resize (the Race
+  // zoom) redraws the lines at once, and only new data tweens them.
+  const [{ width, height, drawnFor }, setSize] = useState({ width: 720, height: 300, drawnFor: models });
+  const latest = useRef(models);
+  useEffect(() => { latest.current = models; });
   const reduce = useReducedMotion();
   // The hand under the pointer (or picked with the arrow keys) and the line nearest it.
   const [hover, setHover] = useState<{ n: number; name: string } | null>(null);
@@ -86,7 +92,7 @@ export default function CumulativeChart({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setSize({ width: entry.contentRect.width, height: entry.contentRect.height }));
+    const ro = new ResizeObserver(([entry]) => setSize({ width: entry.contentRect.width, height: entry.contentRect.height, drawnFor: latest.current }));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -103,8 +109,9 @@ export default function CumulativeChart({
   const w = Math.max(width, 200);
   // End logos sit in a right-hand gutter; smaller in the overview preview.
   const logo = height < 260 ? 14 : height < 400 ? 16 : 20;
+  const fs = height < 260 ? 11 : 13; // axis labels: compact in the overview preview
   const right = race ? logo + 10 : PAD.right;
-  const left = 12 + 7 * Math.max(...yTicks.map(t => String(t).length)); // room for the widest y label
+  const left = 12 + (fs * 0.62) * Math.max(...yTicks.map(t => String(t).length)); // room for the widest y label
   const x = (n: number) => left + (n / maxHand) * (w - left - right);
   const y = (v: number) => PAD.top + ((yMax - v) / (yMax - yMin || 1)) * (height - PAD.top - PAD.bottom);
   const line = (pts: [number, number][]) => pts.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
@@ -113,8 +120,8 @@ export default function CumulativeChart({
     ? line(selPts.map(([n, v]) => [n, v + band(sel, n)])) +
       [...selPts].reverse().map(([n, v]) => `L${x(n)},${y(v - band(sel, n))}`).join('') + 'Z'
     : '';
-  const tween = { duration: reduce ? 0 : 0.6, ease: [0.22, 1, 0.36, 1] as const };
-  const hot = hover ? models.find(m => m.name === hover.name) : undefined; // the hovered line
+  const tween = { duration: reduce || drawnFor === models ? 0 : 0.6, ease: [0.22, 1, 0.36, 1] as const };
+  const hot = models.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
   const ordered = [...models.filter(m => m !== sel && m !== hot), ...(sel && sel !== hot ? [sel] : []), ...(hot ? [hot] : [])]; // selected, then hovered, on top
   // End logos: each line's last value, nudged apart so none overlap.
   // Lines that reach (nearly) the last hand get a logo in the right gutter, spread so none overlap
@@ -187,11 +194,11 @@ export default function CumulativeChart({
           {yTicks.map(t => (
             <g key={t}>
               <line x1={left} x2={w - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.35)' : GRID} />
-              <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={11} fill={MUTED} className="tabular-nums">{t}</text>
+              <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={fs} fill={MUTED} className="tabular-nums">{t}</text>
             </g>
           ))}
           {niceTicks(0, maxHand, 4, true).filter(t => t <= maxHand).map(t => (
-            <text key={t} x={x(t)} y={height - 6} textAnchor="middle" fontSize={11} fill={MUTED} className="tabular-nums">{t}</text>
+            <text key={t} x={x(t)} y={height - 6} textAnchor="middle" fontSize={fs} fill={MUTED} className="tabular-nums">{t}</text>
           ))}
           {sel && <motion.path initial={false} animate={{ d: bandPath }} transition={tween} fill={modelColor(sel.name)} opacity={0.14} />}
           {ordered.map(m => {
@@ -243,7 +250,7 @@ export default function CumulativeChart({
           <div
             ref={tipRef}
             aria-hidden
-            className="absolute z-10 pointer-events-none rounded bg-white px-2 py-1.5 text-[12px] tabular-nums max-w-[calc(100%-8px)]"
+            className="absolute z-10 pointer-events-none rounded bg-white px-2 py-1.5 text-[13px] tabular-nums max-w-[calc(100%-8px)]"
             style={{
               top: PAD.top,
               left: Math.min(crossX + 10, w - 4),
@@ -261,29 +268,7 @@ export default function CumulativeChart({
           </div>
         )}
       </div>
-      <p className="text-[11px] mt-1" style={{ color: MUTED }}>x: hands played · y: big blinds won · shaded: 95% band for the selected model</p>
-
-      {onSelect && (
-      <div className="flex flex-wrap gap-1.5 mt-2" role="group" aria-label="Highlight a model">
-        {models.map(m => (
-          <button
-            key={m.name}
-            onClick={() => onSelect(m.name)}
-            aria-pressed={m === sel}
-            className="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] border transition-colors"
-            style={{
-              borderColor: m === sel ? modelColor(m.name) : GRID,
-              background: m === sel ? 'rgba(55, 53, 47, 0.04)' : 'white',
-              color: 'rgb(55, 53, 47)',
-            }}
-          >
-            <span aria-hidden className="inline-block w-3 h-0.5 rounded" style={{ background: modelColor(m.name) }} />
-            <LLMLogo model={m.name} size={16} />
-            {m.name}
-          </button>
-        ))}
-      </div>
-      )}
+      <p className={`mt-1 ${fs > 11 ? 'text-[13px]' : 'text-[11px]'}`} style={{ color: MUTED }}>x: hands played · y: big blinds won · shaded: 95% band for the selected model</p>
 
       {/* The chart's numbers for screen readers; tables ignore sr-only's 1px box, so a div clips it. */}
       {sel && (
