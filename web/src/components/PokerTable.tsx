@@ -1,11 +1,9 @@
 "use client";
 
+import CornerBorders from "@/components/CornerBorders";
 import Player from "@/components/Player";
-import TableFelt, { BetStack, FeltBet } from "@/components/TableFelt";
-import { useState } from "react";
-import TableMotion, { FLIGHT, dealStart } from "@/components/TableMotion";
+import TableFelt from "@/components/TableFelt";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
-import type { ButtonDetermination } from "@/hooks/useGameState";
 
 interface PlayerLayout {
   top: number[];
@@ -19,68 +17,100 @@ interface WinnerInfo {
   handDesc: string;
 }
 
+interface ButtonCard {
+  playerIdx: number;
+  playerName: string;
+  card: string;
+}
+
+interface ButtonDetermination {
+  cards: ButtonCard[];
+  winnerIdx: number | null;
+  winnerName: string | null;
+  isComplete: boolean;
+}
+
 interface PokerTableProps {
   players: PlayerState[];
   layout: PlayerLayout;
   currentPlayerIdx: number;
+  buttonIdx: number;
   communityCards: string[];
   pot: number;
-  street: string;
-  handNumber: number;
   winnersByIdx?: Record<number, WinnerInfo>;
   nextHandCountdown?: number | null;
+  onSkipCountdown?: () => void;
   thinkingPlayerIdx?: number;
   buttonDetermination?: ButtonDetermination | null;
   hidePositions?: boolean;
   notice?: TableNoticePayload | null;
 }
 
+// Calculate position name based on seat relative to button
+function getPosition(playerIdx: number, buttonIdx: number, totalPlayers: number): string {
+  if (buttonIdx < 0) return '';
+  
+  // Calculate how many seats after the button this player is
+  const seatsFromButton = (playerIdx - buttonIdx + totalPlayers) % totalPlayers;
+  
+  // Positions depend on table size
+  // 9-max: BTN, SB, BB, UTG, UTG+1, UTG+2, LJ, HJ, CO
+  // 8-max: BTN, SB, BB, UTG, UTG+1, LJ, HJ, CO
+  // 7-max: BTN, SB, BB, UTG, LJ, HJ, CO
+  // 6-max: BTN, SB, BB, UTG, HJ, CO
+  
+  if (seatsFromButton === 0) return 'BTN';
+  if (seatsFromButton === 1) return 'SB';
+  if (seatsFromButton === 2) return 'BB';
+  
+  // Remaining positions depend on table size
+  const posFromUTG = seatsFromButton - 3; // 0 = UTG
+  
+  if (totalPlayers === 9) {
+    // 9-max: UTG, UTG+1, UTG+2, LJ, HJ, CO
+    const positions = ['UTG', 'UTG+1', 'UTG+2', 'LJ', 'HJ', 'CO'];
+    return positions[posFromUTG] || '';
+  } else if (totalPlayers === 8) {
+    // 8-max: UTG, UTG+1, LJ, HJ, CO
+    const positions = ['UTG', 'UTG+1', 'LJ', 'HJ', 'CO'];
+    return positions[posFromUTG] || '';
+  } else if (totalPlayers === 7) {
+    // 7-max: UTG, LJ, HJ, CO
+    const positions = ['UTG', 'LJ', 'HJ', 'CO'];
+    return positions[posFromUTG] || '';
+  } else if (totalPlayers === 6) {
+    // 6-max: UTG, HJ, CO
+    const positions = ['UTG', 'HJ', 'CO'];
+    return positions[posFromUTG] || '';
+  }
+  
+  return '';
+}
+
 export default function PokerTable({
   players,
   layout,
   currentPlayerIdx,
+  buttonIdx,
   communityCards,
   pot,
-  street,
-  handNumber,
   winnersByIdx = {},
   nextHandCountdown,
+  onSkipCountdown,
   thinkingPlayerIdx,
   buttonDetermination,
   hidePositions = false,
   notice,
 }: PokerTableProps) {
-  // A late joiner sees the hand already dealt; only hands dealt while watching wait for their flight.
-  const [firstHand, setFirstHand] = useState(0);
-  if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
-  const dealt = firstHand > 0 && handNumber !== firstHand;
-
-  // The engine keeps each seat's last action until the hand ends. A seat shows it only once it has
-  // acted on the current street: its action, amount or stack changed since the street started, or
-  // it was on the clock during this street (that catches a second CHECK in a row).
-  const sig = (p: PlayerState) => `${p.lastAction}|${p.lastAmount}|${p.stack}`;
-  const streetKey = `${handNumber}:${street}`;
-  const [view, setView] = useState({ key: '', start: null as Record<string, string> | null, acted: [] as string[] });
-  if (players.length && view.key !== streetKey) {
-    // The first street seen (a late joiner) has no starting point: see `shown`.
-    setView({ key: streetKey, start: view.key ? Object.fromEntries(players.map(p => [p.id, sig(p)])) : null, acted: [] });
-  }
-  const onClock = thinkingPlayerIdx !== undefined ? players[thinkingPlayerIdx]?.id : undefined;
-  if (onClock && view.key === streetKey && !view.acted.includes(onClock)) setView({ ...view, acted: [...view.acted, onClock] });
-  // Without a starting point, after the flop only seats with chips in this street have surely acted.
-  const shown = (p: PlayerState) => view.start
-    ? view.acted.includes(p.id) || view.start[p.id] !== sig(p)
-    : street === 'preflop' || p.currentBet > 0;
-  // Raises only go up, so after the flop the smallest RAISE shown this street opened the betting.
-  const raises = players.filter(p => shown(p) && p.lastAction === 'RAISE').map(p => p.lastAmount ?? 0);
-  const opened = street !== 'preflop' && raises.length ? Math.min(...raises) : null;
-
+  const totalPlayers = players.length;
+  
   if (players.length === 0) {
     return (
       <div 
         className="relative bg-white rounded overflow-hidden"
         style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
       >
+        <CornerBorders />
         <div className="w-full md:w-[600px] h-[300px] flex items-center justify-center text-sm italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
           Connecting to the table…
         </div>
@@ -92,43 +122,25 @@ export default function PokerTable({
     <Player
       player={players[idx]}
       active={idx === currentPlayerIdx}
-      position={hidePositions ? '' : players[idx].position}
+      position={hidePositions ? '' : getPosition(idx, buttonIdx, totalPlayers)}
       folded={players[idx]?.status === 'folded'}
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
-      seatIdx={idx}
-      handNumber={handNumber}
-      dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + FLIGHT) : undefined}
-      showAction={shown(players[idx])}
-      isBet={players[idx].lastAction === 'RAISE' && players[idx].lastAmount === opened}
     />
   );
 
-  // Each seat's bet sits on the felt edge it faces, centred on the seat's column or row.
-  const rows = Math.max(layout.left.length, layout.right.length);
-  const betsOut = players.reduce((sum, p) => sum + p.currentBet, 0);
-  const edge = (side: FeltBet['side'], seats: number[], n: number) =>
-    seats.map((seat, i) => ({ seat, side, at: (i + 0.5) / n, amount: players[seat]?.currentBet ?? 0 }));
-  const feltBets: FeltBet[] = [
-    ...edge('top', layout.top, layout.top.length),
-    ...edge('bottom', layout.bottom, layout.bottom.length),
-    ...edge('left', layout.left, rows),
-    ...edge('right', layout.right, rows),
-  ];
-
-  const felt = (bets?: FeltBet[]) => (
+  const felt = (
     <TableFelt
       cards={communityCards}
       pot={pot}
-      betsOut={betsOut}
-      bets={bets}
       winners={Object.entries(winnersByIdx).map(([idx, info]) => ({
         name: players[Number(idx)]?.name || `Player ${idx}`,
         amount: info.amount,
         handDesc: info.handDesc,
       }))}
       nextHandCountdown={nextHandCountdown}
+      onSkipCountdown={onSkipCountdown}
       buttonDetermination={buttonDetermination}
       notice={notice}
     />
@@ -136,30 +148,23 @@ export default function PokerTable({
 
   const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
 
-  // 200px a column, like the original table: the seats keep their proportions on every window.
+  // Calculate fixed width based on layout
   const numCols = layout.top.length + (layout.left.length > 0 ? 1 : 0) + (layout.right.length > 0 ? 1 : 0);
   const tableWidth = numCols * 200;
   const line = '1px solid rgba(55, 53, 47, 0.09)';
+  const rows = Math.max(layout.left.length, layout.right.length);
 
   return (
     <>
-      <TableMotion
-        players={players}
-        handNumber={handNumber}
-        boardCount={communityCards.length}
-        winnerIdxs={Object.keys(winnersByIdx).map(Number)}
-      />
-      {/* Phones: felt on top, seats in a 3-column grid in seat order, each bet just above its seat */}
+      {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
-          {felt()}
+          <CornerBorders />
+          {felt}
         </div>
         <div className="grid grid-cols-3 gap-2">
           {players.map((p, idx) => (
-            <div key={p.id} className="flex flex-col gap-1">
-              <BetStack seat={idx} amount={p.currentBet} className="h-5 justify-center" />
-              <div className="h-[187px]">{seat(idx)}</div>
-            </div>
+            <div key={p.id} className="h-[150px]">{seat(idx)}</div>
           ))}
         </div>
       </div>
@@ -169,6 +174,7 @@ export default function PokerTable({
         className="hidden md:block relative bg-white shrink-0 self-stretch rounded"
         style={{ width: tableWidth, ...cardStyle }}
       >
+        <CornerBorders />
         <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
           <tbody>
             {/* TOP ROW */}
@@ -203,7 +209,7 @@ export default function PokerTable({
 
                 {rowIdx === 0 && (
                   <td colSpan={layout.top.length} rowSpan={rows} style={{ borderBottom: line }}>
-                    <div className="flex items-center justify-center h-full">{felt(feltBets)}</div>
+                    <div className="flex items-center justify-center h-full">{felt}</div>
                   </td>
                 )}
 

@@ -9,7 +9,6 @@ import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
 import SoundToggle from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
-import { HudContext, useHudState } from "@/components/Hud";
 import StatsSections from "@/components/StatsSections";
 import ModelDrawer from "@/components/ModelDrawer";
 import StickyBar from "@/components/StickyBar";
@@ -124,6 +123,7 @@ export default function Home() {
   const pot = gameState?.pot || 0;
   const communityCards = gameState?.communityCards || [];
   const street = gameState?.street || 'preflop';
+  const buttonIdx = gameState?.buttonIdx ?? -1;
   // Use displayState.playerIdx for highlight when actively displaying a player's turn
   // This keeps the highlight on the current player during reasoning + 5s wait
   const currentPlayerIdx = displayState?.playerIdx ?? (gameState?.currentPlayerIdx ?? -1);
@@ -147,8 +147,6 @@ export default function Home() {
   const live = useStats(liveId, !!liveId, handNumber);
   // Who is at the table now: the engine's lineup, else (an older engine) the live session's models.
   const seated = all.data?.seated ?? live.data?.models.map(m => m.name);
-  // The HUD reads the same all-time fetch; the bundled dev sample never feeds the seats.
-  const hud = useHudState(all.sample ? null : all.data?.models);
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
   const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
@@ -289,7 +287,6 @@ export default function Home() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <HudContext.Provider value={hud}>
     {/* --bar-h: room the connection bar takes at the bottom, so it never covers a screen's edge. */}
     <div className="px-3 lg:px-4" style={{ background: '#FFFFFF', ['--bar-h' as string]: !isConnected || error ? '40px' : '0px' }}>
       <main className="flex flex-col items-center-safe">
@@ -341,17 +338,6 @@ export default function Home() {
               {!isConnected ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
               {watching !== undefined && ` · ${watching.toLocaleString()} watching`}
             </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={hud.on}
-              onClick={() => hud.setOn(!hud.on)}
-              title="Show VPIP, PFR, AF and bb/100 on every seat"
-              className="text-[12px] font-medium px-1.5 rounded hover:bg-[rgba(55,53,47,0.06)]"
-              style={{ color: hud.on ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)', background: hud.on ? 'rgba(35, 131, 226, 0.1)' : undefined }}
-            >
-              HUD
-            </button>
           </div>
 
           {/* Hand counter, blinds, timer */}
@@ -375,16 +361,15 @@ export default function Home() {
         <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
           <div className="stage-zoom flex flex-col w-full md:w-auto">
             {/* Row 1: Table + Winnings (stacked on phones) */}
-            <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-3 items-stretch relative">
+            <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
               {/* Main game grid */}
               <PokerTable
                 players={players}
                 layout={layout}
                 currentPlayerIdx={currentPlayerIdx}
+                buttonIdx={buttonIdx}
                 communityCards={communityCards}
                 pot={pot}
-                street={street}
-                handNumber={handNumber}
                 winnersByIdx={winnersByIdx}
                 nextHandCountdown={nextHandCountdown}
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
@@ -396,16 +381,16 @@ export default function Home() {
               {/* Right sidebar column - leaderboard, then API usage */}
               <div className="flex flex-col w-full md:w-[240px] shrink-0">
                 <div className="flex-1 flex flex-col min-h-0">
-                  <WinningsPanel players={players} stats={live.current && !live.sample && (live.data?.scope.hands ?? 0) > 0 ? live.data : null} />
+                  <WinningsPanel players={players} />
                 </div>
-                <div className="mt-3">
+                <div className="mt-4">
                   <UsageIndicator usage={usage} error={usageError} />
                 </div>
               </div>
             </div>
 
             {/* Reasoning Panel - LLM thinking + reasoning */}
-            <div className="mt-3 w-full">
+            <div className="mt-4 w-full">
               <ReasoningPanel
                 displayState={displayState}
                 shotClockRemaining={shotClockRemaining}
@@ -465,7 +450,6 @@ export default function Home() {
         </div>
       )}
     </div>
-    </HudContext.Provider>
     </MotionConfig>
   );
 }

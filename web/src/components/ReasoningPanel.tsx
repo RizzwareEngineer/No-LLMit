@@ -1,27 +1,30 @@
 "use client";
 
-import { useHud } from "@/components/Hud";
-import { useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import CornerBorders from "@/components/CornerBorders";
 import TypewriterText from "@/components/TypewriterText";
-import type { DisplayState } from "@/hooks/useGameState";
 
-interface Decision {
-  key: string;
+type DisplayPhase = 'idle' | 'waiting' | 'thinking' | 'reasoning' | 'revealed';
+
+interface DisplayState {
+  phase: DisplayPhase;
+  playerIdx: number;
   playerName: string;
-  action: string;
+  reason: string | null;
+  action: string | null;
   amount: number;
-  reason: string;
+  turnStartTime: number;
 }
 
 interface ReasoningPanelProps {
   displayState: DisplayState | null;
   shotClockRemaining: number;
+  isPaused?: boolean;
 }
 
 export default function ReasoningPanel({
   displayState,
   shotClockRemaining,
+  isPaused = false,
 }: ReasoningPanelProps) {
 
   // Format action for display
@@ -36,15 +39,13 @@ export default function ReasoningPanel({
     };
     const formatted = actionMap[action] || action;
     if (amount > 0 && (action === 'RAISE' || action === 'BET' || action === 'CALL' || action === 'ALL_IN')) {
-      return `${formatted} ${amount.toLocaleString()}`;
+      return `${formatted} ¤${amount.toLocaleString()}`;
     }
     return formatted;
   };
 
   const phase = displayState?.phase || 'idle';
   const playerName = displayState?.playerName || '—';
-  const { followed } = useHud();
-  const following = followed === playerName;
   const reason = displayState?.reason;
   const action = displayState?.action;
   const amount = displayState?.amount || 0;
@@ -55,34 +56,37 @@ export default function ReasoningPanel({
   const showReason = isReasoning || isRevealed;
   const showShotClock = isThinking || isReasoning; // Hide after action is revealed
 
-  // The last three decisions: the newest is typed out on top, the two before it sit below.
-  const reduce = useReducedMotion();
-  const [history, setHistory] = useState<Decision[]>([]);
-  // One entry per turn: the same player can give the same reason twice in a row.
-  const currentKey = showReason && reason && action ? String(displayState?.turnStartTime) : null;
-  if (currentKey && history[0]?.key !== currentKey) {
-    setHistory([{ key: currentKey, playerName, action: action!, amount, reason: reason! }, ...history].slice(0, 3));
-  }
-  const older = currentKey ? history.slice(1, 3) : history.slice(0, 2);
+  // Dynamic font size based on reason length
+  const getReasonFontSize = (text: string | null | undefined) => {
+    if (!text) return 'text-sm';
+    const len = text.length;
+    if (len < 100) return 'text-sm';
+    if (len < 200) return 'text-xs';
+    return 'text-[11px]';
+  };
+  const reasonFontSize = getReasonFontSize(reason);
   // Full text for screen readers, announced once per action (not the typewriter partials)
   const spokenAction = action ? `${action.toLowerCase().replace('_', '-')}${amount > 0 ? ` ${amount}` : ''}` : '';
   const announcement = showReason && reason ? `${playerName}: ${spokenAction}. ${reason}` : '';
 
   return (
     <div 
-      className="relative bg-white h-[148px] rounded overflow-hidden"
+      className="relative bg-white h-[100px] rounded overflow-hidden"
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
+      <CornerBorders />
       <p className="sr-only" aria-live="polite">{announcement}</p>
       <div className="flex h-full">
         {/* Left section - Player name + countdown */}
         <div 
           className={`w-[200px] shrink-0 flex flex-col items-center justify-center border-r border-notion`}
           style={{ 
-            background: !isIdle ? 'rgba(35, 131, 226, 0.06)' : 'rgba(55, 53, 47, 0.02)'
+            background: isPaused ? 'rgba(203, 145, 47, 0.1)' : 
+                        !isIdle ? 'rgba(35, 131, 226, 0.06)' :
+                        'rgba(55, 53, 47, 0.02)'
           }}
         >
-          <span className="text-[14px] font-bold truncate max-w-[190px] px-2 rounded" style={{ color: following ? 'rgb(35, 131, 226)' : 'rgb(55, 53, 47)', background: following ? 'rgba(35, 131, 226, 0.12)' : undefined }} title={following ? 'Following' : undefined}>
+          <span className="text-xs font-bold truncate max-w-[180px] px-2" style={{ color: 'rgb(55, 53, 47)' }}>
             {playerName}
           </span>
           
@@ -92,21 +96,23 @@ export default function ReasoningPanel({
               <span 
                 className="font-mono text-lg font-bold"
                 style={{ 
-                  color: shotClockRemaining <= 5 ? 'rgb(235, 87, 87)' : 'rgb(35, 131, 226)'
+                  color: shotClockRemaining <= 5 ? 'rgb(235, 87, 87)' : 
+                         isPaused ? 'rgb(203, 145, 47)' : 
+                         'rgb(35, 131, 226)'
                 }}
               >
                 {shotClockRemaining}s
               </span>
+              {isPaused && <span style={{ color: 'rgb(203, 145, 47)' }} className="text-xs">⏸</span>}
             </div>
           )}
         </div>
 
         {/* Right section - Thinking or Reasoning text */}
-        <div className="flex-1 flex flex-col px-4 py-2 min-w-0 overflow-hidden">
-        <div className="h-[84px] shrink-0 flex flex-col justify-center min-w-0">
+        <div className="flex-1 flex flex-col justify-center px-4 min-w-0">
           {isThinking && (
             <div className="text-sm italic flex items-center gap-2" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
-              <span className="inline-block w-2 h-2 rounded-full" style={{ background: 'rgba(55, 53, 47, 0.65)' }} />
+              <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'rgba(55, 53, 47, 0.65)' }} />
               Thinking…
             </div>
           )}
@@ -115,47 +121,24 @@ export default function ReasoningPanel({
             <>
               {/* Reasoning label with action */}
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[12px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
+                <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
                 {action && (
-                  <span className="text-[12px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
+                  <span className="text-[11px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
                     → {formatAction(action, amount)}
                   </span>
                 )}
               </div>
-              <p className={`text-[14px] italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
+              <p className={`${reasonFontSize} italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
                 <TypewriterText text={reason} speed={25} />
               </p>
             </>
           )}
           
           {isIdle && (
-            <div className="text-[14px] italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+            <div className="text-xs italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
               Waiting for next action…
             </div>
           )}
-        </div>
-
-        {/* Earlier decisions, smaller and fading with age */}
-        <ul className="flex flex-col gap-1 min-w-0" aria-label="Earlier decisions">
-          <AnimatePresence initial={false}>
-            {older.map((d, i) => (
-              <motion.li
-                key={d.key}
-                layout={!reduce}
-                initial={reduce ? false : { opacity: 0, y: -8 }}
-                animate={{ opacity: i === 0 ? 0.65 : 0.4, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: reduce ? 0 : 0.25 }}
-                className="text-[12px] italic truncate"
-                style={{ color: 'rgb(55, 53, 47)' }}
-              >
-                <span className="not-italic font-bold px-0.5 rounded" style={d.playerName === followed ? { color: 'rgb(35, 131, 226)', background: 'rgba(35, 131, 226, 0.12)' } : undefined}>{d.playerName}</span>
-                <span className="not-italic" style={{ color: 'rgb(15, 123, 108)' }}> → {formatAction(d.action, d.amount)}</span>
-                {' '}{d.reason}
-              </motion.li>
-            ))}
-          </AnimatePresence>
-        </ul>
         </div>
       </div>
     </div>
