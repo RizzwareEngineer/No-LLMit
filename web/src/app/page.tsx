@@ -138,12 +138,9 @@ export default function Home() {
   const all = useStats(undefined, true, handNumber);
   const pickedLive = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
   const picked = useStats(session || undefined, !!session, pickedLive ? handNumber : undefined);
-  // Who is at the table now: the engine's lineup, else (an older engine) the models with hands in
-  // the live session, fetched only for that fallback.
+  // Profits & Losses covers the live table session (the one not ended yet).
   const liveId = all.data?.sessions.find(s => !s.ended_at)?.id;
-  const needLive = !!all.data && !all.data.seated && !!liveId;
-  const live = useStats(needLive ? liveId : undefined, needLive, handNumber);
-  const seated = all.data?.seated ?? (needLive ? live.data?.models.map(m => m.name) : undefined);
+  const live = useStats(liveId, !!liveId, handNumber);
   // The HUD reads the same all-time fetch; the bundled dev sample never feeds the seats.
   const hud = useHudState(all.sample ? null : all.data?.models);
 
@@ -282,14 +279,14 @@ export default function Home() {
         <div className="mb-1.5 flex items-center justify-center gap-3">
           <button
             disabled
-            className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
+            className="btn-brutal-disabled px-3 py-1 text-[12px] flex items-center gap-2"
           >
             <GameController size={12} weight="bold" />
             Play vs. LLMs — (coming soon)!
           </button>
           <button
             disabled
-            className="btn-brutal-disabled px-3 py-1 text-[11px] flex items-center gap-2"
+            className="btn-brutal-disabled px-3 py-1 text-[12px] flex items-center gap-2"
           >
             <Brain size={12} weight="bold" />
             Train an LLM to play like you (coming soon)!
@@ -314,7 +311,7 @@ export default function Home() {
               role="switch"
               aria-checked={hud.on}
               onClick={() => hud.setOn(!hud.on)}
-              title="Show bb/100, VPIP, PFR and AF under every seat"
+              title="Show VPIP, PFR, AF and bb/100 on every seat"
               className="text-[12px] font-medium px-1.5 rounded hover:bg-[rgba(55,53,47,0.06)]"
               style={{ color: hud.on ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)', background: hud.on ? 'rgba(35, 131, 226, 0.1)' : undefined }}
             >
@@ -363,7 +360,7 @@ export default function Home() {
               {/* Right sidebar column - leaderboard, then API usage */}
               <div className="flex flex-col w-full md:w-[240px] shrink-0">
                 <div className="flex-1 flex flex-col min-h-0">
-                  <WinningsPanel players={players} stats={all.sample ? null : all.data} seated={seated} />
+                  <WinningsPanel players={players} stats={live.current && !live.sample ? live.data : null} />
                 </div>
                 <div className="mt-3">
                   <UsageIndicator usage={usage} error={usageError} />

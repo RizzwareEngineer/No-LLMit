@@ -55,16 +55,6 @@ export default function ReasoningPanel({
   const showReason = isReasoning || isRevealed;
   const showShotClock = isThinking || isReasoning; // Hide after action is revealed
 
-  // Dynamic font size based on reason length
-  const getReasonFontSize = (text: string | null | undefined) => {
-    if (!text) return 'text-sm';
-    const len = text.length;
-    if (len < 100) return 'text-sm';
-    if (len < 200) return 'text-xs';
-    return 'text-[11px]';
-  };
-  const reasonFontSize = getReasonFontSize(reason);
-
   // The last three decisions: the newest is typed out on top, the two before it sit below.
   const reduce = useReducedMotion();
   const [history, setHistory] = useState<Decision[]>([]);
@@ -92,7 +82,7 @@ export default function ReasoningPanel({
             background: !isIdle ? 'rgba(35, 131, 226, 0.06)' : 'rgba(55, 53, 47, 0.02)'
           }}
         >
-          <span className="text-xs font-bold truncate max-w-[100px] px-2 rounded" style={{ color: following ? 'rgb(35, 131, 226)' : 'rgb(55, 53, 47)', background: following ? 'rgba(35, 131, 226, 0.12)' : undefined }} title={following ? 'Following' : undefined}>
+          <span className="text-[14px] font-bold truncate max-w-[110px] px-2 rounded" style={{ color: following ? 'rgb(35, 131, 226)' : 'rgb(55, 53, 47)', background: following ? 'rgba(35, 131, 226, 0.12)' : undefined }} title={following ? 'Following' : undefined}>
             {playerName}
           </span>
           
@@ -125,21 +115,21 @@ export default function ReasoningPanel({
             <>
               {/* Reasoning label with action */}
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
+                <span className="text-[12px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
                 {action && (
-                  <span className="text-[11px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
+                  <span className="text-[12px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
                     → {formatAction(action, amount)}
                   </span>
                 )}
               </div>
-              <p className={`${reasonFontSize} italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
+              <p className={`text-[14px] italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
                 <TypewriterText text={reason} speed={25} />
               </p>
             </>
           )}
           
           {isIdle && (
-            <div className="text-xs italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+            <div className="text-[14px] italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
               Waiting for next action…
             </div>
           )}
@@ -156,7 +146,7 @@ export default function ReasoningPanel({
                 animate={{ opacity: i === 0 ? 0.65 : 0.4, y: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: reduce ? 0 : 0.25 }}
-                className="text-[11px] italic truncate"
+                className="text-[12px] italic truncate"
                 style={{ color: 'rgb(55, 53, 47)' }}
               >
                 <span className="not-italic font-bold px-0.5 rounded" style={d.playerName === followed ? { color: 'rgb(35, 131, 226)', background: 'rgba(35, 131, 226, 0.12)' } : undefined}>{d.playerName}</span>
