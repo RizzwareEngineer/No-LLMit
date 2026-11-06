@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL } from '@/lib/api';
+import { ALL_LLMS } from '@/lib/constants';
 
 // Shape of GET /api/stats, per docs/stats-api-contract.json. Rates are 0..1, or null when nothing
 // qualified for them; bb = big blinds.
@@ -153,6 +154,13 @@ export function useStats(session?: string, enabled = true, refreshKey?: number):
     return { ...rest, current: settledFor === session };
   }, [state, session]);
 }
+
+// Roster models with no hands in these stats, in roster order. Shown muted under "Not seated yet".
+export const unseated = (models: { name: string }[]): string[] =>
+  ALL_LLMS.filter(name => !models.some(m => m.name === name));
+
+export const NOT_SEATED = 'Not seated yet';
+export const NOT_SEATED_HINT = 'Listed for future sessions; no hands played.';
 
 // In-page link that opens a model's drawer (the page watches the hash).
 export const modelHref = (name: string) => `#model=${modelSlug(name)}`;

@@ -3,7 +3,7 @@
 import { useId, useState } from 'react';
 import { CaretDown, CaretUp, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
-import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signed } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, NOT_SEATED, NOT_SEATED_HINT, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signed, unseated } from '@/lib/stats';
 
 interface Column {
   key: keyof typeof STAT_DEFINITIONS;
@@ -96,6 +96,7 @@ export default function StatsTable({ models, expandable = true }: { models: Mode
     if (va === null || vb === null) return (va === null ? 1 : 0) - (vb === null ? 1 : 0);
     return (sort.desc ? -1 : 1) * (va - vb);
   });
+  const waiting = unseated(models);
   const toggleSort = (c: Column) =>
     setSort(s => (s.key === c.key ? { key: c.key, desc: !s.desc } : { key: c.key, desc: !c.lowerIsBetter }));
 
@@ -126,6 +127,26 @@ export default function StatsTable({ models, expandable = true }: { models: Mode
               </tr>
             ))}
           </tbody>
+          {waiting.length > 0 && (
+            <tbody style={{ color: MUTED }}>
+              <tr className="border-t border-notion">
+                <th scope="rowgroup" colSpan={columns.length + 1} className="p-2 pt-3 text-left font-medium sticky left-0 bg-white" title={NOT_SEATED_HINT}>
+                  {NOT_SEATED} <span className="sr-only">: {NOT_SEATED_HINT}</span>
+                </th>
+              </tr>
+              {waiting.map(name => (
+                <tr key={name} title={NOT_SEATED_HINT}>
+                  <th scope="row" className="p-2 text-left font-normal sticky left-0 bg-white whitespace-nowrap">
+                    <span className="flex items-center gap-2 opacity-60">
+                      <LLMLogo model={name} size={20} />
+                      {name}
+                    </span>
+                  </th>
+                  <td colSpan={columns.length} />
+                </tr>
+              ))}
+            </tbody>
+          )}
         </table>
       </div>
       {expandable && <button

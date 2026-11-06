@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from schemas import DecisionRequest, DecisionResponse
 from prompts import system_prompt, prompt_version
+import registry
 
 load_dotenv()
 
@@ -75,6 +76,27 @@ def get_usage():
 def get_prompt():
     """The system prompt every model receives, and the version that identifies it."""
     return {"prompt_version": prompt_version, "system_prompt": system_prompt}
+
+
+@app.get("/models")
+def get_models(session: int = 0):
+    """The roster, each with its slug, price and whether it is seated. With the mock
+    provider the lineup rotates by session index so every roster model gets hands locally;
+    otherwise it is LINEUP (the default nine when unset)."""
+    seated = registry.rotated_lineup(session) if PROVIDER == "mock" else registry.LINEUP
+    return {
+        "provider": PROVIDER,
+        "seated": seated,
+        "models": [
+            {
+                "name": name,
+                "slug": slug,
+                "price_per_mtok": dict(zip(("prompt", "completion"), registry.PRICES[name])),
+                "seated": name in seated,
+            }
+            for name, slug in registry.MODELS.items()
+        ],
+    }
 
 
 @app.post("/decide", response_model=DecisionResponse)

@@ -139,3 +139,27 @@ func GetSystemPrompt() (version, prompt string, err error) {
 	}
 	return body.PromptVersion, body.SystemPrompt, nil
 }
+
+// GetSeated returns the names the LLM service seats at the table, in seat order. session
+// is how many sessions the local hand log holds; only the mock provider uses it, to rotate
+// the lineup over the whole roster.
+func GetSeated(session int) ([]string, error) {
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	resp, err := httpClient.Get(fmt.Sprintf("%s/models?session=%d", llmServiceURL, session))
+	if err != nil {
+		return nil, fmt.Errorf("LLM service not reachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("LLM service returned status %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Seated []string `json:"seated"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return body.Seated, nil
+}

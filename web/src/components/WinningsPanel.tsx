@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
-import { StatsResponse, chips, modelHref, netColor } from "@/lib/stats";
+import { MUTED, NOT_SEATED, NOT_SEATED_HINT, StatsResponse, chips, modelHref, netColor, unseated } from "@/lib/stats";
 
 interface WinningsPanelProps {
   players: PlayerState[];
@@ -38,6 +38,7 @@ export default function WinningsPanel({ players, stats }: WinningsPanelProps) {
         {/* Keyed by source: switching from this game's winnings to all-time stats remounts
             the list instead of sliding every row to its new place. */}
         {rows.length > 0 && <Rankings key={statsRows ? 'stats' : 'game'} rows={rows} />}
+        {statsRows && <NotSeated names={unseated(statsRows)} />}
       </div>
     </div>
   );
@@ -59,6 +60,27 @@ function RankingItem({ row, rank }: { row: Row; rank: number }) {
         {chips(row.net)}
       </div>
     </a>
+  );
+}
+
+// Roster models with no hands yet, muted and without numbers, below the ranking.
+function NotSeated({ names }: { names: string[] }) {
+  if (names.length === 0) return null;
+  return (
+    <div className="border-t border-notion" style={{ color: MUTED }}>
+      <h3 className="px-3 pt-3 pb-1 text-[11px] font-medium" title={NOT_SEATED_HINT}>
+        {NOT_SEATED} <span className="sr-only">: {NOT_SEATED_HINT}</span>
+      </h3>
+      <ul className="flex flex-col">
+        {names.map(name => (
+          <li key={name} className="flex flex-row items-center gap-2 p-2 px-3 opacity-60" title={NOT_SEATED_HINT}>
+            <span className="w-5" aria-hidden />
+            <LLMLogo model={name} size={20} />
+            <span className="text-[12px] truncate">{name}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

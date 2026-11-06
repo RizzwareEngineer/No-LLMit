@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -32,8 +33,9 @@ const (
 	nextHandDelay     = 7 * time.Second
 )
 
-// Seat names. Each must have a model in llm/registry.py.
-var tablePlayers = []string{
+// Seats the table when the LLM service cannot say who is seated (llm/registry.py
+// DEFAULT_LINEUP). The real lineup comes from GET /models at startup; see lineup.
+var defaultPlayers = []string{
 	"GPT-OSS 20B", "Claude Haiku 5.5", "Gemma 3 12B", "Llama 3.1 8B", "Mistral Nemo",
 	"DeepSeek V4 Flash", "Phi-4", "Qwen 3.7 Flash", "Cohere Command R7B",
 }
@@ -409,7 +411,7 @@ func (t *Table) Run() {
 func (t *Table) startGame() {
 	t.mu.Lock()
 	t.gs = game.NewGame(game.GameConfig{
-		PlayerNames:   tablePlayers,
+		PlayerNames:   t.lineup(),
 		StartingStack: tableStartingStack,
 		Stakes:        game.Stakes{SmallBlind: tableSmallBlind, BigBlind: tableBigBlind},
 	})
@@ -435,6 +437,40 @@ func (t *Table) startGame() {
 	t.broadcast(ServerMessage{Type: MsgButtonWinner, Payload: *t.buttonWinner})
 	t.mu.Unlock()
 	t.sleep(buttonWinnerDelay)
+}
+
+// lineup asks the LLM service who is seated: LINEUP in production, a rotation over the
+// whole roster with the mock provider. The session index it sends is the number of
+// sessions already in the local hand log (0 when hands go to Supabase).
+func (t *Table) lineup() []string {
+	session := 0
+	if fs, ok := t.store.saver.(*fileSaver); ok {
+		// shortcut: parses the whole local log once at startup; fine for dev-sized files.
+		hands, err := loadHandFile(filepath.Join(fs.dir, "hands.jsonl"))
+		if err != nil {
+			log.Printf("Lineup: reading local hands: %v", err)
+		}
+		ids := map[string]bool{}
+		for _, h := range hands {
+			ids[h.TableID] = true
+		}
+		session = len(ids)
+	}
+	return seatedPlayers(func() ([]string, error) { return client.GetSeated(session) })
+}
+
+// seatedPlayers returns what fetch reports, or defaultPlayers when it fails.
+func seatedPlayers(fetch func() ([]string, error)) []string {
+	names, err := fetch()
+	if err == nil && len(names) < 2 {
+		err = fmt.Errorf("only %d seated", len(names))
+	}
+	if err != nil {
+		log.Printf("!!! Lineup unavailable (%v); seating the default nine", err)
+		return defaultPlayers
+	}
+	log.Printf("Lineup: %v", names)
+	return names
 }
 
 func (t *Table) playHand() {

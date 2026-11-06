@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -20,5 +22,20 @@ func TestNextOpen(t *testing.T) {
 		if got := tbl.nextOpen(c.now); !got.Equal(c.want) {
 			t.Errorf("nextOpen(%v) = %v, want %v", c.now, got, c.want)
 		}
+	}
+}
+
+func TestSeatedPlayersFallsBackWhenServiceIsDown(t *testing.T) {
+	down := func() ([]string, error) { return nil, errors.New("LLM service not reachable") }
+	if got := seatedPlayers(down); !reflect.DeepEqual(got, defaultPlayers) {
+		t.Errorf("down: got %v", got)
+	}
+	empty := func() ([]string, error) { return nil, nil }
+	if got := seatedPlayers(empty); !reflect.DeepEqual(got, defaultPlayers) {
+		t.Errorf("empty: got %v", got)
+	}
+	want := []string{"A", "B", "C"}
+	if got := seatedPlayers(func() ([]string, error) { return want, nil }); !reflect.DeepEqual(got, want) {
+		t.Errorf("up: got %v", got)
 	}
 }
