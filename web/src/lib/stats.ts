@@ -192,6 +192,7 @@ export const STAT_DEFINITIONS: Record<string, string> = {
   fold_when_check_free: 'Share of decisions where it folded although checking was free. Always a mistake.',
   error_rate: 'Share of decisions where the reply was unusable (unparseable, illegal or timed out) and the engine acted for it.',
   cost_per_hand_usd: 'API cost per hand played, in US dollars.',
+  avg_latency_ms: 'Average time the model took to answer one decision, in seconds.',
   hu_bb100: 'Big blinds won per 100 hands over flops only two players saw. It counts blinds folded by the other players, which the cells leave out, so it can differ from the row\'s chips.',
   mw_bb: 'Big blinds won per 100 hands over all flops with 3 or more players. The table is sorted by it.',
   mw_hands: 'Hands where this model saw a flop with 3 or more players.',
