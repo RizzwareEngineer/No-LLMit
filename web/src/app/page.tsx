@@ -141,6 +141,8 @@ export default function Home() {
   // Profits & Losses covers the live table session (the one not ended yet).
   const liveId = all.data?.sessions.find(s => !s.ended_at)?.id;
   const live = useStats(liveId, !!liveId, handNumber);
+  // Who is at the table now: the engine's lineup, else (an older engine) the live session's models.
+  const seated = all.data?.seated ?? live.data?.models.map(m => m.name);
   // The HUD reads the same all-time fetch; the bundled dev sample never feeds the seats.
   const hud = useHudState(all.sample ? null : all.data?.models);
 
