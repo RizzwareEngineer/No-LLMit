@@ -2,7 +2,8 @@
 
 import Card from "@/components/Card";
 import NumberFlow from '@number-flow/react';
-import { CircleNotch, Moon, PokerChip } from "@phosphor-icons/react";
+import { CircleNotch, Moon } from "@phosphor-icons/react";
+import ChipStack from "@/components/ChipStack";
 import Link from "next/link";
 import { type CSSProperties, useEffect, useState } from "react";
 import { TableNoticePayload } from "@/lib/api";
@@ -84,7 +85,7 @@ function BetStack({ amount, style }: { amount: number; style: CSSProperties }) {
   if (amount <= 0) return null;
   return (
     <div className="absolute flex items-center gap-1.5" style={style} title={`Bet ${amount.toLocaleString()}`}>
-      <PokerChip aria-hidden size={16} weight="duotone" color="rgb(203, 145, 47)" />
+      <ChipStack amount={amount} />
       <span className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{amount.toLocaleString()}</span>
     </div>
   );
@@ -152,7 +153,7 @@ export default function TableFelt({
               </div>
             </div>
             <div className={`flex items-center gap-1.5 h-[18px] ${pot - betsOut > 0 ? '' : 'invisible'}`} aria-hidden={pot - betsOut <= 0} title="Chips collected so far">
-              <PokerChip aria-hidden size={16} weight="duotone" color="rgb(203, 145, 47)" />
+              <ChipStack amount={Math.max(0, pot - betsOut)} />
               <span className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{Math.max(0, pot - betsOut).toLocaleString()}</span>
             </div>
           </div>
