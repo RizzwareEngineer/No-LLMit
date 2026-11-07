@@ -105,10 +105,9 @@ export function scrollsInside(el: Element | null, dir: number) {
   return false;
 }
 
-// The glide between a tile and its screen's card: ease-out, half a second. Fades run a little shorter.
+// The glide between a tile and its screen's card: ease-out, half a second.
 export const GLIDE_MS = 500;
 const GLIDE = { duration: GLIDE_MS / 1000, ease: [0.22, 1, 0.36, 1] } as const;
-const FADE = { duration: 0.3, ease: 'easeOut' } as const;
 const NONE = { duration: 0 } as const;
 // The cross-fade inside a gliding tile: the old content goes quickly, the new comes in just after,
 // so the two barely overlap.
@@ -119,7 +118,7 @@ const IN = { duration: 0.3, delay: 0.08, ease: 'easeOut' } as const;
 // Space with the tile focused) calls onOpen, except on links and controls inside it.
 // `focused`: the tile fills the stage, in its screen card's place; motion's layout animation turns
 // that jump into a glide (transforms only, nothing under reduced motion). `covered`: another tile
-// is focused, and this one fades out. `lifted`: the tile focused last, on top while it glides back.
+// is focused, and this one slides off the screen by `away` (back in when it is not). `lifted`: the tile focused last, on top while it glides back.
 // `snap`: change without animating (the stage is hidden under a card). A new `body` key cross-fades
 // the body (a tile's teaser to its card's content); `extra` fades in and out the same way. The body scrolls inside itself when it overflows.
 export default function Panel({
@@ -130,6 +129,7 @@ export default function Panel({
   extra,
   focused = false,
   covered = false,
+  away = {},
   lifted = false,
   snap = false,
   body = 'tile',
@@ -144,6 +144,7 @@ export default function Panel({
   extra?: React.ReactNode; // header extras of the card this tile stands in for, while focused
   focused?: boolean;
   covered?: boolean;
+  away?: { x?: string; y?: string }; // how far it slides off, as a share of its own size
   lifted?: boolean;
   snap?: boolean;
   body?: string;
@@ -157,12 +158,20 @@ export default function Panel({
     onOpen();
   };
   const move = snap ? NONE : GLIDE;
+  // The slide lives on a wrapper (the grid cell), the glide on the section: motion drops an x/y
+  // that changes in the same render as a layout snap. Untransformed, the wrapper is no containing
+  // block, so a focused section still fills the whole grid.
   return (
+    <motion.div
+      initial={false}
+      animate={covered ? { x: away.x ?? 0, y: away.y ?? 0 } : { x: 0, y: 0 }}
+      transition={move}
+      className={`flex flex-col min-h-0 min-w-0 ${className}`}
+    >
     <motion.section
       layout
       initial={false}
-      animate={{ opacity: covered ? 0 : 1 }}
-      transition={{ ...move, opacity: snap ? NONE : FADE }}
+      transition={move}
       id={id}
       aria-labelledby={`${id}-title`}
       inert={covered}
@@ -172,7 +181,7 @@ export default function Panel({
         if (t.closest(`#${id}-title a`) || !t.closest('a, button, select, input, label')) open(e);
       } : undefined}
       onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && open(e) : undefined}
-      className={`${CARD} overflow-hidden ${focused ? 'absolute inset-0' : `relative ${className}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''}`}
+      className={`${CARD} overflow-hidden ${focused ? 'absolute inset-0' : 'relative flex-1'} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''}`}
       style={{ boxShadow: CARD_SHADOW }}
     >
       <motion.div layout="position" transition={move} className={HEADER}>
@@ -182,7 +191,7 @@ export default function Panel({
         </h2>
         <div className="flex items-center gap-4">
           {aside}
-          <AnimatePresence initial={false}>
+          <AnimatePresence initial={false} mode="popLayout">
             {extra && (
               <motion.div key="extra" initial={{ opacity: 0 }} animate={{ opacity: 1, transition: snap ? NONE : IN }} exit={{ opacity: 0, transition: OUT }}>
                 {extra}
@@ -206,6 +215,7 @@ export default function Panel({
         </motion.div>
       </AnimatePresence>
     </motion.section>
+    </motion.div>
   );
 }
 

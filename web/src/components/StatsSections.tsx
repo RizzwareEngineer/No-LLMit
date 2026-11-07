@@ -80,15 +80,15 @@ export default memo(function StatsSections({
   // overview. pageBy announces its target first so the Race tile starts gliding with the key press.
   // While a scroll to an announced screen runs, the screens it passes on the way are ignored.
   // Cards under another card leave the tab order (set directly: no re-render mid-scroll).
-  // A click on a tile glides it to its card's place while the others fade (the page stays on the
+  // A click on a tile glides it to its card's place while the others slide off the screen (the page stays on the
   // overview), then the page jumps to that tile's screen, whose card sits exactly there. Back to
   // overview does the reverse: under the card, the stage snaps to that tile filling it, the page
-  // jumps to the overview, and the tile glides back while the others fade in.
+  // jumps to the overview, and the tile glides back while the others slide back in.
   useEffect(() => {
     let target: string | null = null;
     let busy = false; // a glide from a click or Back is running: arrivals leave the stage alone
     const put = (on: Tile | null, snap = false) => {
-      // A tile about to fade goes inert, and inert taking focus away cancels a running page
+      // A tile about to slide off goes inert, and inert taking focus away cancels a running page
       // scroll: hand focus to the tile that stays first.
       const held = document.activeElement?.closest('[data-stage] section');
       if (on && held && held.id !== TILES[on].panel) document.getElementById(TILES[on].panel)?.focus({ preventScroll: true });
@@ -327,13 +327,13 @@ export default memo(function StatsSections({
       ))}
       <div data-stage className="absolute inset-0">
         {/* The overview stage: pinned from the overview to the end. The top padding clears the
-            sticky bar (44px) plus the table screen's own outer padding; the clip keeps a glide's
-            edges from adding a page scrollbar. */}
-        <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh">
-          <div className={`h-full ${WIDTH} mx-auto ${EDGE} overflow-clip [overflow-clip-margin:24px]`}>
+            sticky bar (44px) plus the table screen's own outer padding; the clip, at the window's
+            edges (the page pads its sides), keeps tiles sliding off from adding a page scrollbar. */}
+        <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px]">
+          <div className={`h-full ${WIDTH} mx-auto ${EDGE}`}>
             {/* Overview: three tiles, each a miniature of its screen, Race on top (stacked on phones). */}
             <div className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-2 md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
-              <Panel id="race-panel" title="Race" href="#race" className="row-start-1 md:col-span-2" aside={leadOf(raceField, ' all time')} {...tile('race')}>
+              <Panel id="race-panel" title="Race" href="#race" away={{ y: '-150%' }} className="row-start-1 md:col-span-2" aside={leadOf(raceField, ' all time')} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
@@ -345,6 +345,7 @@ export default memo(function StatsSections({
                 id="stats-panel"
                 title={<>Stats {sample && <SampleBadge />}</>}
                 href="#stats-table"
+                away={{ x: '-130%' }}
                 className="row-start-2 md:col-start-1"
                 extra={on === 'stats-table' && <div className={ASIDE}>{statsAside}</div>}
                 body={on === 'stats-table' ? 'card' : 'tile'}
@@ -357,6 +358,7 @@ export default memo(function StatsSections({
                 id="pairwise-panel"
                 title="Pairwise results"
                 href="#pairwise"
+                away={{ x: '130%' }}
                 className="row-start-3 md:row-start-2 md:col-start-2"
                 extra={on === 'pairwise' && <div className={ASIDE}>{pairwiseAside}</div>}
                 body={on === 'pairwise' ? 'card' : 'tile'}
