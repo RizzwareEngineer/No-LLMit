@@ -51,6 +51,7 @@ func (s *Server) Start(port int) error {
 	http.HandleFunc("/health", s.handleHealth)
 	http.HandleFunc("/api/usage", s.handleCORS(s.handleUsage))
 	http.HandleFunc("/api/stats", s.handleCORS(stats.handle))
+	http.HandleFunc("/api/stats/timeline", s.handleCORS(stats.handleTimeline))
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("Starting server on %s", addr)

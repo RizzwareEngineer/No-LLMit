@@ -1,10 +1,13 @@
-// Serves GET /api/stats (optionally ?session=<id>). Hands are loaded from Supabase, or from
-// HAND_LOG_DIR/hands.jsonl when Supabase is not configured; every 5 minutes they are
-// reloaded, and each newly saved hand is added as it lands. The JSON for the whole table
-// and for each session is precomputed, so a request only copies bytes.
+// Serves GET /api/stats and GET /api/stats/timeline (each optionally ?session=<id>). Hands
+// are loaded from Supabase, or from HAND_LOG_DIR/hands.jsonl when Supabase is not
+// configured; every 5 minutes they are reloaded, and each newly saved hand is added as it
+// lands. The JSON for the whole table and for each session, and its gzip, is precomputed,
+// so a request only copies bytes.
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,14 +40,32 @@ type statsCache struct {
 	hands     []history.HandRecord // in the order played
 	seen      map[string]bool
 	changed   map[string]bool // sessions with hands added since the last recompute
-	all       []byte
-	bySession map[string][]byte
+	all       payload         // /api/stats
+	bySession map[string]payload
+	timeline  payload // /api/stats/timeline
+	tlSession map[string]payload
 
 	live string // the live session last encoded; only run touches it
 
 	seated    []string  // the table's lineup; set before run starts, never changed after
 	tableID   string    // the table this engine is playing: the live session, even before its first hand
 	tableFrom time.Time // when that table started; the live session's start until it has a hand
+}
+
+// payload is a response body, and its gzip for clients that accept it.
+type payload struct{ json, gz []byte }
+
+func newPayload(v any) payload {
+	b, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("!!! Stats: %v", err)
+		return payload{}
+	}
+	var z bytes.Buffer
+	w := gzip.NewWriter(&z)
+	w.Write(b)
+	w.Close()
+	return payload{b, z.Bytes()}
 }
 
 func newStatsCache() *statsCache {
@@ -173,9 +194,9 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	}
 
 	now := time.Now().UTC()
-	encode := func(hs []history.HandRecord, current bool) []byte {
-		s := stats.Compute(hs)
-		s.GeneratedAt = now
+	encode := func(hs []history.HandRecord, current bool) [2]payload {
+		s, tl := stats.ComputeWithTimeline(hs)
+		s.GeneratedAt, tl.GeneratedAt = now, now
 		if current {
 			s.Seated = c.seated
 		}
@@ -188,11 +209,7 @@ func (c *statsCache) recompute(full bool) (more bool) {
 		if current && live != "" && !found { // no hand saved yet this run
 			s.Sessions = append(s.Sessions, stats.Session{ID: live, StartedAt: c.tableFrom})
 		}
-		b, err := json.Marshal(s)
-		if err != nil {
-			log.Printf("!!! Stats: %v", err)
-		}
-		return b
+		return [2]payload{newPayload(s), newPayload(tl)}
 	}
 	sessions := map[string][]history.HandRecord{}
 	for _, h := range hands {
@@ -203,7 +220,7 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	if _, ok := sessions[live]; live != "" && !ok && (full || changed[live]) {
 		sessions[live] = nil // answer ?session=<live> with zero hands until the first one is saved
 	}
-	updated := map[string][]byte{}
+	updated := map[string][2]payload{}
 	for id, hs := range sessions {
 		updated[id] = encode(hs, id == live)
 	}
@@ -211,34 +228,48 @@ func (c *statsCache) recompute(full bool) (more bool) {
 
 	c.mu.Lock()
 	if full || c.bySession == nil {
-		c.bySession = map[string][]byte{}
+		c.bySession, c.tlSession = map[string]payload{}, map[string]payload{}
 	}
 	for id, b := range updated {
-		c.bySession[id] = b
+		c.bySession[id], c.tlSession[id] = b[0], b[1]
 	}
-	c.all = all
+	c.all, c.timeline = all[0], all[1]
 	c.mu.Unlock()
 	return remaining > 0
 }
 
-func (c *statsCache) handle(w http.ResponseWriter, r *http.Request) {
+func (c *statsCache) handle(w http.ResponseWriter, r *http.Request) { c.serve(w, r, false) }
+
+func (c *statsCache) handleTimeline(w http.ResponseWriter, r *http.Request) { c.serve(w, r, true) }
+
+func (c *statsCache) serve(w http.ResponseWriter, r *http.Request, timeline bool) {
 	c.mu.Lock()
-	body := c.all
+	body, bySession := c.all, c.bySession
+	if timeline {
+		body, bySession = c.timeline, c.tlSession
+	}
 	if id := r.URL.Query().Get("session"); id != "" {
 		var ok bool
-		if body, ok = c.bySession[id]; !ok {
+		if body, ok = bySession[id]; !ok {
 			c.mu.Unlock()
 			http.Error(w, "unknown session", http.StatusNotFound)
 			return
 		}
 	}
 	c.mu.Unlock()
-	if body == nil {
+	if body.json == nil {
 		http.Error(w, "stats are still loading", http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(body)
+	w.Header().Set("Vary", "Accept-Encoding")
+	// shortcut: any "gzip" in Accept-Encoding counts, even gzip;q=0, which no browser sends.
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Write(body.gz)
+		return
+	}
+	w.Write(body.json)
 }
 
 // loadSupabaseHands reads every saved hand in the order played, asking for 1000 rows at a
