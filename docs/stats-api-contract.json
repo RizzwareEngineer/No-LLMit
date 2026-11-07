@@ -28,5 +28,21 @@
   ],
   "seated": ["GPT-OSS 20B", "Claude Haiku 5.5", "Gemma 3 12B", "Llama 3.1 8B", "Mistral Nemo", "DeepSeek V4 Flash", "Phi-4", "Qwen 3.7 Flash", "Cohere Command R7B"],
   "definitions_url": "/docs/stats.md",
-  "partial": false
+  "partial": false,
+  "_timeline": {
+    "_comment": "Contract for GET /api/stats/timeline, the same numbers at past hands; not a field of /api/stats. Same scope as /api/stats: all time, or ?session=<session_id>. Model fields are indexes into models (sorted by name). profiles has a row per model seated so far at every profile_step hands (25, or ceil(hands/120) past 3,000 hands, so never more than 120 snapshots) and at the last hand, whose rows equal /api/stats (bb100 rounded to 0.01, vpip and pfr to 0.0001, af to 0.001; null as in /api/stats). matchups has a row for each pair whose head-to-head net changed, a < b, chips being what a took from b: per hand, or per matchup_bucket hands (ceil(hands/1200)) past 1,200 hands, at the bucket's last hand. Summing chips per pair over every row gives vs.net_chips in /api/stats exactly (b's total against a is minus a's). Example: rows from the demo history, cut to four of its 19 models with the indexes renumbered to match.",
+    "generated_at": "2026-11-07T22:31:15Z",
+    "hands": 895,
+    "models": ["Claude Haiku 5.5", "Cohere Command R7B", "DeepSeek V3.2", "DeepSeek V4 Flash"],
+    "profile_step": 25,
+    "matchup_bucket": 1,
+    "profiles": {
+      "fields": ["hand", "model", "hands", "bb100", "vpip", "pfr", "af"],
+      "rows": [ [25, 0, 16, -116.88, 0.4375, 0.1875, 1], [25, 3, 20, 165.5, 0.3, 0.1, 2.5], [895, 3, 426, 298.54, 0.4505, 0.1415, 1.75] ]
+    },
+    "matchups": {
+      "fields": ["hand", "a", "b", "chips"],
+      "rows": [ [2, 0, 1, 37], [2, 0, 3, 297], [3, 1, 2, 22] ]
+    }
+  }
 }
