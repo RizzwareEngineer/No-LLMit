@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Segmented } from '@/components/Section';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
@@ -12,6 +12,7 @@ const AXIS = 'rgba(55, 53, 47, 0.75)';
 // Every line is redrawn through this many points, so a new hand changes the numbers in each
 // path but not its shape and motion can tween the old line into the new one.
 const SAMPLES = 160;
+const PLAY_MS = 60_000; // the race takes a minute, first hand to last
 
 // The value of a cumulative curve at hand n, linearly interpolated (0 before its first point,
 // flat after its last).
@@ -112,16 +113,38 @@ export default function CumulativeChart({
   const [{ width, height, drawnFor }, setSize] = useState({ width: 720, height: 300, drawnFor: models });
   const latest = useRef(models);
   useEffect(() => { latest.current = models; });
-  // Like Arena's trends chart, the lines draw in from the first hand to the last each time the Race
-  // screen opens (the tile draws once, when it first scrolls into view); the labels follow the lines.
-  const [draw, setDraw] = useState(0);
+  const reduce = useReducedMotion();
+  // A race, like Arena's trends chart: every line grows from the first hand to the last over a
+  // minute, its label riding the tip and the order changing as it goes. It plays when the tile
+  // first scrolls into view and again each time the Race screen opens; Skip and Replay control it.
+  const [progress, setProgress] = useState(1); // 0..1 of the way from the first hand to the last
+  const frame = useRef(0);
+  const play = useCallback(() => {
+    cancelAnimationFrame(frame.current);
+    if (reduce) return setProgress(1);
+    const t0 = performance.now();
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - t0) / PLAY_MS);
+      setProgress(p);
+      if (p < 1) frame.current = requestAnimationFrame(tick);
+    };
+    frame.current = requestAnimationFrame(tick);
+  }, [reduce]);
+  const skip = () => { cancelAnimationFrame(frame.current); setProgress(1); };
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
   const wasMini = useRef(mini);
   useEffect(() => {
-    if (wasMini.current && !mini) setDraw(n => n + 1);
+    if (wasMini.current && !mini) play();
     wasMini.current = mini;
-  }, [mini]);
-  const DRAW = mini ? 1.2 : 2.4; // seconds
-  const reduce = useReducedMotion();
+  }, [mini, play]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !race) return;
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { play(); io.disconnect(); } }, { threshold: 0.4 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [race, play]);
+  const playing = race && progress < 1;
   // The hand under the pointer (or picked with the arrow keys) and the line nearest it.
   const [hover, setHover] = useState<{ n: number; name: string } | null>(null);
   const [range, setRange] = useState(0); // 0: every hand
@@ -164,14 +187,25 @@ export default function CumulativeChart({
   // The x axis starts where the first line does (RATE_FROM hands for bb/100), or at the window.
   const from = Math.max(whole ? 0 : lastHand - win, Math.min(lastHand - 1, ...listed.map(m => pts(m)[0][0])));
   // Every line resampled over the window; lines switched off or ended before it drop out.
-  const drawn = new Map(listed.map(m => {
+  const full = new Map(listed.map(m => {
     const p = pts(m);
     return [m.name, hidden.includes(m.name) ? [] : resample(p, Math.max(from, p[0][0]))];
   }));
+  // While the race plays, each line stops at the playhead, interpolated to it.
+  const head = from + progress * (lastHand - from);
+  const cut = (p: [number, number][]): [number, number][] => {
+    if (!playing) return p;
+    const i = p.findIndex(([n]) => n > head);
+    if (i === -1) return p;
+    if (i === 0) return [];
+    const [n0, v0] = p[i - 1], [n1, v1] = p[i];
+    return [...p.slice(0, i), [head, v0 + ((v1 - v0) * (head - n0)) / (n1 - n0 || 1)]];
+  };
+  const drawn = new Map([...full].map(([name, p]) => [name, cut(p)]));
   const shown = listed.filter(m => drawn.get(m.name)!.length);
   // The value at hand n, or null before the line starts.
   const at = (m: ModelStats, n: number) => (n < pts(m)[0][0] ? null : valueAt(pts(m), n));
-  const ys = shown.flatMap(m => drawn.get(m.name)!.map(p => p[1]));
+  const ys = listed.flatMap(m => full.get(m.name)!.map(p => p[1])); // the whole race: the axis holds still while it plays
   const sel = shown.find(m => m.name === selected);
   // 95% band: bb/100's interval narrows as 1/sqrt(n); a cumulative total's widens as sqrt(n).
   const bandAt = (m: ModelStats, n: number) =>
@@ -201,7 +235,7 @@ export default function CumulativeChart({
     ? line(selPts.map(([n, v]) => [n, v + bandAt(sel, n)])) +
       [...selPts].reverse().map(([n, v]) => `L${x(n)},${y(v - bandAt(sel, n))}`).join('') + 'Z'
     : '';
-  const tween = { duration: reduce || drawnFor === models ? 0 : 0.6, ease: [0.22, 1, 0.36, 1] as const };
+  const tween = { duration: reduce || playing || drawnFor === models ? 0 : 0.6, ease: [0.22, 1, 0.36, 1] as const };
   const hot = shown.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
   const ordered = [...shown.filter(m => m !== sel && m !== hot), ...(sel && sel !== hot ? [sel] : []), ...(hot ? [hot] : [])]; // selected, then hovered on top
   // Every line ends in a label in the right-hand gutter (a logo in the tile; logo, name and the
@@ -210,6 +244,7 @@ export default function CumulativeChart({
     .map(m => { const p = drawn.get(m.name)!; return { m, n: p.at(-1)![0], v: p.at(-1)![1] }; })
     .sort((a, b) => b.v - a.v);
   const rowH = mini ? logo + 1 : 22;
+  const labelX = playing ? Math.min(w - right + 6, Math.max(...ends.map(e => x(e.n)), left) + 14) : w - right + 6; // labels ride the tips while the race plays
   const [eLo, eHi] = [padTop + rowH / 2, height - padBottom - rowH / 2];
   const endYs = spread(ends.map(e => y(e.v)), Math.min(rowH, (eHi - eLo) / Math.max(1, ends.length - 1)), eLo, eHi); // highest value first: ascending y
   const readout = hover
@@ -337,25 +372,21 @@ export default function CumulativeChart({
             const d = line(drawn.get(m.name)!);
             return (
               <motion.path
-                key={`${m.name}:${draw}`}
+                key={m.name}
                 fill="none"
                 stroke={modelColor(m.name)}
                 strokeWidth={m === hot || m === sel ? 3 : 2}
                 strokeLinejoin="round"
                 opacity={!hot || m === hot || m === sel ? 1 : 0.25}
-                // Lines draw in the first time the chart scrolls into view, then tween as hands finish.
-                initial={{ d, pathLength: reduce ? 1 : 0 }}
+                initial={false}
                 animate={{ d }}
-                whileInView={{ pathLength: 1 }}
-                viewport={{ once: true }}
-                transition={{ d: tween, pathLength: { duration: reduce ? 0 : DRAW, ease: 'linear' } }}
+                transition={{ d: tween }}
               />
             );
           })}
           {race && ends.map((e, i) => (
             // A dotted leader from the line's end to its label, so a nudged label never reads as data.
-            <motion.path key={`${e.m.name}:${draw}`} d={`M${x(e.n)},${y(e.v)}L${w - right + 4},${endYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none"
-              initial={{ opacity: reduce ? 1 : 0 }} animate={{ opacity: hot && hot !== e.m ? 0.2 : 0.6 }} transition={{ delay: reduce ? 0 : DRAW * 0.9, duration: 0.4 }} />
+            <path key={e.m.name} d={`M${x(e.n)},${y(e.v)}L${labelX - 2},${endYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none" opacity={hot && hot !== e.m ? 0.2 : 0.6} />
           ))}
           {hover && (
             <g pointerEvents="none">
@@ -372,14 +403,13 @@ export default function CumulativeChart({
           </p>
         )}
         {race && ends.map((e, i) => mini ? (
-          <div key={e.m.name} className="absolute pointer-events-none" style={{ left: w - right + 6, top: endYs[i] - logo / 2 }} title={e.m.name}>
+          <div key={e.m.name} className="absolute pointer-events-none" style={{ left: labelX, top: endYs[i] - logo / 2 }} title={e.m.name}>
             <LLMLogo model={e.m.name} size={logo} />
           </div>
         ) : (
           // Logo, name and final figure at each line's end; a click shades its 95% band.
-          <motion.button
-            key={`${e.m.name}:${draw}`}
-            initial={{ opacity: reduce ? 1 : 0 }} animate={{ opacity: hot && hot !== e.m ? 0.45 : 1 }} transition={{ delay: reduce ? 0 : DRAW * 0.9, duration: 0.4 }}
+          <button
+            key={e.m.name}
             onClick={() => onSelect?.(selected === e.m.name ? '' : e.m.name)}
             onPointerMove={ev => ev.stopPropagation()}
             onPointerEnter={() => { setHover(null); onHighlight?.(e.m.name); }}
@@ -388,13 +418,24 @@ export default function CumulativeChart({
             onBlur={() => onHighlight?.(undefined)}
             aria-pressed={selected === e.m.name}
             className="absolute flex items-center gap-1.5 rounded px-1 text-[14px] leading-none tabular-nums text-left hover:bg-[rgba(55,53,47,0.06)]"
-            style={{ left: w - right + 6, top: endYs[i] - rowH / 2, height: rowH, width: right - 8, color: TEXT, boxShadow: selected === e.m.name ? `inset 3px 0 0 ${modelColor(e.m.name)}` : undefined }}
+            style={{ left: labelX, top: endYs[i] - rowH / 2, height: rowH, width: right - 8, color: TEXT, opacity: hot && hot !== e.m ? 0.45 : 1, boxShadow: selected === e.m.name ? `inset 3px 0 0 ${modelColor(e.m.name)}` : undefined }}
           >
             <LLMLogo model={e.m.name} size={logo} />
             <span className={`flex-1 min-w-0 truncate ${e.m === hot || i === 0 ? 'font-bold' : 'font-medium'}`}>{e.m.name}</span>
             <span className="font-bold" style={{ color: netColor(e.v) }}>{fmt(e.v)}</span>
-          </motion.button>
+          </button>
         ))}
+        {/* The race clock: the hand the lines have reached, with Skip while it plays and Replay after. */}
+        {race && (playing || interactive) && (
+          <div className="absolute flex items-center gap-2 tabular-nums" style={{ right: right + 8, top: padTop + 4, fontSize: fs, color: MUTED }}>
+            {playing && <span>Hand <b style={{ color: TEXT }}>{Math.round(head).toLocaleString()}</b> of {lastHand.toLocaleString()}</span>}
+            {interactive && (
+              <button onPointerMove={ev => ev.stopPropagation()} onPointerDown={ev => ev.stopPropagation()} onClick={playing ? skip : play} className="rounded border px-2 py-px font-medium hover:bg-[rgba(55,53,47,0.06)]" style={{ borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT, background: 'white' }}>
+                {playing ? 'Skip' : 'Replay'}
+              </button>
+            )}
+          </div>
+        )}
         {/* Always mounted, so the first arrow press is announced too; it says the leader and the highlighted line. */}
         {race && <div role="status" className="sr-only">{said}</div>}
         {/* The readout floats over the plot (no layout shift), on the side away from the cursor. */}
