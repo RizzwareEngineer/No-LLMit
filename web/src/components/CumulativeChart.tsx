@@ -86,9 +86,10 @@ export function trace(pts: Pts, x0: number, x1: number, end = Infinity, to?: Pts
   const lo = Math.max(x0, lerp(pts[0][0], b[0][0], k));
   const hi = Math.min(x1, lerp(pts.at(-1)![0], b.at(-1)![0], k), end);
   if (!(hi >= lo)) return [];
+  // The grid sits on multiples of the step, so a window that slides (the replay's camera) keeps it still.
   const step = (x1 - x0) / (SAMPLES - 1) || 1;
   const ns = [lo];
-  for (let i = Math.floor((lo - x0) / step) + 1; x0 + i * step < hi; i++) ns.push(x0 + i * step);
+  for (let i = Math.floor(lo / step) + 1; i * step < hi; i++) ns.push(i * step);
   if (hi > lo) ns.push(hi);
   const va = sampleAt(pts, ns);
   const vb = b === pts ? va : sampleAt(b, ns);
@@ -112,8 +113,51 @@ export function series(m: ModelStats, metric: Metric, bigBlind = 1, ev = false):
   return curve.map(([n, v]) => [n, v * k]);
 }
 
-// What the chart is heading for: its axis ranges and its lines. A new key starts a tween to it.
-type Scene = { key: string; x0: number; x1: number; y0: number; y1: number; lines: Map<string, Pts>; evs: Map<string, Pts> };
+// What the chart is heading for: its x window (fixed, or the camera's `span` hands up to the leading
+// tip) and its lines. A new key starts a tween to it.
+type Scene = { key: string; camera: boolean; span: number; x0: number; x1: number; lines: Map<string, Pts>; evs: Map<string, Pts> };
+
+// Arena-style labels: a pill (logo and name) just right of each line's tip.
+const PILL_ROOM = 190; // the plot's width past the leading edge, for the leader's pill
+const PILL_H = 20;
+const PILL_GAP = 7; // from the tip's dot to its pill
+
+// Pill centres: pills whose spans overlap across x are spread at least `gap` apart (as `spread`),
+// the rest keep their targets. `ps` must be sorted by y ascending.
+export function stack(ps: { x: number; w: number; y: number }[], gap: number, lo: number, hi: number) {
+  const group = ps.map((_, i) => i);
+  const root = (i: number): number => (group[i] === i ? i : (group[i] = root(group[i])));
+  ps.forEach((a, i) => ps.forEach((b, j) => { if (j > i && a.x < b.x + b.w + 4 && b.x < a.x + a.w + 4) group[root(j)] = root(i); }));
+  const out = ps.map(p => p.y);
+  for (const r of new Set(ps.map((_, i) => root(i)))) {
+    const ids = ps.flatMap((_, i) => (root(i) === r ? [i] : []));
+    const ys = spread(ids.map(i => ps[i].y), Math.min(gap, (hi - lo) / Math.max(1, ids.length - 1)), lo, hi);
+    ids.forEach((i, j) => { out[i] = ys[j]; });
+  }
+  return out;
+}
+
+if (process.env.NODE_ENV === 'development') {
+  const [a, b] = stack([{ x: 0, w: 50, y: 50 }, { x: 10, w: 50, y: 50 }], 20, 0, 100);
+  const [c, d] = stack([{ x: 0, w: 50, y: 50 }, { x: 80, w: 50, y: 50 }], 20, 0, 100);
+  console.assert(b - a >= 20 && c === 50 && d === 50, 'stack: overlapping pills spread, apart ones stay');
+}
+
+const clockMs = () => performance.now(); // for effects only: when each collision effect last played
+
+// About eight dots fly out from (x, y) and fade over 600 ms: a line passing another.
+function burst(layer: HTMLElement | null, x: number, y: number, color: string) {
+  for (let i = 0; layer && i < 8; i++) {
+    const a = (i / 8) * 2 * Math.PI + Math.random() * 0.6, d = 12 + Math.random() * 10;
+    const dot = document.createElement('span');
+    dot.style.cssText = `position:absolute;left:${x - 2}px;top:${y - 2}px;width:4px;height:4px;border-radius:9999px;background:${color}`;
+    layer.appendChild(dot);
+    dot.animate(
+      [{ transform: 'none', opacity: 1 }, { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) scale(0.5)`, opacity: 0 }],
+      { duration: 600, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+    ).onfinish = () => dot.remove();
+  }
+}
 
 export default function CumulativeChart({
   models,
@@ -141,6 +185,10 @@ export default function CumulativeChart({
   const area = useRef<HTMLDivElement>(null);
   const plot = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
+  const fxLayer = useRef<HTMLDivElement>(null);
+  const pillEls = useRef(new Map<string, HTMLElement>());
+  // Last frame's pushed pills and order, and when each effect last played (no repeats, no blinking).
+  const fx = useRef({ pushed: new Set<string>(), rank: new Map<string, number>(), shook: new Map<string, number>(), burst: new Map<string, number>(), pair: new Map<string, number>() });
   const clipId = useId();
   const reduce = useReducedMotion();
   // The box the chart fits in. Measured in the same frame as the tile↔card layout change, so the glide
@@ -224,25 +272,36 @@ export default function CumulativeChart({
   const bandAt = (m: ModelStats, n: number) =>
     rate ? (ciHalf(m) ?? 0) * Math.sqrt(m.hands / Math.max(n, 1)) : band(m, n) * (metric === 'chips' ? bigBlind ?? 1 : 1);
   const sel = on.find(m => m.name === selected);
-  // The y axis spans the whole race (it holds still while it plays) and zero over the whole session, with a little air.
-  const ys = [...lines.values(), ...evs.values()].flatMap(p => trace(p, from, lastHand).map(q => q[1]));
-  if (sel) trace(pts(sel), from, lastHand).forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
-  let lo = Math.min(...ys, ...(whole ? [0] : [])), hi = Math.max(...ys, ...(whole ? [0] : []));
-  if (!Number.isFinite(lo)) [lo, hi] = [0, 1];
-  if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
-  const air = (hi - lo) * 0.04;
+
+  // While the race plays, each line stops at the playhead: with the timeline, at the hands its model
+  // had played by the replay's hand (lines pause while their model sits out); without it, at one
+  // shared number of hands played.
+  const handNow = race && timeline && playing ? progress * timeline.hands : null;
+  const head = from + progress * (lastHand - from);
+  const endOf = (name: string) => (handNow === null ? head : playedAt(timeline!, name, handNow));
+  // The camera, Arena style: while the race plays the x axis shows the last `span` hands up to the
+  // leading tip, which stays at one spot while history slides past. After, it shows the Hands window.
+  const span = whole ? Math.max(100, Math.round((lastHand - from) / 2)) : win;
   const scene: Scene = {
-    key: [metric, from, lastHand, lo - air, hi + air, ...lines.keys(), '|', ...evs.keys()].join(),
-    x0: from, x1: lastHand, y0: lo - air, y1: hi + air, lines, evs,
+    key: [metric, playing ? 'camera' : from, lastHand, span, ...lines.keys(), '|', ...evs.keys()].join(),
+    camera: playing, span, x0: from, x1: lastHand, lines, evs,
+  };
+  // A scene's x window now: fixed, or following the farthest tip of its own lines.
+  const windowOf = (sc: Scene): [number, number] => {
+    if (!sc.camera) return [sc.x0, sc.x1];
+    const lead = Math.max(from, ...[...sc.lines].map(([n, p]) => Math.min(endOf(n), p.at(-1)![0])));
+    return [lead - sc.span, lead];
   };
 
-  // A filter, the data or the range changed: the axes, gridlines and lines all move to the new scene in
-  // one tween (the scale, not just the paths); lines that leave fade out and lines that join fade in.
+  // A filter, the data or the range changed: the x axis and the lines move to the new scene in one
+  // tween (the scale, not just the paths); lines that leave fade out and lines that join fade in.
   const [tr, setTr] = useState({ from: scene, to: scene });
   const [mix, setMix] = useState(1);
   if (tr.to.key !== scene.key) {
-    const [a, b] = [tr.from, tr.to]; // interrupted: carry on from where the axes are now
-    setTr({ from: { ...b, x0: lerp(a.x0, b.x0, mix), x1: lerp(a.x1, b.x1, mix), y0: lerp(a.y0, b.y0, mix), y1: lerp(a.y1, b.y1, mix) }, to: scene });
+    // Camera to camera (new data, a filter mid-replay): both keep following. Otherwise carry on from where the axis is now.
+    const [a, b] = [windowOf(tr.from), windowOf(tr.to)];
+    const now = tr.to.camera && scene.camera ? tr.to : { ...tr.to, camera: false, x0: lerp(a[0], b[0], mix), x1: lerp(a[1], b[1], mix) };
+    setTr({ from: now, to: scene });
     setMix(0);
   }
   useEffect(() => {
@@ -252,7 +311,34 @@ export default function CumulativeChart({
   }, [tr, reduce]);
   const k = reduce ? 1 : mix;
   const old = tr.from;
-  const [X0, X1, Y0, Y1] = [lerp(old.x0, scene.x0, k), lerp(old.x1, scene.x1, k), lerp(old.y0, scene.y0, k), lerp(old.y1, scene.y1, k)];
+  const [wa, wb] = [windowOf(old), windowOf(scene)];
+  const [X0, X1] = [lerp(wa[0], wb[0], k), lerp(wa[1], wb[1], k)];
+
+  // The y axis fits what is in view (and zero over the whole history once the race is over), rounded
+  // out to half a tick, and glides to each new fit: it rescales as the race moves, never snapping.
+  const ys = [...lines, ...evs].flatMap(([n, p]) => trace(p, X0, X1, endOf(n)).map(q => q[1]));
+  if (sel) trace(pts(sel), X0, X1, endOf(sel.name)).forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
+  if (whole && !playing) ys.push(0);
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  if (!Number.isFinite(lo)) [lo, hi] = [0, 1];
+  if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
+  const air = (hi - lo) * 0.04;
+  const nice = niceTicks(lo, hi, 8);
+  const half = ((nice[1] ?? nice[0] + 1) - nice[0]) / 2;
+  const fit = [Math.floor((lo - air) / half) * half, Math.ceil((hi + air) / half) * half];
+  const [yr, setYr] = useState({ key: fit.join(), a: fit, b: fit });
+  const [mixY, setMixY] = useState(1);
+  if (yr.key !== fit.join()) {
+    setYr({ key: fit.join(), a: [lerp(yr.a[0], yr.b[0], mixY), lerp(yr.a[1], yr.b[1], mixY)], b: fit });
+    setMixY(0);
+  }
+  useEffect(() => {
+    if (reduce) return;
+    const c = animate(0, 1, { duration: TWEEN_S, ease: EASE, onUpdate: setMixY });
+    return () => c.stop();
+  }, [yr, reduce]);
+  const ky = reduce ? 1 : mixY;
+  const [Y0, Y1] = [lerp(yr.a[0], yr.b[0], ky), lerp(yr.a[1], yr.b[1], ky)];
 
   // The design size the chart is laid out at, and the one scale that fits it in its box. Outside
   // the Race (the model drawer) it simply fills its box.
@@ -260,23 +346,18 @@ export default function CumulativeChart({
   // The legend's rows are set aside, so a filter that changes its length never rescales the plot.
   const s = race ? Math.min(box.w / W, (box.h - (interactive ? LEGEND_H : 0)) / H) : 1;
   const fs = 14;
-  const logo = 18;
-  const right = race ? 240 : 12;
+  const right = 12;
   const left = 10 + fs * 0.62 * 8; // room for the widest y label ("−100,000"), so the plot never moves
   const padTop = fs + 14; // the y axis title sits above the plot
   const padBottom = fs + 10 + fs + 8; // tick labels, then the x axis title
   const plotW = lw - left - right;
   const plotH = lh - padTop - padBottom;
-  const x = (n: number) => left + ((n - X0) / (X1 - X0 || 1)) * plotW;
+  // The leading edge sits this far in from the right; the leader's pill rides just past it.
+  const leadW = plotW - (race ? PILL_ROOM : 0);
+  const x = (n: number) => left + ((n - X0) / (X1 - X0 || 1)) * leadW;
   const y = (v: number) => padTop + ((Y1 - v) / (Y1 - Y0 || 1)) * plotH;
   const line = (p: [number, number][]) => p.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
 
-  // While the race plays, each line stops at the playhead: with the timeline, at the hands its model
-  // had played by the replay's hand (lines pause while their model sits out); without it, at one
-  // shared number of hands played.
-  const handNow = race && timeline && playing ? progress * timeline.hands : null;
-  const head = from + progress * (lastHand - from);
-  const endOf = (name: string) => (handNow === null ? head : playedAt(timeline!, name, handNow));
   const fading = (was: Map<string, Pts>, is: Map<string, Pts>) => [...is.keys(), ...(k < 1 ? [...was.keys()].filter(n => !is.has(n)) : [])];
   const fade = (was: Map<string, Pts>, is: Map<string, Pts>, n: string) => (is.has(n) ? (was.has(n) ? 1 : k) : 1 - k);
   const drawnOf = (end: number, a?: Pts, b?: Pts) => (a && b && k < 1 ? trace(a, X0, X1, end, b, k) : trace((b ?? a)!, X0, X1, end));
@@ -296,24 +377,71 @@ export default function CumulativeChart({
       [...selPts].reverse().map(([n, v]) => `L${x(n)},${y(v - bandAt(sel, n))}`).join('') + 'Z'
     : '';
   // Ticks of the old and the new range, each fading as the range tweens; a tick in both stays put.
-  const blend = (was: number[], is: number[], a: number, b: number) =>
+  const blend = (was: number[], is: number[], a: number, b: number, kk: number) =>
     [...new Set([...was, ...is])]
-      .map(t => ({ t, o: is.includes(t) ? (was.includes(t) ? 1 : k) : 1 - k }))
+      .map(t => ({ t, o: is.includes(t) ? (was.includes(t) ? 1 : kk) : 1 - kk }))
       .filter(d => d.o > 0 && d.t >= Math.min(a, b) - 1e-6 && d.t <= Math.max(a, b) + 1e-6);
   const yTicksOf = (a: number, b: number) => niceTicks(a, b, 8).filter(t => t >= a && t <= b);
-  const xTicksOf = (a: number, b: number) => niceTicks(a, b, 10, true).filter(t => t >= a && t <= b);
-  const yTicks = blend(yTicksOf(old.y0, old.y1), yTicksOf(scene.y0, scene.y1), Y0, Y1);
-  const xTicks = blend(xTicksOf(old.x0, old.x1), xTicksOf(scene.x0, scene.x1), X0, X1);
+  const xTicksOf = (a: number, b: number) => niceTicks(a, b, 10, true).filter(t => t >= Math.max(a, from) && t <= b);
+  const yTicks = blend(yTicksOf(yr.a[0], yr.a[1]), yTicksOf(yr.b[0], yr.b[1]), Y0, Y1, ky);
+  // Under the camera the ticks keep one step and slide with history, fading in at the leading edge and out at the left.
+  const camTicks = xTicksOf(X0, X1);
+  const fadeW = ((camTicks[1] ?? X1) - (camTicks[0] ?? X0)) * 0.35 || 1;
+  const xTicks = race && playing
+    ? camTicks.map(t => ({ t, o: Math.min(1, (X1 - t) / fadeW, t > from ? (t - X0) / fadeW : 1) })).filter(d => d.o > 0.01)
+    : blend(xTicksOf(wa[0], wa[1]), xTicksOf(wb[0], wb[1]), X0, X1, k);
   const tick = (t: number) => (metric === 'chips' ? t.toLocaleString() : String(t)).replace('-', '−');
-  // Every line ends in a label in the right-hand gutter (logo, name and the final figure), spread so
-  // none overlap, with a dotted leader to the line's end.
+  // Every line ends in a dot and a pill (logo and name) just past it, Arena style. Pills that would
+  // overlap stack apart and slide with their lines; a pill fades in as its line starts and out as
+  // the camera carries its tip off the left edge.
   const ends = shown
-    .map(m => { const p = drawn.get(m.name)!; return { m, n: p.at(-1)![0], v: p.at(-1)![1], o: fade(old.lines, lines, m.name) }; })
-    .sort((a, b) => b.v - a.v);
-  const rowH = 22;
-  const labelX = playing ? Math.min(lw - right + 6, Math.max(...ends.map(e => x(e.n)), left) + 14) : lw - right + 6; // labels ride the tips while the race plays
-  const [eLo, eHi] = [padTop + rowH / 2, lh - padBottom - rowH / 2];
-  const endYs = spread(ends.map(e => y(e.v)), Math.min(rowH, (eHi - eLo) / Math.max(1, ends.length - 1)), eLo, eHi); // highest value first: ascending y
+    .map(m => {
+      const p = drawn.get(m.name)!;
+      const [n, v] = p.at(-1)!;
+      const tx = x(n);
+      const grown = Math.min(1, Math.max(0, (tx - Math.max(left, x(pts(m)[0][0]))) / 24), Math.max(0, (tx - left) / 48));
+      return { m, n, v, tx, ty: y(v), w: Math.min(PILL_ROOM - 12, 34 + m.name.length * 7), o: fade(old.lines, lines, m.name) * grown };
+    })
+    .sort((a, b) => b.v - a.v); // best first: ascending y
+  const pillYs = stack(ends.map(e => ({ x: e.tx + PILL_GAP, w: e.w, y: e.ty })), PILL_H + 3, padTop + PILL_H / 2, padTop + plotH - PILL_H / 2);
+  // The collision effects play while the race does: a pill newly pushed by another shakes once, and
+  // a line that passes another bursts in its colour at its tip. Each plays once per event.
+  const live = race && playing && !reduce && k === 1;
+  const pushed = ends.filter((e, i) => Math.abs(pillYs[i] - e.ty) > 1.5).map(e => e.m.name);
+  useEffect(() => {
+    const f = fx.current, now = clockMs();
+    const rank = new Map(ends.map((e, i) => [e.m.name, i]));
+    if (live) {
+      for (const n of pushed) {
+        if (f.pushed.has(n) || now - (f.shook.get(n) ?? -Infinity) < 2000) continue;
+        f.shook.set(n, now);
+        pillEls.current.get(n)?.animate(
+          [{ transform: 'none' }, { transform: 'translateX(-2.5px)' }, { transform: 'translateX(2.5px)' }, { transform: 'translateX(-1.5px)' }, { transform: 'none' }],
+          { duration: 320, easing: 'ease-out' },
+        );
+      }
+      for (const e of ends) {
+        const [i, was] = [rank.get(e.m.name)!, f.rank.get(e.m.name)];
+        if (was === undefined || e.o < 0.5 || now - (f.burst.get(e.m.name) ?? -Infinity) < 1500) continue;
+        // Passed: a line it was below is now below it (both in view in both frames).
+        const passed = ends.find((d, j) => j > i && d.o >= 0.5 && (f.rank.get(d.m.name) ?? Infinity) < was && now - (f.pair.get(`${e.m.name}>${d.m.name}`) ?? -Infinity) > 5000);
+        if (!passed) continue;
+        f.burst.set(e.m.name, now);
+        f.pair.set(`${e.m.name}>${passed.m.name}`, now);
+        f.pair.set(`${passed.m.name}>${e.m.name}`, now); // and no burst for it passing straight back
+        burst(fxLayer.current, e.tx, e.ty, modelColor(e.m.name));
+      }
+    }
+    f.pushed = new Set(pushed);
+    f.rank = rank;
+  });
+  // The pills' tips in page pixels, for checks: the plot is scaled (and glides) as a whole.
+  useLayoutEffect(() => {
+    const p = plot.current;
+    if (!p) return;
+    const r = p.getBoundingClientRect();
+    p.querySelectorAll<HTMLElement>('[data-pill]').forEach(e => { e.dataset.tipX = (r.left + +e.dataset.tx! * (r.width / lw)).toFixed(1); });
+  });
   const readout = hover
     ? shown.flatMap(m => { const v = at(m, hover.n); return v === null ? [] : [{ m, v }]; }).sort((a, b) => b.v - a.v)
     : [];
@@ -322,7 +450,7 @@ export default function CumulativeChart({
   const pick = (clientX: number, clientY: number) => {
     const r = plot.current!.getBoundingClientRect();
     const [px, py] = [((clientX - r.left) / r.width) * lw, ((clientY - r.top) / r.height) * lh];
-    const n = Math.round(Math.min(Math.max(X0 + ((px - left) / plotW) * (X1 - X0), from), lastHand));
+    const n = Math.round(Math.min(Math.max(X0 + ((px - left) / leadW) * (X1 - X0), from, X0), lastHand, X1));
     const near = shown.reduce<{ name: string; d: number }>((best, m) => {
       const v = at(m, n);
       const d = v === null ? Infinity : Math.abs(y(v) - py);
@@ -444,7 +572,7 @@ export default function CumulativeChart({
               {xTicks.map(({ t, o }) => (
                 <g key={t} opacity={o}>
                   <line x1={x(t)} x2={x(t)} y1={padTop + plotH} y2={padTop + plotH + 4} stroke={AXIS} />
-                  <text x={x(t)} y={padTop + plotH + fs + 6} textAnchor="middle" fontSize={fs} fill={AXIS} className="tabular-nums">{t.toLocaleString()}</text>
+                  <text x={x(t)} y={padTop + plotH + fs + 6} textAnchor="middle" fontSize={fs} fill={AXIS} className="tabular-nums" data-x-tick>{t.toLocaleString()}</text>
                 </g>
               ))}
               <g clipPath={`url(#${clipId})`}>
@@ -465,8 +593,11 @@ export default function CumulativeChart({
                 ))}
               </g>
               {race && ends.map((e, i) => (
-                // A dotted leader from the line's end to its label, so a nudged label never reads as data.
-                <path key={e.m.name} d={`M${x(e.n)},${y(e.v)}L${labelX - 2},${endYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none" opacity={(hot && hot !== e.m ? 0.2 : 0.6) * e.o} />
+                // The tip's dot, and a dotted leader to its pill when stacking moved the pill off the line.
+                <g key={e.m.name} opacity={(hot && hot !== e.m ? 0.3 : 1) * e.o}>
+                  {Math.abs(pillYs[i] - e.ty) > PILL_H / 2 && <path d={`M${e.tx},${e.ty}L${e.tx + PILL_GAP},${pillYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none" opacity={0.7} />}
+                  <circle cx={e.tx} cy={e.ty} r={3.5} fill={modelColor(e.m.name)} stroke="white" strokeWidth={1.5} />
+                </g>
               ))}
               {hover && (
                 <g pointerEvents="none">
@@ -483,10 +614,12 @@ export default function CumulativeChart({
               </p>
             )}
             {race && ends.map((e, i) => (
-              // Logo, name and final figure at each line's end; a click shades its 95% band. In the tile
-              // the same labels, smaller, with clicks passing through to open the card.
+              // A pill at each line's tip: logo and name in the line's colour; a click shades its 95% band.
+              // In the tile the same pills, with clicks passing through to open the card.
               <button
                 key={e.m.name}
+                data-pill
+                data-tx={e.tx.toFixed(1)}
                 onClick={() => onSelect?.(selected === e.m.name ? '' : e.m.name)}
                 onPointerMove={ev => ev.stopPropagation()}
                 onPointerEnter={() => { setHover(null); onHighlight?.(e.m.name); }}
@@ -496,17 +629,23 @@ export default function CumulativeChart({
                 aria-pressed={selected === e.m.name}
                 tabIndex={interactive ? undefined : -1}
                 aria-hidden={interactive ? undefined : true}
-                className={`absolute flex items-center gap-1.5 rounded px-1 text-[14px] leading-none tabular-nums text-left hover:bg-[rgba(55,53,47,0.06)] ${interactive ? '' : 'pointer-events-none'}`}
-                style={{ left: labelX, top: endYs[i] - rowH / 2, height: rowH, width: right - 8, color: TEXT, opacity: (hot && hot !== e.m ? 0.45 : 1) * e.o, boxShadow: selected === e.m.name ? `inset 3px 0 0 ${modelColor(e.m.name)}` : undefined }}
+                className={`absolute flex items-center rounded-full border-[1.5px] px-1.5 text-[13px] leading-none text-left ${interactive ? '' : 'pointer-events-none'}`}
+                style={{
+                  left: e.tx + PILL_GAP, top: pillYs[i] - PILL_H / 2, height: PILL_H, maxWidth: PILL_ROOM - 12, color: TEXT,
+                  borderColor: modelColor(e.m.name), opacity: (hot && hot !== e.m ? 0.45 : 1) * e.o,
+                  background: selected === e.m.name ? `color-mix(in srgb, ${modelColor(e.m.name)} 16%, white)` : 'white',
+                  transition: reduce ? undefined : 'top 180ms ease-out', // a stacking nudge glides
+                }}
               >
-                <LLMLogo model={e.m.name} size={logo} />
-                <span className={`flex-1 min-w-0 truncate ${e.m === hot || i === 0 ? 'font-bold' : 'font-medium'}`}>{e.m.name}</span>
-                <span className="font-bold" style={{ color: netColor(e.v) }}>{fmt(e.v)}</span>
+                <span ref={el => { if (el) pillEls.current.set(e.m.name, el); else pillEls.current.delete(e.m.name); }} className="flex min-w-0 items-center gap-1">
+                  <LLMLogo model={e.m.name} size={14} />
+                  <span className={`min-w-0 truncate ${e.m === hot || i === 0 ? 'font-bold' : 'font-medium'}`}>{e.m.name}</span>
+                </span>
               </button>
             ))}
             {/* The race clock: the hand the lines have reached, with Skip while it plays and Replay after. */}
             {race && (playing || interactive) && (
-              <div className="absolute flex items-center gap-2 tabular-nums" style={{ right: right + 8, top: padTop + 4, fontSize: fs, color: MUTED }}>
+              <div className="absolute flex items-center gap-2 tabular-nums" style={{ right, top: 0, height: padTop - 4, fontSize: fs, color: MUTED }}>
                 {playing && (
                   <span data-race-clock>
                     Hand <b style={{ color: TEXT }}>{(handNow === null ? Math.round(head) : Math.floor(handNow)).toLocaleString()}</b> of {(handNow === null ? lastHand : timeline!.hands).toLocaleString()}
@@ -519,6 +658,8 @@ export default function CumulativeChart({
                 )}
               </div>
             )}
+            {/* Overtake bursts are drawn here, outside React (see burst). */}
+            <div ref={fxLayer} aria-hidden className="absolute inset-0 pointer-events-none" />
             {/* Always mounted, so the first arrow press is announced too; it says the leader and the highlighted line. */}
             {race && <div role="status" className="sr-only">{said}</div>}
             {/* The readout floats over the plot (no layout shift), on the side away from the cursor. */}
@@ -566,7 +707,7 @@ export default function CumulativeChart({
                 </button>
               );
             })}
-            {rate && <span className="ml-auto" style={{ color: MUTED }}>Lines start at {RATE_FROM} hands · hover for every model · click an end label for its 95% band</span>}
+            {rate && <span className="ml-auto" style={{ color: MUTED }}>Lines start at {RATE_FROM} hands · hover for every model · click a label for its 95% band</span>}
             {young && <span className="ml-auto" style={{ color: MUTED }}>Showing chips: bb/100 starts once a model has played {RATE_FROM} hands.</span>}
           </motion.div>
         )}
