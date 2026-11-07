@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { RATE_FROM, niceTicks } from '@/components/CumulativeChart';
-import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, chips, ciHalf, modelHref, netColor, pct, signed, signedBrief, brief, rankSpread, rosterGroups, useChanges, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rankSpread, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
 interface Column {
   key: keyof typeof STAT_DEFINITIONS;
@@ -17,8 +17,8 @@ interface Column {
   extremes?: boolean; // mark the highest and lowest value
 }
 
-// bb/100 renders separately (its ± bar needs the table-wide scale).
-const BB100: Column = { key: 'bb100', core: true, label: 'bb/100 ± 95% CI', value: m => m.bb100, render: () => null };
+// bb/100 renders separately (its cell carries the 95% range as a tooltip).
+const BB100: Column = { key: 'bb100', core: true, label: 'bb/100', value: m => m.bb100, render: () => null };
 // Rank spread renders separately too (it compares every row); it sorts with bb/100.
 const RANK: Column = { key: 'rank', core: true, label: 'Rank spread', value: m => m.bb100, render: () => null };
 // The sparkline renders separately (every row shares one y-scale); it sorts by bb/100 within the window.
@@ -40,8 +40,8 @@ function recent(m: ModelStats) {
   };
 }
 
-// The figures that flash when a refresh changes them (as displayed), keyed `${model}|${column}`;
-// `${model}|#` is the row's place by bb/100, for the ▲/▼ by its rank.
+// The figures worth diffing between refreshes (as displayed), keyed `${model}|${column}`; `${model}|#` is the
+// row's place by bb/100. Unused now that the per-hand flashes are gone: kept, with useChanges, for the time-sync work.
 const FLASHED: { key: string; value: (m: ModelStats) => number | null }[] = [
   { key: 'bb100', value: m => Math.round(m.bb100 * 10) / 10 },
   { key: 'hands', value: m => m.hands },
@@ -57,28 +57,6 @@ export function figures(models: ModelStats[], keys = FLASHED) {
   });
   return out;
 }
-export const MINI_FLASHED = FLASHED.filter(f => f.key === 'bb100' || f.key === 'vpip');
-
-type Changes = ReturnType<typeof useChanges>;
-
-// One-shot effects for a changed figure, inside a `relative` cell: a green or red tint by the sign of
-// `delta` with a ring, and with `rise`, the delta floating up and fading. Key it on the change's seq.
-// The CSS (globals.css) drops the rise under reduced motion, leaving the tint.
-// `left` floats the delta from the cell's left edge (a right-aligned figure in a short row) instead of its top centre.
-export function Flash({ delta, delay = 0, rise, left }: { delta: number; delay?: number; rise?: string; left?: boolean }) {
-  const up = delta > 0;
-  return (
-    <>
-      <span aria-hidden className="flash" style={{ animationDelay: `${delay}ms`, ['--flash' as string]: up ? 'rgba(15, 123, 108, 0.45)' : 'rgba(200, 50, 50, 0.4)', ['--ring' as string]: up ? 'rgb(15, 123, 108)' : 'rgb(200, 50, 50)' }} />
-      {rise && <span aria-hidden className={`flash-rise ${left ? 'flash-rise-left' : ''}`} style={{ animationDelay: `${delay}ms`, color: netColor(delta) }}>{rise}</span>}
-    </>
-  );
-}
-
-// ▲ or ▼ for a row that moved up or down a rank at the last change; it fades out. Key it on the seq.
-export function Moved({ by }: { by: number }) {
-  return <span aria-hidden className="moved shrink-0 text-[11px]" style={{ color: netColor(-by) }}>{by < 0 ? '▲' : '▼'}</span>;
-}
 
 // Rows that slide to their new place when the order changes (motion layout). transformTemplate
 // leaves no inline `transform: none` behind, so the rows' CSS hover lift still works.
@@ -86,32 +64,6 @@ export const SLIDE = {
   transformTemplate: (_: unknown, t: string) => (t === 'none' ? '' : t),
   transition: { type: 'spring', stiffness: 320, damping: 34 },
 } as const;
-
-// "Updated · hand N", pulsing once each time a refresh changes N after the first load. With `models`
-// (the Stats card) it adds the biggest mover: the model whose net chips moved most at that refresh,
-// its logo and the change; the name and bb/100 change are in the tooltip. One pill, so the card's
-// header stays on one line.
-export function UpdatedTag({ hand, models }: { hand: number; models?: ModelStats[] }) {
-  const { seq } = useChanges({ hand });
-  const moves = useChanges(Object.fromEntries((models ?? []).flatMap(m => [[`${m.name}|chips`, m.net_chips], [`${m.name}|bb`, Math.round(m.bb100 * 10) / 10]])));
-  const chipsOf = (m: ModelStats) => Math.abs(moves.deltas.get(`${m.name}|chips`) ?? 0);
-  const top = moves.seq ? (models ?? []).filter(chipsOf).sort((a, b) => chipsOf(b) - chipsOf(a))[0] : undefined;
-  const d = top && moves.deltas.get(`${top.name}|chips`)!, bb = top && moves.deltas.get(`${top.name}|bb`);
-  return (
-    <span
-      key={`${seq}-${moves.seq}`}
-      className={`${seq || moves.seq ? 'pulse-once' : ''} flex items-center gap-1 rounded px-1.5 tabular-nums text-[14px] whitespace-nowrap`}
-      style={{ color: MUTED }}
-      title={top ? `Biggest mover this hand: ${top.name}, ${chips(d!)} chips${bb ? `, ${signed(bb)} bb/100` : ''}` : undefined}
-    >
-      Updated · hand {hand.toLocaleString()}
-      {top && <>
-        {' '}· biggest mover <LLMLogo model={top.name} size={18} /><span className="sr-only">{top.name}</span>
-        <span className="font-bold" style={{ color: netColor(d!) }}>{chips(d!)}</span>
-      </>}
-    </span>
-  );
-}
 
 // The model's recent running bb/100 in its colour, on the y-scale [lo, hi] every row shares; a dot at now.
 function Spark({ m, lo, hi }: { m: ModelStats; lo: number; hi: number }) {
@@ -225,7 +177,7 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', wrap = false 
 // The seated models' stats, sortable, never wider than its panel; "All models" appends everyone
 // else below a divider. Collapsed to the core columns until "All stats" is pressed, which shows
 // every group as one wide table, or one table per group in a narrow panel.
-// Memoized: the stats screens re-render on the Race zoom, and the table only changes with its data.
+// Memoized: the stats screens re-render on the History zoom, and the table only changes with its data.
 export default memo(function StatsTable({ models, seated }: { models: ModelStats[]; seated?: string[] }) {
   const [sort, setSort] = useState({ key: 'bb100', desc: true });
   const [expanded, setAll] = useState(false);
@@ -251,17 +203,15 @@ export default memo(function StatsTable({ models, seated }: { models: ModelStats
   const more = rest.length + unseated.length;
   // Ranks among the models at the table (all of them without a lineup).
   const ranks = rankSpread(atTable);
-  // Figures that changed at the last refresh, for the flashes and the ▲/▼ (ranks among the models at the table).
-  const changes = useChanges({ ...figures(rest), ...figures(atTable) });
   const grid = (groups: typeof GROUPS, grouped: boolean, caption: string, last = true) => (
-    <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone ? rest : []} waiting={last && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} ranks={ranks} picked={picked} onPick={isolate} caption={caption} changes={changes} />
+    <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone ? rest : []} waiting={last && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} ranks={ranks} picked={picked} onPick={isolate} caption={caption} />
   );
   const toggle = 'text-[14px] hover:underline';
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="@container relative min-w-0">
-        {!expanded ? grid(CORE, false, 'Stats per model.') : (
+        {!expanded ? grid(CORE, false, 'Profiles per model.') : (
           <>
             <div className="hidden @3xl:flex flex-1 flex-col">{grid(GROUPS, true, 'Every stat per model.')}</div>
             <div className="@3xl:hidden flex flex-col gap-4">
@@ -332,15 +282,9 @@ function Intervals({ models, picked, onPick }: { models: ModelStats[]; picked: S
   );
 }
 
-// bb/100 in its colour and the ± half-width of its 95% interval.
+// bb/100 in its colour, one number; the 95% range is the cell's tooltip.
 function Bb100({ m }: { m: ModelStats }) {
-  const half = ciHalf(m);
-  return (
-    <span className="inline-flex items-center justify-end gap-1.5">
-      <span style={{ color: netColor(m.bb100) }} className="font-bold">{signedBrief(m.bb100)}</span>
-      <span className="w-[4.5ch] text-left" style={{ color: MUTED }}>±{half === null ? DASH : brief(half, 0)}</span>
-    </span>
-  );
+  return <span style={{ color: netColor(m.bb100) }} className="font-bold" title={ciTitle(m)}>{signedBrief(m.bb100)}</span>;
 }
 
 function Grid({
@@ -356,7 +300,6 @@ function Grid({
   picked,
   onPick,
   caption,
-  changes,
 }: {
   groups: typeof GROUPS;
   rows: ModelStats[];
@@ -370,14 +313,12 @@ function Grid({
   picked: Set<string>; // rows clicked to compare; the others fade
   onPick: (name: string) => void;
   caption: string;
-  changes: Changes;
 }) {
   const columns = groups.flatMap(g => g.columns);
   const reduce = useReducedMotion();
   // One y-scale for every row's sparkline.
   const lines = [...rows, ...rest].flatMap(m => recent(m).line.map(([, v]) => v));
   const [lo, hi] = [Math.min(...lines), Math.max(...lines)];
-  const { deltas, seq } = changes;
   // The sorted column is painted strong at the top row and faint at the bottom; VPIP, PFR and AF
   // mark their highest and lowest value.
   const sortedCol = columns.find(c => c.key === sort.key);
@@ -405,13 +346,6 @@ function Grid({
   const cell = grouped ? 'px-1' : 'px-1.5 md:px-3';
   const spread = (m: ModelStats) => { const r = ranks.get(m.name); return !r ? DASH : r[0] === r[1] ? `${r[0]}` : `${r[0]}–${r[1]}`; };
   const row = (m: ModelStats, i: number | null) => {
-    // Changed cells ripple down the rows, 40ms apart.
-    const delay = (i ?? 0) * 40;
-    const fx = (key: string) => {
-      const d = deltas.get(`${m.name}|${key}`);
-      return d ? <Flash key={seq} delta={d} delay={delay} rise={key === 'bb100' ? signed(d) : undefined} left /> : null;
-    };
-    const moved = i !== null && deltas.get(`${m.name}|#`);
     return (
     <motion.tr
       key={m.name}
@@ -435,8 +369,7 @@ function Grid({
       </th>
       {columns.map(c => (
         <td key={c.key} className={`${cell} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
-          {fx(c.key)}
-          {c === BB100 ? <Bb100 m={m} /> : c === TREND ? <Spark m={m} lo={lo} hi={hi} /> : c === RANK ? <>{moved ? <Moved key={seq} by={moved} /> : null} {spread(m)}</> : <>{i !== null && mark(c, m)}{c.render(m)}</>}
+          {c === BB100 ? <Bb100 m={m} /> : c === TREND ? <Spark m={m} lo={lo} hi={hi} /> : c === RANK ? spread(m) : <>{i !== null && mark(c, m)}{c.render(m)}</>}
         </td>
       ))}
     </motion.tr>
@@ -449,7 +382,7 @@ function Grid({
       <colgroup>
         {/* Narrow panels show logos only; wider ones give names the room they need. */}
         <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : 'w-[44px] @md:w-[32%] @4xl:w-[24%]'} />
-        {columns.map(c => <col key={c.key} className={c === BB100 ? (grouped ? 'w-[120px] @lg:w-[150px]' : 'w-[120px] @lg:w-[170px]') : c === TREND ? 'w-[112px]' : ''} />)}
+        {columns.map(c => <col key={c.key} className={c === BB100 ? (grouped ? 'w-[80px]' : 'w-[80px]') : c === TREND ? 'w-[112px]' : ''} />)}
       </colgroup>
       <thead>
         {grouped && (

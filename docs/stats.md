@@ -113,7 +113,7 @@ such as 3-bet, c-bet and fold to c-bet, need many more hands than the headline c
 suggests: check how many chances the model actually had. Rates also pool every prompt
 version in the scope, so compare models within one prompt version.
 
-The Stats screen shows a **rank spread** beside bb/100, as LMArena does: the best and worst
+The Profiles card shows a **rank spread** beside bb/100, as LMArena does: the best and worst
 rank each model's 95% interval allows among the models at the table. Best is 1 plus the
 number of models whose interval lies wholly above its own; worst is the field size minus
 the number whose interval lies wholly below it. "1–9" at a nine-model table means the data

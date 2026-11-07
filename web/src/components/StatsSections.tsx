@@ -6,22 +6,22 @@ import LLMLogo from '@/components/LLMLogo';
 import { Warning } from '@phosphor-icons/react';
 import Panel, { CARD, CARD_SHADOW, CountUp, GLIDE_MS, HEADER, Segmented, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
 import CumulativeChart from '@/components/CumulativeChart';
-import StatsTable, { Flash, MINI_FLASHED, Moved, SLIDE, UpdatedTag, figures } from '@/components/StatsTable';
+import StatsTable, { SLIDE } from '@/components/StatsTable';
 import HeadToHead, { PairwiseBars, pairwiseLeader } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
-import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, brief, chips, ciHalf, netColor, pct, seatedModels, signed, signedBrief, useChanges, useStats } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, ciTitle, netColor, pct, seatedModels, signedBrief, useStats } from '@/lib/stats';
 
 type Stats = ReturnType<typeof useStats>;
 
 // Screens 2-5, each an empty full-height snap point in the page flow. Over them sits one layer:
-// the overview stage (pinned from the overview on), whose Race tile fills the stage on the Race
-// screen, then the Stats and Pairwise cards, which slide up over it as stacked cards while the
+// the overview stage (pinned from the overview on), whose History tile fills the stage on the History
+// screen, then the Profiles and Matchups cards, which slide up over it as stacked cards while the
 // card under them recedes. Old #h2h and #head-to-head links land on the pairwise screen.
 const SCREENS = [
   { id: 'stats', label: 'Overview' },
-  { id: 'race', label: 'Race' },
-  { id: 'stats-table', label: 'Stats' },
-  { id: 'pairwise', label: 'Pairwise results' },
+  { id: 'race', label: 'History' },
+  { id: 'stats-table', label: 'Profiles' },
+  { id: 'pairwise', label: 'Matchups' },
 ] as const;
 type Screen = (typeof SCREENS)[number]['id'];
 type Tile = Exclude<Screen, 'stats'>;
@@ -46,7 +46,7 @@ const noop = () => () => {};
 const useNativeTimeline = () =>
   useSyncExternalStore(noop, () => CSS.supports('animation-timeline: view()') && CSS.supports('timeline-scope: --a'), () => true);
 
-// The three panels under the live table. `picked` is the session chosen in the Stats
+// The three panels under the live table. `picked` is the session chosen in the Profiles
 // section (or all time); `all` carries the session list. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
 export default memo(function StatsSections({
@@ -65,7 +65,7 @@ export default memo(function StatsSections({
   const { data, sample, loading, error, current } = picked;
   const [selected, setSelected] = useState('');
   const [highlight, setHighlight] = useState<string | undefined>();
-  const [view, setView] = useState<'matrix' | 'bars'>('matrix'); // Pairwise: the 9x9 grid, or a bar per model
+  const [view, setView] = useState<'matrix' | 'bars'>('matrix'); // Matchups: the 9x9 grid, or a bar per model
   // The tile filling the stage (null: the overview grid); `lift`, the one focused last, stays on top
   // while it glides back. Race fills it on every screen after the overview: the cards slide over it.
   const [tiles, setTiles] = useState<{ on: Tile | null; snap: boolean; lift: Tile | null }>({ on: null, snap: false, lift: null });
@@ -96,7 +96,7 @@ export default memo(function StatsSections({
     };
     // `arrived`: the page is on that screen now. Inert waits for it: making the focused panel
     // inert as a click on it starts the scroll would cancel that scroll. Arriving under a card
-    // puts Race back in the stage at once, so scrolling back up finds the Race screen.
+    // puts Race back in the stage at once, so scrolling back up finds the History screen.
     const show = (id: string, arrived = true) => {
       const i = order(id);
       if (!busy) put(i >= 1 ? 'race' : null, arrived && i >= 2);
@@ -216,12 +216,12 @@ export default memo(function StatsSections({
     </p>
   );
   const models = ready ? data.models : [];
-  // Race, the overview and Pairwise show the models at the table now (past sessions carry no
-  // lineup: everyone). The Stats screen has its own "All models" toggle.
+  // History, the overview and Matchups show the models at the table now (past sessions carry no
+  // lineup: everyone). The Profiles screen has its own "All models" toggle.
   const seated = data?.seated ?? lineup;
   const field = useMemo(() => seatedModels(data?.models ?? [], seated), [data, seated]);
   const bigBlind = data?.scope.big_blind ?? 10;
-  // The Race is each model's whole history, so it always charts all time, whatever session is picked:
+  // History is each model's whole history, so it always charts all time, whatever session is picked:
   // a fresh live session has no hands to race yet.
   const raceAll = all.data?.models ?? models;
   const raceField = useMemo(() => seatedModels(raceAll, all.data?.seated ?? seated), [raceAll, all.data?.seated, seated]);
@@ -269,7 +269,6 @@ export default memo(function StatsSections({
       </select>
     </label>
     {lead}
-    {ready && <UpdatedTag key={`tag${session}`} hand={data.scope.hands} models={models} />}
   </>;
   const statsBody = !ready ? message : (
     <>
@@ -286,7 +285,6 @@ export default memo(function StatsSections({
     {scope}
     <Segmented label="View" options={[{ label: 'Matrix', value: 'matrix' }, { label: 'Bars', value: 'bars' }]} value={view} onChange={setView} />
     {lead}
-    {ready && <UpdatedTag key={`tag${session}`} hand={data.scope.hands} />}
   </>;
   const pairwiseBody = !ready ? message : (
     <>
@@ -333,9 +331,9 @@ export default memo(function StatsSections({
             edges (the page pads its sides), keeps tiles sliding off from adding a page scrollbar. */}
         <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px]">
           <div className={`h-full ${WIDTH} mx-auto ${EDGE}`}>
-            {/* Overview: three tiles, each a miniature of its screen, Race on top (stacked on phones). */}
+            {/* Overview: three tiles, each a miniature of its screen, History on top (stacked on phones). */}
             <div className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-2 md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
-              <Panel id="race-panel" title="Race" href="#race" away={{ y: '-150%' }} className="row-start-1 md:col-span-2" aside={leadOf(raceField, ' all time')} {...tile('race')}>
+              <Panel id="race-panel" title="History" href="#race" away={{ y: '-150%' }} className="row-start-1 md:col-span-2" aside={leadOf(raceField, ' all time')} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
@@ -345,7 +343,7 @@ export default memo(function StatsSections({
 
               <Panel
                 id="stats-panel"
-                title={<>Stats {sample && <SampleBadge />}</>}
+                title={<>Profiles {sample && <SampleBadge />}</>}
                 href="#stats-table"
                 away={{ x: '-130%' }}
                 className="row-start-2 md:col-start-1"
@@ -358,7 +356,7 @@ export default memo(function StatsSections({
 
               <Panel
                 id="pairwise-panel"
-                title="Pairwise results"
+                title="Matchups"
                 href="#pairwise"
                 away={{ x: '130%' }}
                 className="row-start-3 md:row-start-2 md:col-start-2"
@@ -372,14 +370,14 @@ export default memo(function StatsSections({
           </div>
         </Recede>
 
-        {/* The Race screen's scroll range: the stage stays as it is. */}
+        {/* The History screen's scroll range: the stage stays as it is. */}
         <div className="h-svh" aria-hidden />
 
-        <Card id="stats-card" title={<>Stats {sample && <SampleBadge />}</>} aside={statsAside} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10">
+        <Card id="stats-card" title={<>Profiles {sample && <SampleBadge />}</>} aside={statsAside} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10">
           {statsBody}
         </Card>
 
-        <Card id="pairwise-card" title="Pairwise results" aside={pairwiseAside} z="z-20">
+        <Card id="pairwise-card" title="Matchups" aside={pairwiseAside} z="z-20">
           {pairwiseBody}
         </Card>
       </div>
@@ -387,10 +385,8 @@ export default memo(function StatsSections({
   );
 });
 
-// The Stats tile: every seated model by bb/100, with its interval and VPIP, rows sharing the tile's height.
-// Changed bb/100 and VPIP flash (bb/100 floats its delta), rows slide to a new rank with a brief ▲/▼.
+// The Profiles tile: every seated model by bb/100 and VPIP, rows sharing the tile's height; the 95% range is a tooltip.
 function MiniStats({ models }: { models: ModelStats[] }) {
-  const { deltas, seq } = useChanges(figures(models, MINI_FLASHED));
   const reduce = useReducedMotion();
   return (
     <div className="flex-1 min-h-0">
@@ -398,28 +394,19 @@ function MiniStats({ models }: { models: ModelStats[] }) {
         <thead>
           <tr style={{ color: MUTED }}>
             <th scope="col" className="text-left font-medium">Model</th>
-            <th scope="col" className="w-[42%] text-right font-medium">bb/100 ± 95% CI</th>
+            <th scope="col" className="w-[42%] text-right font-medium">bb/100</th>
             <th scope="col" className="w-[18%] text-right font-medium">VPIP</th>
           </tr>
         </thead>
         <tbody>
-          {models.map((m, i) => {
-            const half = ciHalf(m);
-            const [bb, vpip, moved] = ['bb100', 'vpip', '#'].map(k => deltas.get(`${m.name}|${k}`));
+          {models.map(m => {
             return (
               <motion.tr key={m.name} layout={reduce ? false : 'position'} {...SLIDE} className="border-t border-notion">
                 <th scope="row" className="text-left font-medium">
-                  <span className="flex items-center gap-2 min-w-0"><LLMLogo model={m.name} size={16} /><span className="truncate">{m.name}</span>{moved ? <Moved key={seq} by={moved} /> : null}</span>
+                  <span className="flex items-center gap-2 min-w-0"><LLMLogo model={m.name} size={16} /><span className="truncate">{m.name}</span></span>
                 </th>
-                <td className="relative text-right whitespace-nowrap">
-                  {bb ? <Flash key={seq} delta={bb} delay={i * 40} rise={signed(bb)} left /> : null}
-                  <span className="font-bold" style={{ color: netColor(m.bb100) }}>{signedBrief(m.bb100)}</span>
-                  <span style={{ color: MUTED }}> ±{half === null ? DASH : brief(half, 0)}</span>
-                </td>
-                <td className="relative text-right">
-                  {vpip ? <Flash key={seq} delta={vpip} delay={i * 40} /> : null}
-                  {pct(m.vpip)}
-                </td>
+                <td className="text-right whitespace-nowrap font-bold" style={{ color: netColor(m.bb100) }} title={ciTitle(m)}>{signedBrief(m.bb100)}</td>
+                <td className="text-right">{pct(m.vpip)}</td>
               </motion.tr>
             );
           })}
