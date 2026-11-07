@@ -1,11 +1,12 @@
 'use client';
 
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp } from '@phosphor-icons/react';
+import { ArrowUp, SquaresFour } from '@phosphor-icons/react';
 import NumberFlow from '@number-flow/react';
 import LLMLogo from '@/components/LLMLogo';
 import type { DisplayState } from '@/hooks/useGameState';
 import { MUTED, TEXT } from '@/lib/stats';
+import { backToOverview, useScreen } from '@/components/Section';
 
 const ACTIONS: Record<string, string> = { FOLD: 'folds', CHECK: 'checks', CALL: 'calls', RAISE: 'raises to', BET: 'bets', ALL_IN: 'all-in' };
 
@@ -22,6 +23,8 @@ function acting(d: DisplayState | null) {
 // One-line bar fixed to the top once the live table has scrolled out of view.
 export default function StickyBar({ show, pot, handNumber, display }: { show: boolean; pot: number; handNumber: number; display: DisplayState | null }) {
   const doing = acting(display);
+  const screen = useScreen();
+  const detail = screen === 'race' || screen === 'stats-table' || screen === 'pairwise';
   return (
     <AnimatePresence>
       {show && (
@@ -47,9 +50,20 @@ export default function StickyBar({ show, pot, handNumber, display }: { show: bo
                 <span className="shrink-0" style={{ color: MUTED }}>{doing}</span>
               </div>
             )}
+            {detail && (
+              <button
+                onClick={backToOverview}
+                className="ml-auto shrink-0 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-[rgba(55,53,47,0.06)]"
+                style={{ color: 'rgb(35, 131, 226)' }}
+              >
+                <SquaresFour size={13} weight="bold" aria-hidden />
+                <span className="hidden sm:inline">Back to overview</span>
+                <span className="sm:hidden">Overview</span>
+              </button>
+            )}
             <button
               onClick={() => window.scrollTo({ top: 0 })} // smooth via scroll-behavior in globals.css
-              className="ml-auto shrink-0 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-[rgba(55,53,47,0.06)]"
+              className={`${detail ? '' : 'ml-auto '}shrink-0 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-[rgba(55,53,47,0.06)]`}
               style={{ color: 'rgb(35, 131, 226)' }}
             >
               <ArrowUp size={13} weight="bold" aria-hidden />

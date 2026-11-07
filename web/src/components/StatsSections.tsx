@@ -4,7 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
 import { Warning } from '@phosphor-icons/react';
-import Panel, { CARD, CARD_SHADOW, CountUp, HEADER, Segmented, TITLE } from '@/components/Section';
+import Panel, { CARD, CARD_SHADOW, CountUp, GLIDE_MS, HEADER, Segmented, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
 import CumulativeChart from '@/components/CumulativeChart';
 import StatsTable from '@/components/StatsTable';
 import HeadToHead, { PairwiseBars, pairwiseLeader } from '@/components/HeadToHead';
@@ -14,10 +14,9 @@ import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, brief, chips, ciHalf, netColo
 type Stats = ReturnType<typeof useStats>;
 
 // Screens 2-5, each an empty full-height snap point in the page flow. Over them sits one layer:
-// the overview stage (pinned from the overview on), in which the Race panel zooms to fill the
-// stage on the Race screen (the page's one zoom), then the Stats and Pairwise cards, which slide
-// up over it as stacked cards while the card under them recedes. Old #h2h and #head-to-head links
-// land on the pairwise screen.
+// the overview stage (pinned from the overview on), whose Race tile fills the stage on the Race
+// screen, then the Stats and Pairwise cards, which slide up over it as stacked cards while the
+// card under them recedes. Old #h2h and #head-to-head links land on the pairwise screen.
 const SCREENS = [
   { id: 'stats', label: 'Overview' },
   { id: 'race', label: 'Race' },
@@ -25,10 +24,22 @@ const SCREENS = [
   { id: 'pairwise', label: 'Pairwise results' },
 ] as const;
 type Screen = (typeof SCREENS)[number]['id'];
+type Tile = Exclude<Screen, 'stats'>;
+// Each detail screen's overview tile, and the element that takes focus on landing there.
+const TILES: Record<Tile, { panel: string; land: string }> = {
+  race: { panel: 'race-panel', land: 'race-panel' },
+  'stats-table': { panel: 'stats-panel', land: 'stats-card' },
+  pairwise: { panel: 'pairwise-panel', land: 'pairwise-card' },
+};
+const isTile = (id: string): id is Tile => id in TILES;
 const ALIASES: Record<string, Screen> = { 'head-to-head': 'pairwise', h2h: 'pairwise' };
 const INPUTS = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
 const asScreen = (id: string): Screen => ALIASES[id] ?? SCREENS.find(s => s.id === id)?.id ?? 'stats';
 const order = (id: string) => (id === '' ? -1 : SCREENS.findIndex(s => s.id === asScreen(id))); // '' is the table
+const jump = (id: string) => {
+  const el = document.getElementById(id);
+  if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' });
+};
 
 // Scroll-driven animations (CSS) where the browser has them; motion's useScroll otherwise.
 const noop = () => () => {};
@@ -55,10 +66,9 @@ export default memo(function StatsSections({
   const [selected, setSelected] = useState('');
   const [highlight, setHighlight] = useState<string | undefined>();
   const [view, setView] = useState<'matrix' | 'bars'>('matrix'); // Pairwise: the 9x9 grid, or a bar per model
-  // Race stays zoomed on every screen after it: the cards slide over it, it never zooms back out.
-  const [zoomed, setZoomed] = useState(false);
-  // The screen whose card the overview recedes under: Pairwise's during a jump straight to it.
-  const [recedeBy, setRecedeBy] = useState<'stats' | 'pairwise'>('stats');
+  // The tile filling the stage (null: the overview grid); `lift`, the one focused last, stays on top
+  // while it glides back. Race fills it on every screen after the overview: the cards slide over it.
+  const [tiles, setTiles] = useState<{ on: Tile | null; snap: boolean; lift: Tile | null }>({ on: null, snap: false, lift: null });
   const stage = useRef<HTMLDivElement>(null);
   const statsCard = useRef<HTMLElement>(null);
   const statsScreen = useRef<HTMLDivElement>(null);
@@ -66,24 +76,32 @@ export default memo(function StatsSections({
   // A failed refetch keeps the last good data on screen, with the problem as a status line.
   const ready = !!data && current;
 
-  // The screen crossing the middle of the window decides the zoom; the table screen counts as
-  // the overview. pageBy announces its target first so the zoom starts with the key press.
+  // The screen crossing the middle of the window sets the stage; the table screen counts as the
+  // overview. pageBy announces its target first so the Race tile starts gliding with the key press.
   // While a scroll to an announced screen runs, the screens it passes on the way are ignored.
   // Cards under another card leave the tab order (set directly: no re-render mid-scroll).
-  // A click on the Stats or Pairwise teaser skips Race (goToScreen's 'screenjump'): Race stays
-  // unzoomed, and for Pairwise the Stats card hides and the overview recedes on Pairwise's
-  // timeline, so only the target card slides over the overview. The jump ends when that slide
-  // does (the instant landing before it ends its own scroll at once, hence the 150ms).
+  // A click on a tile glides it to its card's place while the others fade (the page stays on the
+  // overview), then the page jumps to that tile's screen, whose card sits exactly there. Back to
+  // overview does the reverse: under the card, the stage snaps to that tile filling it, the page
+  // jumps to the overview, and the tile glides back while the others fade in.
   useEffect(() => {
     let target: string | null = null;
-    let jumpAt = 0;
-    let jumpTimer: ReturnType<typeof setTimeout> | undefined;
+    let busy = false; // a glide from a click or Back is running: arrivals leave the stage alone
+    const put = (on: Tile | null, snap = false) => {
+      // A tile about to fade goes inert, and inert taking focus away cancels a running page
+      // scroll: hand focus to the tile that stays first.
+      const held = document.activeElement?.closest('[data-stage] section');
+      if (on && held && held.id !== TILES[on].panel) document.getElementById(TILES[on].panel)?.focus({ preventScroll: true });
+      setTiles(s => (s.on === on ? s : { on, snap, lift: on ?? s.lift }));
+    };
     // `arrived`: the page is on that screen now. Inert waits for it: making the focused panel
-    // inert as a click on it starts the scroll would cancel that scroll.
+    // inert as a click on it starts the scroll would cancel that scroll. Arriving under a card
+    // puts Race back in the stage at once, so scrolling back up finds the Race screen.
     const show = (id: string, arrived = true) => {
       const i = order(id);
-      if (!jumpAt) setZoomed(i >= 1);
+      if (!busy) put(i >= 1 ? 'race' : null, arrived && i >= 2);
       if (!arrived) return;
+      setScreen(id);
       stage.current?.toggleAttribute('inert', i >= 2);
       statsCard.current?.toggleAttribute('inert', i >= 3);
     };
@@ -102,40 +120,61 @@ export default memo(function StatsSections({
       show(target, false);
     };
     const middle = () => [...screens].find(s => { const r = s.getBoundingClientRect(); return r.top <= innerHeight / 2 && r.bottom > innerHeight / 2; });
-    const onJump = (e: Event) => {
-      jumpAt = performance.now();
-      clearTimeout(jumpTimer);
-      jumpTimer = setTimeout(endJump, 1500); // browsers without scrollend
-      if ((e as CustomEvent<string>).detail !== 'pairwise') return;
-      statsCard.current?.style.setProperty('visibility', 'hidden');
-      setRecedeBy('pairwise'); // flushed before paint: the jump comes from a click or key
-    };
-    const endJump = () => {
-      if (!jumpAt) return;
-      jumpAt = 0;
-      clearTimeout(jumpTimer);
-      statsCard.current?.style.removeProperty('visibility');
-      setRecedeBy('stats');
-      const el = middle();
-      if (el) show(el.id);
-    };
     // An interrupted scroll never reaches its target: settle on the screen in the middle.
     const onEnd = () => {
-      if (jumpAt && performance.now() - jumpAt > 150) endJump();
       if (target === null) return;
       target = null;
       const el = middle();
       if (el) show(el.id);
     };
+    const glide = () => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : GLIDE_MS);
+    const open = (tile: Tile) => {
+      if (busy) return;
+      busy = true;
+      hold(glide());
+      put(tile);
+      history.replaceState(null, '', `#${tile}`); // shareable; fires no hashchange, so the #model= drawer is untouched
+      setTimeout(() => {
+        busy = false;
+        jump(tile);
+        document.getElementById(TILES[tile].land)?.focus({ preventScroll: true });
+      }, glide());
+    };
+    const back = () => {
+      const at = currentScreen();
+      if (busy || !isTile(at)) return;
+      busy = true;
+      hold(glide());
+      put(at, true);
+      // Two frames: the snapped stage is painted under the card before the card leaves.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        busy = false;
+        history.replaceState(null, '', '#stats');
+        const el = stage.current;
+        el?.removeAttribute('inert');
+        // A view timeline can lag the jump by a frame, showing the stage still receded: no recede
+        // until the overview is painted (under the card, a stage at full size looks the same).
+        el?.style.setProperty('animation', 'none');
+        requestAnimationFrame(() => requestAnimationFrame(() => el?.style.removeProperty('animation')));
+        jump('stats');
+        put(null);
+        document.getElementById(TILES[at].panel)?.focus({ preventScroll: true });
+      }));
+    };
+    const onOpen = (e: Event) => open((e as CustomEvent<Tile>).detail);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open]') && back();
     window.addEventListener('screenchange', onScreen);
-    window.addEventListener('screenjump', onJump);
     window.addEventListener('scrollend', onEnd);
+    window.addEventListener('overview', back);
+    window.addEventListener('tileopen', onOpen);
+    window.addEventListener('keydown', onKey);
     return () => {
       io.disconnect();
-      clearTimeout(jumpTimer);
       window.removeEventListener('screenchange', onScreen);
-      window.removeEventListener('screenjump', onJump);
       window.removeEventListener('scrollend', onEnd);
+      window.removeEventListener('overview', back);
+      window.removeEventListener('tileopen', onOpen);
+      window.removeEventListener('keydown', onKey);
     };
   }, []);
 
@@ -209,8 +248,70 @@ export default memo(function StatsSections({
     </span>
   );
 
+  // Each card's header extras and body, shared by its card and by its tile while that tile glides
+  // in or out, so the page can swap one for the other without a visible change.
+  const statsAside = <>
+    {scope}
+    <label className="flex items-center gap-2 text-[14px]" style={{ color: TEXT }}>
+      Session
+      <select
+        value={session}
+        onChange={e => onSession(e.target.value)}
+        className="rounded border border-[rgba(55,53,47,0.16)] bg-white px-2 py-0.5 text-[14px]"
+      >
+        <option value="">All time</option>
+        {(all.data?.sessions ?? []).map(s => (
+          <option key={s.id} value={s.id}>
+            {new Date(s.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+            {s.ended_at ? '' : ' (live)'} · {s.hands.toLocaleString()} hands
+          </option>
+        ))}
+      </select>
+    </label>
+    {lead}
+  </>;
+  const statsBody = !ready ? message : (
+    <>
+      {stale}
+      <Definition>
+        Rank spread: the best and worst rank each model&apos;s 95% interval allows. Click rows to compare them.
+        {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
+        {data.partial && ' All-in EV still computing…'}
+      </Definition>
+      <StatsTable models={models} seated={seated} />
+    </>
+  );
+  const pairwiseAside = <>
+    {scope}
+    <Segmented label="View" options={[{ label: 'Matrix', value: 'matrix' }, { label: 'Bars', value: 'bars' }]} value={view} onChange={setView} />
+    {lead}
+  </>;
+  const pairwiseBody = !ready ? message : (
+    <>
+      <Definition>
+        Each cell: chips the row model took from the column model (green) or lost to it (red) in the hands both played; rows and columns in rank order.
+        {top?.from && <> {top.leader} took the most from {top.from.name}: {chips(top.from.net)} chips.</>}
+      </Definition>
+      {view === 'matrix' ? <HeadToHead models={field} bigBlind={bigBlind} zoomed /> : <PairwiseBars models={field} />}
+    </>
+  );
+  const { on, snap, lift } = tiles;
+  const zoomed = on === 'race';
+  const tile = (t: Tile) => ({
+    focused: on === t,
+    covered: on !== null && on !== t,
+    lifted: lift === t,
+    snap,
+    onOpen: () => window.dispatchEvent(new CustomEvent('tileopen', { detail: t })),
+  });
+
   return (
-    <div className="relative isolate w-full" style={{ timelineScope: '--card-stats, --card-pairwise' } as React.CSSProperties}>
+    <div
+      className="relative isolate w-full"
+      style={{ timelineScope: '--card-stats, --card-pairwise' } as React.CSSProperties}
+      // A click on the page around a detail screen's card (not on the card) goes back to the overview.
+      onClick={e => !(e.target as Element).closest('.card-chrome') && backToOverview()}
+    >
       {/* Off-white behind the stats cards, edge to edge (the page pads its sides), so a card reads as a card. */}
       <div aria-hidden className="absolute inset-y-0 -inset-x-3 lg:-inset-x-4 -z-10" style={{ background: PAGE }} />
       {SCREENS.map(s => (
@@ -226,34 +327,42 @@ export default memo(function StatsSections({
       ))}
       <div data-stage className="absolute inset-0">
         {/* The overview stage: pinned from the overview to the end. The top padding clears the
-            sticky bar (44px) plus the table screen's own outer padding; the clip keeps a zoom's
-            spring overshoot from adding a page scrollbar. */}
-        <Recede by={recedeBy === 'pairwise' ? pairwiseScreen : statsScreen} timeline={`--card-${recedeBy}`} ref={stage} className="sticky top-0 z-0 h-svh">
+            sticky bar (44px) plus the table screen's own outer padding; the clip keeps a glide's
+            edges from adding a page scrollbar. */}
+        <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh">
           <div className={`h-full ${WIDTH} mx-auto ${EDGE} overflow-clip [overflow-clip-margin:24px]`}>
             {/* Overview: three tiles, each a miniature of its screen, Race on top (stacked on phones). */}
             <div className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-2 md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
-              <Panel
-                id="race-panel"
-                title="Race"
-                href="#race"
-                land="race-panel"
-                focused={zoomed}
-                className="row-start-1 md:col-span-2"
-                aside={leadOf(raceField, ' all time')}
-              >
+              <Panel id="race-panel" title="Race" href="#race" className="row-start-1 md:col-span-2" aside={leadOf(raceField, ' all time')} {...tile('race')}>
                 {stale}
-                {/* One chart in both states, so the lines never redraw on the zoom. */}
+                {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
                   <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={raceField} everyone={raceAll} selected={selected} highlight={highlight} onHighlight={setHighlight} onSelect={zoomed ? setSelected : undefined} />
                 ) : message}
               </Panel>
 
-              <Panel id="stats-panel" title={<>Stats {sample && <SampleBadge />}</>} href="#stats-table" land="stats-card" covered={zoomed} className="row-start-2 md:col-start-1">
-                {ready ? <MiniStats models={byRate} /> : message}
+              <Panel
+                id="stats-panel"
+                title={<>Stats {sample && <SampleBadge />}</>}
+                href="#stats-table"
+                className="row-start-2 md:col-start-1"
+                extra={on === 'stats-table' && <div className={ASIDE}>{statsAside}</div>}
+                body={on === 'stats-table' ? 'card' : 'tile'}
+                {...tile('stats-table')}
+              >
+                {on === 'stats-table' ? statsBody : ready ? <MiniStats models={byRate} /> : message}
               </Panel>
 
-              <Panel id="pairwise-panel" title="Pairwise results" href="#pairwise" land="pairwise-card" covered={zoomed} className="row-start-3 md:row-start-2 md:col-start-2">
-                {ready ? <HeadToHead models={field} mini /> : message}
+              <Panel
+                id="pairwise-panel"
+                title="Pairwise results"
+                href="#pairwise"
+                className="row-start-3 md:row-start-2 md:col-start-2"
+                extra={on === 'pairwise' && <div className={ASIDE}>{pairwiseAside}</div>}
+                body={on === 'pairwise' ? 'card' : 'tile'}
+                {...tile('pairwise')}
+              >
+                {on === 'pairwise' ? pairwiseBody : ready ? <HeadToHead models={field} mini /> : message}
               </Panel>
             </div>
           </div>
@@ -262,66 +371,12 @@ export default memo(function StatsSections({
         {/* The Race screen's scroll range: the stage stays as it is. */}
         <div className="h-svh" aria-hidden />
 
-        <Card
-          id="stats-card"
-          title={<>Stats {sample && <SampleBadge />}</>}
-          aside={<>
-            {scope}
-            <label className="flex items-center gap-2 text-[14px]" style={{ color: TEXT }}>
-              Session
-              <select
-                value={session}
-                onChange={e => onSession(e.target.value)}
-                className="rounded border border-[rgba(55,53,47,0.16)] bg-white px-2 py-0.5 text-[14px]"
-              >
-                <option value="">All time</option>
-                {(all.data?.sessions ?? []).map(s => (
-                  <option key={s.id} value={s.id}>
-                    {new Date(s.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                    {s.ended_at ? '' : ' (live)'} · {s.hands.toLocaleString()} hands
-                  </option>
-                ))}
-              </select>
-            </label>
-            {lead}
-          </>}
-          by={pairwiseScreen}
-          timeline="--card-pairwise"
-          ref={statsCard}
-          z="z-10"
-        >
-          {!ready ? message : (
-            <>
-              {stale}
-              <Definition>
-                Rank spread: the best and worst rank each model&apos;s 95% interval allows. Click rows to compare them.
-                {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
-                {data.partial && ' All-in EV still computing…'}
-              </Definition>
-              <StatsTable models={models} seated={seated} />
-            </>
-          )}
+        <Card id="stats-card" title={<>Stats {sample && <SampleBadge />}</>} aside={statsAside} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10">
+          {statsBody}
         </Card>
 
-        <Card
-          id="pairwise-card"
-          title="Pairwise results"
-          aside={<>
-            {scope}
-            <Segmented label="View" options={[{ label: 'Matrix', value: 'matrix' }, { label: 'Bars', value: 'bars' }]} value={view} onChange={setView} />
-            {lead}
-          </>}
-          z="z-20"
-        >
-          {!ready ? message : (
-            <>
-              <Definition>
-                Each cell: chips the row model took from the column model (green) or lost to it (red) in the hands both played; rows and columns in rank order.
-                {top?.from && <> {top.leader} took the most from {top.from.name}: {chips(top.from.net)} chips.</>}
-              </Definition>
-              {view === 'matrix' ? <HeadToHead models={field} bigBlind={bigBlind} zoomed /> : <PairwiseBars models={field} />}
-            </>
-          )}
+        <Card id="pairwise-card" title="Pairwise results" aside={pairwiseAside} z="z-20">
+          {pairwiseBody}
         </Card>
       </div>
     </div>
@@ -363,6 +418,7 @@ function MiniStats({ models }: { models: ModelStats[] }) {
 }
 
 const PAGE = '#FAFAF9';
+const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1'; // a card header's extras
 
 // The cards are the main thing on their screen but not the whole screen: about 90% of the
 // width (the live table's 1252px at most) and about 80% of the height, centred under the bar.
@@ -434,7 +490,7 @@ function Card({
           <div className={`${CARD} relative flex-1`} style={{ boxShadow: CARD_SHADOW }}>
             <div className={HEADER}>
               <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
-              {aside && <div className="flex flex-wrap items-center gap-x-5 gap-y-1">{aside}</div>}
+              {aside && <div className={ASIDE}>{aside}</div>}
             </div>
             <div className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{children}</div>
           </div>

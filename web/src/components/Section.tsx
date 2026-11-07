@@ -1,7 +1,7 @@
 'use client';
 
-import { useRef } from 'react';
-import { motion, useInView } from 'motion/react';
+import { useRef, useSyncExternalStore } from 'react';
+import { AnimatePresence, motion, useInView } from 'motion/react';
 import NumberFlow, { type Format } from '@number-flow/react';
 import { MUTED, TEXT } from '@/lib/stats';
 
@@ -25,6 +25,7 @@ const settle = () => {
 // prefers-reduced-motion turns off. Announces the target screen so the zoom can start at once.
 // Returns false at either end of the page, where there is nowhere to go.
 export function pageBy(dir: 1 | -1) {
+  if (performance.now() < heldUntil) return true; // swallowed, not refused: the wheel lock still arms
   const y = pendingY ?? window.scrollY;
   const h = window.innerHeight;
   const list = screens();
@@ -38,21 +39,27 @@ export function pageBy(dir: 1 | -1) {
   return true;
 }
 
-// Scroll to the screen with this id (the overview's click-to-jump). A screen further on than the
-// next one skips the screens between: the page lands on the screen just before it at once
-// (announced as 'screenjump', so StatsSections can hide what that screen would show) and only
-// the target's own card slides in.
-export function goToScreen(id: string) {
-  const list = screens();
-  const i = list.findIndex(s => s.id === id);
-  if (i < 0) return;
-  const prev = list[i - 1];
-  if (prev && topOf(prev) > window.scrollY + 1) {
-    window.dispatchEvent(new CustomEvent('screenjump', { detail: id }));
-    window.scrollTo({ top: topOf(prev), behavior: 'instant' });
-  }
-  scrollToTop(topOf(list[i]), id);
+// While a tile glides to or from its card (StatsSections), paging waits: the page jumps to the
+// glide's screen when it lands.
+let heldUntil = 0;
+export const hold = (ms: number) => { heldUntil = performance.now() + ms; };
+
+// The screen the page is on ('' is the table), for the sticky bar's Back to overview.
+let onScreen = '';
+const listeners = new Set<() => void>();
+export const currentScreen = () => onScreen;
+export function setScreen(id: string) {
+  if (id === onScreen) return;
+  onScreen = id;
+  listeners.forEach(l => l());
 }
+const subscribe = (l: () => void) => {
+  listeners.add(l);
+  return () => { listeners.delete(l); };
+};
+export const useScreen = () => useSyncExternalStore(subscribe, currentScreen, () => '');
+// Glides the detail screen's card back to its overview tile (StatsSections listens).
+export const backToOverview = () => window.dispatchEvent(new Event('overview'));
 
 // A paged scroll is underway (it ends on a screen edge by itself).
 export const isPaging = () => pendingId !== null;
@@ -98,73 +105,106 @@ export function scrollsInside(el: Element | null, dir: number) {
   return false;
 }
 
-const SPRING = { type: 'spring', stiffness: 260, damping: 32 } as const;
+// The glide between a tile and its screen's card: ease-out, half a second. Fades run a little shorter.
+export const GLIDE_MS = 500;
+const GLIDE = { duration: GLIDE_MS / 1000, ease: [0.22, 1, 0.36, 1] } as const;
+const FADE = { duration: 0.3, ease: 'easeOut' } as const;
+const NONE = { duration: 0 } as const;
+// The cross-fade inside a gliding tile: the old content goes quickly, the new comes in just after,
+// so the two barely overlap.
+const OUT = { duration: 0.12, ease: 'easeOut' } as const;
+const IN = { duration: 0.3, delay: 0.08, ease: 'easeOut' } as const;
 
-// A panel of the overview: a linked title, a teaser and an "Open ↓" affordance. A click (or Enter or Space with the
-// panel focused) scrolls to the panel's own screen, except on links and controls inside it.
-// `focused` (the Race panel only) lifts it out of the grid to fill the stage; motion's layout
-// animation turns that jump into the page's one zoom (transforms only, nothing under reduced
-// motion). `covered`: the zoomed panel sits over this one. The body scrolls inside itself when it overflows.
+// A tile of the overview: a linked title, a teaser and an "Open ↓" affordance. A click (or Enter or
+// Space with the tile focused) calls onOpen, except on links and controls inside it.
+// `focused`: the tile fills the stage, in its screen card's place; motion's layout animation turns
+// that jump into a glide (transforms only, nothing under reduced motion). `covered`: another tile
+// is focused, and this one fades out. `lifted`: the tile focused last, on top while it glides back.
+// `snap`: change without animating (the stage is hidden under a card). A new `body` key cross-fades
+// the body (a tile's teaser to its card's content); `extra` fades in and out the same way. The body scrolls inside itself when it overflows.
 export default function Panel({
   id,
   href,
-  land,
   title,
   aside,
+  extra,
   focused = false,
   covered = false,
+  lifted = false,
+  snap = false,
+  body = 'tile',
+  onOpen,
   className = '',
   children,
 }: {
   id: string;
   href: string;
-  land: string; // the element on that screen that takes focus
   title: React.ReactNode;
   aside?: React.ReactNode;
+  extra?: React.ReactNode; // header extras of the card this tile stands in for, while focused
   focused?: boolean;
   covered?: boolean;
+  lifted?: boolean;
+  snap?: boolean;
+  body?: string;
+  onOpen: () => void;
   className?: string;
   children: React.ReactNode;
 }) {
   const overview = !focused && !covered;
-  const zoom = (e: React.SyntheticEvent) => {
+  const open = (e: React.SyntheticEvent) => {
     e.preventDefault();
-    history.replaceState(null, '', href); // shareable; fires no hashchange, so the #model= drawer is untouched
-    // Focus moves to the destination first: this panel goes inert under the zoom, and React putting
-    // focus back on it would scroll it into view and cancel the scroll.
-    document.getElementById(land)?.focus({ preventScroll: true });
-    goToScreen(href.slice(1));
+    onOpen();
   };
+  const move = snap ? NONE : GLIDE;
   return (
     <motion.section
-      layout={id === 'race-panel'}
+      layout
       initial={false}
-      transition={SPRING}
+      animate={{ opacity: covered ? 0 : 1 }}
+      transition={{ ...move, opacity: snap ? NONE : FADE }}
       id={id}
       aria-labelledby={`${id}-title`}
       inert={covered}
       tabIndex={overview ? 0 : -1}
       onClick={overview ? e => {
         const t = e.target as Element;
-        if (t.closest(`#${id}-title a`) || !t.closest('a, button, select, input, label')) zoom(e);
+        if (t.closest(`#${id}-title a`) || !t.closest('a, button, select, input, label')) open(e);
       } : undefined}
-      onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && zoom(e) : undefined}
-      className={`${CARD} ${focused ? 'absolute inset-0 z-20' : `relative z-0 ${className}`} ${overview ? 'cursor-pointer' : ''}`}
+      onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && open(e) : undefined}
+      className={`${CARD} overflow-hidden ${focused ? 'absolute inset-0' : `relative ${className}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''}`}
       style={{ boxShadow: CARD_SHADOW }}
     >
-      <motion.div layout={id === 'race-panel' && 'position'} transition={SPRING} className={HEADER}>
+      <motion.div layout="position" transition={move} className={HEADER}>
         <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>
-          {/* Not a tab stop: the panel itself is the one stop that opens it. */}
+          {/* Not a tab stop: the tile itself is the one stop that opens it. */}
           <a href={href} tabIndex={-1} className="hover:underline">{title}</a>
         </h2>
         <div className="flex items-center gap-4">
           {aside}
+          <AnimatePresence initial={false}>
+            {extra && (
+              <motion.div key="extra" initial={{ opacity: 0 }} animate={{ opacity: 1, transition: snap ? NONE : IN }} exit={{ opacity: 0, transition: OUT }}>
+                {extra}
+              </motion.div>
+            )}
+          </AnimatePresence>
           {overview && <span aria-hidden className="text-[14px] font-medium" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span>}
         </div>
       </motion.div>
-      <motion.div layout={id === 'race-panel'} transition={SPRING} className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">
-        {children}
-      </motion.div>
+      <AnimatePresence initial={false} mode="popLayout">
+        <motion.div
+          key={body}
+          layout
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1, transition: snap ? NONE : IN }}
+          exit={{ opacity: 0, transition: OUT }}
+          transition={move}
+          className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto"
+        >
+          {children}
+        </motion.div>
+      </AnimatePresence>
     </motion.section>
   );
 }
