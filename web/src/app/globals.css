@@ -311,16 +311,23 @@ html:has([data-screen]) {
 /* Stacked cards (StatsSections): each card after Race slides up over the one before it, which
    shrinks a little and dims, pinned. Driven by the incoming screen's view timeline (named on its
    snap point, scoped on the stats wrapper), so it tracks the scroll exactly both ways.
-   Transform and opacity only. Browsers without scroll-driven animations use motion's useScroll. */
-.recede-dim {
+   The receding layer has no box of its own: --dim inherits down to each card's chrome, whose
+   ::after darkens just the card. Browsers without scroll-driven animations use motion's useScroll. */
+@property --dim {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+.card-chrome::after {
+  content: '';
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   pointer-events: none;
   background: rgb(15, 15, 15);
-  opacity: 0;
+  opacity: var(--dim, 0);
 }
-@keyframes recede { to { transform: scale(0.94); } }
-@keyframes recede-dim { to { opacity: 0.14; } }
+@keyframes recede { to { transform: scale(0.94); --dim: 0.14; } }
 /* Only where scroll timelines exist: elsewhere a time-based run would fill straight to the end state. */
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) and (timeline-scope: --a) {
@@ -329,13 +336,5 @@ html:has([data-screen]) {
     animation-timeline: var(--recede-by);
     animation-range: entry 0% entry 100%;
   }
-  .recede > .recede-dim {
-    animation: recede-dim linear both;
-    animation-timeline: var(--recede-by);
-    animation-range: entry 0% entry 100%;
   }
-  }
-}
-.card-edge {
-  box-shadow: 0 -12px 32px rgba(15, 15, 15, 0.12), 0 0 0 1px rgba(15, 15, 15, 0.06);
 }

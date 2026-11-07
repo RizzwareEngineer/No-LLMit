@@ -3,7 +3,7 @@
 import { useRef } from 'react';
 import { motion, useInView } from 'motion/react';
 import NumberFlow, { type Format } from '@number-flow/react';
-import { TEXT } from '@/lib/stats';
+import { MUTED, TEXT } from '@/lib/stats';
 
 // Document y of every snap screen, top to bottom. Screens carry no transforms, so the
 // bounding box is their layout position.
@@ -149,15 +149,18 @@ export default function Panel({
         if (t.closest(`#${id}-title a`) || !t.closest('a, button, select, input, label')) zoom(e);
       } : undefined}
       onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && zoom(e) : undefined}
-      className={`flex flex-col min-h-0 min-w-0 bg-white p-3 lg:p-4 ${focused ? 'absolute inset-0 z-20' : `relative z-0 ${className}`} ${overview ? 'cursor-pointer' : ''}`}
-      style={{ borderRadius: 4, boxShadow: SHADOW }}
+      className={`${CARD} ${focused ? 'absolute inset-0 z-20' : `relative z-0 ${className}`} ${overview ? 'cursor-pointer' : ''}`}
+      style={{ boxShadow: CARD_SHADOW }}
     >
-      <motion.div layout={id === 'race-panel' && 'position'} transition={SPRING} className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 id={`${id}-title`} className="text-[18px] font-bold" style={{ color: TEXT }}>
+      <motion.div layout={id === 'race-panel' && 'position'} transition={SPRING} className={HEADER}>
+        <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>
           {/* Not a tab stop: the panel itself is the one stop that opens it. */}
           <a href={href} tabIndex={-1} className="hover:underline">{title}</a>
         </h2>
-        {overview ? <span aria-hidden className="text-[14px] font-medium" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span> : aside}
+        <div className="flex items-center gap-4">
+          {aside}
+          {overview && <span aria-hidden className="text-[14px] font-medium" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span>}
+        </div>
       </motion.div>
       <motion.div layout={id === 'race-panel'} transition={SPRING} className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">
         {children}
@@ -167,6 +170,39 @@ export default function Panel({
 }
 
 export const SHADOW = 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px';
+
+// One chrome for every stats card (overview tiles, the zoomed Race panel and the Stats and
+// Pairwise cards): same radius, ring, shadow and padding, so paging changes only the content.
+// card-chrome (globals.css) dims the card as the next one slides over it.
+export const CARD = 'card-chrome flex flex-col min-h-0 min-w-0 bg-white p-4 rounded-lg';
+export const CARD_SHADOW = 'rgba(15, 15, 15, 0.08) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 4px 16px';
+export const HEADER = 'mb-2 min-h-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-1';
+export const TITLE = 'text-[20px] leading-8 font-bold';
+
+// A row of mutually exclusive buttons (the Race range, the Pairwise view).
+export function Segmented<T extends string | number>({ label, options, value, onChange }: {
+  label: string;
+  options: { label: string; value: T; disabled?: boolean }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex shrink-0 rounded p-0.5 text-[14px]" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
+      {options.map(o => (
+        <button
+          key={o.label}
+          onClick={() => onChange(o.value)}
+          disabled={o.disabled}
+          aria-pressed={value === o.value}
+          className="rounded px-3 py-0.5 font-medium disabled:opacity-40"
+          style={value === o.value ? { background: 'white', color: TEXT, boxShadow: SHADOW } : { color: MUTED }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // A number that counts up from zero the first time it scrolls into view, then rolls to new
 // values. NumberFlow skips the animation under prefers-reduced-motion.
