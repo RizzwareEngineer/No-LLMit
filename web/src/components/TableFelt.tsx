@@ -112,7 +112,7 @@ export default function TableFelt({
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
   return (
     <div 
-      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'py-[28px]' : 'py-2'}`}
+      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'pt-[44px] pb-3' : 'py-2'}`}
       style={{
         backgroundImage: `
           linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
@@ -191,7 +191,9 @@ export default function TableFelt({
       </div>
 
       {/* Next hand countdown. Its slot is always there, so the felt (and the seat rows) never
-          change height when it appears: 28+74+12+70+12+32+28 = 256px, two 128px rows. */}
+          change height when it appears: 44+74+12+70+12+32+12 = 256px, two 128px rows. The top
+          padding keeps the POT box 16px clear of the top seats' bets; the countdown shares the
+          bottom edge with the bottom seats' bets, which are gone by the time it shows. */}
       <div className="h-[32px] flex items-center">
       {nextHandCountdown !== null && nextHandCountdown !== undefined && nextHandCountdown > 0 && (
         <div 
