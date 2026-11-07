@@ -155,6 +155,16 @@ await check('matchups-no-fade', 'Opening Matchups grows the matrix without fadin
   }
   return { pass: min >= 0.95, detail: `lowest matrix opacity ${min.toFixed(2)}` };
 });
+// Every matrix cell is a square, on the overview tile and in the card (the matrix grows uniformly, never stretched).
+await check('matchups-square-cells', 'Matchups cells are squares on the tile and in the card', async () => {
+  const ratio = sel => pg.evaluate(sel => {
+    const c = [...document.querySelectorAll(`${sel} td[data-cell]`)].map(e => e.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4);
+    return c.length ? Math.max(...c.map(r => Math.max(r.width / r.height, r.height / r.width))) : 0;
+  }, sel);
+  await goto(pg, 'stats'); await sleep(1500); const tile = await ratio('#pairwise-panel');
+  await goto(pg, 'pairwise'); await sleep(1500); const card = await ratio('#pairwise-card');
+  return { pass: tile > 0 && card > 0 && tile <= 1.05 && card <= 1.05, detail: `tile ${tile.toFixed(3)}:1, card ${card.toFixed(3)}:1` };
+});
 await check('profiles-table-only', 'Opened Profiles shows the table only', async () => {
   await goto(pg, 'stats-table'); await sleep(1500);
   const t = await pg.evaluate(() => { const s = document.getElementById('stats-table'); const b = s.getBoundingClientRect(); return `${s.innerText}\n${[...document.querySelectorAll('.card-chrome')].filter(c => { const r = c.getBoundingClientRect(); return r.top >= -2 && r.top < innerHeight / 2 && r.width > 900; }).map(c => c.innerText).join('\n')}`; });
