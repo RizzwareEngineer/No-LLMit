@@ -1,18 +1,33 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
-import { Segmented } from '@/components/Section';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { animate, motion, useReducedMotion } from 'motion/react';
+import { GLIDE_MS, SHADOW, Segmented } from '@/components/Section';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
 
 const GRID = 'rgba(55, 53, 47, 0.12)';
 const AXIS = 'rgba(55, 53, 47, 0.75)';
-// Every line is redrawn through this many points, so a new hand changes the numbers in each
-// path but not its shape and motion can tween the old line into the new one.
+// Every line is drawn through this many evenly spaced hands across the x axis, plus its exact ends.
 const SAMPLES = 160;
 const PLAY_MS = 60_000; // the race takes a minute, first hand to last
+const EASE = [0.22, 1, 0.36, 1] as const; // ease-out, as the tile glide
+const GLIDE = { duration: GLIDE_MS / 1000, ease: EASE } as const;
+// A filter change moves the axes and the lines to the new range together over this long.
+const TWEEN_S = 0.5;
+// The Race is laid out once at this size (the Race card at 1440×900) and scaled as a whole into its
+// box, so the overview tile and the card show one picture at two sizes and nothing ever stretches.
+const W = 1220, H = 500;
+const LEGEND_H = 68; // the legend under the Race card's plot: up to three rows (every model, and the note)
+
+// The race replay's clock, once per page load: its start time, so switching between the tile and the
+// card, scrolling or a remount picks it up where it is. null: not started yet (the lines show in full).
+let raceStart: number | null = null;
+const raceAt = (t: number) => (raceStart === null ? 1 : Math.min(1, Math.max(0, (t - raceStart) / PLAY_MS)));
+
+type Pts = [number, number][];
+const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
 
 // The value of a cumulative curve at hand n, linearly interpolated (0 before its first point,
 // flat after its last).
@@ -55,19 +70,33 @@ export function niceTicks(min: number, max: number, count: number, integer = fal
   return ticks;
 }
 
-// The curve at SAMPLES evenly spaced hands over [from, last hand], linearly interpolated; empty
-// when the curve ends before `from`.
-export function resample(pts: [number, number][], from = 0): [number, number][] {
-  const last = pts.at(-1)?.[0] ?? 0;
-  if (from > last) return [];
-  if (pts.length < 2) return Array.from({ length: SAMPLES }, (_, i) => [from + (i / (SAMPLES - 1)) * (last - from), pts[0]?.[1] ?? 0]);
+// The curve's values at the ascending hands `ns`, linearly interpolated and flat past its ends.
+export function sampleAt(pts: Pts, ns: number[]) {
   let j = 0;
-  return Array.from({ length: SAMPLES }, (_, i) => {
-    const n = from + (i / (SAMPLES - 1)) * (last - from);
+  return ns.map(n => {
+    if (pts.length < 2) return pts[0]?.[1] ?? 0;
     while (j < pts.length - 2 && pts[j + 1][0] < n) j++;
     const [n0, v0] = pts[j], [n1, v1] = pts[j + 1];
-    return [n, n1 === n0 ? v1 : v0 + ((n - n0) / (n1 - n0)) * (v1 - v0)];
+    return n1 === n0 ? v1 : v0 + Math.min(1, Math.max(0, (n - n0) / (n1 - n0))) * (v1 - v0);
   });
+}
+
+// A line as drawn on an x axis over [x0, x1]: SAMPLES evenly spaced hands across the axis plus the
+// line's exact ends, cut at hand `end`. Fixed hands keep its shape still as the race's playhead moves.
+// With `to`, each value is k of the way to that curve's (a metric switch morphs one into the other).
+export function trace(pts: Pts, x0: number, x1: number, end = Infinity, to?: Pts, k = 1): Pts {
+  if (!pts.length) return [];
+  const b = to?.length ? to : pts;
+  const lo = Math.max(x0, lerp(pts[0][0], b[0][0], k));
+  const hi = Math.min(x1, lerp(pts.at(-1)![0], b.at(-1)![0], k), end);
+  if (!(hi >= lo)) return [];
+  const step = (x1 - x0) / (SAMPLES - 1) || 1;
+  const ns = [lo];
+  for (let i = Math.floor((lo - x0) / step) + 1; x0 + i * step < hi; i++) ns.push(x0 + i * step);
+  if (hi > lo) ns.push(hi);
+  const va = sampleAt(pts, ns);
+  const vb = b === pts ? va : sampleAt(b, ns);
+  return ns.map((n, i) => [n, lerp(va[i], vb[i], k)]);
 }
 
 // The Race window choices: the last 100 or 1,000 hands, or all of them.
@@ -87,6 +116,9 @@ export function series(m: ModelStats, metric: Metric, bigBlind = 1, ev = false):
   return curve.map(([n, v]) => [n, v * k]);
 }
 
+// What the chart is heading for: its axis ranges and its lines. A new key starts a tween to it.
+type Scene = { key: string; x0: number; x1: number; y0: number; y1: number; lines: Map<string, Pts>; evs: Map<string, Pts> };
+
 export default function CumulativeChart({
   models,
   everyone,
@@ -105,47 +137,56 @@ export default function CumulativeChart({
   highlight?: string; // a line to bring forward while the pointer is not on the plot
   onHighlight?: (name: string | undefined) => void;
   race?: boolean; // several lines, each labelled at its end, with filters, a legend, a hover readout and a range control
-  mini?: boolean; // the overview tile: the same chart small, logos for labels, no interaction
+  mini?: boolean; // the overview tile: the same chart scaled down, without controls or interaction
   bigBlind?: number; // outside the Race: plot chips (bb × big blind) instead of bb
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  // The plot fills its box. `drawnFor` is the data the size was measured with: a resize (the Race
-  // zoom) redraws the lines at once, and only new data tweens them.
-  const [{ width, height, drawnFor }, setSize] = useState({ width: 720, height: 300, drawnFor: models });
-  const latest = useRef(models);
-  useEffect(() => { latest.current = models; });
+  const area = useRef<HTMLDivElement>(null);
+  const plot = useRef<HTMLDivElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const clipId = useId();
   const reduce = useReducedMotion();
+  // The box the chart fits in. Measured in the same frame as the tile↔card layout change, so the glide
+  // starts from and lands on the right scale, and again on any resize.
+  const [box, setBox] = useState({ w: 720, h: 300 });
+  const measure = useCallback(() => {
+    const el = area.current;
+    if (el) setBox(b => (b.w === el.clientWidth && b.h === el.clientHeight ? b : { w: el.clientWidth, h: el.clientHeight }));
+  }, []);
+  useLayoutEffect(measure, [mini, measure]);
+  useEffect(() => {
+    const ro = new ResizeObserver(measure);
+    ro.observe(area.current!);
+    return () => ro.disconnect();
+  }, [measure]);
+
   // A race, like Arena's trends chart: every line grows from the first hand to the last over a
-  // minute, its label riding the tip and the order changing as it goes. It plays when the tile
-  // first scrolls into view and again each time the Race screen opens; Skip and Replay control it.
-  const [progress, setProgress] = useState(1); // 0..1 of the way from the first hand to the last
-  const frame = useRef(0);
-  const play = useCallback(() => {
-    cancelAnimationFrame(frame.current);
-    if (reduce) return setProgress(1);
-    const t0 = performance.now();
-    const tick = (t: number) => {
-      const p = Math.min(1, (t - t0) / PLAY_MS);
-      setProgress(p);
-      if (p < 1) frame.current = requestAnimationFrame(tick);
-    };
-    frame.current = requestAnimationFrame(tick);
-  }, [reduce]);
-  const skip = () => { cancelAnimationFrame(frame.current); setProgress(1); };
-  useEffect(() => () => cancelAnimationFrame(frame.current), []);
-  const wasMini = useRef(mini);
+  // minute, its label riding the tip and the order changing as it goes. It plays once per page load,
+  // from when the tile first scrolls into view; Skip and Replay control it.
+  const [now, setNow] = useState(() => (raceStart === null ? 0 : performance.now()));
+  const progress = race && !reduce ? raceAt(now) : 1; // 0..1 of the way from the first hand to the last
+  const playing = progress < 1;
   useEffect(() => {
-    if (wasMini.current && !mini) play();
-    wasMini.current = mini;
-  }, [mini, play]);
+    if (!playing) return;
+    let id = requestAnimationFrame(function tick(t) {
+      setNow(t);
+      if (raceAt(t) < 1) id = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [playing]);
+  const play = () => { raceStart = performance.now(); setNow(raceStart); };
+  const skip = () => { raceStart = -Infinity; setNow(performance.now()); };
   useEffect(() => {
-    const el = ref.current;
-    if (!el || !race) return;
-    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { play(); io.disconnect(); } }, { threshold: 0.4 });
+    const el = area.current;
+    if (!el || !race || reduce || raceStart !== null) return;
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return;
+      io.disconnect();
+      if (raceStart === null) { raceStart = performance.now(); setNow(raceStart); }
+    }, { threshold: 0.4 });
     io.observe(el);
     return () => io.disconnect();
-  }, [race, play]);
-  const playing = race && progress < 1;
+  }, [race, reduce]);
+
   // The hand under the pointer (or picked with the arrow keys) and the line nearest it.
   const [hover, setHover] = useState<{ n: number; name: string } | null>(null);
   const [range, setRange] = useState(0); // 0: every hand
@@ -157,15 +198,6 @@ export default function CumulativeChart({
   const [top, setTop] = useState(0); // 0: every model
   const [luck, setLuck] = useState(false); // all-in EV lines for every model (the highlighted one always shows its own)
   const [hidden, setHidden] = useState<string[]>([]); // lines switched off in the legend
-  const tipRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setSize({ width: entry.contentRect.width, height: entry.contentRect.height, drawnFor: latest.current }));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // A fresh history has no model at RATE_FROM hands yet: race on chips until bb/100 has lines to draw.
   const young = race && metricPick === 'bb100' && ![...(everyone ?? []), ...models].some(m => m.hands >= RATE_FROM);
@@ -174,11 +206,14 @@ export default function CumulativeChart({
   const unit = rate ? 'bb/100' : metric;
   const fmt = (v: number) => (metric === 'chips' ? chips(Math.round(v)) : signed(v));
   const interactive = race && !mini;
-  const line$ = new Map([...(everyone ?? []), ...models].map(m => [m.name, series(m, metric, bigBlind)]));
+  const byName = new Map([...(everyone ?? []), ...models].map(m => [m.name, m]));
+  const line$ = new Map([...byName.values()].map(m => [m.name, series(m, metric, bigBlind)]));
   const pts = (m: ModelStats) => line$.get(m.name)!;
   const finalOf = (m: ModelStats) => pts(m).at(-1)?.[1] ?? 0;
   const pool = race && lineup === 'all' && everyone?.length ? everyone : models;
-  const families = [...new Set(pool.map(m => family(m.name)))].sort();
+  // Every family in the history, so the bar never rewraps; those not in the lineup are greyed out.
+  const families = [...new Set([...(everyone ?? []), ...models].map(m => family(m.name)))].sort();
+  const inPool = new Set(pool.map(m => family(m.name)));
   // The legend: every model the filters let through, best first; `top` keeps the leaders.
   const listed = pool
     .filter(m => !race || ((license === 'all' || openWeights(m.name) === (license === 'open')) && (!fams.length || fams.includes(family(m.name)))))
@@ -186,86 +221,118 @@ export default function CumulativeChart({
     .sort((a, b) => finalOf(b) - finalOf(a))
     .slice(0, race && top ? top : undefined);
   const lastHand = Math.max(1, ...listed.flatMap(m => pts(m).map(p => p[0])));
-  const win = interactive ? range : 0;
+  const win = race ? range : 0; // the tile shows the card's window too: one picture
   const whole = !(win && win < lastHand);
   // The x axis starts where the first line does (RATE_FROM hands for bb/100), or at the window.
   const from = Math.max(whole ? 0 : lastHand - win, Math.min(lastHand - 1, ...listed.map(m => pts(m)[0][0])));
-  // Every line resampled over the window; lines switched off or ended before it drop out.
-  const full = new Map(listed.map(m => {
-    const p = pts(m);
-    return [m.name, hidden.includes(m.name) ? [] : resample(p, Math.max(from, p[0][0]))];
-  }));
-  // While the race plays, each line stops at the playhead, interpolated to it.
-  const head = from + progress * (lastHand - from);
-  const cut = (p: [number, number][]): [number, number][] => {
-    if (!playing) return p;
-    const i = p.findIndex(([n]) => n > head);
-    if (i === -1) return p;
-    if (i === 0) return [];
-    const [n0, v0] = p[i - 1], [n1, v1] = p[i];
-    return [...p.slice(0, i), [head, v0 + ((v1 - v0) * (head - n0)) / (n1 - n0 || 1)]];
-  };
-  const drawn = new Map([...full].map(([name, p]) => [name, cut(p)]));
-  // The all-in EV line: what each model would have won if every all-in were paid out by its equity.
-  const evFull = new Map(listed.map(m => {
-    const p = series(m, metric, bigBlind, true);
-    return [m.name, race && !hidden.includes(m.name) && p.length ? resample(p, Math.max(from, p[0][0])) : []];
-  }));
-  const shown = listed.filter(m => drawn.get(m.name)!.length);
+  // The lines in the window (lines switched off or ended before it drop out), and the all-in EV lines.
+  const on = listed.filter(m => !hidden.includes(m.name) && trace(pts(m), from, lastHand).length);
+  const lines = new Map(on.map(m => [m.name, pts(m)]));
+  const evs = new Map(luck ? on.flatMap(m => { const p = series(m, metric, bigBlind, true); return p.length ? [[m.name, p] as const] : []; }) : []);
   // The value at hand n, or null before the line starts.
   const at = (m: ModelStats, n: number) => (n < pts(m)[0][0] ? null : valueAt(pts(m), n));
-  const ys = listed.flatMap(m => [...full.get(m.name)!, ...(luck ? evFull.get(m.name)! : [])].map(p => p[1])); // the whole race: the axis holds still while it plays
-  const sel = shown.find(m => m.name === selected);
   // 95% band: bb/100's interval narrows as 1/sqrt(n); a cumulative total's widens as sqrt(n).
   const bandAt = (m: ModelStats, n: number) =>
     rate ? (ciHalf(m) ?? 0) * Math.sqrt(m.hands / Math.max(n, 1)) : band(m, n) * (metric === 'chips' ? bigBlind ?? 1 : 1);
-  if (sel) drawn.get(sel.name)!.forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
-  // The y axis spans the data (and zero over the whole session), with a little air.
+  const sel = on.find(m => m.name === selected);
+  // The y axis spans the whole race (it holds still while it plays) and zero over the whole session, with a little air.
+  const ys = [...lines.values(), ...evs.values()].flatMap(p => trace(p, from, lastHand).map(q => q[1]));
+  if (sel) trace(pts(sel), from, lastHand).forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
   let lo = Math.min(...ys, ...(whole ? [0] : [])), hi = Math.max(...ys, ...(whole ? [0] : []));
   if (!Number.isFinite(lo)) [lo, hi] = [0, 1];
   if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
   const air = (hi - lo) * 0.04;
-  const [yMin, yMax] = [lo - air, hi + air];
-  const yTicks = niceTicks(yMin, yMax, mini ? 5 : 8).filter(t => t >= yMin && t <= yMax);
-  const xTicks = niceTicks(from, lastHand, mini ? 6 : 10, true).filter(t => t >= from && t <= lastHand);
-  const w = Math.max(width, 200);
-  const fs = mini ? 12 : 14;
-  const logo = mini ? 16 : 18;
-  const tick = (t: number) => (metric === 'chips' ? t.toLocaleString() : String(t)).replace('-', '−');
-  const right = mini ? logo + 10 : race ? 240 : 12;
-  const left = 10 + fs * 0.62 * Math.max(4, ...yTicks.map(t => tick(t).length)); // room for the widest y label
-  const padTop = fs + 10; // the y axis title sits above the plot
+  const scene: Scene = {
+    key: [metric, from, lastHand, lo - air, hi + air, ...lines.keys(), '|', ...evs.keys()].join(),
+    x0: from, x1: lastHand, y0: lo - air, y1: hi + air, lines, evs,
+  };
+
+  // A filter, the data or the range changed: the axes, gridlines and lines all move to the new scene in
+  // one tween (the scale, not just the paths); lines that leave fade out and lines that join fade in.
+  const [tr, setTr] = useState({ from: scene, to: scene });
+  const [mix, setMix] = useState(1);
+  if (tr.to.key !== scene.key) {
+    const [a, b] = [tr.from, tr.to]; // interrupted: carry on from where the axes are now
+    setTr({ from: { ...b, x0: lerp(a.x0, b.x0, mix), x1: lerp(a.x1, b.x1, mix), y0: lerp(a.y0, b.y0, mix), y1: lerp(a.y1, b.y1, mix) }, to: scene });
+    setMix(0);
+  }
+  useEffect(() => {
+    if (reduce) return;
+    const c = animate(0, 1, { duration: TWEEN_S, ease: EASE, onUpdate: setMix });
+    return () => c.stop();
+  }, [tr, reduce]);
+  const k = reduce ? 1 : mix;
+  const old = tr.from;
+  const [X0, X1, Y0, Y1] = [lerp(old.x0, scene.x0, k), lerp(old.x1, scene.x1, k), lerp(old.y0, scene.y0, k), lerp(old.y1, scene.y1, k)];
+
+  // The design size the chart is laid out at, and the one scale that fits it in its box. Outside
+  // the Race (the model drawer) it simply fills its box.
+  const [lw, lh] = race ? [W, H] : [Math.max(box.w, 200), box.h];
+  // The legend's rows are set aside, so a filter that changes its length never rescales the plot.
+  const s = race ? Math.min(box.w / W, (box.h - (interactive ? LEGEND_H : 0)) / H) : 1;
+  const fs = 14;
+  const logo = 18;
+  const right = race ? 240 : 12;
+  const left = 10 + fs * 0.62 * 8; // room for the widest y label ("−100,000"), so the plot never moves
+  const padTop = fs + 14; // the y axis title sits above the plot
   const padBottom = fs + 10 + fs + 8; // tick labels, then the x axis title
-  const x = (n: number) => left + ((n - from) / (lastHand - from || 1)) * (w - left - right);
-  const y = (v: number) => padTop + ((yMax - v) / (yMax - yMin || 1)) * (height - padTop - padBottom);
+  const plotW = lw - left - right;
+  const plotH = lh - padTop - padBottom;
+  const x = (n: number) => left + ((n - X0) / (X1 - X0 || 1)) * plotW;
+  const y = (v: number) => padTop + ((Y1 - v) / (Y1 - Y0 || 1)) * plotH;
   const line = (p: [number, number][]) => p.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
-  const selPts = sel ? drawn.get(sel.name)! : [];
-  const bandPath = sel
+
+  // While the race plays, each line stops at the playhead.
+  const head = from + progress * (lastHand - from);
+  const fading = (was: Map<string, Pts>, is: Map<string, Pts>) => [...is.keys(), ...(k < 1 ? [...was.keys()].filter(n => !is.has(n)) : [])];
+  const fade = (was: Map<string, Pts>, is: Map<string, Pts>, n: string) => (is.has(n) ? (was.has(n) ? 1 : k) : 1 - k);
+  const drawnOf = (a?: Pts, b?: Pts) => (a && b && k < 1 ? trace(a, X0, X1, head, b, k) : trace((b ?? a)!, X0, X1, head));
+  const drawn = new Map(fading(old.lines, lines).map(n => [n, drawnOf(old.lines.get(n), lines.get(n))]));
+  const shown = [...drawn.keys()].flatMap(n => (drawn.get(n)!.length && byName.has(n) ? [byName.get(n)!] : []));
+  const hot = shown.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
+  const ordered = [...shown.filter(m => m !== sel && m !== hot), ...(sel && sel !== hot && shown.includes(sel) ? [sel] : []), ...(hot ? [hot] : [])]; // selected, then hovered on top
+  // The all-in EV lines, dashed: every model's with the toggle on, else the hovered line's own.
+  const evDrawn = fading(old.evs, evs).map(n => ({ n, p: drawnOf(old.evs.get(n), evs.get(n)), o: fade(old.evs, evs, n) }));
+  if (race && hot && !evDrawn.some(e => e.n === hot.name)) {
+    const p = series(hot, metric, bigBlind, true);
+    if (p.length) evDrawn.push({ n: hot.name, p: trace(p, X0, X1, head), o: 1 });
+  }
+  const selPts = sel ? drawn.get(sel.name) ?? [] : [];
+  const bandPath = sel && selPts.length
     ? line(selPts.map(([n, v]) => [n, v + bandAt(sel, n)])) +
       [...selPts].reverse().map(([n, v]) => `L${x(n)},${y(v - bandAt(sel, n))}`).join('') + 'Z'
     : '';
-  const tween = { duration: reduce || playing || drawnFor === models ? 0 : 0.6, ease: [0.22, 1, 0.36, 1] as const };
-  const hot = shown.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
-  const ordered = [...shown.filter(m => m !== sel && m !== hot), ...(sel && sel !== hot ? [sel] : []), ...(hot ? [hot] : [])]; // selected, then hovered on top
-  // Every line ends in a label in the right-hand gutter (a logo in the tile; logo, name and the
-  // final figure on the Race screen), spread so none overlap, with a dotted leader to the line's end.
+  // Ticks of the old and the new range, each fading as the range tweens; a tick in both stays put.
+  const blend = (was: number[], is: number[], a: number, b: number) =>
+    [...new Set([...was, ...is])]
+      .map(t => ({ t, o: is.includes(t) ? (was.includes(t) ? 1 : k) : 1 - k }))
+      .filter(d => d.o > 0 && d.t >= Math.min(a, b) - 1e-6 && d.t <= Math.max(a, b) + 1e-6);
+  const yTicksOf = (a: number, b: number) => niceTicks(a, b, 8).filter(t => t >= a && t <= b);
+  const xTicksOf = (a: number, b: number) => niceTicks(a, b, 10, true).filter(t => t >= a && t <= b);
+  const yTicks = blend(yTicksOf(old.y0, old.y1), yTicksOf(scene.y0, scene.y1), Y0, Y1);
+  const xTicks = blend(xTicksOf(old.x0, old.x1), xTicksOf(scene.x0, scene.x1), X0, X1);
+  const tick = (t: number) => (metric === 'chips' ? t.toLocaleString() : String(t)).replace('-', '−');
+  // Every line ends in a label in the right-hand gutter (logo, name and the final figure), spread so
+  // none overlap, with a dotted leader to the line's end.
   const ends = shown
-    .map(m => { const p = drawn.get(m.name)!; return { m, n: p.at(-1)![0], v: p.at(-1)![1] }; })
+    .map(m => { const p = drawn.get(m.name)!; return { m, n: p.at(-1)![0], v: p.at(-1)![1], o: fade(old.lines, lines, m.name) }; })
     .sort((a, b) => b.v - a.v);
-  const rowH = mini ? logo + 1 : 22;
-  const labelX = playing ? Math.min(w - right + 6, Math.max(...ends.map(e => x(e.n)), left) + 14) : w - right + 6; // labels ride the tips while the race plays
-  const [eLo, eHi] = [padTop + rowH / 2, height - padBottom - rowH / 2];
+  const rowH = 22;
+  const labelX = playing ? Math.min(lw - right + 6, Math.max(...ends.map(e => x(e.n)), left) + 14) : lw - right + 6; // labels ride the tips while the race plays
+  const [eLo, eHi] = [padTop + rowH / 2, lh - padBottom - rowH / 2];
   const endYs = spread(ends.map(e => y(e.v)), Math.min(rowH, (eHi - eLo) / Math.max(1, ends.length - 1)), eLo, eHi); // highest value first: ascending y
   const readout = hover
     ? shown.flatMap(m => { const v = at(m, hover.n); return v === null ? [] : [{ m, v }]; }).sort((a, b) => b.v - a.v)
     : [];
 
+  // Pointer to design units: the plot is scaled as a whole, so its box maps onto lw × lh.
   const pick = (clientX: number, clientY: number) => {
-    const r = ref.current!.getBoundingClientRect();
-    const n = Math.round(Math.min(Math.max(from + ((clientX - r.left - left) / (w - left - right)) * (lastHand - from), from), lastHand));
+    const r = plot.current!.getBoundingClientRect();
+    const [px, py] = [((clientX - r.left) / r.width) * lw, ((clientY - r.top) / r.height) * lh];
+    const n = Math.round(Math.min(Math.max(X0 + ((px - left) / plotW) * (X1 - X0), from), lastHand));
     const near = shown.reduce<{ name: string; d: number }>((best, m) => {
       const v = at(m, n);
-      const d = v === null ? Infinity : Math.abs(y(v) - (clientY - r.top));
+      const d = v === null ? Infinity : Math.abs(y(v) - py);
       return d < best.d ? { name: m.name, d } : best;
     }, { name: '', d: Infinity });
     setHover({ n, name: near.name });
@@ -284,8 +351,8 @@ export default function CumulativeChart({
     const tip = tipRef.current;
     if (!tip) return;
     const tw = tip.offsetWidth;
-    const want = crossX + 12 + tw <= w - right ? crossX + 12 : crossX - 12 - tw;
-    tip.style.left = `${Math.max(left, Math.min(want, w - tw - 4))}px`;
+    const want = crossX + 12 + tw <= lw - right ? crossX + 12 : crossX - 12 - tw;
+    tip.style.left = `${Math.max(left, Math.min(want, lw - tw - 4))}px`;
   });
 
   const step = Math.max(1, Math.round((lastHand - from) / 40));
@@ -296,219 +363,217 @@ export default function CumulativeChart({
     const n0 = hover?.n ?? (e.key === 'ArrowLeft' ? lastHand + step : from - step);
     setHover({ n: Math.min(Math.max(n0 + (e.key === 'ArrowRight' ? step : -step), from), lastHand), name: hover?.name || sel?.name || '' });
   };
-  const plotH = height - padTop - padBottom;
   const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter(s => s !== v) : [...list, v]);
-  // The filters in words, for the overview tile.
+  // The filters that are not at their defaults, in words, for the overview tile (the axis title says the unit).
   const filters = [
-    rate ? 'bb/100' : 'Chips',
     lineup === 'all' && 'All models',
     license !== 'all' && (license === 'open' ? 'Open weights' : 'Proprietary'),
     fams.length && fams.join(', '),
     top && `Top ${top}`,
+    !whole && RANGES.find(r => r.n === win)?.label,
   ].filter(Boolean).join(' · ');
+  // The bar and legend appear with the card: corrected for the panel's glide (no stretch), faded in.
+  const appear = { layout: 'position', transition: GLIDE, initial: { opacity: 0 }, animate: { opacity: 1, transition: { duration: 0.3, delay: 0.08 } } } as const;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {interactive && (
-        <div className="mb-2 flex flex-col gap-1.5 text-[14px]" style={{ color: MUTED }}>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-            <span>Metric</span>
+        // One bar for every control; it wraps on narrow widths.
+        <motion.div {...appear} className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[14px]" style={{ color: MUTED }}>
+          <Field label="Metric">
             <Segmented label="Metric" options={[{ label: 'bb/100', value: 'bb100' as const }, { label: 'Chips', value: 'chips' as const }]} value={metricPick} onChange={setMetric} />
-            <span className="ml-3">Lineup</span>
+          </Field>
+          <Field label="Lineup">
             <Segmented label="Lineup" options={[{ label: 'Seated now', value: 'seated' as const }, { label: 'All models', value: 'all' as const, disabled: !everyone?.length }]} value={lineup} onChange={setLineup} />
-            <span className="ml-3">License</span>
+          </Field>
+          <Field label="License">
             <Segmented label="License" options={[{ label: 'All', value: 'all' as const }, { label: 'Open weights', value: 'open' as const }, { label: 'Proprietary', value: 'closed' as const }]} value={license} onChange={setLicense} />
-            <span className="ml-3">Show</span>
+          </Field>
+          <Field label="Show">
             <Segmented label="Top models" options={[{ label: 'All', value: 0 }, { label: 'Top 5', value: 5 }]} value={top} onChange={setTop} />
-            <button
-              onClick={() => setLuck(l => !l)}
-              aria-pressed={luck}
-              title="Dashed lines: what each model would have won if every all-in were paid out by its odds at the moment of the all-in. Solid above dashed: it ran lucky."
-              className="ml-3 rounded-full border px-2.5 py-px text-[13px] font-medium"
-              style={luck ? { background: TEXT, borderColor: TEXT, color: 'white' } : { borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT }}
-            >
-              Luck
-            </button>
-            <span className="ml-auto"><Segmented
+          </Field>
+          <Toggles
+            label="All-in EV"
+            title="Dashed lines: what each model would have won if every all-in were paid out by its odds at that moment. Solid above dashed means it ran lucky."
+            items={[{ label: 'All-in EV', on: luck, toggle: () => setLuck(l => !l) }]}
+          />
+          <Field label="Family">
+            <Toggles label="Family" items={families.map(f => ({ label: f, on: fams.includes(f), disabled: !inPool.has(f) && !fams.includes(f), toggle: () => setFams(toggle(fams, f)) }))} />
+            {fams.length > 0 && <button onClick={() => setFams([])} className="text-[13px] underline">Clear</button>}
+          </Field>
+          <Field label="Hands">
+            <Segmented
               label="Hands shown"
               options={RANGES.map(r => ({ label: r.label, value: r.n, disabled: r.n > 0 && r.n >= lastHand }))}
               value={range && range < lastHand ? range : 0}
               onChange={setRange}
-            /></span>
-          </div>
-          <div role="group" aria-label="Family" className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1">Family</span>
-            {families.map(f => (
+            />
+          </Field>
+        </motion.div>
+      )}
+      {race && mini && filters && <div className="-mt-1 mb-1 text-[12px] truncate" style={{ color: MUTED }}>{filters}</div>}
+      {/* The chart's box: its size comes from the panel, never the other way round. */}
+      <div ref={area} className={`relative w-full flex-1 flex flex-col ${mini ? 'min-h-[100px]' : 'min-h-[160px]'}`}>
+        <div className="relative shrink-0" style={{ height: lh * s }}>
+        {/* The plot at one aspect ratio, centred across the box and at its top, so a legend that wraps
+            differently never moves it. `layout` keeps it unstretched while the panel around it glides:
+            both of its boxes have the same shape, so the glide scales it evenly. */}
+        <motion.div
+          ref={plot}
+          layout={race}
+          layoutDependency={`${mini}:${s}:${box.w}:${box.h}`}
+          transition={GLIDE}
+          className="absolute outline-offset-2"
+          style={{ left: (box.w - lw * s) / 2, top: 0, width: lw * s, height: lh * s }}
+          onPointerMove={interactive ? e => e.pointerType !== 'touch' && pick(e.clientX, e.clientY) : undefined}
+          onPointerDown={interactive ? e => pick(e.clientX, e.clientY) : undefined}
+          onPointerLeave={interactive ? e => e.pointerType !== 'touch' && setHover(null) : undefined} // a tap keeps its readout
+          // Focusable only where the chart is interactive (the Race screen).
+          tabIndex={interactive && onSelect ? 0 : undefined}
+          onKeyDown={interactive && onSelect ? onKey : undefined}
+          onBlur={interactive ? () => setHover(null) : undefined}
+          role="img"
+          aria-label={interactive && onSelect ? `${label} Left and right arrows step through the hands.` : label}
+        >
+          <div className="absolute left-0 top-0 origin-top-left" style={{ width: lw, height: lh, transform: s === 1 ? undefined : `scale(${s})` }}>
+            <svg className="absolute inset-0" width={lw} height={lh} viewBox={`0 0 ${lw} ${lh}`} aria-hidden>
+              <defs><clipPath id={clipId}><rect x={left} y={padTop - 2} width={plotW} height={plotH + 4} /></clipPath></defs>
+              {/* Axis titles: the unit above the y labels, the hands under the x labels. */}
+              <text x={4} y={fs} fontSize={fs} fontWeight={600} fill={AXIS}>{yTitle}</text>
+              <text x={left + plotW / 2} y={lh - 4} textAnchor="middle" fontSize={fs} fontWeight={600} fill={AXIS}>Hands played</text>
+              {yTicks.map(({ t, o }) => (
+                <g key={t} opacity={o}>
+                  <line x1={left} x2={lw - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.5)' : GRID} />
+                  <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={fs} fill={AXIS} className="tabular-nums">{tick(t)}</text>
+                </g>
+              ))}
+              <line x1={left} x2={left} y1={padTop} y2={padTop + plotH} stroke={GRID} />
+              {xTicks.map(({ t, o }) => (
+                <g key={t} opacity={o}>
+                  <line x1={x(t)} x2={x(t)} y1={padTop + plotH} y2={padTop + plotH + 4} stroke={AXIS} />
+                  <text x={x(t)} y={padTop + plotH + fs + 6} textAnchor="middle" fontSize={fs} fill={AXIS} className="tabular-nums">{t.toLocaleString()}</text>
+                </g>
+              ))}
+              <g clipPath={`url(#${clipId})`}>
+                {bandPath && <path d={bandPath} fill={modelColor(sel!.name)} opacity={0.14} />}
+                {evDrawn.map(({ n, p, o }) => (luck || n === hot?.name) && p.length ? (
+                  <path key={`ev:${n}`} d={line(p)} fill="none" stroke={modelColor(n)} strokeWidth={1.5} strokeDasharray="5 4" opacity={(!hot || n === hot.name ? 0.7 : 0.2) * o} />
+                ) : null)}
+                {ordered.map(m => (
+                  <path
+                    key={m.name}
+                    d={line(drawn.get(m.name)!)}
+                    fill="none"
+                    stroke={modelColor(m.name)}
+                    strokeWidth={m === hot || m === sel ? 3 : 2}
+                    strokeLinejoin="round"
+                    opacity={(!hot || m === hot || m === sel ? 1 : 0.25) * fade(old.lines, lines, m.name)}
+                  />
+                ))}
+              </g>
+              {race && ends.map((e, i) => (
+                // A dotted leader from the line's end to its label, so a nudged label never reads as data.
+                <path key={e.m.name} d={`M${x(e.n)},${y(e.v)}L${labelX - 2},${endYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none" opacity={(hot && hot !== e.m ? 0.2 : 0.6) * e.o} />
+              ))}
+              {hover && (
+                <g pointerEvents="none">
+                  <line x1={x(hover.n)} x2={x(hover.n)} y1={padTop} y2={padTop + plotH} stroke="rgba(55, 53, 47, 0.55)" strokeDasharray="3 3" />
+                  {readout.map(({ m, v }) => (
+                    <circle key={m.name} cx={x(hover.n)} cy={y(v)} r={m === hot ? 4.5 : 3} fill={modelColor(m.name)} stroke="white" strokeWidth={1} />
+                  ))}
+                </g>
+              )}
+            </svg>
+            {race && !shown.length && (
+              <p className="absolute inset-0 flex items-center justify-center text-[14px]" style={{ color: MUTED }}>
+                {listed.length ? 'Every line is switched off in the legend.' : rate ? `No model here has played ${RATE_FROM} hands yet.` : 'No model matches these filters.'}
+              </p>
+            )}
+            {race && ends.map((e, i) => (
+              // Logo, name and final figure at each line's end; a click shades its 95% band. In the tile
+              // the same labels, smaller, with clicks passing through to open the card.
               <button
-                key={f}
-                onClick={() => setFams(toggle(fams, f))}
-                aria-pressed={fams.includes(f)}
-                className="rounded-full border px-2.5 py-px text-[13px] font-medium"
-                style={fams.includes(f) ? { background: TEXT, borderColor: TEXT, color: 'white' } : { borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT }}
+                key={e.m.name}
+                onClick={() => onSelect?.(selected === e.m.name ? '' : e.m.name)}
+                onPointerMove={ev => ev.stopPropagation()}
+                onPointerEnter={() => { setHover(null); onHighlight?.(e.m.name); }}
+                onPointerLeave={() => onHighlight?.(undefined)}
+                onFocus={() => onHighlight?.(e.m.name)}
+                onBlur={() => onHighlight?.(undefined)}
+                aria-pressed={selected === e.m.name}
+                tabIndex={interactive ? undefined : -1}
+                aria-hidden={interactive ? undefined : true}
+                className={`absolute flex items-center gap-1.5 rounded px-1 text-[14px] leading-none tabular-nums text-left hover:bg-[rgba(55,53,47,0.06)] ${interactive ? '' : 'pointer-events-none'}`}
+                style={{ left: labelX, top: endYs[i] - rowH / 2, height: rowH, width: right - 8, color: TEXT, opacity: (hot && hot !== e.m ? 0.45 : 1) * e.o, boxShadow: selected === e.m.name ? `inset 3px 0 0 ${modelColor(e.m.name)}` : undefined }}
               >
-                {f}
+                <LLMLogo model={e.m.name} size={logo} />
+                <span className={`flex-1 min-w-0 truncate ${e.m === hot || i === 0 ? 'font-bold' : 'font-medium'}`}>{e.m.name}</span>
+                <span className="font-bold" style={{ color: netColor(e.v) }}>{fmt(e.v)}</span>
               </button>
             ))}
-            {fams.length > 0 && <button onClick={() => setFams([])} className="px-1.5 text-[13px] underline">Clear</button>}
-          </div>
-        </div>
-      )}
-      {race && mini && <div className="-mt-1 mb-1 text-[12px] truncate" style={{ color: MUTED }}>{filters}</div>}
-      {/* The svg is absolute so its height comes from the panel, never the other way round. */}
-      <div
-        ref={ref}
-        className={`relative w-full flex-1 ${mini ? 'min-h-[100px]' : 'min-h-[160px]'} outline-offset-2 overflow-hidden`}
-        onPointerMove={interactive ? e => e.pointerType !== 'touch' && pick(e.clientX, e.clientY) : undefined}
-        onPointerDown={interactive ? e => pick(e.clientX, e.clientY) : undefined}
-        onPointerLeave={interactive ? e => e.pointerType !== 'touch' && setHover(null) : undefined} // a tap keeps its readout
-        // Focusable only where the chart is interactive (the Race screen).
-        tabIndex={interactive && onSelect ? 0 : undefined}
-        onKeyDown={interactive && onSelect ? onKey : undefined}
-        onBlur={interactive ? () => setHover(null) : undefined}
-        role="img"
-        aria-label={interactive && onSelect ? `${label} Left and right arrows step through the hands.` : label}
-      >
-        <svg className="absolute inset-0" width="100%" height={height} viewBox={`0 0 ${w} ${height}`} aria-hidden>
-          {/* Axis titles: the unit above the y labels, the hands under the x labels. */}
-          <text x={4} y={fs} fontSize={fs} fontWeight={600} fill={AXIS}>{yTitle}</text>
-          <text x={left + (w - left - right) / 2} y={height - 4} textAnchor="middle" fontSize={fs} fontWeight={600} fill={AXIS}>Hands played</text>
-          {yTicks.map(t => (
-            <g key={t}>
-              <line x1={left} x2={w - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.5)' : GRID} />
-              <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={fs} fill={AXIS} className="tabular-nums">{tick(t)}</text>
-            </g>
-          ))}
-          <line x1={left} x2={left} y1={padTop} y2={padTop + plotH} stroke={GRID} />
-          {xTicks.map(t => (
-            <g key={t}>
-              <line x1={x(t)} x2={x(t)} y1={padTop + plotH} y2={padTop + plotH + 4} stroke={AXIS} />
-              <text x={x(t)} y={padTop + plotH + fs + 6} textAnchor="middle" fontSize={fs} fill={AXIS} className="tabular-nums">{t.toLocaleString()}</text>
-            </g>
-          ))}
-          {sel && <motion.path initial={false} animate={{ d: bandPath }} transition={tween} fill={modelColor(sel.name)} opacity={0.14} />}
-          {ordered.filter(m => luck || m === hot).map(m => {
-            const p = evFull.get(m.name)!;
-            return p.length ? (
-              <path key={`ev:${m.name}`} d={line(cut(p))} fill="none" stroke={modelColor(m.name)} strokeWidth={1.5} strokeDasharray="5 4" opacity={!hot || m === hot ? 0.7 : 0.2} />
-            ) : null;
-          })}
-          {ordered.map(m => {
-            const d = line(drawn.get(m.name)!);
-            return (
-              <motion.path
-                key={m.name}
-                fill="none"
-                stroke={modelColor(m.name)}
-                strokeWidth={m === hot || m === sel ? 3 : 2}
-                strokeLinejoin="round"
-                opacity={!hot || m === hot || m === sel ? 1 : 0.25}
-                initial={false}
-                animate={{ d }}
-                transition={{ d: tween }}
-              />
-            );
-          })}
-          {race && ends.map((e, i) => (
-            // A dotted leader from the line's end to its label, so a nudged label never reads as data.
-            <path key={e.m.name} d={`M${x(e.n)},${y(e.v)}L${labelX - 2},${endYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none" opacity={hot && hot !== e.m ? 0.2 : 0.6} />
-          ))}
-          {hover && (
-            <g pointerEvents="none">
-              <line x1={x(hover.n)} x2={x(hover.n)} y1={padTop} y2={padTop + plotH} stroke="rgba(55, 53, 47, 0.55)" strokeDasharray="3 3" />
-              {readout.map(({ m, v }) => (
-                <circle key={m.name} cx={x(hover.n)} cy={y(v)} r={m === hot ? 4.5 : 3} fill={modelColor(m.name)} stroke="white" strokeWidth={1} />
-              ))}
-            </g>
-          )}
-        </svg>
-        {race && !shown.length && (
-          <p className="absolute inset-0 flex items-center justify-center text-[14px]" style={{ color: MUTED }}>
-            {listed.length ? 'Every line is switched off in the legend.' : rate ? `No model here has played ${RATE_FROM} hands yet.` : 'No model matches these filters.'}
-          </p>
-        )}
-        {race && ends.map((e, i) => mini ? (
-          <div key={e.m.name} className="absolute pointer-events-none" style={{ left: labelX, top: endYs[i] - logo / 2 }} title={e.m.name}>
-            <LLMLogo model={e.m.name} size={logo} />
-          </div>
-        ) : (
-          // Logo, name and final figure at each line's end; a click shades its 95% band.
-          <button
-            key={e.m.name}
-            onClick={() => onSelect?.(selected === e.m.name ? '' : e.m.name)}
-            onPointerMove={ev => ev.stopPropagation()}
-            onPointerEnter={() => { setHover(null); onHighlight?.(e.m.name); }}
-            onPointerLeave={() => onHighlight?.(undefined)}
-            onFocus={() => onHighlight?.(e.m.name)}
-            onBlur={() => onHighlight?.(undefined)}
-            aria-pressed={selected === e.m.name}
-            className="absolute flex items-center gap-1.5 rounded px-1 text-[14px] leading-none tabular-nums text-left hover:bg-[rgba(55,53,47,0.06)]"
-            style={{ left: labelX, top: endYs[i] - rowH / 2, height: rowH, width: right - 8, color: TEXT, opacity: hot && hot !== e.m ? 0.45 : 1, boxShadow: selected === e.m.name ? `inset 3px 0 0 ${modelColor(e.m.name)}` : undefined }}
-          >
-            <LLMLogo model={e.m.name} size={logo} />
-            <span className={`flex-1 min-w-0 truncate ${e.m === hot || i === 0 ? 'font-bold' : 'font-medium'}`}>{e.m.name}</span>
-            <span className="font-bold" style={{ color: netColor(e.v) }}>{fmt(e.v)}</span>
-          </button>
-        ))}
-        {/* The race clock: the hand the lines have reached, with Skip while it plays and Replay after. */}
-        {race && (playing || interactive) && (
-          <div className="absolute flex items-center gap-2 tabular-nums" style={{ right: right + 8, top: padTop + 4, fontSize: fs, color: MUTED }}>
-            {playing && <span>Hand <b style={{ color: TEXT }}>{Math.round(head).toLocaleString()}</b> of {lastHand.toLocaleString()}</span>}
-            {interactive && (
-              <button onPointerMove={ev => ev.stopPropagation()} onPointerDown={ev => ev.stopPropagation()} onClick={playing ? skip : play} className="rounded border px-2 py-px font-medium hover:bg-[rgba(55,53,47,0.06)]" style={{ borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT, background: 'white' }}>
-                {playing ? 'Skip' : 'Replay'}
-              </button>
+            {/* The race clock: the hand the lines have reached, with Skip while it plays and Replay after. */}
+            {race && (playing || interactive) && (
+              <div className="absolute flex items-center gap-2 tabular-nums" style={{ right: right + 8, top: padTop + 4, fontSize: fs, color: MUTED }}>
+                {playing && <span data-race-clock>Hand <b style={{ color: TEXT }}>{Math.round(head).toLocaleString()}</b> of {lastHand.toLocaleString()}</span>}
+                {interactive && (
+                  <button onPointerMove={ev => ev.stopPropagation()} onPointerDown={ev => ev.stopPropagation()} onClick={playing ? skip : play} className="rounded border px-2 py-px font-medium hover:bg-[rgba(55,53,47,0.06)]" style={{ borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT, background: 'white' }}>
+                    {playing ? 'Skip' : 'Replay'}
+                  </button>
+                )}
+              </div>
+            )}
+            {/* Always mounted, so the first arrow press is announced too; it says the leader and the highlighted line. */}
+            {race && <div role="status" className="sr-only">{said}</div>}
+            {/* The readout floats over the plot (no layout shift), on the side away from the cursor. */}
+            {hover && readout.length > 0 && (
+              <div
+                ref={tipRef}
+                aria-hidden
+                className="absolute z-10 pointer-events-none rounded bg-white px-2.5 py-2 text-[14px] tabular-nums"
+                style={{
+                  top: padTop,
+                  left: Math.min(crossX + 12, lw - 4),
+                  boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px',
+                }}
+              >
+                <div className="font-bold mb-1" style={{ color: TEXT }}>Hand {hover.n.toLocaleString()}</div>
+                {readout.map(({ m, v }) => (
+                  <div key={m.name} className={`flex items-center gap-2 whitespace-nowrap leading-[20px] ${m === hot ? 'font-bold' : ''}`} style={{ color: TEXT }}>
+                    <span aria-hidden className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: modelColor(m.name) }} />
+                    <span className="flex-1 min-w-0">{m.name}</span>
+                    <span className="pl-4" style={{ color: netColor(v) }}>{fmt(v)} {unit}</span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-        )}
-        {/* Always mounted, so the first arrow press is announced too; it says the leader and the highlighted line. */}
-        {race && <div role="status" className="sr-only">{said}</div>}
-        {/* The readout floats over the plot (no layout shift), on the side away from the cursor. */}
-        {hover && readout.length > 0 && (
-          <div
-            ref={tipRef}
-            aria-hidden
-            className="absolute z-10 pointer-events-none rounded bg-white px-2.5 py-2 text-[14px] tabular-nums"
-            style={{
-              top: padTop,
-              left: Math.min(crossX + 12, w - 4),
-              boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px',
-            }}
-          >
-            <div className="font-bold mb-1" style={{ color: TEXT }}>Hand {hover.n.toLocaleString()}</div>
-            {readout.map(({ m, v }) => (
-              <div key={m.name} className={`flex items-center gap-2 whitespace-nowrap leading-[20px] ${m === hot ? 'font-bold' : ''}`} style={{ color: TEXT }}>
-                <span aria-hidden className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: modelColor(m.name) }} />
-                <span className="flex-1 min-w-0">{m.name}</span>
-                <span className="pl-4" style={{ color: netColor(v) }}>{fmt(v)} {unit}</span>
-              </div>
-            ))}
-          </div>
+        </motion.div>
+        </div>
+        {/* The legend, Arena style: a click switches a line off or on, hovering brings it forward. */}
+        {interactive && listed.length > 0 && (
+          <motion.div {...appear} role="group" aria-label="Lines shown" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px]">
+            {listed.map(m => {
+              const shownNow = !hidden.includes(m.name);
+              return (
+                <button
+                  key={m.name}
+                  onClick={() => setHidden(toggle(hidden, m.name))}
+                  onPointerEnter={() => shownNow && onHighlight?.(m.name)}
+                  onPointerLeave={() => onHighlight?.(undefined)}
+                  aria-pressed={shownNow}
+                  className="flex items-center gap-1.5 rounded px-1 hover:bg-[rgba(55,53,47,0.06)]"
+                  style={{ color: shownNow ? TEXT : MUTED, textDecoration: shownNow ? undefined : 'line-through' }}
+                >
+                  <span aria-hidden className="inline-block w-3 h-[3px] rounded-full" style={{ background: shownNow ? modelColor(m.name) : 'rgba(55, 53, 47, 0.25)' }} />
+                  {m.name}
+                </button>
+              );
+            })}
+            {rate && <span className="ml-auto" style={{ color: MUTED }}>Lines start at {RATE_FROM} hands · hover for every model · click an end label for its 95% band</span>}
+            {young && <span className="ml-auto" style={{ color: MUTED }}>Showing chips: bb/100 starts once a model has played {RATE_FROM} hands.</span>}
+          </motion.div>
         )}
       </div>
-      {/* The legend, Arena style: a click switches a line off or on, hovering brings it forward. */}
-      {interactive && listed.length > 0 && (
-        <div role="group" aria-label="Lines shown" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px]">
-          {listed.map(m => {
-            const on = !hidden.includes(m.name);
-            return (
-              <button
-                key={m.name}
-                onClick={() => setHidden(toggle(hidden, m.name))}
-                onPointerEnter={() => on && onHighlight?.(m.name)}
-                onPointerLeave={() => onHighlight?.(undefined)}
-                aria-pressed={on}
-                className="flex items-center gap-1.5 rounded px-1 hover:bg-[rgba(55,53,47,0.06)]"
-                style={{ color: on ? TEXT : MUTED, textDecoration: on ? undefined : 'line-through' }}
-              >
-                <span aria-hidden className="inline-block w-3 h-[3px] rounded-full" style={{ background: on ? modelColor(m.name) : 'rgba(55, 53, 47, 0.25)' }} />
-                {m.name}
-              </button>
-            );
-          })}
-          {rate && <span className="ml-auto" style={{ color: MUTED }}>Lines start at {RATE_FROM} hands · hover for every model · click an end label for its 95% band</span>}
-          {young && <span className="ml-auto" style={{ color: MUTED }}>Showing chips: bb/100 starts once a model has played {RATE_FROM} hands.</span>}
-        </div>
-      )}
       {!race && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Shaded: 95% band</p>}
 
       {/* The chart's numbers for screen readers; tables ignore sr-only's 1px box, so a div clips it. */}
@@ -535,6 +600,32 @@ export default function CumulativeChart({
           </tbody>
         </table></div>
       )}
+    </div>
+  );
+}
+
+// A control in the bar: its name, then the control.
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div className="flex items-center gap-2"><span>{label}</span>{children}</div>;
+}
+
+// Buttons in the same tray as Segmented, each pressed on its own (Family, All-in EV).
+function Toggles({ label, items, title }: { label: string; items: { label: string; on: boolean; disabled?: boolean; toggle: () => void }[]; title?: string }) {
+  return (
+    <div role="group" aria-label={label} className="flex flex-wrap rounded p-0.5 text-[14px]" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
+      {items.map(o => (
+        <button
+          key={o.label}
+          onClick={o.toggle}
+          disabled={o.disabled}
+          aria-pressed={o.on}
+          title={title}
+          className="rounded px-3 py-0.5 font-medium disabled:opacity-40"
+          style={o.on ? { background: 'white', color: TEXT, boxShadow: SHADOW } : { color: MUTED }}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }
