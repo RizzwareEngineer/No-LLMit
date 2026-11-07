@@ -16,7 +16,8 @@ def get_decision(player_name: str, prompt: str, valid_actions: list[dict], retry
     if "CHECK" in by_type:
         choices, weights = ["CHECK", "BET"], [70, 30]
     else:
-        choices, weights = ["FOLD", "CALL", "RAISE"], [55, 33, 12]
+        # A rare shove, so all-in spots (and all-in EV) show up in local data.
+        choices, weights = ["FOLD", "CALL", "RAISE", "ALL_IN"], [53, 32, 12, 3]
 
     action = random.choices(choices, weights)[0]
     if action in ("BET", "RAISE") and not sizing:

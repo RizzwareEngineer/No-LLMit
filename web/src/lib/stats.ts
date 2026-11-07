@@ -46,6 +46,7 @@ export interface ModelStats {
   biggest_pot_lost: number;
   by_position: Record<string, PositionStats>;
   cumulative_bb: [number, number][];
+  cumulative_aiev_bb?: [number, number][]; // the same curve scored by all-in EV (absent from older engines)
   vs: Record<string, VsStats>;
   // From engine #21; optional so an older engine or the bundled sample still renders.
   by_players_to_flop?: Record<'2' | '3' | '4+', FlopBucket>;

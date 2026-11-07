@@ -335,7 +335,7 @@ export default memo(function StatsSections({
           <div className={`h-full ${WIDTH} mx-auto ${EDGE}`}>
             {/* Overview: three tiles, each a miniature of its screen, Race on top (stacked on phones). */}
             <div className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-2 md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
-              <Panel id="race-panel" title="Race" href="#race" away={{ y: '-150%' }} className="row-start-1 md:col-span-2" aside={<>{ready && all.data && <UpdatedTag hand={all.data.scope.hands} />}{leadOf(raceField, ' all time')}</>} {...tile('race')}>
+              <Panel id="race-panel" title="Race" href="#race" away={{ y: '-150%' }} className="row-start-1 md:col-span-2" aside={leadOf(raceField, ' all time')} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (

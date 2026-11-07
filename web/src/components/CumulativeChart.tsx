@@ -80,10 +80,11 @@ type License = 'all' | 'open' | 'closed';
 
 // A model's line in the plotted metric: running bb/100 from RATE_FROM hands, or cumulative chips
 // (or bb), as [hands played, value].
-export function series(m: ModelStats, metric: Metric, bigBlind = 1): [number, number][] {
-  if (metric === 'bb100') return m.cumulative_bb.filter(([n]) => n >= RATE_FROM).map(([n, v]) => [n, (v / n) * 100]);
+export function series(m: ModelStats, metric: Metric, bigBlind = 1, ev = false): [number, number][] {
+  const curve = ev ? m.cumulative_aiev_bb ?? [] : m.cumulative_bb;
+  if (metric === 'bb100') return curve.filter(([n]) => n >= RATE_FROM).map(([n, v]) => [n, (v / n) * 100]);
   const k = metric === 'chips' ? bigBlind : 1;
-  return m.cumulative_bb.map(([n, v]) => [n, v * k]);
+  return curve.map(([n, v]) => [n, v * k]);
 }
 
 export default function CumulativeChart({
@@ -154,6 +155,7 @@ export default function CumulativeChart({
   const [license, setLicense] = useState<License>('all');
   const [fams, setFams] = useState<string[]>([]); // none picked: every family
   const [top, setTop] = useState(0); // 0: every model
+  const [luck, setLuck] = useState(false); // all-in EV lines for every model (the highlighted one always shows its own)
   const [hidden, setHidden] = useState<string[]>([]); // lines switched off in the legend
   const tipRef = useRef<HTMLDivElement>(null);
 
@@ -204,10 +206,15 @@ export default function CumulativeChart({
     return [...p.slice(0, i), [head, v0 + ((v1 - v0) * (head - n0)) / (n1 - n0 || 1)]];
   };
   const drawn = new Map([...full].map(([name, p]) => [name, cut(p)]));
+  // The all-in EV line: what each model would have won if every all-in were paid out by its equity.
+  const evFull = new Map(listed.map(m => {
+    const p = series(m, metric, bigBlind, true);
+    return [m.name, race && !hidden.includes(m.name) && p.length ? resample(p, Math.max(from, p[0][0])) : []];
+  }));
   const shown = listed.filter(m => drawn.get(m.name)!.length);
   // The value at hand n, or null before the line starts.
   const at = (m: ModelStats, n: number) => (n < pts(m)[0][0] ? null : valueAt(pts(m), n));
-  const ys = listed.flatMap(m => full.get(m.name)!.map(p => p[1])); // the whole race: the axis holds still while it plays
+  const ys = listed.flatMap(m => [...full.get(m.name)!, ...(luck ? evFull.get(m.name)! : [])].map(p => p[1])); // the whole race: the axis holds still while it plays
   const sel = shown.find(m => m.name === selected);
   // 95% band: bb/100's interval narrows as 1/sqrt(n); a cumulative total's widens as sqrt(n).
   const bandAt = (m: ModelStats, n: number) =>
@@ -263,7 +270,7 @@ export default function CumulativeChart({
     }, { name: '', d: Infinity });
     setHover({ n, name: near.name });
   };
-  const yTitle = rate ? 'bb/100 (running)' : metric === 'chips' ? 'Chips won' : 'Big blinds won';
+  const yTitle = rate ? 'bb/100' : metric === 'chips' ? 'Chips won' : 'Big blinds won';
   const summary = shown.map(m => `${m.name} ${fmt(finalOf(m))} ${unit} after ${pts(m).at(-1)![0]} hands`).join('; ');
   const label = `${yTitle} over hands played. ${summary}.${sel ? ` Shaded: 95% band for ${sel.name}.` : ''}`;
   const lead = readout[0];
@@ -313,6 +320,15 @@ export default function CumulativeChart({
             <Segmented label="License" options={[{ label: 'All', value: 'all' as const }, { label: 'Open weights', value: 'open' as const }, { label: 'Proprietary', value: 'closed' as const }]} value={license} onChange={setLicense} />
             <span className="ml-3">Show</span>
             <Segmented label="Top models" options={[{ label: 'All', value: 0 }, { label: 'Top 5', value: 5 }]} value={top} onChange={setTop} />
+            <button
+              onClick={() => setLuck(l => !l)}
+              aria-pressed={luck}
+              title="Dashed lines: what each model would have won if every all-in were paid out by its odds at the moment of the all-in. Solid above dashed: it ran lucky."
+              className="ml-3 rounded-full border px-2.5 py-px text-[13px] font-medium"
+              style={luck ? { background: TEXT, borderColor: TEXT, color: 'white' } : { borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT }}
+            >
+              Luck
+            </button>
             <span className="ml-auto"><Segmented
               label="Hands shown"
               options={RANGES.map(r => ({ label: r.label, value: r.n, disabled: r.n > 0 && r.n >= lastHand }))}
@@ -370,6 +386,12 @@ export default function CumulativeChart({
             </g>
           ))}
           {sel && <motion.path initial={false} animate={{ d: bandPath }} transition={tween} fill={modelColor(sel.name)} opacity={0.14} />}
+          {ordered.filter(m => luck || m === hot).map(m => {
+            const p = evFull.get(m.name)!;
+            return p.length ? (
+              <path key={`ev:${m.name}`} d={line(cut(p))} fill="none" stroke={modelColor(m.name)} strokeWidth={1.5} strokeDasharray="5 4" opacity={!hot || m === hot ? 0.7 : 0.2} />
+            ) : null;
+          })}
           {ordered.map(m => {
             const d = line(drawn.get(m.name)!);
             return (

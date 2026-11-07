@@ -69,7 +69,9 @@ type Model struct {
 	BiggestPotLost int                 `json:"biggest_pot_lost"`
 	ByPosition     map[string]Position `json:"by_position"`
 	CumulativeBB   [][2]float64        `json:"cumulative_bb"`
-	Vs             map[string]Vs       `json:"vs"`
+	// The same curve scored by all-in EV: a hand that ended all-in counts its equity share, not the runout.
+	CumulativeAIEVBB [][2]float64  `json:"cumulative_aiev_bb"`
+	Vs               map[string]Vs `json:"vs"`
 	// Keyed "2", "3" and "4+": hands the model saw the flop in, by how many saw it.
 	ByPlayersToFlop map[string]FlopBucket `json:"by_players_to_flop"`
 	MultiwayShare   MultiwayShare         `json:"multiway_share"`
@@ -494,7 +496,7 @@ func (a *acc) result() Model {
 		AvgBetPctPot: a.betPct.rate(), FoldCheckFree: a.checkFree.rate(),
 		ErrorRate: a.errs.rate(), RetryRate: a.retry.rate(),
 		CostUSD: a.cost, BiggestPotWon: a.potWon, BiggestPotLost: a.potLost,
-		ByPosition: map[string]Position{}, CumulativeBB: curve(a.bbs), Vs: map[string]Vs{},
+		ByPosition: map[string]Position{}, CumulativeBB: curve(a.bbs), CumulativeAIEVBB: curve(a.aievBBs), Vs: map[string]Vs{},
 		ByPlayersToFlop: map[string]FlopBucket{}, HeadsUpVs: map[string]Vs{},
 	}
 	if a.calls > 0 {

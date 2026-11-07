@@ -146,4 +146,9 @@ func TestComputeIsPartialUntilWarmed(t *testing.T) {
 	if after.Partial || !near(after.Models[0].AIEVBB100, wantA) {
 		t.Errorf("after warming: partial %v, A aiev %v want %v", after.Partial, after.Models[0].AIEVBB100, wantA)
 	}
+	// The all-in EV curve ends at the same total as the mean, and the actual curve at the result.
+	ev, actual := after.Models[0].CumulativeAIEVBB, after.Models[0].CumulativeBB
+	if len(ev) != 2 || !near(ev[1][1], wantA/100) || actual[1][1] != 10 {
+		t.Errorf("curves: aiev %v (want end %v), actual %v (want end 10)", ev, wantA/100, actual)
+	}
 }

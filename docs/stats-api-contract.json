@@ -15,6 +15,7 @@
       "biggest_pot_won": 910, "biggest_pot_lost": 640,
       "by_position": { "BTN": { "hands": 14, "vpip": 0.43, "pfr": 0.36, "bb100": 80.1 } },
       "cumulative_bb": [ [0, 0.0], [10, 4.5], [20, -3.0] ],
+      "cumulative_aiev_bb": [ [0, 0.0], [10, 3.1], [20, -0.5] ],
       "vs": { "Llama 3.1 8B": { "pots": 21, "net_chips": 150 } },
       "by_players_to_flop": {
         "2": { "hands": 18, "won": 11, "net_chips": 260, "bb100": 144.4 },
