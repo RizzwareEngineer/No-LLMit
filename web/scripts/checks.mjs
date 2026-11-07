@@ -28,7 +28,8 @@ const chartBox = pg => pg.evaluate(() => {
   return s && { w: s.r.width, h: s.r.height, x: s.r.left, y: s.r.top };
 });
 const hands = pg => pg.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-sync-hand]')]
-  .filter(e => e.getBoundingClientRect().width > 0)
+  // A hook may sit on a display:contents wrapper (no box of its own): judge it by its panel's box.
+  .filter(e => (e.closest('[id]') || e).getBoundingClientRect().width > 0)
   .map(e => [e.closest('[id]')?.id || 'x', { hand: +e.dataset.syncHand, step: +(e.dataset.syncStep || 0) }])));
 const replayHand = async pg => {
   const h = await pg.evaluate(() => {
