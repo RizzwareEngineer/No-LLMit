@@ -112,7 +112,7 @@ export default function TableFelt({
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
   return (
     <div 
-      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'py-[29px]' : 'py-2'}`}
+      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'py-[28px]' : 'py-2'}`}
       style={{
         backgroundImage: `
           linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
@@ -124,7 +124,7 @@ export default function TableFelt({
       {bets?.map(b => <BetStack key={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} />)}
 
       {/* Winner announcement or Pot */}
-      <div className="h-[62px] w-full flex items-start justify-center">
+      <div className="h-[74px] w-full flex items-start justify-center">
         {winners.length > 0 ? (
           <div className="flex flex-col items-center bg-green-50 p-2 px-3 border border-green-500 max-w-full overflow-hidden">
             {winners.slice(0, 1).map((w, i) => (
@@ -144,7 +144,7 @@ export default function TableFelt({
           // One labelled number, as the big rooms do it: POT is the whole pot, bets out included
           // (the number pot odds need). The chips already collected are drawn under it as a chip
           // stack with a bare amount, like the stacks in front of the seats; no second label.
-          <div className="flex flex-col items-center">
+          <div className="flex flex-col items-center gap-3">
             <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm" aria-label={`Pot ${pot.toLocaleString()}`}>
               <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>
               <div className="text-lg text-gray-700 font-bold tabular-nums">
@@ -190,10 +190,12 @@ export default function TableFelt({
         )}
       </div>
 
-      {/* Next hand countdown - displayed on the felt */}
+      {/* Next hand countdown. Its slot is always there, so the felt (and the seat rows) never
+          change height when it appears: 28+74+12+70+12+32+28 = 256px, two 128px rows. */}
+      <div className="h-[32px] flex items-center">
       {nextHandCountdown !== null && nextHandCountdown !== undefined && nextHandCountdown > 0 && (
         <div 
-          className="flex items-center gap-2 bg-white px-4 py-2 rounded"
+          className="flex items-center gap-2 bg-white px-4 py-1.5 rounded"
           style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
         >
           <CircleNotch size={14} className="animate-spin" style={{ color: 'rgb(35, 131, 226)' }} />
@@ -211,6 +213,7 @@ export default function TableFelt({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }
