@@ -53,11 +53,13 @@ export default memo(function HeadToHead({
   focus,
   bigBlind = 0,
   zoomed = false,
+  mini = false,
 }: {
   models: ModelStats[];
   focus?: ModelStats;
   bigBlind?: number; // for bb/100 in the cell readout
   zoomed?: boolean; // the Pairwise screen: larger type
+  mini?: boolean; // the overview tile: the same grid, no links or readout (the tile opens the screen)
 }) {
   const outer = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ row: string; col: string; x: number; y: number; below: boolean } | null>(null);
@@ -97,19 +99,21 @@ export default memo(function HeadToHead({
     return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
   }
 
+  // Rows and columns in overall rank order (net chips over the range shown, the leader's unit),
+  // like a chess crosstable; the Total column sums the row's cells.
   const nets = byNet(models);
-  const sorted = nets.map(r => r.m);
+  const sorted = [...models].sort((a, b) => b.net_chips - a.net_chips);
   const netOf = new Map(nets.map(r => [r.m.name, r.net]));
   const maxCell = Math.max(1, ...sorted.flatMap(m => Object.values(m.vs ?? {}).map(v => Math.abs(v.net_chips))));
   const maxTotal = Math.max(1, ...nets.map(r => Math.abs(r.net)));
-  // Cell tint: stronger with the size of the result, green when the row model won.
-  const tint = (n: number) => `rgba(${n > 0 ? '15, 123, 108' : '200, 50, 50'}, ${(0.05 + 0.3 * Math.abs(n) / maxCell).toFixed(3)})`;
+  // Diverging tint: green when the row model won, red when it lost, stronger with the amount.
+  const tint = (n: number) => `rgba(${n > 0 ? '15, 123, 108' : '200, 50, 50'}, ${(0.08 + 0.5 * Math.sqrt(Math.abs(n) / maxCell)).toFixed(3)})`;
   const bb100 = (net: number, pots: number) => (bigBlind && pots ? signed((net / bigBlind / pots) * 100) : null);
   const show = (e: React.MouseEvent, row: string, col: string) => {
     const o = outer.current!.getBoundingClientRect();
     const r = e.currentTarget.getBoundingClientRect();
-    const below = r.top - o.top < 70; // no room above the cell: show it underneath
-    setTip({ row, col, x: Math.min(Math.max(r.left - o.left + r.width / 2, 110), o.width - 110), y: below ? r.bottom - o.top + 4 : r.top - o.top - 4, below });
+    const below = r.top - o.top < 90; // no room above the cell: show it underneath
+    setTip({ row, col, x: Math.min(Math.max(r.left - o.left + r.width / 2, 130), o.width - 130), y: below ? r.bottom - o.top + 4 : r.top - o.top - 4, below });
   };
   const tipV = tip && sorted.find(m => m.name === tip.row)?.vs[tip.col];
   // The verdict's leader (row) and the model it took the most from (column), marked in the headers.
@@ -136,7 +140,7 @@ export default memo(function HeadToHead({
                   <span className="sr-only">{m.name}</span>
                 </th>
               ))}
-              <th scope="col" className="w-[14%] @xl:w-[20%] @3xl:w-[15%] px-1 text-right font-bold align-bottom" style={{ color: TEXT }}>Net</th>
+              <th scope="col" className="w-[14%] @xl:w-[20%] @3xl:w-[15%] px-1 text-right font-bold align-bottom" style={{ color: TEXT }} title="The row's cells added up">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -145,22 +149,29 @@ export default memo(function HeadToHead({
               return (
                 <tr key={row.name}>
                   <th scope="row" className={`text-left pr-1 overflow-hidden rounded-sm ${row.name === top?.leader ? 'font-bold' : 'font-medium'}`} style={{ background: row.name === top?.leader ? HOT : undefined }}>
-                    <a href={modelHref(row.name)} className="flex items-center gap-1.5 min-w-0 px-1 hover:underline" style={{ color: TEXT }} title={row.name}>
-                      <LLMLogo model={row.name} size={zoomed ? 24 : 16} />
-                      <span className="truncate @max-3xl:sr-only">{row.name}</span>
-                    </a>
+                    {mini ? (
+                      <span className="flex items-center gap-1.5 min-w-0 px-1" style={{ color: TEXT }} title={row.name}>
+                        <LLMLogo model={row.name} size={16} />
+                        <span className="sr-only">{row.name}</span>
+                      </span>
+                    ) : (
+                      <a href={modelHref(row.name)} className="flex items-center gap-1.5 min-w-0 px-1 hover:underline" style={{ color: TEXT }} title={row.name}>
+                        <LLMLogo model={row.name} size={zoomed ? 24 : 16} />
+                        <span className="truncate @max-3xl:sr-only">{row.name}</span>
+                      </a>
+                    )}
                   </th>
                   {sorted.map(col => {
                     const v = row.vs?.[col.name];
                     if (row.name === col.name || !v) {
-                      return <td key={col.name} className="text-center rounded-sm" style={{ color: MUTED, background: 'rgba(55, 53, 47, 0.04)' }}>·</td>;
+                      return <td key={col.name} className="text-center rounded-sm" style={{ color: MUTED, background: row.name === col.name ? 'rgba(55, 53, 47, 0.16)' : 'rgba(55, 53, 47, 0.04)' }}>{row.name === col.name ? '' : '·'}</td>;
                     }
                     return (
                       <td
                         key={col.name}
                         className="text-center rounded-sm font-bold whitespace-nowrap"
-                        style={{ color: netColor(v.net_chips), background: tint(v.net_chips) }}
-                        onMouseEnter={e => show(e, row.name, col.name)}
+                        style={{ color: TEXT, background: tint(v.net_chips), outline: tip?.row === row.name && tip.col === col.name ? `2px solid ${TEXT}` : undefined }}
+                        onMouseEnter={mini ? undefined : e => show(e, row.name, col.name)}
                       >
                         <Fit n={v.net_chips} />
                         <span className="sr-only">{chips(v.net_chips)} vs {col.name} over {plural(v.pots, 'pot')}</span>
@@ -191,12 +202,15 @@ export default memo(function HeadToHead({
       {tip && tipV && (
         <div
           role="tooltip"
-          className="absolute z-10 pointer-events-none w-[220px] rounded bg-white px-2 py-1.5 text-[13px] tabular-nums"
+          className="absolute z-10 pointer-events-none w-[260px] rounded bg-white px-2.5 py-2 text-[14px] leading-snug tabular-nums"
           style={{ left: tip.x, top: tip.y, transform: `translate(-50%, ${tip.below ? '0' : '-100%'})`, color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}
         >
-          <div className="font-medium">{tip.row} vs {tip.col}</div>
-          <div><span className="font-bold" style={{ color: netColor(tipV.net_chips) }}>{chips(tipV.net_chips)}</span> over {plural(tipV.pots, 'pot')}</div>
-          {bb100(tipV.net_chips, tipV.pots) && <div style={{ color: MUTED }}>{bb100(tipV.net_chips, tipV.pots)} bb per 100 shared pots</div>}
+          <div>
+            <span className="font-bold">{tip.row}</span> {tipV.net_chips >= 0 ? 'took' : 'lost'}{' '}
+            <span className="font-bold" style={{ color: netColor(tipV.net_chips) }}>{Math.abs(tipV.net_chips).toLocaleString()} chips</span>{' '}
+            {tipV.net_chips >= 0 ? 'from' : 'to'} <span className="font-bold">{tip.col}</span> over {plural(tipV.pots, 'hand')}
+          </div>
+          {bb100(tipV.net_chips, tipV.pots) && <div style={{ color: MUTED }}>{bb100(tipV.net_chips, tipV.pots)} bb per 100 hands they shared</div>}
         </div>
       )}
     </div>
