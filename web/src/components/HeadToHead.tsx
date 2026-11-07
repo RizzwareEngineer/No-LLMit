@@ -2,7 +2,8 @@
 
 import { memo, useRef, useState } from 'react';
 import LLMLogo from '@/components/LLMLogo';
-import { MUTED, ModelStats, TEXT, VsStats, chips, modelHref, netAmong, netColor, plural, signed } from '@/lib/stats';
+import { Flash } from '@/components/StatsTable';
+import { MUTED, ModelStats, TEXT, VsStats, chips, modelHref, netAmong, netColor, plural, signed, useChanges } from '@/lib/stats';
 
 // `models` sorted by net chips against each other (netAmong), with that net.
 const byNet = (models: ModelStats[]) => {
@@ -63,6 +64,13 @@ export default memo(function HeadToHead({
 }) {
   const outer = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ row: string; col: string; x: number; y: number; below: boolean } | null>(null);
+  // Cells (`row|col`) and totals (`row|Σ`) that changed at the last refresh. Called before the early
+  // returns (rules of hooks); the drawer's list (focus) tracks nothing.
+  const names = new Set(models.map(m => m.name));
+  const { deltas, seq } = useChanges(focus ? {} : Object.fromEntries(models.flatMap(m => [
+    [`${m.name}|Σ`, netAmong(m, names)],
+    ...Object.entries(m.vs ?? {}).filter(([n]) => names.has(n) && n !== m.name).map(([n, v]) => [`${m.name}|${n}`, v.net_chips]),
+  ])));
 
   if (focus) {
     const rows = Object.entries(focus.vs ?? {}).sort((a, b) => b[1].net_chips - a[1].net_chips);
@@ -119,6 +127,20 @@ export default memo(function HeadToHead({
   // The verdict's leader (row) and the model it took the most from (column), marked in the headers.
   const top = pairwiseLeader(sorted);
   const HOT = 'rgba(35, 131, 226, 0.12)';
+  // A changed cell flashes, bumps and floats its delta; the cells ripple in reading order, 40ms apart.
+  const rippled = sorted.flatMap(r => [...sorted.map(c => `${r.name}|${c.name}`), `${r.name}|Σ`]).filter(k => deltas.has(k));
+  const fx = (key: string, content: React.ReactNode) => {
+    const d = deltas.get(key);
+    if (!d) return content;
+    const delay = rippled.indexOf(key) * 40;
+    return (
+      <>
+        <Flash key={`f${seq}`} delta={d} delay={delay} rise={short(d)} />
+        {/* Totals sit at the card's edge: bump them from the right so they never clip. */}
+        <div key={seq} className={`nudge ${key.endsWith('|Σ') ? 'origin-right' : ''}`} style={{ animationDelay: `${delay}ms` }}>{content}</div>
+      </>
+    );
+  };
 
   // The grid fills its panel: a size container whose cells share the space and whose text scales
   // with it (cq units). Narrow panels show logos for row names and short figures in the cells.
@@ -169,18 +191,18 @@ export default memo(function HeadToHead({
                     return (
                       <td
                         key={col.name}
-                        className="text-center rounded-sm font-bold whitespace-nowrap"
+                        className="relative text-center rounded-sm font-bold whitespace-nowrap"
                         style={{ color: TEXT, background: tint(v.net_chips), outline: tip?.row === row.name && tip.col === col.name ? `2px solid ${TEXT}` : undefined }}
                         onMouseEnter={mini ? undefined : e => show(e, row.name, col.name)}
                       >
-                        <Fit n={v.net_chips} />
+                        {fx(`${row.name}|${col.name}`, <Fit n={v.net_chips} />)}
                         <span className="sr-only">{chips(v.net_chips)} vs {col.name} over {plural(v.pots, 'pot')}</span>
                       </td>
                     );
                   })}
-                  <td className="pl-1 text-right font-bold whitespace-nowrap" style={{ color: netColor(total), fontSize: zoomed ? 'max(14px, 1.1em)' : '1.05em' }}>
+                  <td className="relative pl-1 text-right font-bold whitespace-nowrap" style={{ color: netColor(total), fontSize: zoomed ? 'max(14px, 1.1em)' : '1.05em' }}>
                     {/* Sized by its own cell: bar and full figure when wide, the short figure when narrow. */}
-                    <div className="@container w-full">
+                    {fx(`${row.name}|Σ`, <div className="@container w-full">
                       <span className="flex items-center justify-end gap-1.5" aria-hidden>
                         {/* A bar as long as the total, against the largest total either way. */}
                         <span className="hidden @min-[150px]:block flex-1 h-2 rounded-sm" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
@@ -190,7 +212,7 @@ export default memo(function HeadToHead({
                         <span className="@min-[84px]:hidden" style={{ fontSize: 'min(1em, 26cqi)' }}>{short(total)}</span>
                       </span>
                       <span className="sr-only">{chips(total)}</span>
-                    </div>
+                    </div>)}
                   </td>
                 </tr>
               );

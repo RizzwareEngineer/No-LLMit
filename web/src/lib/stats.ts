@@ -156,6 +156,39 @@ export function useStats(session?: string, enabled = true, refreshKey?: number):
   }, [state, session]);
 }
 
+// Figures that changed between two snapshots: key -> new minus old, for keys in both. Callers pass
+// figures as displayed (rounded), so a change too small to show never flashes.
+export function diffValues(prev: Record<string, number>, next: Record<string, number>) {
+  const out = new Map<string, number>();
+  for (const k in next) if (k in prev && next[k] !== prev[k]) out.set(k, next[k] - prev[k]);
+  return out;
+}
+
+const sameValues = (a: Record<string, number>, b: Record<string, number>) =>
+  Object.keys(a).length === Object.keys(b).length && Object.keys(b).every(k => a[k] === b[k]);
+
+// What changed in `values` at the last change: `deltas` (see diffValues) and `seq`, which counts
+// the changes so far. It starts at 0 with no deltas, so nothing plays on first load; effects key
+// on `seq` so each plays once per change, never on a re-render with the same data.
+export function useChanges(values: Record<string, number>) {
+  const [s, setS] = useState({ prev: values, deltas: new Map<string, number>(), seq: 0 });
+  if (!sameValues(s.prev, values)) {
+    // Adjusting state while rendering (React's "storing information from previous renders").
+    const deltas = diffValues(s.prev, values);
+    const next = deltas.size ? { prev: values, deltas, seq: s.seq + 1 } : { ...s, prev: values };
+    setS(next);
+    return next;
+  }
+  return s;
+}
+
+if (process.env.NODE_ENV === 'development') {
+  const d = diffValues({ a: 1, b: 2, c: 3 }, { a: 1, b: 5, c: 1, d: 9 });
+  console.assert(d.size === 2 && d.get('b') === 3 && d.get('c') === -2 && !d.has('d'), 'diffValues: changed shared keys only, new minus old');
+  console.assert(diffValues({}, { a: 1 }).size === 0, 'diffValues: a first snapshot changes nothing');
+  console.assert(sameValues({ a: 1 }, { a: 1 }) && !sameValues({ a: 1 }, { a: 1, b: 2 }) && !sameValues({ a: 1 }, { a: 2 }), 'sameValues');
+}
+
 // Splits the roster for display. noHands: seated models without hands yet, listed with dashes.
 // unseated: roster models neither seated nor in these stats, shown muted under "Not seated yet".
 // Without a lineup (older engine, sample data, past session) unseated is every roster model without hands.
@@ -227,6 +260,7 @@ export const netColor = (n: number) =>
 export const STAT_DEFINITIONS: Record<string, string> = {
   hands: 'Hands dealt to this model in the selected range.',
   bb100: 'Big blinds won per 100 hands. ± is the half-width of the 95% confidence interval.',
+  trend: 'Running bb/100 over the model\'s last 50 hands, on one scale for every row; the dot is now. Sorts by bb/100 won within those hands.',
   rank: 'Rank spread: the best and worst rank the 95% intervals allow. Models whose intervals overlap may be in either order.',
   aiev_bb100: 'bb/100 with all-in pots credited at the equity each player had when the money went in, which strips out run-out luck.',
   vpip: 'Voluntarily put money in pot: share of hands where it called or raised preflop (posting blinds does not count).',

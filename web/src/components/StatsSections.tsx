@@ -6,10 +6,10 @@ import LLMLogo from '@/components/LLMLogo';
 import { Warning } from '@phosphor-icons/react';
 import Panel, { CARD, CARD_SHADOW, CountUp, GLIDE_MS, HEADER, Segmented, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
 import CumulativeChart from '@/components/CumulativeChart';
-import StatsTable from '@/components/StatsTable';
+import StatsTable, { Flash, MINI_FLASHED, Moved, SLIDE, UpdatedTag, figures } from '@/components/StatsTable';
 import HeadToHead, { PairwiseBars, pairwiseLeader } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
-import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, brief, chips, ciHalf, netColor, pct, seatedModels, signedBrief, useStats } from '@/lib/stats';
+import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, brief, chips, ciHalf, netColor, pct, seatedModels, signed, signedBrief, useChanges, useStats } from '@/lib/stats';
 
 type Stats = ReturnType<typeof useStats>;
 
@@ -269,6 +269,7 @@ export default memo(function StatsSections({
       </select>
     </label>
     {lead}
+    {ready && <UpdatedTag key={`tag${session}`} hand={data.scope.hands} models={models} />}
   </>;
   const statsBody = !ready ? message : (
     <>
@@ -278,13 +279,14 @@ export default memo(function StatsSections({
         {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
         {data.partial && ' All-in EV still computing…'}
       </Definition>
-      <StatsTable models={models} seated={seated} />
+      <StatsTable key={session} models={models} seated={seated} />
     </>
   );
   const pairwiseAside = <>
     {scope}
     <Segmented label="View" options={[{ label: 'Matrix', value: 'matrix' }, { label: 'Bars', value: 'bars' }]} value={view} onChange={setView} />
     {lead}
+    {ready && <UpdatedTag key={`tag${session}`} hand={data.scope.hands} />}
   </>;
   const pairwiseBody = !ready ? message : (
     <>
@@ -292,7 +294,7 @@ export default memo(function StatsSections({
         Each cell: chips the row model took from the column model (green) or lost to it (red) in the hands both played; rows and columns in rank order.
         {top?.from && <> {top.leader} took the most from {top.from.name}: {chips(top.from.net)} chips.</>}
       </Definition>
-      {view === 'matrix' ? <HeadToHead models={field} bigBlind={bigBlind} zoomed /> : <PairwiseBars models={field} />}
+      {view === 'matrix' ? <HeadToHead key={session} models={field} bigBlind={bigBlind} zoomed /> : <PairwiseBars models={field} />}
     </>
   );
   const { on, snap, lift } = tiles;
@@ -333,7 +335,7 @@ export default memo(function StatsSections({
           <div className={`h-full ${WIDTH} mx-auto ${EDGE}`}>
             {/* Overview: three tiles, each a miniature of its screen, Race on top (stacked on phones). */}
             <div className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-2 md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
-              <Panel id="race-panel" title="Race" href="#race" away={{ y: '-150%' }} className="row-start-1 md:col-span-2" aside={leadOf(raceField, ' all time')} {...tile('race')}>
+              <Panel id="race-panel" title="Race" href="#race" away={{ y: '-150%' }} className="row-start-1 md:col-span-2" aside={<>{ready && all.data && <UpdatedTag hand={all.data.scope.hands} />}{leadOf(raceField, ' all time')}</>} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
@@ -351,7 +353,7 @@ export default memo(function StatsSections({
                 body={on === 'stats-table' ? 'card' : 'tile'}
                 {...tile('stats-table')}
               >
-                {on === 'stats-table' ? statsBody : ready ? <MiniStats models={byRate} /> : message}
+                {on === 'stats-table' ? statsBody : ready ? <MiniStats key={session} models={byRate} /> : message}
               </Panel>
 
               <Panel
@@ -364,7 +366,7 @@ export default memo(function StatsSections({
                 body={on === 'pairwise' ? 'card' : 'tile'}
                 {...tile('pairwise')}
               >
-                {on === 'pairwise' ? pairwiseBody : ready ? <HeadToHead models={field} mini /> : message}
+                {on === 'pairwise' ? pairwiseBody : ready ? <HeadToHead key={session} models={field} mini /> : message}
               </Panel>
             </div>
           </div>
@@ -386,7 +388,10 @@ export default memo(function StatsSections({
 });
 
 // The Stats tile: every seated model by bb/100, with its interval and VPIP, rows sharing the tile's height.
+// Changed bb/100 and VPIP flash (bb/100 floats its delta), rows slide to a new rank with a brief ▲/▼.
 function MiniStats({ models }: { models: ModelStats[] }) {
+  const { deltas, seq } = useChanges(figures(models, MINI_FLASHED));
+  const reduce = useReducedMotion();
   return (
     <div className="flex-1 min-h-0">
       <table className="w-full h-full table-fixed tabular-nums text-[13px]" style={{ color: TEXT }}>
@@ -398,19 +403,24 @@ function MiniStats({ models }: { models: ModelStats[] }) {
           </tr>
         </thead>
         <tbody>
-          {models.map(m => {
+          {models.map((m, i) => {
             const half = ciHalf(m);
+            const [bb, vpip, moved] = ['bb100', 'vpip', '#'].map(k => deltas.get(`${m.name}|${k}`));
             return (
-              <tr key={m.name} className="border-t border-notion">
+              <motion.tr key={m.name} layout={reduce ? false : 'position'} {...SLIDE} className="border-t border-notion">
                 <th scope="row" className="text-left font-medium">
-                  <span className="flex items-center gap-2 min-w-0"><LLMLogo model={m.name} size={16} /><span className="truncate">{m.name}</span></span>
+                  <span className="flex items-center gap-2 min-w-0"><LLMLogo model={m.name} size={16} /><span className="truncate">{m.name}</span>{moved ? <Moved key={seq} by={moved} /> : null}</span>
                 </th>
-                <td className="text-right whitespace-nowrap">
+                <td className="relative text-right whitespace-nowrap">
+                  {bb ? <Flash key={seq} delta={bb} delay={i * 40} rise={signed(bb)} left /> : null}
                   <span className="font-bold" style={{ color: netColor(m.bb100) }}>{signedBrief(m.bb100)}</span>
                   <span style={{ color: MUTED }}> ±{half === null ? DASH : brief(half, 0)}</span>
                 </td>
-                <td className="text-right">{pct(m.vpip)}</td>
-              </tr>
+                <td className="relative text-right">
+                  {vpip ? <Flash key={seq} delta={vpip} delay={i * 40} /> : null}
+                  {pct(m.vpip)}
+                </td>
+              </motion.tr>
             );
           })}
         </tbody>

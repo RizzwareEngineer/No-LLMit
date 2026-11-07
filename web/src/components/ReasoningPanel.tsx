@@ -28,23 +28,6 @@ export default function ReasoningPanel({
   isPaused = false,
 }: ReasoningPanelProps) {
 
-  // Format action for display
-  const formatAction = (action: string, amount: number) => {
-    const actionMap: Record<string, string> = {
-      'FOLD': '🃏 Fold',
-      'CHECK': '✋ Check',
-      'CALL': '📞 Call',
-      'RAISE': '⬆️ Raise',
-      'BET': '💰 Bet',
-      'ALL_IN': '🔥 All-In',
-    };
-    const formatted = actionMap[action] || action;
-    if (amount > 0 && (action === 'RAISE' || action === 'BET' || action === 'CALL' || action === 'ALL_IN')) {
-      return `${formatted} ${amount.toLocaleString()}`;
-    }
-    return formatted;
-  };
-
   const phase = displayState?.phase || 'idle';
   const playerName = displayState?.playerName || '—';
   const reason = displayState?.reason;
@@ -126,8 +109,12 @@ export default function ReasoningPanel({
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
                 {action && (
-                  <span className="text-[11px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
-                    → {formatAction(action, amount)}
+                  // The same look as the action on each seat: mono, uppercase, bold, the amount muted.
+                  <span className="flex flex-row items-center gap-1">
+                    <span className="text-[11px] font-mono uppercase font-bold tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>{action.replace('_', '-')}</span>
+                    {amount > 0 && action !== 'FOLD' && action !== 'CHECK' && (
+                      <span className="text-[11px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{amount.toLocaleString()}</span>
+                    )}
                   </span>
                 )}
               </div>

@@ -1,10 +1,11 @@
 'use client';
 
 import { memo, useId, useState } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
-import LLMLogo from '@/components/LLMLogo';
-import { niceTicks } from '@/components/CumulativeChart';
-import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciHalf, modelHref, netColor, pct, signedBrief, brief, rankSpread, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
+import LLMLogo, { modelColor } from '@/components/LLMLogo';
+import { RATE_FROM, niceTicks } from '@/components/CumulativeChart';
+import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, chips, ciHalf, modelHref, netColor, pct, signed, signedBrief, brief, rankSpread, rosterGroups, useChanges, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
 interface Column {
   key: keyof typeof STAT_DEFINITIONS;
@@ -20,6 +21,114 @@ interface Column {
 const BB100: Column = { key: 'bb100', core: true, label: 'bb/100 ± 95% CI', value: m => m.bb100, render: () => null };
 // Rank spread renders separately too (it compares every row); it sorts with bb/100.
 const RANK: Column = { key: 'rank', core: true, label: 'Rank spread', value: m => m.bb100, render: () => null };
+// The sparkline renders separately (every row shares one y-scale); it sorts by bb/100 within the window.
+const TREND: Column = { key: 'trend', core: true, label: 'Last 50 hands', value: m => recent(m).rate, render: () => null };
+
+// Running bb/100 at each of the model's points in its last 50 hands (from cumulative_bb), plus the
+// bb/100 won within them. Starts at the point at or before the window, so a series the engine thinned
+// (past 200 hands it keeps every nth point) still draws a line; hands before RATE_FROM are skipped,
+// as in the Race, since a rate over a handful of hands is noise.
+// shortcut: the line coarsens once the engine thins cumulative_bb; add a recent-hands field to the API if that matters.
+function recent(m: ModelStats) {
+  const pts = m.cumulative_bb.filter(([h]) => h >= RATE_FROM);
+  if (pts.length < 2) return { line: [] as [number, number][], rate: null };
+  const last = pts.at(-1)!;
+  const first = pts[Math.max(0, pts.findLastIndex(([h]) => h <= last[0] - 50))];
+  return {
+    line: pts.slice(pts.indexOf(first)).map(([h, bb]) => [h, (bb / h) * 100] as [number, number]),
+    rate: ((last[1] - first[1]) / (last[0] - first[0])) * 100,
+  };
+}
+
+// The figures that flash when a refresh changes them (as displayed), keyed `${model}|${column}`;
+// `${model}|#` is the row's place by bb/100, for the ▲/▼ by its rank.
+const FLASHED: { key: string; value: (m: ModelStats) => number | null }[] = [
+  { key: 'bb100', value: m => Math.round(m.bb100 * 10) / 10 },
+  { key: 'hands', value: m => m.hands },
+  { key: 'vpip', value: m => Math.round(m.vpip * 100) },
+  { key: 'pfr', value: m => Math.round(m.pfr * 100) },
+  { key: 'af', value: m => (m.af === null ? null : Math.round(m.af * 10) / 10) },
+];
+export function figures(models: ModelStats[], keys = FLASHED) {
+  const out: Record<string, number> = {};
+  [...models].sort((a, b) => b.bb100 - a.bb100).forEach((m, i) => {
+    out[`${m.name}|#`] = i;
+    for (const f of keys) { const v = f.value(m); if (v !== null) out[`${m.name}|${f.key}`] = v; }
+  });
+  return out;
+}
+export const MINI_FLASHED = FLASHED.filter(f => f.key === 'bb100' || f.key === 'vpip');
+
+type Changes = ReturnType<typeof useChanges>;
+
+// One-shot effects for a changed figure, inside a `relative` cell: a green or red tint by the sign of
+// `delta` with a ring, and with `rise`, the delta floating up and fading. Key it on the change's seq.
+// The CSS (globals.css) drops the rise under reduced motion, leaving the tint.
+// `left` floats the delta from the cell's left edge (a right-aligned figure in a short row) instead of its top centre.
+export function Flash({ delta, delay = 0, rise, left }: { delta: number; delay?: number; rise?: string; left?: boolean }) {
+  const up = delta > 0;
+  return (
+    <>
+      <span aria-hidden className="flash" style={{ animationDelay: `${delay}ms`, ['--flash' as string]: up ? 'rgba(15, 123, 108, 0.45)' : 'rgba(200, 50, 50, 0.4)', ['--ring' as string]: up ? 'rgb(15, 123, 108)' : 'rgb(200, 50, 50)' }} />
+      {rise && <span aria-hidden className={`flash-rise ${left ? 'flash-rise-left' : ''}`} style={{ animationDelay: `${delay}ms`, color: netColor(delta) }}>{rise}</span>}
+    </>
+  );
+}
+
+// ▲ or ▼ for a row that moved up or down a rank at the last change; it fades out. Key it on the seq.
+export function Moved({ by }: { by: number }) {
+  return <span aria-hidden className="moved shrink-0 text-[11px]" style={{ color: netColor(-by) }}>{by < 0 ? '▲' : '▼'}</span>;
+}
+
+// Rows that slide to their new place when the order changes (motion layout). transformTemplate
+// leaves no inline `transform: none` behind, so the rows' CSS hover lift still works.
+export const SLIDE = {
+  transformTemplate: (_: unknown, t: string) => (t === 'none' ? '' : t),
+  transition: { type: 'spring', stiffness: 320, damping: 34 },
+} as const;
+
+// "Updated · hand N", pulsing once each time a refresh changes N after the first load. With `models`
+// (the Stats card) it adds the biggest mover: the model whose net chips moved most at that refresh,
+// its logo and the change; the name and bb/100 change are in the tooltip. One pill, so the card's
+// header stays on one line.
+export function UpdatedTag({ hand, models }: { hand: number; models?: ModelStats[] }) {
+  const { seq } = useChanges({ hand });
+  const moves = useChanges(Object.fromEntries((models ?? []).flatMap(m => [[`${m.name}|chips`, m.net_chips], [`${m.name}|bb`, Math.round(m.bb100 * 10) / 10]])));
+  const chipsOf = (m: ModelStats) => Math.abs(moves.deltas.get(`${m.name}|chips`) ?? 0);
+  const top = moves.seq ? (models ?? []).filter(chipsOf).sort((a, b) => chipsOf(b) - chipsOf(a))[0] : undefined;
+  const d = top && moves.deltas.get(`${top.name}|chips`)!, bb = top && moves.deltas.get(`${top.name}|bb`);
+  return (
+    <span
+      key={`${seq}-${moves.seq}`}
+      className={`${seq || moves.seq ? 'pulse-once' : ''} flex items-center gap-1 rounded px-1.5 tabular-nums text-[14px] whitespace-nowrap`}
+      style={{ color: MUTED }}
+      title={top ? `Biggest mover this hand: ${top.name}, ${chips(d!)} chips${bb ? `, ${signed(bb)} bb/100` : ''}` : undefined}
+    >
+      Updated · hand {hand.toLocaleString()}
+      {top && <>
+        {' '}· biggest mover <LLMLogo model={top.name} size={18} /><span className="sr-only">{top.name}</span>
+        <span className="font-bold" style={{ color: netColor(d!) }}>{chips(d!)}</span>
+      </>}
+    </span>
+  );
+}
+
+// The model's recent running bb/100 in its colour, on the y-scale [lo, hi] every row shares; a dot at now.
+function Spark({ m, lo, hi }: { m: ModelStats; lo: number; hi: number }) {
+  const { line } = recent(m);
+  if (line.length < 2) return <span style={{ color: MUTED }} title={`Draws from hand ${RATE_FROM}`}>{DASH}</span>;
+  const [W, H, P] = [96, 20, 3];
+  const [h0, h1] = [line[0][0], line.at(-1)![0]];
+  const pts = line.map(([h, v]) => [P + ((h - h0) / (h1 - h0 || 1)) * (W - 2 * P), P + (1 - (v - lo) / (hi - lo || 1)) * (H - 2 * P)]);
+  const end = pts.at(-1)!;
+  const c = modelColor(m.name);
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="inline-block align-middle" role="img" aria-label={`${m.name}: running bb/100 over its last 50 hands, now ${signedBrief(line.at(-1)![1])}`}>
+      <polyline points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke={c} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={end[0]} cy={end[1]} r={2.5} fill={c} />
+    </svg>
+  );
+}
 
 // "All stats" shows every group; the default view only the core columns.
 const GROUPS: { label: string; columns: Column[] }[] = [
@@ -28,6 +137,7 @@ const GROUPS: { label: string; columns: Column[] }[] = [
     columns: [
       RANK,
       BB100,
+      TREND,
       { key: 'hands', core: true, label: 'Hands', value: m => m.hands, render: m => m.hands.toLocaleString() },
       { key: 'aiev_bb100', label: 'All-in adj.', value: m => m.aiev_bb100, render: m => signedBrief(m.aiev_bb100) },
     ],
@@ -141,8 +251,10 @@ export default memo(function StatsTable({ models, seated }: { models: ModelStats
   const more = rest.length + unseated.length;
   // Ranks among the models at the table (all of them without a lineup).
   const ranks = rankSpread(atTable);
+  // Figures that changed at the last refresh, for the flashes and the ▲/▼ (ranks among the models at the table).
+  const changes = useChanges({ ...figures(rest), ...figures(atTable) });
   const grid = (groups: typeof GROUPS, grouped: boolean, caption: string, last = true) => (
-    <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone ? rest : []} waiting={last && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} ranks={ranks} picked={picked} onPick={isolate} caption={caption} />
+    <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone ? rest : []} waiting={last && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} ranks={ranks} picked={picked} onPick={isolate} caption={caption} changes={changes} />
   );
   const toggle = 'text-[14px] hover:underline';
 
@@ -244,6 +356,7 @@ function Grid({
   picked,
   onPick,
   caption,
+  changes,
 }: {
   groups: typeof GROUPS;
   rows: ModelStats[];
@@ -257,8 +370,14 @@ function Grid({
   picked: Set<string>; // rows clicked to compare; the others fade
   onPick: (name: string) => void;
   caption: string;
+  changes: Changes;
 }) {
   const columns = groups.flatMap(g => g.columns);
+  const reduce = useReducedMotion();
+  // One y-scale for every row's sparkline.
+  const lines = [...rows, ...rest].flatMap(m => recent(m).line.map(([, v]) => v));
+  const [lo, hi] = [Math.min(...lines), Math.max(...lines)];
+  const { deltas, seq } = changes;
   // The sorted column is painted strong at the top row and faint at the bottom; VPIP, PFR and AF
   // mark their highest and lowest value.
   const sortedCol = columns.find(c => c.key === sort.key);
@@ -285,9 +404,19 @@ function Grid({
   const head = `sticky top-0 z-10 bg-white ${grouped ? 'p-1 text-[14px]' : 'px-1.5 py-1.5 md:px-3 text-[14px]'}`;
   const cell = grouped ? 'px-1' : 'px-1.5 md:px-3';
   const spread = (m: ModelStats) => { const r = ranks.get(m.name); return !r ? DASH : r[0] === r[1] ? `${r[0]}` : `${r[0]}–${r[1]}`; };
-  const row = (m: ModelStats, i: number | null) => (
-    <tr
+  const row = (m: ModelStats, i: number | null) => {
+    // Changed cells ripple down the rows, 40ms apart.
+    const delay = (i ?? 0) * 40;
+    const fx = (key: string) => {
+      const d = deltas.get(`${m.name}|${key}`);
+      return d ? <Flash key={seq} delta={d} delay={delay} rise={key === 'bb100' ? signed(d) : undefined} left /> : null;
+    };
+    const moved = i !== null && deltas.get(`${m.name}|#`);
+    return (
+    <motion.tr
       key={m.name}
+      layout={reduce ? false : 'position'}
+      {...SLIDE}
       className="lift h-6 cursor-pointer"
       tabIndex={0}
       aria-selected={picked.has(m.name)}
@@ -305,12 +434,14 @@ function Grid({
         </a>
       </th>
       {columns.map(c => (
-        <td key={c.key} className={`${cell} text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
-          {c === BB100 ? <Bb100 m={m} /> : c === RANK ? spread(m) : <>{i !== null && mark(c, m)}{c.render(m)}</>}
+        <td key={c.key} className={`${cell} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
+          {fx(c.key)}
+          {c === BB100 ? <Bb100 m={m} /> : c === TREND ? <Spark m={m} lo={lo} hi={hi} /> : c === RANK ? <>{moved ? <Moved key={seq} by={moved} /> : null} {spread(m)}</> : <>{i !== null && mark(c, m)}{c.render(m)}</>}
         </td>
       ))}
-    </tr>
-  );
+    </motion.tr>
+    );
+  };
   return (
     // Fixed layout: the table takes its panel's width and the cells truncate, so nothing scrolls sideways.
     <table className="w-full table-fixed tabular-nums text-[14px]">
@@ -318,7 +449,7 @@ function Grid({
       <colgroup>
         {/* Narrow panels show logos only; wider ones give names the room they need. */}
         <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : 'w-[44px] @md:w-[32%] @4xl:w-[24%]'} />
-        {columns.map(c => <col key={c.key} className={c === BB100 ? (grouped ? 'w-[120px] @lg:w-[150px]' : 'w-[120px] @lg:w-[170px]') : ''} />)}
+        {columns.map(c => <col key={c.key} className={c === BB100 ? (grouped ? 'w-[120px] @lg:w-[150px]' : 'w-[120px] @lg:w-[170px]') : c === TREND ? 'w-[112px]' : ''} />)}
       </colgroup>
       <thead>
         {grouped && (
