@@ -1,8 +1,9 @@
 'use client';
 
-import { memo, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
+import { useReducedMotion } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
-import { MUTED, ModelStats, TEXT, VsStats, chips, modelHref, netAmong, netColor, plural, signed } from '@/lib/stats';
+import { DASH, MUTED, ModelStats, TEXT, VsStats, chips, modelHref, netAmong, netColor, plural, signed, useChanges } from '@/lib/stats';
 
 // `models` sorted by net chips against each other (netAmong), with that net.
 const byNet = (models: ModelStats[]) => {
@@ -30,19 +31,36 @@ export function pairwiseVerdict(models: ModelStats[], scope: string) {
   return `${top.leader} is up ${fmt(top.total)} ${scope}.` + (top.from ? ` It took the most from ${top.from.name}, ${fmt(top.from.net)}.` : '');
 }
 
-// +53,743 as +54k, for cells too narrow for the full figure.
-const short = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: Math.abs(n) < 1e4 ? 1 : 0 }).format(Math.abs(n)).toLowerCase()}`;
+// +53,743 as +54k, for cells too narrow for the full figure. The formats are built once: the grid
+// re-renders on every hand History replays.
+const COMPACT = [0, 1].map(d => Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: d }));
+const short = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${COMPACT[Math.abs(n) < 1e4 ? 1 : 0].format(Math.abs(n)).toLowerCase()}`;
 
 // A figure sized by its own cell (an inline-size container): the full figure where it fits at a
 // readable size, else the short one shrunk to the width, and in a sliver too narrow for 9px text
 // none (the tint and the tooltip carry it). Never clipped. Screen readers get the full figure.
-function Fit({ n }: { n: number }) {
+// Memoized: while History replays only the cells whose figure changed render again.
+const Fit = memo(function Fit({ n }: { n: number }) {
   return (
     <div className="@container w-full" aria-hidden>
       <span className="hidden @min-[70px]:inline" style={{ fontSize: 'min(1em, 19cqi)' }}>{chips(n)}</span>
       <span className="hidden @min-[30px]:inline @min-[70px]:hidden" style={{ fontSize: 'min(1em, 29cqi)' }}>{short(n)}</span>
     </div>
   );
+});
+
+// A changed cell: a soft tint in the colour of the change and one 2px shake (tint only under reduced
+// motion), once, half a second; `delay` staggers the cells that changed together into a ripple.
+const playing = new WeakMap<Element, Animation>(); // not el.getAnimations(), which forces a style recalc per cell
+function wiggle(el: HTMLElement, delta: number, delay: number, still: boolean) {
+  playing.get(el)?.cancel(); // a newer change replaces one still playing
+  const glow = (a: number) => `inset 0 0 0 100px rgba(${delta > 0 ? '15, 123, 108' : '200, 50, 50'}, ${a})`;
+  playing.set(el, el.animate(
+    still
+      ? [{ boxShadow: glow(0.35) }, { boxShadow: glow(0) }]
+      : [{ boxShadow: glow(0.35), transform: 'translateX(0)' }, { transform: 'translateX(-2px)', offset: 0.2 }, { transform: 'translateX(2px)', offset: 0.5 }, { boxShadow: glow(0), transform: 'translateX(0)' }],
+    { duration: 500, delay, easing: 'ease-out' },
+  ));
 }
 
 // Chips won from each opponent in pots they both played. With `focus`, one model's opponents
@@ -54,15 +72,38 @@ export default memo(function HeadToHead({
   bigBlind = 0,
   zoomed = false,
   mini = false,
+  hand = null,
 }: {
   models: ModelStats[];
   focus?: ModelStats;
   bigBlind?: number; // for bb/100 in the cell readout
   zoomed?: boolean; // the Pairwise screen: larger type
   mini?: boolean; // the overview tile: the same grid, no links or readout (the tile opens the screen)
+  hand?: number | null; // the hand History is replaying, when `models` are as of then (null: now)
 }) {
   const outer = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ row: string; col: string; x: number; y: number; below: boolean } | null>(null);
+  const reduce = useReducedMotion();
+  // Rows and columns in overall rank order (net chips over the range shown, the leader's unit),
+  // like a chess crosstable; the Total column sums the row's cells.
+  const nets = byNet(models);
+  const sorted = [...models].sort((a, b) => b.net_chips - a.net_chips);
+  const netOf = new Map(nets.map(r => [r.m.name, r.net]));
+  // Every figure in the grid as shown, keyed row|column (row| for the Total); an empty cell counts as 0.
+  const shown: Record<string, number> = {};
+  if (!focus) for (const row of sorted) {
+    for (const col of sorted) if (col !== row) shown[`${row.name}|${col.name}`] = row.vs?.[col.name]?.net_chips ?? 0;
+    shown[`${row.name}|`] = netOf.get(row.name)!;
+  }
+  // The cells whose figure changed (a hand History replays, or a new hand) play once each, rippling.
+  const { deltas, seq } = useChanges(shown);
+  useEffect(() => {
+    if (!deltas.size || !outer.current) return;
+    const cells = new Map([...outer.current.querySelectorAll<HTMLElement>('[data-cell]')].map(el => [el.dataset.cell!, el]));
+    const gap = Math.min(35, 420 / deltas.size); // a big change (Skip) still ripples within half a second
+    let i = 0;
+    for (const [k, d] of deltas) { const el = cells.get(k); if (el) wiggle(el, d, i++ * gap, !!reduce); }
+  }, [seq, deltas, reduce]);
   if (focus) {
     const rows = Object.entries(focus.vs ?? {}).sort((a, b) => b[1].net_chips - a[1].net_chips);
     if (rows.length === 0) return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
@@ -94,15 +135,11 @@ export default memo(function HeadToHead({
     );
   }
 
-  if (!models.some(m => Object.keys(m.vs ?? {}).length > 0)) {
+  // The replay keeps the grid from its first hand, empty or not.
+  if (hand === null && !models.some(m => Object.keys(m.vs ?? {}).length > 0)) {
     return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
   }
 
-  // Rows and columns in overall rank order (net chips over the range shown, the leader's unit),
-  // like a chess crosstable; the Total column sums the row's cells.
-  const nets = byNet(models);
-  const sorted = [...models].sort((a, b) => b.net_chips - a.net_chips);
-  const netOf = new Map(nets.map(r => [r.m.name, r.net]));
   const maxCell = Math.max(1, ...sorted.flatMap(m => Object.values(m.vs ?? {}).map(v => Math.abs(v.net_chips))));
   const maxTotal = Math.max(1, ...nets.map(r => Math.abs(r.net)));
   // Diverging tint: green when the row model won, red when it lost, stronger with the amount.
@@ -126,7 +163,7 @@ export default memo(function HeadToHead({
       <div className="flex-1 min-h-0" style={{ containerType: 'size' }} onMouseLeave={() => setTip(null)}>
         {/* cq units resolve against the wrapper above, never the element that sets them. */}
         <table
-          className={`w-full h-full table-fixed tabular-nums border-separate border-spacing-px @3xl:border-spacing-[2px] ${zoomed ? 'text-[clamp(11px,min(3cqh,1.5cqw),22px)] md:text-[clamp(14px,min(3cqh,1.5cqw),22px)]' : 'text-[clamp(10px,min(2.4cqh,1.3cqw),15px)]'}`}
+          className={`w-full h-full table-fixed tabular-nums border-separate border-spacing-px @3xl:border-spacing-[2px] ${zoomed ? 'text-[clamp(11px,min(3cqh,1.5cqw),22px)] md:text-[clamp(14px,min(3cqh,1.5cqw),22px)]' : 'text-[clamp(12px,min(2.4cqh,1.3cqw),15px)]'}`}
         >
           <caption className="sr-only">Matchups: chips each row model won from each column model, sorted by net chips</caption>
           <thead>
@@ -144,6 +181,7 @@ export default memo(function HeadToHead({
           <tbody>
             {sorted.map(row => {
               const total = netOf.get(row.name)!;
+              const none = row.hands === 0; // no hands yet at the replay's hand
               return (
                 <tr key={row.name}>
                   <th scope="row" className={`text-left pr-1 overflow-hidden rounded-sm ${row.name === top?.leader ? 'font-bold' : 'font-medium'}`} style={{ background: row.name === top?.leader ? HOT : undefined }}>
@@ -162,23 +200,24 @@ export default memo(function HeadToHead({
                   {sorted.map(col => {
                     const v = row.vs?.[col.name];
                     if (row.name === col.name || !v) {
-                      return <td key={col.name} className="text-center rounded-sm" style={{ color: MUTED, background: row.name === col.name ? 'rgba(55, 53, 47, 0.16)' : 'rgba(55, 53, 47, 0.04)' }}>{row.name === col.name ? '' : '·'}</td>;
+                      return <td key={col.name} data-cell={`${row.name}|${col.name}`} className="text-center rounded-sm" style={{ color: MUTED, background: row.name === col.name ? 'rgba(55, 53, 47, 0.16)' : 'rgba(55, 53, 47, 0.04)' }}>{row.name === col.name ? '' : '·'}</td>;
                     }
                     return (
                       <td
                         key={col.name}
+                        data-cell={`${row.name}|${col.name}`}
                         className="relative text-center rounded-sm font-bold whitespace-nowrap"
                         style={{ color: TEXT, background: tint(v.net_chips), outline: tip?.row === row.name && tip.col === col.name ? `2px solid ${TEXT}` : undefined }}
                         onMouseEnter={mini ? undefined : e => show(e, row.name, col.name)}
                       >
                         <Fit n={v.net_chips} />
-                        <span className="sr-only">{chips(v.net_chips)} vs {col.name} over {plural(v.pots, 'pot')}</span>
+                        <span className="sr-only">{chips(v.net_chips)} vs {col.name}{v.pots ? ` over ${plural(v.pots, 'pot')}` : ''}</span>
                       </td>
                     );
                   })}
-                  <td className="relative pl-1 text-right font-bold whitespace-nowrap" style={{ color: netColor(total), fontSize: zoomed ? 'max(14px, 1.1em)' : '1.05em' }}>
+                  <td data-cell={`${row.name}|`} className="relative pl-1 text-right font-bold whitespace-nowrap" style={{ color: none ? MUTED : netColor(total), fontSize: zoomed ? 'max(14px, 1.1em)' : '1.05em' }}>
                     {/* Sized by its own cell: bar and full figure when wide, the short figure when narrow. */}
-                    <div className="@container w-full">
+                    {none ? DASH : <div className="@container w-full">
                       <span className="flex items-center justify-end gap-1.5" aria-hidden>
                         {/* A bar as long as the total, against the largest total either way. */}
                         <span className="hidden @min-[150px]:block flex-1 h-2 rounded-sm" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
@@ -188,7 +227,7 @@ export default memo(function HeadToHead({
                         <span className="@min-[84px]:hidden" style={{ fontSize: 'min(1em, 26cqi)' }}>{short(total)}</span>
                       </span>
                       <span className="sr-only">{chips(total)}</span>
-                    </div>
+                    </div>}
                   </td>
                 </tr>
               );
@@ -206,7 +245,7 @@ export default memo(function HeadToHead({
           <div>
             <span className="font-bold">{tip.row}</span> {tipV.net_chips >= 0 ? 'took' : 'lost'}{' '}
             <span className="font-bold" style={{ color: netColor(tipV.net_chips) }}>{Math.abs(tipV.net_chips).toLocaleString()} chips</span>{' '}
-            {tipV.net_chips >= 0 ? 'from' : 'to'} <span className="font-bold">{tip.col}</span> over {plural(tipV.pots, 'hand')}
+            {tipV.net_chips >= 0 ? 'from' : 'to'} <span className="font-bold">{tip.col}</span>{tipV.pots ? <> over {plural(tipV.pots, 'hand')}</> : null}
           </div>
           {bb100(tipV.net_chips, tipV.pots) && <div style={{ color: MUTED }}>{bb100(tipV.net_chips, tipV.pots)} bb per 100 hands they shared</div>}
         </div>

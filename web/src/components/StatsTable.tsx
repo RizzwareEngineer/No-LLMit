@@ -40,24 +40,6 @@ function recent(m: ModelStats) {
   };
 }
 
-// The figures worth diffing between refreshes (as displayed), keyed `${model}|${column}`; `${model}|#` is the
-// row's place by bb/100. Unused now that the per-hand flashes are gone: kept, with useChanges, for the time-sync work.
-const FLASHED: { key: string; value: (m: ModelStats) => number | null }[] = [
-  { key: 'bb100', value: m => Math.round(m.bb100 * 10) / 10 },
-  { key: 'hands', value: m => m.hands },
-  { key: 'vpip', value: m => Math.round(m.vpip * 100) },
-  { key: 'pfr', value: m => Math.round(m.pfr * 100) },
-  { key: 'af', value: m => (m.af === null ? null : Math.round(m.af * 10) / 10) },
-];
-export function figures(models: ModelStats[], keys = FLASHED) {
-  const out: Record<string, number> = {};
-  [...models].sort((a, b) => b.bb100 - a.bb100).forEach((m, i) => {
-    out[`${m.name}|#`] = i;
-    for (const f of keys) { const v = f.value(m); if (v !== null) out[`${m.name}|${f.key}`] = v; }
-  });
-  return out;
-}
-
 // Rows that slide to their new place when the order changes (motion layout). transformTemplate
 // leaves no inline `transform: none` behind, so the rows' CSS hover lift still works.
 export const SLIDE = {
@@ -178,7 +160,8 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', wrap = false 
 // else below a divider. Collapsed to the core columns until "All stats" is pressed, which shows
 // every group as one wide table, or one table per group in a narrow panel.
 // Memoized: the stats screens re-render on the History zoom, and the table only changes with its data.
-export default memo(function StatsTable({ models, seated }: { models: ModelStats[]; seated?: string[] }) {
+// `pending`: models in range with no hands yet at the hand History is replaying, shown as dash rows.
+export default memo(function StatsTable({ models, seated, pending = [] }: { models: ModelStats[]; seated?: string[]; pending?: string[] }) {
   const [sort, setSort] = useState({ key: 'bb100', desc: true });
   const [expanded, setAll] = useState(false);
   const [everyone, setEveryone] = useState(false);
@@ -196,7 +179,9 @@ export default memo(function StatsTable({ models, seated }: { models: ModelStats
     setSort(s => (s.key === c.key ? { key: c.key, desc: !s.desc } : { key: c.key, desc: !c.lowerIsBetter }));
   // Seated models without hands get a row of dashes in every grid; roster models not seated are
   // listed once, under the last grid.
-  const { noHands, unseated } = rosterGroups(models, seated);
+  const groups = rosterGroups(models, seated);
+  const noHands = [...new Set([...groups.noHands, ...pending])];
+  const unseated = groups.unseated.filter(name => !pending.includes(name));
   // Without a lineup (a past session, an older engine) every model is a row.
   const atTable = seated ? sorted.filter(m => seated.includes(m.name)) : sorted;
   const rest = seated ? sorted.filter(m => !seated.includes(m.name)) : [];
@@ -237,9 +222,12 @@ export default memo(function StatsTable({ models, seated }: { models: ModelStats
 });
 
 // bb/100 with its 95% interval for each model at the table, best first, on one shared axis: the
-// picture behind the rank spread (two models whose bars overlap may be in either order).
+// picture behind the rank spread (two models whose bars overlap may be in either order). Always the
+// live totals, like the bb/100 tooltip, even while the rows show a hand History is replaying: the dot is
+// the interval's centre, the live bb/100.
 function Intervals({ models, picked, onPick }: { models: ModelStats[]; picked: Set<string>; onPick: (name: string) => void }) {
-  const rows = models.filter(m => m.bb100_ci).sort((a, b) => b.bb100 - a.bb100);
+  const mid = (m: ModelStats) => (m.bb100_ci![0] + m.bb100_ci![1]) / 2;
+  const rows = models.filter(m => m.bb100_ci).sort((a, b) => mid(b) - mid(a));
   if (rows.length < 2) return null;
   const ends = rows.flatMap(m => m.bb100_ci!);
   const ticks = niceTicks(Math.min(0, ...ends), Math.max(0, ...ends), 8);
@@ -255,20 +243,20 @@ function Intervals({ models, picked, onPick }: { models: ModelStats[]; picked: S
         </div>
         {rows.map((m, i) => {
           const dim = picked.size > 0 && !picked.has(m.name);
-          const c = netColor(m.bb100);
+          const c = netColor(mid(m));
           return (
             <button
               key={m.name}
               onClick={() => onPick(m.name)}
               aria-pressed={picked.has(m.name)}
-              aria-label={`${m.name}: ${signedBrief(m.bb100)} bb/100, 95% interval ${signedBrief(m.bb100_ci![0])} to ${signedBrief(m.bb100_ci![1])}`}
+              aria-label={`${m.name}: ${signedBrief(mid(m))} bb/100, 95% interval ${signedBrief(m.bb100_ci![0])} to ${signedBrief(m.bb100_ci![1])}`}
               className="grid grid-cols-subgrid items-center rounded text-left hover:bg-[rgba(55,53,47,0.04)]"
               style={{ gridRow: i + 1, gridColumn: '1 / span 2', opacity: dim ? 0.3 : 1 }}
             >
               <span className="flex items-center gap-2 min-w-0 font-medium"><LLMLogo model={m.name} size={16} /><span className="truncate">{m.name}</span></span>
               <span className="relative h-full">
                 <span aria-hidden className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full" style={{ left: at(m.bb100_ci![0]), right: `calc(100% - ${at(m.bb100_ci![1])})`, background: c, opacity: 0.35 }} />
-                <span aria-hidden className="absolute top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ left: at(m.bb100), background: c }} />
+                <span aria-hidden className="absolute top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ left: at(mid(m)), background: c }} />
               </span>
             </button>
           );

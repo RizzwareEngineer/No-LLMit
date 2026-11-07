@@ -5,11 +5,12 @@ import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react'
 import LLMLogo from '@/components/LLMLogo';
 import { Warning } from '@phosphor-icons/react';
 import Panel, { CARD, CARD_SHADOW, CountUp, GLIDE_MS, HEADER, Segmented, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
-import CumulativeChart from '@/components/CumulativeChart';
+import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
 import StatsTable, { Bb100, SLIDE } from '@/components/StatsTable';
 import HeadToHead, { PairwiseBars, pairwiseLeader } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
-import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, pct, seatedModels, useStats } from '@/lib/stats';
+import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, pct, seatedModels, useStats } from '@/lib/stats';
+import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
 
 type Stats = ReturnType<typeof useStats>;
 
@@ -221,27 +222,13 @@ export default memo(function StatsSections({
   const seated = data?.seated ?? lineup;
   const field = useMemo(() => seatedModels(data?.models ?? [], seated), [data, seated]);
   const bigBlind = data?.scope.big_blind ?? 10;
-  // History is each model's whole history, so it always charts all time, whatever session is picked:
-  // a fresh live session has no hands to race yet.
-  const raceAll = all.data?.models ?? models;
-  const raceField = useMemo(() => seatedModels(raceAll, all.data?.seated ?? seated), [raceAll, all.data?.seated, seated]);
-  // The leader, in one unit on every screen: net chips over the range shown (the live session by default).
-  const leadOf = (list: ModelStats[], suffix = '') => {
-    const leader = [...list].sort((a, b) => b.net_chips - a.net_chips)[0];
-    return ready && leader && (
-    <span className="flex items-center gap-1.5 tabular-nums text-[14px]" style={{ color: TEXT }}>
-      <span style={{ color: MUTED }}>Leader</span>
-      <LLMLogo model={leader.name} size={18} />
-      <span className="font-bold">{leader.name}</span>
-      <span className="font-bold" style={{ color: netColor(leader.net_chips) }}>{chips(leader.net_chips)} chips{suffix}</span>
-    </span>
-    );
-  };
-  const lead = leadOf(field);
-  const byRate = [...field].sort((a, b) => b.bb100 - a.bb100);
-  const top = pairwiseLeader(field);
+  // One scope for History, Profiles and Matchups (all time by default; the session picker changes all
+  // three) and one clock: History's replay, which the other two follow through the timeline.
+  const tl = useTimeline(session, data?.scope.hands);
   const live = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
   const range = session === '' ? 'all time' : live ? 'this session' : 'that session';
+  // The leader, in one unit and one scope on every screen: net chips over the range shown.
+  const lead = ready && <Leader tl={tl} models={field} bigBlind={bigBlind} scope={range} />;
   const scope = ready && (
     <span className="tabular-nums text-[14px]" style={{ color: MUTED }}>
       <CountUp value={data.scope.hands} /> hands · {range} · blinds {bigBlind / 2}/{bigBlind}
@@ -278,7 +265,7 @@ export default memo(function StatsSections({
         {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
         {data.partial && ' All-in EV still computing…'}
       </Definition>
-      <StatsTable key={session} models={models} seated={seated} />
+      <SyncedProfiles key={session} tl={tl} models={models} seated={seated} />
     </>
   );
   const pairwiseAside = <>
@@ -290,9 +277,17 @@ export default memo(function StatsSections({
     <>
       <Definition>
         Each cell: chips the row model took from the column model (green) or lost to it (red) in the hands both played; rows and columns in rank order.
-        {top?.from && <> {top.leader} took the most from {top.from.name}: {chips(top.from.net)} chips.</>}
+        <AtHand tl={tl} models={field}>
+          {ms => { const top = pairwiseLeader(ms); return top?.from && <> {top.leader} took the most from {top.from.name}: {chips(top.from.net)} chips.</>; }}
+        </AtHand>
       </Definition>
-      {view === 'matrix' ? <HeadToHead key={session} models={field} bigBlind={bigBlind} zoomed /> : <PairwiseBars models={field} />}
+      <AtHand key={session} tl={tl} models={field}>
+        {(ms, hand) => (
+          <div {...syncAttrs(tl, hand)} className="contents">
+            {view === 'matrix' ? <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed /> : <PairwiseBars models={ms} />}
+          </div>
+        )}
+      </AtHand>
     </>
   );
   const { on, snap, lift } = tiles;
@@ -330,14 +325,19 @@ export default memo(function StatsSections({
             sticky bar (44px) plus the table screen's own outer padding; the clip, at the window's
             edges (the page pads its sides), keeps tiles sliding off from adding a page scrollbar. */}
         <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px]">
-          <div className={`h-full ${WIDTH} mx-auto ${EDGE}`}>
-            {/* Overview: three tiles, each a miniature of its screen, History on top (stacked on phones). */}
-            <div className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-2 md:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
-              <Panel id="race-panel" title="History" href="#race" away={{ y: '-150%' }} className="row-start-1 md:col-span-2" aside={leadOf(raceField, ' all time')} {...tile('race')}>
+          <div className={`@container h-full ${WIDTH} mx-auto ${EDGE}`}>
+            {/* Overview: three tiles, each a miniature of its screen, History on top (stacked on phones).
+                History's row is as tall as its chart at full width (the chart's shape plus the tile's
+                padding and header, 72px), so the tile has the card's shape; at most 62% of the stage. */}
+            <div
+              className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-2 md:grid-rows-[var(--rows)]"
+              style={{ '--rows': `minmax(0, min(calc((100cqw - 32px) * ${H / W} + 72px), 62%)) minmax(0, 1fr)` } as React.CSSProperties}
+            >
+              <Panel id="race-panel" title="History" href="#race" away={{ y: '-150%' }} className="row-start-1 md:col-span-2" aside={lead} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
-                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={raceField} everyone={raceAll} selected={selected} highlight={highlight} onHighlight={setHighlight} onSelect={zoomed ? setSelected : undefined} />
+                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} timeline={tl} selected={selected} highlight={highlight} onHighlight={setHighlight} onSelect={zoomed ? setSelected : undefined} />
                 ) : message}
               </Panel>
 
@@ -351,7 +351,7 @@ export default memo(function StatsSections({
                 body={on === 'stats-table' ? 'card' : 'tile'}
                 {...tile('stats-table')}
               >
-                {on === 'stats-table' ? statsBody : ready ? <MiniStats key={session} models={byRate} /> : message}
+                {on === 'stats-table' ? statsBody : ready ? <MiniStats key={session} tl={tl} models={field} /> : message}
               </Panel>
 
               <Panel
@@ -364,7 +364,7 @@ export default memo(function StatsSections({
                 body={on === 'pairwise' ? 'card' : 'tile'}
                 {...tile('pairwise')}
               >
-                {on === 'pairwise' ? pairwiseBody : ready ? <HeadToHead key={session} models={field} mini /> : message}
+                {on === 'pairwise' ? pairwiseBody : ready ? <AtHand key={session} tl={tl} models={field}>{(ms, hand) => <div {...syncAttrs(tl, hand)} className="contents"><HeadToHead models={ms} hand={hand} mini /></div>}</AtHand> : message}
               </Panel>
             </div>
           </div>
@@ -385,11 +385,54 @@ export default memo(function StatsSections({
   );
 });
 
-// The Profiles tile: every seated model by bb/100 and VPIP, rows sharing the tile's height; the 95% range is a tooltip.
-function MiniStats({ models }: { models: ModelStats[] }) {
+// The leader by net chips over the range shown, at the hand History is replaying (its chart value then),
+// else now; nobody before anyone has a hand. `scope` names the range, the same words on every card.
+function Leader({ tl, models, bigBlind, scope }: { tl: Timeline | null; models: ModelStats[]; bigBlind: number; scope: string }) {
+  const hand = useReplayHand(tl);
+  const played = (m: ModelStats) => (hand === null ? m.hands : playedAt(tl!, m.name, hand));
+  const net = (m: ModelStats) => (hand === null ? m.net_chips : Math.round(valueAt(m.cumulative_bb, played(m)) * bigBlind));
+  const [top] = models.filter(m => played(m) > 0).map(m => ({ m, n: net(m) })).sort((a, b) => b.n - a.n);
+  return top && (
+    <span className="flex items-center gap-1.5 tabular-nums text-[14px]" style={{ color: TEXT }}>
+      <span style={{ color: MUTED }}>Leader</span>
+      <LLMLogo model={top.m.name} size={18} />
+      <span className="font-bold">{top.m.name}</span>
+      <span className="font-bold" style={{ color: netColor(top.n) }}>{chips(top.n)} chips {scope}</span>
+    </span>
+  );
+}
+
+// Matchups' `models` at the hand History is replaying (each pair's running net, from the timeline),
+// else now. Re-renders once per hand the replay passes.
+function AtHand({ tl, models, children }: { tl: Timeline | null; models: ModelStats[]; children: (models: ModelStats[], hand: number | null) => React.ReactNode }) {
+  const hand = useReplayHand(tl);
+  const shown = useMemo(() => (hand === null ? models : matchupsAt(tl!, models, hand)), [tl, models, hand]);
+  return children(shown, hand);
+}
+
+// Profiles at the latest snapshot at or before the hand History is replaying (so they change every
+// profile_step hands, not every hand), else now. `pending`: no hands yet then; `hand`: the snapshot's.
+function useProfilesAt(tl: Timeline | null, models: ModelStats[]) {
+  const i = useReplaySnap(tl);
+  return useMemo(
+    () => (i === null ? { shown: models, pending: [], hand: null } : { ...profilesAt(tl!, models, i), hand: i < 0 ? 0 : tl!.snaps[i] }),
+    [tl, models, i],
+  );
+}
+
+function SyncedProfiles({ tl, models, seated }: { tl: Timeline | null; models: ModelStats[]; seated?: string[] }) {
+  const { shown, pending, hand } = useProfilesAt(tl, models);
+  return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} /></div>;
+}
+
+// The Profiles tile: every seated model by bb/100 and VPIP, rows sharing the tile's height; the 95% range
+// is a tooltip. Models without hands yet at the replayed hand wait at the bottom with dashes.
+function MiniStats({ tl, models }: { tl: Timeline | null; models: ModelStats[] }) {
   const reduce = useReducedMotion();
+  const { shown, pending, hand } = useProfilesAt(tl, models);
+  const rows = [...shown].sort((a, b) => b.bb100 - a.bb100);
   return (
-    <div className="flex-1 min-h-0">
+    <div className="flex-1 min-h-0" {...syncAttrs(tl, hand, true)}>
       <table className="w-full h-full table-fixed tabular-nums text-[13px]" style={{ color: TEXT }}>
         <thead>
           <tr style={{ color: MUTED }}>
@@ -399,14 +442,20 @@ function MiniStats({ models }: { models: ModelStats[] }) {
           </tr>
         </thead>
         <tbody>
-          {models.map(m => {
+          {[...rows, ...pending].map(m => {
+            const name = typeof m === 'string' ? m : m.name;
             return (
-              <motion.tr key={m.name} layout={reduce ? false : 'position'} {...SLIDE} className="relative hover:z-10 border-t border-notion">
+              <motion.tr key={name} layout={reduce ? false : 'position'} {...SLIDE} className="relative hover:z-10 border-t border-notion">
                 <th scope="row" className="text-left font-medium">
-                  <span className="flex items-center gap-2 min-w-0"><LLMLogo model={m.name} size={16} /><span className="truncate">{m.name}</span></span>
+                  <span className="flex items-center gap-2 min-w-0"><LLMLogo model={name} size={16} /><span className="truncate">{name}</span></span>
                 </th>
-                <td className="text-right whitespace-nowrap"><Bb100 m={m} /></td>
-                <td className="text-right">{pct(m.vpip)}</td>
+                {typeof m === 'string' ? <>
+                  <td className="text-right" style={{ color: MUTED }}>{DASH}</td>
+                  <td className="text-right" style={{ color: MUTED }}>{DASH}</td>
+                </> : <>
+                  <td className="text-right whitespace-nowrap"><Bb100 m={m} /></td>
+                  <td className="text-right">{pct(m.vpip)}</td>
+                </>}
               </motion.tr>
             );
           })}
