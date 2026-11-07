@@ -328,6 +328,11 @@ html:has([data-screen]) {
   opacity: var(--dim, 0);
 }
 @keyframes recede { to { transform: scale(0.94); --dim: 0.14; } }
+/* What a card adds to its overview tile's content (Profiles' extra columns and controls) fades in once, on mount. */
+@keyframes add-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .add-in { animation: add-in 0.3s 0.08s ease-out both; }
+}
 /* Only where scroll timelines exist: elsewhere a time-based run would fill straight to the end state. */
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) and (timeline-scope: --a) {

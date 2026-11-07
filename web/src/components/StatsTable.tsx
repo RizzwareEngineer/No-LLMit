@@ -4,7 +4,7 @@ import { memo, useId, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
-import { RATE_FROM, niceTicks } from '@/components/CumulativeChart';
+import { RATE_FROM } from '@/components/CumulativeChart';
 import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rankSpread, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
 interface Column {
@@ -106,6 +106,10 @@ const GROUPS: { label: string; columns: Column[] }[] = [
 ];
 const COLUMNS = GROUPS.flatMap(g => g.columns);
 const CORE = GROUPS.map(g => ({ ...g, columns: g.columns.filter(c => c.core) }));
+// The overview tile: the core columns that are one number each (no rank spread, no sparkline).
+const MINI = CORE.map(g => ({ ...g, columns: g.columns.filter(c => c !== RANK && c !== TREND) }));
+// Rows on the overview tile: a fixed height, so the tile's size never comes from the window.
+export const MINI_ROW = 22;
 
 // A column header with its definition on hover or focus. Without `onSort` it is a plain label
 // (a fixed-order table); `sort` then only marks the column the rows are ordered by.
@@ -161,11 +165,13 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', wrap = false 
 // every group as one wide table, or one table per group in a narrow panel.
 // Memoized: the stats screens re-render on the History zoom, and the table only changes with its data.
 // `pending`: models in range with no hands yet at the hand History is replaying, shown as dash rows.
-export default memo(function StatsTable({ models, seated, pending = [] }: { models: ModelStats[]; seated?: string[]; pending?: string[] }) {
+// `mini`: the overview tile, the same table with fewer columns, fixed short rows and no controls;
+// opening the card keeps this table and adds the rest around it.
+export default memo(function StatsTable({ models, seated, pending = [], mini = false }: { models: ModelStats[]; seated?: string[]; pending?: string[]; mini?: boolean }) {
   const [sort, setSort] = useState({ key: 'bb100', desc: true });
   const [expanded, setAll] = useState(false);
   const [everyone, setEveryone] = useState(false);
-  // Rows clicked to compare: the rest fade (Sports-Reference's row isolation), here and in the intervals.
+  // Rows clicked to compare: the rest fade (Sports-Reference's row isolation).
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const isolate = (name: string) => setPicked(p => { const n = new Set(p); if (!n.delete(name)) n.add(name); return n; });
   const col = COLUMNS.find(c => c.key === sort.key) ?? BB100;
@@ -180,7 +186,8 @@ export default memo(function StatsTable({ models, seated, pending = [] }: { mode
   // Seated models without hands get a row of dashes in every grid; roster models not seated are
   // listed once, under the last grid.
   const groups = rosterGroups(models, seated);
-  const noHands = [...new Set([...groups.noHands, ...pending])];
+  // The tile lists the table's seats only; the card also keeps a dash row for anyone in range still waiting for a hand.
+  const noHands = [...new Set([...groups.noHands, ...pending])].filter(name => !mini || !seated || seated.includes(name));
   const unseated = groups.unseated.filter(name => !pending.includes(name));
   // Without a lineup (a past session, an older engine) every model is a row.
   const atTable = seated ? sorted.filter(m => seated.includes(m.name)) : sorted;
@@ -189,14 +196,14 @@ export default memo(function StatsTable({ models, seated, pending = [] }: { mode
   // Ranks among the models at the table (all of them without a lineup).
   const ranks = rankSpread(atTable);
   const grid = (groups: typeof GROUPS, grouped: boolean, caption: string, last = true) => (
-    <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone ? rest : []} waiting={last && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} ranks={ranks} picked={picked} onPick={isolate} caption={caption} />
+    <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={last && !mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} ranks={ranks} picked={picked} onPick={isolate} caption={caption} mini={mini} />
   );
   const toggle = 'text-[14px] hover:underline';
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="@container relative min-w-0">
-        {!expanded ? grid(CORE, false, 'Profiles per model.') : (
+        {mini ? grid(MINI, false, 'Profiles per model.') : !expanded ? grid(CORE, false, 'Profiles per model.') : (
           <>
             <div className="hidden @3xl:flex flex-1 flex-col">{grid(GROUPS, true, 'Every stat per model.')}</div>
             <div className="@3xl:hidden flex flex-col gap-4">
@@ -205,7 +212,7 @@ export default memo(function StatsTable({ models, seated, pending = [] }: { mode
           </>
         )}
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+      {!mini && <div className="add-in mt-2 flex flex-wrap gap-x-5 gap-y-1">
         <button onClick={() => setAll(v => !v)} aria-expanded={expanded} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>
           {expanded ? 'Fewer stats' : `All stats (${COLUMNS.length - COLUMNS.filter(c => c.core).length} more)`}
         </button>
@@ -215,60 +222,10 @@ export default memo(function StatsTable({ models, seated, pending = [] }: { mode
           </button>
         )}
         {picked.size > 0 && <button onClick={() => setPicked(new Set())} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>Show all rows</button>}
-      </div>
-      <Intervals models={atTable} picked={picked} onPick={isolate} />
+      </div>}
     </div>
   );
 });
-
-// bb/100 with its 95% interval for each model at the table, best first, on one shared axis: the
-// picture behind the rank spread (two models whose bars overlap may be in either order). Always the
-// live totals, like the bb/100 tooltip, even while the rows show a hand History is replaying: the dot is
-// the interval's centre, the live bb/100.
-function Intervals({ models, picked, onPick }: { models: ModelStats[]; picked: Set<string>; onPick: (name: string) => void }) {
-  const mid = (m: ModelStats) => (m.bb100_ci![0] + m.bb100_ci![1]) / 2;
-  const rows = models.filter(m => m.bb100_ci).sort((a, b) => mid(b) - mid(a));
-  if (rows.length < 2) return null;
-  const ends = rows.flatMap(m => m.bb100_ci!);
-  const ticks = niceTicks(Math.min(0, ...ends), Math.max(0, ...ends), 8);
-  const [lo, hi] = [ticks[0], ticks.at(-1)!];
-  const at = (v: number) => `${((v - lo) / (hi - lo || 1)) * 100}%`;
-  const tick = (t: number) => `${t > 0 ? '+' : t < 0 ? '−' : ''}${Math.abs(t).toLocaleString()}`;
-  return (
-    <figure className="mt-4 flex-1 min-h-[200px] flex flex-col text-[14px] tabular-nums" style={{ color: TEXT }}>
-      <figcaption className="mb-1 font-bold">bb/100 with its 95% interval</figcaption>
-      <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,200px)_minmax(0,1fr)_32px] gap-x-3" style={{ gridTemplateRows: `repeat(${rows.length}, minmax(20px, 1fr)) auto` }}>
-        <div aria-hidden className="relative pointer-events-none" style={{ gridColumn: 2, gridRow: `1 / span ${rows.length}` }}>
-          {ticks.map(t => <span key={t} className="absolute inset-y-0 w-px" style={{ left: at(t), background: t === 0 ? 'rgba(55, 53, 47, 0.5)' : 'rgba(55, 53, 47, 0.1)' }} />)}
-        </div>
-        {rows.map((m, i) => {
-          const dim = picked.size > 0 && !picked.has(m.name);
-          const c = netColor(mid(m));
-          return (
-            <button
-              key={m.name}
-              onClick={() => onPick(m.name)}
-              aria-pressed={picked.has(m.name)}
-              aria-label={`${m.name}: ${signedBrief(mid(m))} bb/100, 95% interval ${signedBrief(m.bb100_ci![0])} to ${signedBrief(m.bb100_ci![1])}`}
-              className="grid grid-cols-subgrid items-center rounded text-left hover:bg-[rgba(55,53,47,0.04)]"
-              style={{ gridRow: i + 1, gridColumn: '1 / span 2', opacity: dim ? 0.3 : 1 }}
-            >
-              <span className="flex items-center gap-2 min-w-0 font-medium"><LLMLogo model={m.name} size={16} /><span className="truncate">{m.name}</span></span>
-              <span className="relative h-full">
-                <span aria-hidden className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full" style={{ left: at(m.bb100_ci![0]), right: `calc(100% - ${at(m.bb100_ci![1])})`, background: c, opacity: 0.35 }} />
-                <span aria-hidden className="absolute top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ left: at(mid(m)), background: c }} />
-              </span>
-            </button>
-          );
-        })}
-        <span style={{ gridRow: rows.length + 1 }} />
-        <div aria-hidden className="relative h-6" style={{ gridRow: rows.length + 1, gridColumn: 2, color: MUTED }}>
-          {ticks.map(t => <span key={t} className="absolute top-1 -translate-x-1/2" style={{ left: at(t) }}>{tick(t)}</span>)}
-        </div>
-      </div>
-    </figure>
-  );
-}
 
 // bb/100 in its colour, one number; hovering it shows the 95% range.
 export function Bb100({ m }: { m: ModelStats }) {
@@ -279,6 +236,14 @@ export function Bb100({ m }: { m: ModelStats }) {
       {ci && <span role="tooltip" className="pointer-events-none absolute right-0 top-full z-20 mt-1 hidden whitespace-nowrap rounded bg-white px-2 py-1 text-[13px] font-normal group-hover/ci:block" style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}>{ci}</span>}
     </span>
   );
+}
+
+// A row's model: logo and name, a link to its drawer (plain text on the tile, which opens the card).
+function Name({ href, name, children }: { href?: string; name: string; children?: React.ReactNode }) {
+  const inner = <><LLMLogo model={name} size={16} /><span className="truncate @max-md:sr-only">{name}</span>{children}</>;
+  return href
+    ? <a href={href} className="flex items-center gap-2 min-w-0 hover:underline" style={{ color: TEXT }} title={name}>{inner}</a>
+    : <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>{inner}</span>;
 }
 
 function Grid({
@@ -294,6 +259,7 @@ function Grid({
   picked,
   onPick,
   caption,
+  mini,
 }: {
   groups: typeof GROUPS;
   rows: ModelStats[];
@@ -307,6 +273,7 @@ function Grid({
   picked: Set<string>; // rows clicked to compare; the others fade
   onPick: (name: string) => void;
   caption: string;
+  mini: boolean; // the overview tile: plain headers, short rows, names as text (the tile opens the card)
 }) {
   const columns = groups.flatMap(g => g.columns);
   const reduce = useReducedMotion();
@@ -329,6 +296,7 @@ function Grid({
   };
   const marks = new Map(columns.filter(c => c.extremes).map(c => [c, ends(c)]));
   const mark = (c: Column, m: ModelStats) => {
+    if (mini) return null; // one number per cell on the tile
     const e = marks.get(c), v = c.value(m) === null ? null : c.render(m);
     if (!e || v === null || (v !== e.hi && v !== e.lo)) return null;
     const hi = v === e.hi;
@@ -336,7 +304,10 @@ function Grid({
   };
   // Every column of All stats shares the width, so its cells pad less.
   // Sticky: the header stays put while the card scrolls the rows under it.
-  const head = `sticky top-0 z-10 bg-white ${grouped ? 'p-1 text-[14px]' : 'px-1.5 py-1.5 md:px-3 text-[14px]'}`;
+  const head = `sticky top-0 z-10 bg-white ${mini ? 'px-1.5 md:px-3 py-0 text-[13px]' : grouped ? 'p-1 text-[14px]' : 'px-1.5 py-1.5 md:px-3 text-[14px]'}`;
+  const rowH = mini ? 'h-[22px] text-[13px]' : 'h-6';
+  // Columns the card adds to the tile's fade in as it opens.
+  const added = (c: Column) => (!mini && (c === RANK || c === TREND) ? 'add-in' : '');
   const cell = grouped ? 'px-1' : 'px-1.5 md:px-3';
   const spread = (m: ModelStats) => { const r = ranks.get(m.name); return !r ? DASH : r[0] === r[1] ? `${r[0]}` : `${r[0]}–${r[1]}`; };
   const row = (m: ModelStats, i: number | null) => {
@@ -345,24 +316,22 @@ function Grid({
       key={m.name}
       layout={reduce ? false : 'position'}
       {...SLIDE}
-      className="lift relative hover:z-10 h-6 cursor-pointer"
-      tabIndex={0}
-      aria-selected={picked.has(m.name)}
-      onClick={e => !(e.target as Element).closest('a, button') && onPick(m.name)}
-      onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), onPick(m.name))}
+      className={`lift relative hover:z-10 ${rowH} ${mini ? '' : 'cursor-pointer'}`}
+      tabIndex={mini ? undefined : 0}
+      aria-selected={mini ? undefined : picked.has(m.name)}
+      onClick={mini ? undefined : e => !(e.target as Element).closest('a, button') && onPick(m.name)}
+      onKeyDown={mini ? undefined : e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), onPick(m.name))}
       style={{ opacity: picked.size && !picked.has(m.name) ? 0.35 : 1, background: picked.has(m.name) ? 'rgba(35, 131, 226, 0.08)' : undefined }}
     >
       <th scope="row" className={`${cell} text-left font-bold`}>
-        <a href={modelHref(m.name)} className="flex items-center gap-2 min-w-0 hover:underline" style={{ color: TEXT }} title={m.name}>
-          <LLMLogo model={m.name} size={16} />
-          <span className="truncate @max-md:sr-only">{m.name}</span>
+        <Name href={mini ? undefined : modelHref(m.name)} name={m.name}>
           {m.hands < MIN_HANDS && (
             <Warning size={14} weight="bold" className="shrink-0 @max-md:hidden" style={{ color: 'rgb(140, 95, 20)' }} aria-label={`Fewer than ${MIN_HANDS} hands`} />
           )}
-        </a>
+        </Name>
       </th>
       {columns.map(c => (
-        <td key={c.key} className={`${cell} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
+        <td key={c.key} className={`${cell} ${added(c)} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
           {c === BB100 ? <Bb100 m={m} /> : c === TREND ? <Spark m={m} lo={lo} hi={hi} /> : c === RANK ? spread(m) : <>{i !== null && mark(c, m)}{c.render(m)}</>}
         </td>
       ))}
@@ -389,22 +358,24 @@ function Grid({
             ))}
           </tr>
         )}
-        <tr className="border-b border-notion">
+        <tr className={`border-b border-notion ${mini ? rowH : ''}`}>
           <th scope="col" className={`${head} text-left font-medium align-bottom`} style={{ color: MUTED }}><span className="@max-md:sr-only">Model</span></th>
-          {columns.map(c => <HeaderCell key={c.key} col={c} sort={sort} onSort={() => onSort(c)} className={head} wrap={grouped} />)}
+          {columns.map(c => mini
+            ? <th key={c.key} scope="col" className={`${head} text-right font-medium`} style={{ color: c.key === sort.key ? TEXT : MUTED }}>{c.label}</th>
+            : <HeaderCell key={c.key} col={c} sort={sort} onSort={() => onSort(c)} className={`${head} ${added(c)}`} wrap={grouped} />)}
         </tr>
       </thead>
       <tbody className="divide-y divide-black/10">
         {rows.map((m, i) => row(m, i))}
         {noHands.map(name => (
-          <tr key={name} className="h-6">
+          <tr key={name} className={rowH}>
             <th scope="row" className={`${cell} text-left font-bold`}>
               <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>
                 <LLMLogo model={name} size={16} />
                 <span className="truncate @max-md:sr-only">{name}</span>
               </span>
             </th>
-            {columns.map(c => <td key={c.key} className={`${cell} text-right`} style={{ color: MUTED }}>{DASH}</td>)}
+            {columns.map(c => <td key={c.key} className={`${cell} ${added(c)} text-right`} style={{ color: MUTED }}>{DASH}</td>)}
           </tr>
         ))}
       </tbody>
