@@ -112,6 +112,15 @@ export default function CumulativeChart({
   const [{ width, height, drawnFor }, setSize] = useState({ width: 720, height: 300, drawnFor: models });
   const latest = useRef(models);
   useEffect(() => { latest.current = models; });
+  // Like Arena's trends chart, the lines draw in from the first hand to the last each time the Race
+  // screen opens (the tile draws once, when it first scrolls into view); the labels follow the lines.
+  const [draw, setDraw] = useState(0);
+  const wasMini = useRef(mini);
+  useEffect(() => {
+    if (wasMini.current && !mini) setDraw(n => n + 1);
+    wasMini.current = mini;
+  }, [mini]);
+  const DRAW = mini ? 1.2 : 2.4; // seconds
   const reduce = useReducedMotion();
   // The hand under the pointer (or picked with the arrow keys) and the line nearest it.
   const [hover, setHover] = useState<{ n: number; name: string } | null>(null);
@@ -328,7 +337,7 @@ export default function CumulativeChart({
             const d = line(drawn.get(m.name)!);
             return (
               <motion.path
-                key={m.name}
+                key={`${m.name}:${draw}`}
                 fill="none"
                 stroke={modelColor(m.name)}
                 strokeWidth={m === hot || m === sel ? 3 : 2}
@@ -339,13 +348,14 @@ export default function CumulativeChart({
                 animate={{ d }}
                 whileInView={{ pathLength: 1 }}
                 viewport={{ once: true }}
-                transition={{ d: tween, pathLength: { duration: reduce ? 0 : 1.2, ease: 'easeOut' } }}
+                transition={{ d: tween, pathLength: { duration: reduce ? 0 : DRAW, ease: 'linear' } }}
               />
             );
           })}
           {race && ends.map((e, i) => (
             // A dotted leader from the line's end to its label, so a nudged label never reads as data.
-            <path key={e.m.name} d={`M${x(e.n)},${y(e.v)}L${w - right + 4},${endYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" opacity={hot && hot !== e.m ? 0.2 : 0.6} fill="none" />
+            <motion.path key={`${e.m.name}:${draw}`} d={`M${x(e.n)},${y(e.v)}L${w - right + 4},${endYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none"
+              initial={{ opacity: reduce ? 1 : 0 }} animate={{ opacity: hot && hot !== e.m ? 0.2 : 0.6 }} transition={{ delay: reduce ? 0 : DRAW * 0.9, duration: 0.4 }} />
           ))}
           {hover && (
             <g pointerEvents="none">
@@ -367,8 +377,9 @@ export default function CumulativeChart({
           </div>
         ) : (
           // Logo, name and final figure at each line's end; a click shades its 95% band.
-          <button
-            key={e.m.name}
+          <motion.button
+            key={`${e.m.name}:${draw}`}
+            initial={{ opacity: reduce ? 1 : 0 }} animate={{ opacity: hot && hot !== e.m ? 0.45 : 1 }} transition={{ delay: reduce ? 0 : DRAW * 0.9, duration: 0.4 }}
             onClick={() => onSelect?.(selected === e.m.name ? '' : e.m.name)}
             onPointerMove={ev => ev.stopPropagation()}
             onPointerEnter={() => { setHover(null); onHighlight?.(e.m.name); }}
@@ -377,12 +388,12 @@ export default function CumulativeChart({
             onBlur={() => onHighlight?.(undefined)}
             aria-pressed={selected === e.m.name}
             className="absolute flex items-center gap-1.5 rounded px-1 text-[14px] leading-none tabular-nums text-left hover:bg-[rgba(55,53,47,0.06)]"
-            style={{ left: w - right + 6, top: endYs[i] - rowH / 2, height: rowH, width: right - 8, color: TEXT, opacity: hot && hot !== e.m ? 0.45 : 1, boxShadow: selected === e.m.name ? `inset 3px 0 0 ${modelColor(e.m.name)}` : undefined }}
+            style={{ left: w - right + 6, top: endYs[i] - rowH / 2, height: rowH, width: right - 8, color: TEXT, boxShadow: selected === e.m.name ? `inset 3px 0 0 ${modelColor(e.m.name)}` : undefined }}
           >
             <LLMLogo model={e.m.name} size={logo} />
             <span className={`flex-1 min-w-0 truncate ${e.m === hot || i === 0 ? 'font-bold' : 'font-medium'}`}>{e.m.name}</span>
             <span className="font-bold" style={{ color: netColor(e.v) }}>{fmt(e.v)}</span>
-          </button>
+          </motion.button>
         ))}
         {/* Always mounted, so the first arrow press is announced too; it says the leader and the highlighted line. */}
         {race && <div role="status" className="sr-only">{said}</div>}
