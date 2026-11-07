@@ -87,7 +87,7 @@ export default function ReasoningPanel({
                         'rgba(55, 53, 47, 0.02)'
           }}
         >
-          <div className="flex items-center gap-2 max-w-[180px] px-2">
+          <div className="flex items-center justify-center gap-2 w-full px-2">
             {!isIdle && <LLMLogo model={playerName} size={18} />}
             <span className="text-sm font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }}>{playerName}</span>
           </div>

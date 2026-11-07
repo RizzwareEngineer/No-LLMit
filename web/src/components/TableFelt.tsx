@@ -112,7 +112,7 @@ export default function TableFelt({
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
   return (
     <div 
-      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'py-[36px]' : 'py-2'}`}
+      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'py-[35px]' : 'py-2'}`}
       style={{
         backgroundImage: `
           linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
@@ -141,9 +141,11 @@ export default function TableFelt({
         ) : (
           // Three counters, like CoinPoker: bets in front of the seats, the chips already collected
           // in the middle (POT), and both together above it (TOTAL POT).
-          <div className="flex flex-col items-center gap-0.5">
-            <div className="text-[11px] uppercase tracking-widest text-gray-600 tabular-nums h-4" aria-label={`Total pot ${pot.toLocaleString()}`}>
-              Total pot <b className="text-gray-700">{pot.toLocaleString()}</b>
+          // Two boxes in one style, the total above the pot, like CoinPoker's "Total pot" pill over the main pot.
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="flex flex-row items-center gap-2 bg-white py-0.5 px-3 border-2 border-gray-700 shadow-sm" aria-label={`Total pot ${pot.toLocaleString()}`}>
+              <div className="text-[11px] uppercase tracking-widest text-gray-600">Total pot</div>
+              <div className="text-[13px] text-gray-700 font-bold tabular-nums"><NumberFlow value={pot} /></div>
             </div>
             <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm" aria-label={`Pot ${Math.max(0, pot - betsOut).toLocaleString()}`}>
               <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>

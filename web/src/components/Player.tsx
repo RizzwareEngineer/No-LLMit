@@ -66,13 +66,57 @@ export default function Player({ player, active, position, folded = false, winAm
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(55, 53, 47, 0.03)'; setHovered(true); }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'inherit'; setHovered(false); }}
       >
-        <div className="flex flex-col lg:flex-row items-start gap-3 justify-between p-3 overflow-hidden">
-          <div className="flex items-center gap-2 min-w-0 overflow-hidden">
-            <LLMLogo model={player.name} size={20} />
-            <div className="flex flex-col min-w-0">
-              <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-              <div className="text-[10px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{player.stack.toLocaleString()}</div>
+        {/* Row 1: logo and the full name on one line. */}
+        <div className="flex items-center gap-2 p-3 pb-0 min-w-0">
+          <LLMLogo model={player.name} size={20} />
+          <div className="text-[13px] leading-5 font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
+        </div>
+
+        {/* Hover stats in the empty band between the name and the bottom block; absolute, so the seat never changes size. */}
+        {hovered && (
+          <div className="absolute left-3 right-3 top-[38px] text-[11px] leading-[15px] tabular-nums whitespace-nowrap overflow-hidden" style={{ color: 'rgba(55, 53, 47, 0.65)' }} aria-hidden>
+            {stats ? (
+              <>
+                <div><b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.vpip).replace('%', '')}</b> VPIP · <b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.pfr).replace('%', '')}</b> PFR · <b style={{ color: 'rgb(55, 53, 47)' }}>{stats.af === null ? DASH : stats.af.toFixed(1)}</b> AF</div>
+                <div><b style={{ color: 'rgb(55, 53, 47)' }}>{signed(stats.bb100, 0)}</b> bb/100{ciHalf(stats) !== null && ` ±${ciHalf(stats)!.toFixed(0)}`} · {stats.hands.toLocaleString()} hands</div>
+              </>
+            ) : 'No stats yet'}
+          </div>
+        )}
+
+        {/* Bottom block: position and stack, then the action, beside the hole cards. */}
+        <div className="mt-auto flex items-end justify-between gap-2 p-3 pt-0 min-w-0">
+          <div className="flex flex-col gap-1 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
+              {position && (
+                <div
+                  className={`min-w-8 px-1 rounded text-[10px] leading-4 font-bold shrink-0 text-center ${positionColor}`}
+                  title={getPositionFullName(position)}
+                >
+                  {position}
+                </div>
+              )}
+              <div className="text-[13px] leading-4 font-semibold tabular-nums truncate" style={{ color: 'rgb(55, 53, 47)' }}>{player.stack.toLocaleString()}</div>
             </div>
+            {isWinner ? (
+              <div className="text-[13px] leading-4 font-bold truncate" style={{ color: 'rgb(15, 123, 108)' }}>+{winAmount.toLocaleString()} <span className="font-normal">({winDesc})</span></div>
+            ) : player.lastAction ? (
+              <div className="text-[13px] leading-4 font-mono uppercase font-bold tracking-wider truncate tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
+                {player.lastAction}{(player.lastAmount ?? 0) > 0 && <span className="font-normal" style={{ color: 'rgba(55, 53, 47, 0.65)' }}> {player.lastAmount?.toLocaleString()}</span>}
+              </div>
+            ) : player.currentBet > 0 ? (
+              // Chips out with no action yet: the blinds. Their amount sits in front of the seat.
+              <div className="text-[13px] leading-4 font-mono uppercase tracking-wider truncate" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+                {position === 'SB' ? 'SMALL BLIND' : position === 'BB' ? 'BIG BLIND' : `BET ${player.currentBet.toLocaleString()}`}
+              </div>
+            ) : (
+              <div className="text-[13px] leading-4 font-mono uppercase truncate" style={{ color: isThinking ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)' }}>
+                {player.status === 'folded' ? 'FOLD' : 
+                 player.status === 'all-in' ? 'ALL-IN' :
+                 player.status === 'eliminated' ? 'OUT' : 
+                 isThinking ? 'THINKING' : 'WAITING'}
+              </div>
+            )}
           </div>
           <div className="flex flex-row items-center gap-1 shrink-0">
             {cards.length > 0 ? (
@@ -84,64 +128,6 @@ export default function Player({ player, active, position, folded = false, winAm
                 <Card value="" className="w-7 h-10" />
                 <Card value="" className="w-7 h-10" />
               </>
-            )}
-          </div>
-        </div>
-
-        {/* Hover stats in the card's empty middle band; absolute, so the seat never changes size. */}
-        {hovered && (
-          <div className="absolute left-3 right-3 top-[62px] text-[11px] leading-[15px] tabular-nums whitespace-nowrap overflow-hidden" style={{ color: 'rgba(55, 53, 47, 0.65)' }} aria-hidden>
-            {stats ? (
-              <>
-                <div><b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.vpip).replace('%', '')}</b> VPIP · <b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.pfr).replace('%', '')}</b> PFR · <b style={{ color: 'rgb(55, 53, 47)' }}>{stats.af === null ? DASH : stats.af.toFixed(1)}</b> AF</div>
-                <div><b style={{ color: 'rgb(55, 53, 47)' }}>{signed(stats.bb100, 0)}</b> bb/100{ciHalf(stats) !== null && ` ±${ciHalf(stats)!.toFixed(0)}`} · {stats.hands.toLocaleString()} hands</div>
-              </>
-            ) : 'No stats yet'}
-          </div>
-        )}
-        <div className="flex flex-col mt-auto p-3 pt-0 min-w-0 overflow-hidden">
-          <div className="flex items-center gap-2 min-w-0">
-            {/* Position Badge */}
-            {position && (
-              <div 
-                className={`w-8 py-0.5 rounded text-[8px] font-bold shrink-0 text-center ${positionColor}`}
-                title={getPositionFullName(position)}
-              >
-                {position}
-              </div>
-            )}
-            
-            {/* Winner display */}
-            {isWinner ? (
-              <div className="flex flex-row items-center gap-1 min-w-0">
-                <span className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+{winAmount.toLocaleString()}</span>
-                <span className="text-[11px] truncate min-w-0" style={{ color: 'rgb(15, 123, 108)' }}>({winDesc})</span>
-              </div>
-            ) : player.lastAction ? (
-              <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
-                <div className="text-[11px] font-mono uppercase font-bold tracking-wider shrink-0" style={{ color: 'rgb(55, 53, 47)' }}>
-                  {player.lastAction}
-                </div>
-                {(player.lastAmount ?? 0) > 0 && (
-                  <div className="flex flex-row items-center shrink-0">
-                    <div className="text-[11px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{player.lastAmount?.toLocaleString()}</div>
-                  </div>
-                )}
-              </div>
-            ) : player.currentBet > 0 ? (
-              <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
-                {/* Chips out with no action yet: the blinds. Their amount sits in front of the seat. */}
-                <div className="text-[11px] font-mono uppercase tracking-wider truncate" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
-                  {position === 'SB' ? 'SMALL BLIND' : position === 'BB' ? 'BIG BLIND' : `BET ${player.currentBet.toLocaleString()}`}
-                </div>
-              </div>
-            ) : (
-              <div className="text-[11px] font-mono uppercase truncate" style={{ color: isThinking ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)' }}>
-                {player.status === 'folded' ? 'FOLD' : 
-                 player.status === 'all-in' ? 'ALL-IN' :
-                 player.status === 'eliminated' ? 'OUT' : 
-                 isThinking ? 'THINKING' : 'WAITING'}
-              </div>
             )}
           </div>
         </div>
