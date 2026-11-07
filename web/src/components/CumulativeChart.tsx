@@ -165,7 +165,9 @@ export default function CumulativeChart({
     return () => ro.disconnect();
   }, []);
 
-  const metric: Metric = race ? metricPick : bigBlind ? 'chips' : 'bb';
+  // A fresh history has no model at RATE_FROM hands yet: race on chips until bb/100 has lines to draw.
+  const young = race && metricPick === 'bb100' && ![...(everyone ?? []), ...models].some(m => m.hands >= RATE_FROM);
+  const metric: Metric = race ? (young ? 'chips' : metricPick) : bigBlind ? 'chips' : 'bb';
   const rate = metric === 'bb100';
   const unit = rate ? 'bb/100' : metric;
   const fmt = (v: number) => (metric === 'chips' ? chips(Math.round(v)) : signed(v));
@@ -482,6 +484,7 @@ export default function CumulativeChart({
             );
           })}
           {rate && <span className="ml-auto" style={{ color: MUTED }}>Lines start at {RATE_FROM} hands · hover for every model · click an end label for its 95% band</span>}
+          {young && <span className="ml-auto" style={{ color: MUTED }}>Showing chips: bb/100 starts once a model has played {RATE_FROM} hands.</span>}
         </div>
       )}
       {!race && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Shaded: 95% band</p>}
