@@ -2,7 +2,7 @@
 
 import Card from "@/components/Card";
 import NumberFlow from '@number-flow/react';
-import { CircleNotch, Moon } from "@phosphor-icons/react";
+import { CircleNotch, Moon, PokerChip } from "@phosphor-icons/react";
 import Link from "next/link";
 import { type CSSProperties, useEffect, useState } from "react";
 import { TableNoticePayload } from "@/lib/api";
@@ -84,7 +84,7 @@ function BetStack({ amount, style }: { amount: number; style: CSSProperties }) {
   if (amount <= 0) return null;
   return (
     <div className="absolute flex items-center gap-1.5" style={style} title={`Bet ${amount.toLocaleString()}`}>
-      <span aria-hidden className="chip-stack" />
+      <PokerChip aria-hidden size={16} weight="duotone" color="rgb(203, 145, 47)" />
       <span className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{amount.toLocaleString()}</span>
     </div>
   );
@@ -112,7 +112,7 @@ export default function TableFelt({
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
   return (
     <div 
-      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'py-[35px]' : 'py-2'}`}
+      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'py-[29px]' : 'py-2'}`}
       style={{
         backgroundImage: `
           linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
@@ -124,7 +124,7 @@ export default function TableFelt({
       {bets?.map(b => <BetStack key={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} />)}
 
       {/* Winner announcement or Pot */}
-      <div className="h-[44px] w-full flex items-center justify-center">
+      <div className="h-[62px] w-full flex items-start justify-center">
         {winners.length > 0 ? (
           <div className="flex flex-col items-center bg-green-50 p-2 px-3 border border-green-500 max-w-full overflow-hidden">
             {winners.slice(0, 1).map((w, i) => (
@@ -144,15 +144,15 @@ export default function TableFelt({
           // One labelled number, as the big rooms do it: POT is the whole pot, bets out included
           // (the number pot odds need). The chips already collected are drawn under it as a chip
           // stack with a bare amount, like the stacks in front of the seats; no second label.
-          <div className="flex flex-col items-center gap-1">
+          <div className="flex flex-col items-center">
             <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm" aria-label={`Pot ${pot.toLocaleString()}`}>
               <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>
               <div className="text-lg text-gray-700 font-bold tabular-nums">
                 <NumberFlow value={pot} />
               </div>
             </div>
-            <div className={`flex items-center gap-1.5 h-5 ${pot - betsOut > 0 ? '' : 'invisible'}`} aria-hidden={pot - betsOut <= 0} title="Chips collected so far">
-              <span aria-hidden className="chip-stack" />
+            <div className={`flex items-center gap-1.5 h-[18px] ${pot - betsOut > 0 ? '' : 'invisible'}`} aria-hidden={pot - betsOut <= 0} title="Chips collected so far">
+              <PokerChip aria-hidden size={16} weight="duotone" color="rgb(203, 145, 47)" />
               <span className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{Math.max(0, pot - betsOut).toLocaleString()}</span>
             </div>
           </div>
