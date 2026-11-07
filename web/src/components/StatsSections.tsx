@@ -357,11 +357,13 @@ function MiniStats({ models }: { models: ModelStats[] }) {
 
 const PAGE = '#FAFAF9';
 
-// As wide as the live table at 1440x900 (1392px), so the edges line up with it there.
-const WIDTH = 'max-w-[1392px]';
+// The cards are the main thing on their screen but not the whole screen: about 90% of the
+// width (the live table's 1252px at most) and about 80% of the height, centred under the bar.
+const WIDTH = 'max-w-[1252px]';
 
-// The table screen's outer padding under the 44px sticky bar, and above the connection bar.
-const EDGE = 'pt-[56px] lg:pt-[60px] pb-[calc(0.75rem+var(--bar-h,0px))] lg:pb-[calc(1rem+var(--bar-h,0px))]';
+// Under the 44px sticky bar and above the connection bar, with 7% of the window above the
+// card and 9% below it, so the card reads as a card on a page rather than a page of its own.
+const EDGE = 'pt-[calc(44px+7svh)] pb-[calc(9svh+var(--bar-h,0px))]';
 
 // Shrinks and dims its content as the screen `by` slides up over it: a CSS scroll-driven
 // animation on the named view timeline of that screen where supported, motion's useScroll
