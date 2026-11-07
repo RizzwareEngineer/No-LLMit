@@ -188,6 +188,19 @@ export const modelSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]
 
 export const ciHalf = (m: ModelStats) => (m.bb100_ci ? (m.bb100_ci[1] - m.bb100_ci[0]) / 2 : null);
 
+// Arena-style rank spread: the best and worst rank each model's 95% bb/100 interval allows among
+// `models`. Best = 1 + the models whose interval lies wholly above its own; worst = n − the models
+// wholly below it. A model without an interval counts as its point estimate.
+export function rankSpread(models: ModelStats[]) {
+  const iv = (m: ModelStats) => m.bb100_ci ?? [m.bb100, m.bb100];
+  return new Map(models.map(m => {
+    const [lo, hi] = iv(m);
+    const above = models.filter(o => iv(o)[0] > hi).length;
+    const below = models.filter(o => iv(o)[1] < lo).length;
+    return [m.name, [1 + above, models.length - below] as const];
+  }));
+}
+
 export const DASH = '—';
 
 export const signed = (n: number, digits = 1) =>
@@ -214,6 +227,7 @@ export const netColor = (n: number) =>
 export const STAT_DEFINITIONS: Record<string, string> = {
   hands: 'Hands dealt to this model in the selected range.',
   bb100: 'Big blinds won per 100 hands. ± is the half-width of the 95% confidence interval.',
+  rank: 'Rank spread: the best and worst rank the 95% intervals allow. Models whose intervals overlap may be in either order.',
   aiev_bb100: 'bb/100 with all-in pots credited at the equity each player had when the money went in, which strips out run-out luck.',
   vpip: 'Voluntarily put money in pot: share of hands where it called or raised preflop (posting blinds does not count).',
   pfr: 'Preflop raise: share of hands where it raised preflop.',
