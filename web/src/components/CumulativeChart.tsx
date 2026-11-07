@@ -6,25 +6,21 @@ import { GLIDE_MS, SHADOW, Segmented } from '@/components/Section';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
+import { Timeline, playReplay, playedAt, replayStarted, skipReplay, useReplay } from '@/lib/timeline';
 
 const GRID = 'rgba(55, 53, 47, 0.12)';
 const AXIS = 'rgba(55, 53, 47, 0.75)';
 // Every line is drawn through this many evenly spaced hands across the x axis, plus its exact ends.
 const SAMPLES = 160;
-const PLAY_MS = 60_000; // the race takes a minute, first hand to last
 const EASE = [0.22, 1, 0.36, 1] as const; // ease-out, as the tile glide
 const GLIDE = { duration: GLIDE_MS / 1000, ease: EASE } as const;
 // A filter change moves the axes and the lines to the new range together over this long.
 const TWEEN_S = 0.5;
-// The Race is laid out once at this size (the Race card at 1440×900) and scaled as a whole into its
-// box, so the overview tile and the card show one picture at two sizes and nothing ever stretches.
-const W = 1220, H = 500;
+// The Race is laid out once at this size (the Race card's width at 1440×900, about 3.6:1) and scaled as
+// a whole into its box. The overview's History tile has the same shape (StatsSections sizes its row),
+// so the tile and the card show one picture, filling their width, and nothing ever stretches.
+export const W = 1220, H = 340;
 const LEGEND_H = 68; // the legend under the Race card's plot: up to three rows (every model, and the note)
-
-// The race replay's clock, once per page load: its start time, so switching between the tile and the
-// card, scrolling or a remount picks it up where it is. null: not started yet (the lines show in full).
-let raceStart: number | null = null;
-const raceAt = (t: number) => (raceStart === null ? 1 : Math.min(1, Math.max(0, (t - raceStart) / PLAY_MS)));
 
 type Pts = [number, number][];
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
@@ -129,6 +125,7 @@ export default function CumulativeChart({
   race = false,
   mini = false,
   bigBlind,
+  timeline,
 }: {
   models: ModelStats[];
   everyone?: ModelStats[]; // the Race "All models" lineup; `models` is the seated one
@@ -139,6 +136,7 @@ export default function CumulativeChart({
   race?: boolean; // several lines, each labelled at its end, with filters, a legend, a hover readout and a range control
   mini?: boolean; // the overview tile: the same chart scaled down, without controls or interaction
   bigBlind?: number; // outside the Race: plot chips (bb × big blind) instead of bb
+  timeline?: Timeline | null; // the Race: replays hand by hand, each line at its model's hands then
 }) {
   const area = useRef<HTMLDivElement>(null);
   const plot = useRef<HTMLDivElement>(null);
@@ -161,27 +159,18 @@ export default function CumulativeChart({
 
   // A race, like Arena's trends chart: every line grows from the first hand to the last over a
   // minute, its label riding the tip and the order changing as it goes. It plays once per page load,
-  // from when the tile first scrolls into view; Skip and Replay control it.
-  const [now, setNow] = useState(() => (raceStart === null ? 0 : performance.now()));
-  const progress = race && !reduce ? raceAt(now) : 1; // 0..1 of the way from the first hand to the last
+  // from when the tile first scrolls into view; Skip and Replay control it. The clock is shared:
+  // Profiles and Matchups show the hand it has reached.
+  const clock = useReplay(p => p);
+  const progress = race && !reduce ? clock : 1; // 0..1 of the way from the first hand to the last
   const playing = progress < 1;
   useEffect(() => {
-    if (!playing) return;
-    let id = requestAnimationFrame(function tick(t) {
-      setNow(t);
-      if (raceAt(t) < 1) id = requestAnimationFrame(tick);
-    });
-    return () => cancelAnimationFrame(id);
-  }, [playing]);
-  const play = () => { raceStart = performance.now(); setNow(raceStart); };
-  const skip = () => { raceStart = -Infinity; setNow(performance.now()); };
-  useEffect(() => {
     const el = area.current;
-    if (!el || !race || reduce || raceStart !== null) return;
+    if (!el || !race || reduce || replayStarted()) return;
     const io = new IntersectionObserver(([e]) => {
       if (!e.isIntersecting) return;
       io.disconnect();
-      if (raceStart === null) { raceStart = performance.now(); setNow(raceStart); }
+      if (!replayStarted()) playReplay();
     }, { threshold: 0.4 });
     io.observe(el);
     return () => io.disconnect();
@@ -282,20 +271,24 @@ export default function CumulativeChart({
   const y = (v: number) => padTop + ((Y1 - v) / (Y1 - Y0 || 1)) * plotH;
   const line = (p: [number, number][]) => p.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
 
-  // While the race plays, each line stops at the playhead.
+  // While the race plays, each line stops at the playhead: with the timeline, at the hands its model
+  // had played by the replay's hand (lines pause while their model sits out); without it, at one
+  // shared number of hands played.
+  const handNow = race && timeline && playing ? progress * timeline.hands : null;
   const head = from + progress * (lastHand - from);
+  const endOf = (name: string) => (handNow === null ? head : playedAt(timeline!, name, handNow));
   const fading = (was: Map<string, Pts>, is: Map<string, Pts>) => [...is.keys(), ...(k < 1 ? [...was.keys()].filter(n => !is.has(n)) : [])];
   const fade = (was: Map<string, Pts>, is: Map<string, Pts>, n: string) => (is.has(n) ? (was.has(n) ? 1 : k) : 1 - k);
-  const drawnOf = (a?: Pts, b?: Pts) => (a && b && k < 1 ? trace(a, X0, X1, head, b, k) : trace((b ?? a)!, X0, X1, head));
-  const drawn = new Map(fading(old.lines, lines).map(n => [n, drawnOf(old.lines.get(n), lines.get(n))]));
+  const drawnOf = (end: number, a?: Pts, b?: Pts) => (a && b && k < 1 ? trace(a, X0, X1, end, b, k) : trace((b ?? a)!, X0, X1, end));
+  const drawn = new Map(fading(old.lines, lines).map(n => [n, drawnOf(endOf(n), old.lines.get(n), lines.get(n))]));
   const shown = [...drawn.keys()].flatMap(n => (drawn.get(n)!.length && byName.has(n) ? [byName.get(n)!] : []));
   const hot = shown.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
   const ordered = [...shown.filter(m => m !== sel && m !== hot), ...(sel && sel !== hot && shown.includes(sel) ? [sel] : []), ...(hot ? [hot] : [])]; // selected, then hovered on top
   // The all-in EV lines, dashed: every model's with the toggle on, else the hovered line's own.
-  const evDrawn = fading(old.evs, evs).map(n => ({ n, p: drawnOf(old.evs.get(n), evs.get(n)), o: fade(old.evs, evs, n) }));
+  const evDrawn = fading(old.evs, evs).map(n => ({ n, p: drawnOf(endOf(n), old.evs.get(n), evs.get(n)), o: fade(old.evs, evs, n) }));
   if (race && hot && !evDrawn.some(e => e.n === hot.name)) {
     const p = series(hot, metric, bigBlind, true);
-    if (p.length) evDrawn.push({ n: hot.name, p: trace(p, X0, X1, head), o: 1 });
+    if (p.length) evDrawn.push({ n: hot.name, p: trace(p, X0, X1, endOf(hot.name)), o: 1 });
   }
   const selPts = sel ? drawn.get(sel.name) ?? [] : [];
   const bandPath = sel && selPts.length
@@ -514,9 +507,13 @@ export default function CumulativeChart({
             {/* The race clock: the hand the lines have reached, with Skip while it plays and Replay after. */}
             {race && (playing || interactive) && (
               <div className="absolute flex items-center gap-2 tabular-nums" style={{ right: right + 8, top: padTop + 4, fontSize: fs, color: MUTED }}>
-                {playing && <span data-race-clock>Hand <b style={{ color: TEXT }}>{Math.round(head).toLocaleString()}</b> of {lastHand.toLocaleString()}</span>}
+                {playing && (
+                  <span data-race-clock>
+                    Hand <b style={{ color: TEXT }}>{(handNow === null ? Math.round(head) : Math.floor(handNow)).toLocaleString()}</b> of {(handNow === null ? lastHand : timeline!.hands).toLocaleString()}
+                  </span>
+                )}
                 {interactive && (
-                  <button onPointerMove={ev => ev.stopPropagation()} onPointerDown={ev => ev.stopPropagation()} onClick={playing ? skip : play} className="rounded border px-2 py-px font-medium hover:bg-[rgba(55,53,47,0.06)]" style={{ borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT, background: 'white' }}>
+                  <button onPointerMove={ev => ev.stopPropagation()} onPointerDown={ev => ev.stopPropagation()} onClick={playing ? skipReplay : playReplay} className="rounded border px-2 py-px font-medium hover:bg-[rgba(55,53,47,0.06)]" style={{ borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT, background: 'white' }}>
                     {playing ? 'Skip' : 'Replay'}
                   </button>
                 )}
