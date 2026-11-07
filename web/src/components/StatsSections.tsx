@@ -182,16 +182,23 @@ export default memo(function StatsSections({
   const seated = data?.seated ?? lineup;
   const field = useMemo(() => seatedModels(data?.models ?? [], seated), [data, seated]);
   const bigBlind = data?.scope.big_blind ?? 10;
+  // The Race is each model's whole history, so it always charts all time, whatever session is picked:
+  // a fresh live session has no hands to race yet.
+  const raceAll = all.data?.models ?? models;
+  const raceField = useMemo(() => seatedModels(raceAll, all.data?.seated ?? seated), [raceAll, all.data?.seated, seated]);
   // The leader, in one unit on every screen: net chips over the range shown (the live session by default).
-  const leader = [...field].sort((a, b) => b.net_chips - a.net_chips)[0];
-  const lead = ready && leader && (
+  const leadOf = (list: ModelStats[], suffix = '') => {
+    const leader = [...list].sort((a, b) => b.net_chips - a.net_chips)[0];
+    return ready && leader && (
     <span className="flex items-center gap-1.5 tabular-nums text-[14px]" style={{ color: TEXT }}>
       <span style={{ color: MUTED }}>Leader</span>
       <LLMLogo model={leader.name} size={18} />
       <span className="font-bold">{leader.name}</span>
-      <span className="font-bold" style={{ color: netColor(leader.net_chips) }}>{chips(leader.net_chips)} chips</span>
+      <span className="font-bold" style={{ color: netColor(leader.net_chips) }}>{chips(leader.net_chips)} chips{suffix}</span>
     </span>
-  );
+    );
+  };
+  const lead = leadOf(field);
   const byRate = [...field].sort((a, b) => b.bb100 - a.bb100);
   const top = pairwiseLeader(field);
   const live = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
@@ -232,12 +239,12 @@ export default memo(function StatsSections({
                 land="race-panel"
                 focused={zoomed}
                 className="row-start-1 md:col-span-2"
-                aside={lead}
+                aside={leadOf(raceField, ' all time')}
               >
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the zoom. */}
                 {ready ? (
-                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} selected={selected} highlight={highlight} onHighlight={setHighlight} onSelect={zoomed ? setSelected : undefined} />
+                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={raceField} everyone={raceAll} selected={selected} highlight={highlight} onHighlight={setHighlight} onSelect={zoomed ? setSelected : undefined} />
                 ) : message}
               </Panel>
 
