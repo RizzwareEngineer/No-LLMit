@@ -77,7 +77,7 @@ export default memo(function StatsSections({
   // A failed refetch keeps the last good data on screen, with the problem as a status line.
   const ready = !!data && current;
   // The History card's height: its tile's, plus the filter bar and the legend the card adds, so the
-  // chart keeps its size (at most 136px more; past that the chart shrinks a little, evenly).
+  // chart keeps its size (the stage's height at most: past that the chart shrinks a little, evenly).
   const [raceFit, setRaceFit] = useState<number>();
   const zoomedNow = tiles.on === 'race';
   useLayoutEffect(() => {
@@ -90,7 +90,7 @@ export default memo(function StatsSections({
       const kids = root ? [...root.children] as HTMLElement[] : [];
       const box = kids.reduce<HTMLElement | null>((a, c) => (!a || c.offsetHeight > a.offsetHeight ? c : a), null);
       const bar = zoomedNow && root && box ? root.clientHeight - box.offsetHeight : 64 + 8;
-      const h = Math.ceil(tile.offsetHeight + Math.min(136, bar + LEGEND));
+      const h = Math.ceil(tile.offsetHeight + bar + LEGEND);
       setRaceFit(f => (f !== undefined && Math.abs(f - h) < 1 ? f : h));
     };
     fit();
