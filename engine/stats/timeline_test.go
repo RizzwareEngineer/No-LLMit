@@ -1,0 +1,218 @@
+package stats
+
+import (
+	"encoding/json"
+	"fmt"
+	"math"
+	"math/rand"
+	"reflect"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
+)
+
+// syntheticHands is n nine-handed hands with blinds 5/10. Each hand 1 to 4 players
+// put chips in preflop and the rest fold; when two or more do, they see a flop with a
+// bet and a call, and one of them (two, now and then, splitting) takes the losers' chips.
+func syntheticHands(n int) []history.HandRecord {
+	rng := rand.New(rand.NewSource(1))
+	names := []string{"Claude", "GPT", "Gemma", "Llama", "Mistral", "DeepSeek", "Phi", "Qwen", "Cohere"}
+	positions := []string{"BTN", "SB", "BB", "UTG", "UTG1", "MP", "LJ", "HJ", "CO"}
+	start := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	act := func(street string, seat int, kind string, amount int) history.ActionRecord {
+		return history.ActionRecord{Street: street, Seat: seat, Status: "ok", ToCall: amount, StackBefore: 2000,
+			PotBefore: 15, Applied: history.AppliedAction{Type: kind, Amount: amount}}
+	}
+	hands := make([]history.HandRecord, n)
+	for i := range hands {
+		h := history.HandRecord{
+			HandID: fmt.Sprintf("syn-%06d", i), TableID: "syn", Config: history.HandConfig{BigBlind: 10},
+			StartedAt: start.Add(time.Duration(i) * time.Minute), Result: history.HandResult{Net: map[string]int{}},
+		}
+		for s, name := range names {
+			h.Seats = append(h.Seats, history.SeatRecord{Seat: s, Name: name, Position: positions[(s+i)%9]})
+		}
+		sb, bb := (1+9-i%9)%9, (2+9-i%9)%9 // the seats in the blinds this hand
+		h.Blinds = []history.BlindRecord{{Seat: sb, Amount: 5}, {Seat: bb, Amount: 10}}
+		in := rng.Perm(9)[:[]int{1, 2, 2, 2, 3, 3, 4}[rng.Intn(7)]]
+		inPot := map[int]bool{}
+		for j, s := range in {
+			inPot[s] = true
+			kind := "CALL"
+			if j == 0 {
+				kind = "RAISE"
+			}
+			h.Actions = append(h.Actions, act("preflop", s, kind, 30))
+		}
+		for s := range names {
+			if !inPot[s] {
+				h.Actions = append(h.Actions, act("preflop", s, "FOLD", 0))
+				h.Result.Net[strconv.Itoa(s)] = -map[int]int{sb: 5, bb: 10}[s]
+			}
+		}
+		if len(in) == 1 { // folded round to the opener
+			h.Result.Net[strconv.Itoa(in[0])] = 15
+			hands[i] = h
+			continue
+		}
+		h.Board = []string{"2c", "7d", "9h", "Js", "3s"}
+		bet := 10 * (1 + rng.Intn(50))
+		h.Actions = append(h.Actions, act("flop", in[0], "BET", bet))
+		for _, s := range in[1:] {
+			h.Actions = append(h.Actions, act("flop", s, "CALL", bet))
+		}
+		winners := in[:1]
+		if len(in) > 2 && rng.Intn(10) == 0 {
+			winners = in[:2]
+		}
+		pot := 0
+		for s := range names {
+			pot -= h.Result.Net[strconv.Itoa(s)]
+		}
+		for _, s := range in[len(winners):] {
+			h.Result.Net[strconv.Itoa(s)] = -(30 + bet)
+			pot += 30 + bet
+		}
+		for _, s := range in {
+			h.Result.Showdown = append(h.Result.Showdown, history.ShowdownRecord{Seat: s})
+		}
+		// Winners split the losers' chips (and the folded blinds); the odd chip goes to the first.
+		share := pot / len(winners)
+		for k, s := range winners {
+			h.Result.Net[strconv.Itoa(s)] = share
+			if k == 0 {
+				h.Result.Net[strconv.Itoa(s)] += pot - share*len(winners)
+			}
+			h.Result.Pots = append(h.Result.Pots, history.PotRecord{Amount: share, WinnerSeat: s})
+		}
+		hands[i] = h
+	}
+	return hands
+}
+
+func profileRows(tl Timeline, hand int) map[string][]any {
+	out := map[string][]any{}
+	for _, r := range tl.Profiles.Rows {
+		if r[0] == hand {
+			out[tl.Models[r[1].(int)]] = r
+		}
+	}
+	return out
+}
+
+func TestTimelineEndsAtTheTotals(t *testing.T) {
+	for _, n := range []int{7, 900, 10000} {
+		hands := syntheticHands(n)
+		s, tl := ComputeWithTimeline(hands)
+		if !reflect.DeepEqual(s, Compute(hands)) {
+			t.Fatalf("n=%d: the shared pass changed Compute", n)
+		}
+		if tl.Hands != n || len(tl.Models) != 9 {
+			t.Fatalf("n=%d: hands %d models %v", n, tl.Hands, tl.Models)
+		}
+
+		// The last snapshot is the current totals.
+		last := profileRows(tl, n)
+		val := func(x any) *float64 {
+			if x == nil {
+				return nil
+			}
+			f := x.(float64)
+			return &f
+		}
+		closeTo := func(got any, want *float64, tol float64) bool {
+			g := val(got)
+			return (g == nil) == (want == nil) && (g == nil || math.Abs(*g-*want) <= tol)
+		}
+		for _, m := range s.Models {
+			r := last[m.Name]
+			if r == nil || r[2] != m.Hands || !closeTo(r[3], &m.BB100, 0.005) || !closeTo(r[4], m.VPIP, 5e-5) ||
+				!closeTo(r[5], m.PFR, 5e-5) || !closeTo(r[6], m.AF, 5e-4) {
+				t.Errorf("n=%d %s: last snapshot %v, totals hands %d bb100 %v vpip %v pfr %v af %v",
+					n, m.Name, r, m.Hands, m.BB100, deref(m.VPIP), deref(m.PFR), deref(m.AF))
+			}
+		}
+
+		// Summing the matchups changes gives vs for every pair, in both directions.
+		sum := map[[2]string]int{}
+		for _, r := range tl.Matchups.Rows {
+			a, b := tl.Models[r[1]], tl.Models[r[2]]
+			if r[1] >= r[2] || r[3] == 0 {
+				t.Fatalf("pair out of order or no change: %v", r)
+			}
+			sum[[2]string{a, b}] += r[3]
+			sum[[2]string{b, a}] -= r[3]
+		}
+		for _, m := range s.Models {
+			for other, v := range m.Vs {
+				if sum[[2]string{m.Name, other}] != v.NetChips {
+					t.Errorf("n=%d %s vs %s: matchups sum %d, vs %d", n, m.Name, other, sum[[2]string{m.Name, other}], v.NetChips)
+				}
+			}
+		}
+
+		// The caps, and the step below them.
+		snaps, points := map[any]bool{}, map[int]bool{}
+		for _, r := range tl.Profiles.Rows {
+			snaps[r[0]] = true
+		}
+		for _, r := range tl.Matchups.Rows {
+			points[r[0]] = true
+		}
+		if len(snaps) > maxProfileSnaps || len(points) > maxMatchupSteps || (n <= 3000 && tl.ProfileStep != 25) {
+			t.Errorf("n=%d: %d snapshots (step %d), %d change points (bucket %d)", n, len(snaps), tl.ProfileStep, len(points), tl.MatchupBucket)
+		}
+		if n == 900 && (len(snaps) != 36 || !snaps[25] || tl.MatchupBucket != 1) {
+			t.Errorf("900 hands: %d snapshots, bucket %d", len(snaps), tl.MatchupBucket)
+		}
+
+		if n == 10000 {
+			p, _ := json.Marshal(tl.Profiles)
+			m, _ := json.Marshal(tl.Matchups)
+			t.Logf("10k hands: profiles %d bytes, matchups %d bytes (%d rows)", len(p), len(m), len(tl.Matchups.Rows))
+			// The 120 KB matchups budget does not fit 1,200 change points: with nine models
+			// about ten pairs change per point, ~15 bytes each, so this lands near 190 KB
+			// (docs/stats.md, "Timeline"). The ceiling guards against the encoding growing.
+			if len(p) > 80_000 || len(m) > 200_000 {
+				t.Errorf("10k hands: profiles %d bytes (max 80 KB), matchups %d bytes (max 200 KB)", len(p), len(m))
+			}
+		}
+	}
+}
+
+func TestTimelineComputesFast(t *testing.T) {
+	hands := syntheticHands(10000)
+	best := time.Hour
+	for range 3 { // best of three, so a busy machine does not fail it
+		t0 := time.Now()
+		ComputeWithTimeline(hands)
+		best = min(best, time.Since(t0))
+	}
+	t.Logf("10k hands: stats and timeline in %v", best)
+	if best > 50*time.Millisecond {
+		t.Errorf("10k hands took %v, want under 50ms", best)
+	}
+}
+
+func BenchmarkComputeWithTimeline10k(b *testing.B) {
+	hands := syntheticHands(10000)
+	for range b.N {
+		ComputeWithTimeline(hands)
+	}
+}
+
+func BenchmarkCompute10k(b *testing.B) {
+	hands := syntheticHands(10000)
+	for range b.N {
+		Compute(hands)
+	}
+}
+
+func deref(p *float64) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}

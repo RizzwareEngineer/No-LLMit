@@ -1,8 +1,10 @@
 package api
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -259,7 +261,7 @@ func TestStatsSessionsInPlayOrderAndLiveOnlyLast(t *testing.T) {
 
 	// A new hand re-encodes the live session and all-time, not the finished one.
 	c.mu.Lock()
-	oldBytes := string(c.bySession["tbl_old"])
+	oldBytes := string(c.bySession["tbl_old"].json)
 	c.mu.Unlock()
 	time.Sleep(time.Millisecond) // so a re-encode would carry a new generated_at
 	c.add(hands[2])
@@ -268,13 +270,86 @@ func TestStatsSessionsInPlayOrderAndLiveOnlyLast(t *testing.T) {
 		t.Errorf("all-time hands %d", all.Scope.Hands)
 	}
 	c.mu.Lock()
-	unchanged := string(c.bySession["tbl_old"]) == oldBytes
+	unchanged := string(c.bySession["tbl_old"].json) == oldBytes
 	c.mu.Unlock()
 	if !unchanged {
 		t.Error("finished session was recomputed for a hand in another session")
 	}
 	if cur := session("tbl_test"); cur.Hands != 3 {
 		t.Errorf("live session hands %d", cur.Hands)
+	}
+}
+
+func (c *statsCache) getTimeline(url string) (int, stats.Timeline) {
+	w := httptest.NewRecorder()
+	c.handleTimeline(w, httptest.NewRequest("GET", url, nil))
+	var tl stats.Timeline
+	json.Unmarshal(w.Body.Bytes(), &tl)
+	return w.Code, tl
+}
+
+func TestStatsTimelineByScopeAndGzip(t *testing.T) {
+	hands := statsHands(t)
+	for i := range hands[:2] {
+		hands[i].TableID = "tbl_old"
+	}
+	c := newTestCache(nil)
+	if code, _ := c.getTimeline("/api/stats/timeline"); code != http.StatusServiceUnavailable {
+		t.Errorf("before the first load: %d", code)
+	}
+	for _, h := range hands {
+		c.add(h)
+	}
+	c.recompute(true)
+
+	// Each scope's timeline ends at that scope's /api/stats: the last profile row per model
+	// has its hands, and the matchups add up to its vs.
+	for _, url := range []string{"", "?session=tbl_old", "?session=tbl_test"} {
+		_, s := c.get("/api/stats" + url)
+		code, tl := c.getTimeline("/api/stats/timeline" + url)
+		if code != 200 || tl.Hands != s.Scope.Hands || tl.GeneratedAt.IsZero() || len(tl.Profiles.Fields) != 7 {
+			t.Fatalf("%q: %d, %d hands, want %d", url, code, tl.Hands, s.Scope.Hands)
+		}
+		hands, net := map[string]float64{}, map[[2]string]int{}
+		for _, r := range tl.Profiles.Rows {
+			hands[tl.Models[int(r[1].(float64))]] = r[2].(float64)
+		}
+		for _, r := range tl.Matchups.Rows {
+			a, b := tl.Models[r[1]], tl.Models[r[2]]
+			net[[2]string{a, b}] += r[3]
+			net[[2]string{b, a}] -= r[3]
+		}
+		for _, m := range s.Models {
+			if hands[m.Name] != float64(m.Hands) {
+				t.Errorf("%q %s: timeline ends at %v hands, stats %d", url, m.Name, hands[m.Name], m.Hands)
+			}
+			for other, v := range m.Vs {
+				if net[[2]string{m.Name, other}] != v.NetChips {
+					t.Errorf("%q %s vs %s: matchups %d, vs %d", url, m.Name, other, net[[2]string{m.Name, other}], v.NetChips)
+				}
+			}
+		}
+	}
+	if code, _ := c.getTimeline("/api/stats/timeline?session=nope"); code != http.StatusNotFound {
+		t.Errorf("unknown session: %d", code)
+	}
+
+	// With Accept-Encoding: gzip both endpoints send the same JSON compressed.
+	for _, url := range []string{"/api/stats", "/api/stats/timeline?session=tbl_old"} {
+		plain, zipped := httptest.NewRecorder(), httptest.NewRecorder()
+		r := httptest.NewRequest("GET", url, nil)
+		c.serve(plain, r, strings.Contains(url, "timeline"))
+		r.Header.Set("Accept-Encoding", "gzip, deflate, br")
+		c.serve(zipped, r, strings.Contains(url, "timeline"))
+		zr, err := gzip.NewReader(zipped.Body)
+		if err != nil {
+			t.Fatalf("%s: %v", url, err)
+		}
+		body, _ := io.ReadAll(zr)
+		if zipped.Header().Get("Content-Encoding") != "gzip" || plain.Header().Get("Content-Encoding") != "" ||
+			string(body) != plain.Body.String() || zipped.Body.Len() >= plain.Body.Len() {
+			t.Errorf("%s: gzip %d bytes, plain %d, same body %v", url, zipped.Body.Len(), plain.Body.Len(), string(body) == plain.Body.String())
+		}
 	}
 }
 

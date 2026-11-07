@@ -7,7 +7,8 @@ hands offline, run `go run ./cmd/stats -in data/hands.jsonl` from `engine/`.
 
 The engine loads every saved hand at startup and again every 5 minutes, and adds each hand
 as soon as it is saved, so the numbers are never more than one hand behind. Until the first
-load succeeds the endpoint answers 503 (a failed load is retried every 15 seconds).
+load succeeds the endpoint answers 503 (a failed load is retried every 15 seconds). Both
+stats endpoints send gzip to clients that accept it: the demo's 191 KB of stats are 36 KB.
 
 All-ins are worked out a few hands at a time after a restart, so serving never waits on
 them. While some are left, `partial` is `true` and those hands count at their actual result
@@ -119,6 +120,34 @@ number of models whose interval lies wholly above its own; worst is the field si
 the number whose interval lies wholly below it. "1–9" at a nine-model table means the data
 cannot yet order that model against anyone. Computed in the web app (`rankSpread` in
 `web/src/lib/stats.ts`), not by the engine.
+
+## Timeline
+
+`GET /api/stats/timeline` (same scope: all time, or `?session=<id>`) returns Profiles and
+Matchups at past hands, so the web can replay them alongside the race chart. Its shape is
+`_timeline` in [`stats-api-contract.json`](stats-api-contract.json). It comes from the same
+pass over the hands as `/api/stats`, recomputed with it after each hand, so the two always agree.
+
+- **Tables, not objects.** `profiles` and `matchups` are `{fields, rows}`: each row holds
+  values in the order of `fields`. A model is an index into `models`, sorted by name.
+- **Profiles**: one row per model already seated, every 25 hands and at the last hand,
+  with hands played, bb/100, VPIP, PFR and AF as of that hand. These are the definitions
+  above, from the same code, rounded (bb/100 to 0.01, VPIP and PFR to 0.0001, AF to 0.001).
+  The last snapshot is the current `/api/stats`. Past 3,000 hands the step becomes
+  ceil(hands ÷ 120), so there are never more than 120 snapshots (`profile_step` says which).
+- **Matchups**: `[hand, a, b, chips]` with `a < b`, one row for each pair whose
+  head-to-head (`vs`) net changed on that hand, `chips` being what `a` took from `b` (negative
+  when `b` won). Past 1,200 hands, consecutive hands are summed in buckets of
+  ceil(hands ÷ 1,200) and stamped with the bucket's last hand (`matchup_bucket`), so there are
+  never more than 1,200 change points. Each row is the change in the rounded running total,
+  so adding a pair's rows up to any hand gives its `vs.net_chips` there, and up to the end
+  gives the current `/api/stats` exactly.
+
+Sizes, uncompressed and gzipped: the demo history (895 hands, 19 models) is 68 KB / 22 KB.
+A synthetic 10,000 hands with nine fixed models is 43 KB of profiles and 188 KB of matchups;
+the real lineups repeated to 10,000 hands (19 models) are 93 KB and 399 KB, 134 KB gzipped
+in all. Matchups grow with the pairs that play in each change point, not with the cap: on
+the real-shaped history 600 points give 334 KB and 120 points still 159 KB.
 
 ## A note on the hand record
 
