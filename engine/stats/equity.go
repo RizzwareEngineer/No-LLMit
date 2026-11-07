@@ -38,9 +38,9 @@ func needsEV(h history.HandRecord) bool {
 }
 
 func actualNets(h history.HandRecord) map[int]float64 {
-	out := map[int]float64{}
+	out := make(map[int]float64, len(h.Seats))
 	for _, s := range h.Seats {
-		out[s.Seat] = float64(netOf(h, s.Seat))
+		out[s.Seat] = float64(netOf(&h, s.Seat))
 	}
 	return out
 }
@@ -105,7 +105,7 @@ func computeAIEV(h history.HandRecord) map[int]float64 {
 		inShowdown[sd.Seat] = true
 	}
 	for seat, c := range contrib {
-		if !inShowdown[seat] && float64(netOf(h, seat)) != -c {
+		if !inShowdown[seat] && float64(netOf(&h, seat)) != -c {
 			return out // the actions do not add up to the result; keep the actual nets
 		}
 	}
@@ -136,7 +136,7 @@ func computeAIEV(h history.HandRecord) map[int]float64 {
 // applied actions (a call adds its amount; a bet, raise or all-in sets the street total).
 // result.pots cannot be used: a pot only one player is eligible for is not recorded.
 func contributions(h history.HandRecord) map[int]float64 {
-	total, street := map[int]float64{}, map[int]float64{}
+	total, street := make(map[int]float64, len(h.Seats)), make(map[int]float64, len(h.Seats))
 	for _, b := range h.Blinds {
 		street[b.Seat] = float64(b.Amount)
 	}
@@ -146,7 +146,8 @@ func contributions(h history.HandRecord) map[int]float64 {
 			for seat, c := range street {
 				total[seat] += c
 			}
-			street, cur = map[int]float64{}, a.Street
+			clear(street)
+			cur = a.Street
 		}
 		switch a.Applied.Type {
 		case "CALL":
@@ -287,6 +288,6 @@ func parseCards(ss []string) ([]game.Card, error) {
 	return out, nil
 }
 
-func netOf(h history.HandRecord, seat int) int {
+func netOf(h *history.HandRecord, seat int) int { // a pointer: stats calls it per pair of seats
 	return h.Result.Net[strconv.Itoa(seat)]
 }

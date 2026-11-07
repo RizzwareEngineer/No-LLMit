@@ -130,6 +130,7 @@ func (c count) rate() *float64 {
 type acc struct {
 	name, model                       string
 	bbs, aievBBs                      []float64 // per hand, in big blinds
+	bbSum                             float64   // of bbs, added in the same order mean would
 	net                               int
 	vpip, pfr, threeBet, cbet, ftc    count
 	wtsd, wsd, checkFree, errs, retry count
@@ -165,6 +166,17 @@ type vsAcc struct {
 // never runs the equity calculator: call WarmAIEV first. GeneratedAt, and nulling the
 // live session's ended_at, are left for the caller.
 func Compute(hands []history.HandRecord) Stats {
+	s, _ := compute(hands, nil)
+	return s
+}
+
+// ComputeWithTimeline is Compute plus the timeline, from the same pass over the hands.
+func ComputeWithTimeline(hands []history.HandRecord) (Stats, Timeline) {
+	tl := newTimelineBuilder(hands)
+	return compute(hands, tl)
+}
+
+func compute(hands []history.HandRecord, tl *timelineBuilder) (Stats, Timeline) {
 	out := Stats{Sessions: []Session{}, Models: []Model{}, DefinitionsURL: "/docs/stats.md"}
 	accs := map[string]*acc{}
 	get := func(name string) *acc {
@@ -176,7 +188,7 @@ func Compute(hands []history.HandRecord) Stats {
 	}
 
 	sessionIdx := map[string]int{}
-	for _, h := range hands {
+	for hi, h := range hands {
 		id := SessionID(h)
 		i, ok := sessionIdx[id]
 		if !ok {
@@ -191,6 +203,9 @@ func Compute(hands []history.HandRecord) Stats {
 		if !addHand(h, get) {
 			out.Partial = true
 		}
+		if tl != nil {
+			tl.after(hi, h, accs)
+		}
 	}
 	out.Scope.Hands = len(hands)
 	out.Scope.Sessions = len(out.Sessions)
@@ -204,7 +219,10 @@ func Compute(hands []history.HandRecord) Stats {
 		}
 		return out.Models[i].Name < out.Models[j].Name
 	})
-	return out
+	if tl == nil {
+		return out, Timeline{}
+	}
+	return out, tl.result()
 }
 
 func aggressive(a history.ActionRecord) bool {
@@ -236,6 +254,8 @@ func checkLegal(a history.ActionRecord) bool {
 
 // seatHand is what one seat did in one hand.
 type seatHand struct {
+	name             string
+	a                *acc
 	okPre, vpip, pfr bool
 	threeOpp, three  bool
 	cbetOpp, cbet    bool
@@ -251,12 +271,10 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 	if bb == 0 {
 		bb = 1
 	}
-	sh := map[int]*seatHand{}
-	names := map[int]string{}
+	sh := make(map[int]*seatHand, len(h.Seats)) // sized: a full table outgrows a small map
 	for _, s := range h.Seats {
-		sh[s.Seat] = &seatHand{}
-		names[s.Seat] = s.Name
 		a := get(s.Name)
+		sh[s.Seat] = &seatHand{name: s.Name, a: a}
 		if s.Model != "" {
 			a.model = s.Model
 		}
@@ -270,7 +288,7 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 		if s == nil {
 			continue
 		}
-		a := get(names[act.Seat])
+		a := s.a
 		ok := act.Status == "ok"
 		aggr := aggressive(act)
 
@@ -388,10 +406,11 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 
 	aiev, evDone := aievNet(h)
 	for _, seat := range h.Seats {
-		s, a := sh[seat.Seat], get(seat.Name)
-		net := netOf(h, seat.Seat)
+		s, a := sh[seat.Seat], sh[seat.Seat].a
+		net := netOf(&h, seat.Seat)
 		a.net += net
 		a.bbs = append(a.bbs, float64(net)/bb)
+		a.bbSum += float64(net) / bb
 		a.aievBBs = append(a.aievBBs, aiev[seat.Seat]/bb)
 
 		p := a.pos[seat.Position]
@@ -448,14 +467,14 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 			if other == seat.Seat {
 				other = flop[1]
 			}
-			v := a.hu[names[other]]
+			v := a.hu[sh[other].name]
 			if v == nil {
 				v = &vsAcc{}
-				a.hu[names[other]] = v
+				a.hu[sh[other].name] = v
 			}
 			v.pots++
 			// Only these two can finish ahead, so a loss by one is a win for the other.
-			if on := netOf(h, other); net > 0 && on < 0 {
+			if on := netOf(&h, other); net > 0 && on < 0 {
 				v.net -= float64(on)
 			} else if net < 0 && on > 0 {
 				v.net += float64(net)
@@ -474,7 +493,7 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 				a.vs[other.Name] = v
 			}
 			v.pots++
-			on := netOf(h, other.Seat)
+			on := netOf(&h, other.Seat)
 			if net > 0 && on < 0 {
 				v.net += float64(-on) * float64(net) / totalWon
 			} else if net < 0 && on > 0 {
@@ -490,18 +509,14 @@ func (a *acc) result() Model {
 	decisions := int(a.errs.d)
 	m := Model{
 		Name: a.name, Model: a.model, Hands: n, Decisions: decisions,
-		NetChips: a.net, BB100: 100 * mean(a.bbs), BB100CI: ci95(a.bbs), AIEVBB100: 100 * mean(a.aievBBs),
-		VPIP: a.vpip.rate(), PFR: a.pfr.rate(), ThreeBet: a.threeBet.rate(),
+		NetChips: a.net, BB100: a.bb100(), BB100CI: ci95(a.bbs), AIEVBB100: 100 * mean(a.aievBBs),
+		VPIP: a.vpip.rate(), PFR: a.pfr.rate(), AF: a.af(), ThreeBet: a.threeBet.rate(),
 		CBet: a.cbet.rate(), FoldToCBet: a.ftc.rate(), WTSD: a.wtsd.rate(), WSD: a.wsd.rate(),
 		AvgBetPctPot: a.betPct.rate(), FoldCheckFree: a.checkFree.rate(),
 		ErrorRate: a.errs.rate(), RetryRate: a.retry.rate(),
 		CostUSD: a.cost, BiggestPotWon: a.potWon, BiggestPotLost: a.potLost,
 		ByPosition: map[string]Position{}, CumulativeBB: curve(a.bbs), CumulativeAIEVBB: curve(a.aievBBs), Vs: map[string]Vs{},
 		ByPlayersToFlop: map[string]FlopBucket{}, HeadsUpVs: map[string]Vs{},
-	}
-	if a.calls > 0 {
-		af := a.aggr / a.calls
-		m.AF = &af
 	}
 	if decisions > 0 {
 		m.AvgLatencyMs = int(math.Round(a.latency / float64(decisions)))
@@ -531,6 +546,23 @@ func (a *acc) result() Model {
 		m.MultiwayShare = MultiwayShare{ChipsWonPct: &won, FairSharePct: &fair}
 	}
 	return m
+}
+
+// bb100 is 100 × mean(bbs), from the running sum so timeline snapshots cost nothing.
+func (a *acc) bb100() float64 {
+	if len(a.bbs) == 0 {
+		return 0
+	}
+	return 100 * (a.bbSum / float64(len(a.bbs)))
+}
+
+// af is postflop bets and raises over calls; null with no calls.
+func (a *acc) af() *float64 {
+	if a.calls == 0 {
+		return nil
+	}
+	af := a.aggr / a.calls
+	return &af
 }
 
 func mean(xs []float64) float64 {
