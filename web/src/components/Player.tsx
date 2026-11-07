@@ -68,12 +68,23 @@ export default function Player({ player, active, position, folded = false, winAm
       >
         {/* Top-left, as in the original seat: logo, then the name over the stack. The name has the
             whole row because the hole cards sit bottom-right, so it fits on one line. */}
-        <div className="flex items-center gap-2 p-3 pb-0 min-w-0">
-          <LLMLogo model={player.name} size={20} />
-          <div className="flex flex-col min-w-0">
-            <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-            <div className="text-[10px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{player.stack.toLocaleString()}</div>
+        <div className="flex items-start justify-between gap-2 p-3 pb-0 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <LLMLogo model={player.name} size={20} />
+            <div className="flex flex-col min-w-0">
+              <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
+              <div className="text-[10px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{player.stack.toLocaleString()}</div>
+            </div>
           </div>
+          {/* Position badge, top-right */}
+          {position && (
+            <div 
+              className={`w-8 py-0.5 rounded text-[8px] font-bold shrink-0 text-center ${positionColor}`}
+              title={getPositionFullName(position)}
+            >
+              {position}
+            </div>
+          )}
         </div>
 
         {/* Hover stats in the empty band between the name block and the bottom row; absolute, so the seat never changes size. */}
@@ -88,17 +99,9 @@ export default function Player({ player, active, position, folded = false, winAm
           </div>
         )}
 
-        {/* Bottom row: position badge and action (as in the original), with the hole cards at the right. */}
+        {/* Bottom row: the action at the left, the hole cards at the right. */}
         <div className="mt-auto flex items-end justify-between gap-2 p-3 pt-0 min-w-0">
           <div className="flex items-center gap-2 min-w-0 mb-0.5">
-            {position && (
-              <div 
-                className={`w-8 py-0.5 rounded text-[8px] font-bold shrink-0 text-center ${positionColor}`}
-                title={getPositionFullName(position)}
-              >
-                {position}
-              </div>
-            )}
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
                 <span className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+{winAmount.toLocaleString()}</span>
