@@ -6,10 +6,10 @@ import LLMLogo from '@/components/LLMLogo';
 import { Warning } from '@phosphor-icons/react';
 import Panel, { CARD, CARD_SHADOW, CountUp, GLIDE_MS, HEADER, Segmented, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
 import CumulativeChart from '@/components/CumulativeChart';
-import StatsTable, { SLIDE } from '@/components/StatsTable';
+import StatsTable, { Bb100, SLIDE } from '@/components/StatsTable';
 import HeadToHead, { PairwiseBars, pairwiseLeader } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
-import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, ciTitle, netColor, pct, seatedModels, signedBrief, useStats } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, pct, seatedModels, useStats } from '@/lib/stats';
 
 type Stats = ReturnType<typeof useStats>;
 
@@ -401,11 +401,11 @@ function MiniStats({ models }: { models: ModelStats[] }) {
         <tbody>
           {models.map(m => {
             return (
-              <motion.tr key={m.name} layout={reduce ? false : 'position'} {...SLIDE} className="border-t border-notion">
+              <motion.tr key={m.name} layout={reduce ? false : 'position'} {...SLIDE} className="relative hover:z-10 border-t border-notion">
                 <th scope="row" className="text-left font-medium">
                   <span className="flex items-center gap-2 min-w-0"><LLMLogo model={m.name} size={16} /><span className="truncate">{m.name}</span></span>
                 </th>
-                <td className="text-right whitespace-nowrap font-bold" style={{ color: netColor(m.bb100) }} title={ciTitle(m)}>{signedBrief(m.bb100)}</td>
+                <td className="text-right whitespace-nowrap"><Bb100 m={m} /></td>
                 <td className="text-right">{pct(m.vpip)}</td>
               </motion.tr>
             );

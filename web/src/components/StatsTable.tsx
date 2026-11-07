@@ -282,9 +282,15 @@ function Intervals({ models, picked, onPick }: { models: ModelStats[]; picked: S
   );
 }
 
-// bb/100 in its colour, one number; the 95% range is the cell's tooltip.
-function Bb100({ m }: { m: ModelStats }) {
-  return <span style={{ color: netColor(m.bb100) }} className="font-bold" title={ciTitle(m)}>{signedBrief(m.bb100)}</span>;
+// bb/100 in its colour, one number; hovering it shows the 95% range.
+export function Bb100({ m }: { m: ModelStats }) {
+  const ci = ciTitle(m);
+  return (
+    <span className="group/ci relative inline-block font-bold" style={{ color: netColor(m.bb100) }}>
+      {signedBrief(m.bb100)}
+      {ci && <span role="tooltip" className="pointer-events-none absolute right-0 top-full z-20 mt-1 hidden whitespace-nowrap rounded bg-white px-2 py-1 text-[13px] font-normal group-hover/ci:block" style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}>{ci}</span>}
+    </span>
+  );
 }
 
 function Grid({
@@ -351,7 +357,7 @@ function Grid({
       key={m.name}
       layout={reduce ? false : 'position'}
       {...SLIDE}
-      className="lift h-6 cursor-pointer"
+      className="lift relative hover:z-10 h-6 cursor-pointer"
       tabIndex={0}
       aria-selected={picked.has(m.name)}
       onClick={e => !(e.target as Element).closest('a, button') && onPick(m.name)}
