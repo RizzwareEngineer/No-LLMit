@@ -237,7 +237,7 @@ export default memo(function StatsSections({
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the zoom. */}
                 {ready ? (
-                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} selected={selected} highlight={highlight} onHighlight={setHighlight} onSelect={zoomed ? setSelected : undefined} />
+                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} selected={selected} highlight={highlight} onHighlight={setHighlight} onSelect={zoomed ? setSelected : undefined} />
                 ) : message}
               </Panel>
 

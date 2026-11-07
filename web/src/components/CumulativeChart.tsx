@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Segmented } from '@/components/Section';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
+import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
 
 const GRID = 'rgba(55, 53, 47, 0.12)';
@@ -70,9 +71,23 @@ export function resample(pts: [number, number][], from = 0): [number, number][] 
 
 // The Race window choices: the last 100 or 1,000 hands, or all of them.
 const RANGES = [{ label: 'Last 100', n: 100 }, { label: 'Last 1k', n: 1000 }, { label: 'All', n: 0 }] as const;
+// A running bb/100 over a handful of hands is noise, so the rate lines start here.
+export const RATE_FROM = 20;
+
+type Metric = 'bb100' | 'chips' | 'bb';
+type License = 'all' | 'open' | 'closed';
+
+// A model's line in the plotted metric: running bb/100 from RATE_FROM hands, or cumulative chips
+// (or bb), as [hands played, value].
+export function series(m: ModelStats, metric: Metric, bigBlind = 1): [number, number][] {
+  if (metric === 'bb100') return m.cumulative_bb.filter(([n]) => n >= RATE_FROM).map(([n, v]) => [n, (v / n) * 100]);
+  const k = metric === 'chips' ? bigBlind : 1;
+  return m.cumulative_bb.map(([n, v]) => [n, v * k]);
+}
 
 export default function CumulativeChart({
   models,
+  everyone,
   selected,
   onSelect,
   highlight,
@@ -82,13 +97,14 @@ export default function CumulativeChart({
   bigBlind,
 }: {
   models: ModelStats[];
+  everyone?: ModelStats[]; // the Race "All models" lineup; `models` is the seated one
   selected: string;
   onSelect?: (name: string) => void; // the Race screen: a click on an end label shades that line's 95% band
   highlight?: string; // a line to bring forward while the pointer is not on the plot
   onHighlight?: (name: string | undefined) => void;
-  race?: boolean; // several lines, each labelled at its end, with a hover readout and a range control
+  race?: boolean; // several lines, each labelled at its end, with filters, a legend, a hover readout and a range control
   mini?: boolean; // the overview tile: the same chart small, logos for labels, no interaction
-  bigBlind?: number; // plot chips (bb × big blind) instead of bb
+  bigBlind?: number; // outside the Race: plot chips (bb × big blind) instead of bb
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // The plot fills its box. `drawnFor` is the data the size was measured with: a resize (the Race
@@ -100,6 +116,13 @@ export default function CumulativeChart({
   // The hand under the pointer (or picked with the arrow keys) and the line nearest it.
   const [hover, setHover] = useState<{ n: number; name: string } | null>(null);
   const [range, setRange] = useState(0); // 0: every hand
+  // The Race filters, Arena style. They live here, so the overview tile (the same instance) shows them too.
+  const [metricPick, setMetric] = useState<'bb100' | 'chips'>('bb100');
+  const [lineup, setLineup] = useState<'seated' | 'all'>('seated');
+  const [license, setLicense] = useState<License>('all');
+  const [fams, setFams] = useState<string[]>([]); // none picked: every family
+  const [top, setTop] = useState(0); // 0: every model
+  const [hidden, setHidden] = useState<string[]>([]); // lines switched off in the legend
   const tipRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -110,23 +133,43 @@ export default function CumulativeChart({
     return () => ro.disconnect();
   }, []);
 
-  const k = bigBlind ?? 1;
-  const unit = bigBlind ? 'chips' : 'bb';
-  const fmt = (v: number) => (bigBlind ? chips(Math.round(v)) : signed(v));
+  const metric: Metric = race ? metricPick : bigBlind ? 'chips' : 'bb';
+  const rate = metric === 'bb100';
+  const unit = rate ? 'bb/100' : metric;
+  const fmt = (v: number) => (metric === 'chips' ? chips(Math.round(v)) : signed(v));
   const interactive = race && !mini;
-  const lastHand = Math.max(1, ...models.flatMap(m => m.cumulative_bb.map(p => p[0])));
+  const line$ = new Map([...(everyone ?? []), ...models].map(m => [m.name, series(m, metric, bigBlind)]));
+  const pts = (m: ModelStats) => line$.get(m.name)!;
+  const finalOf = (m: ModelStats) => pts(m).at(-1)?.[1] ?? 0;
+  const pool = race && lineup === 'all' && everyone?.length ? everyone : models;
+  const families = [...new Set(pool.map(m => family(m.name)))].sort();
+  // The legend: every model the filters let through, best first; `top` keeps the leaders.
+  const listed = pool
+    .filter(m => !race || ((license === 'all' || openWeights(m.name) === (license === 'open')) && (!fams.length || fams.includes(family(m.name)))))
+    .filter(m => pts(m).length)
+    .sort((a, b) => finalOf(b) - finalOf(a))
+    .slice(0, race && top ? top : undefined);
+  const lastHand = Math.max(1, ...listed.flatMap(m => pts(m).map(p => p[0])));
   const win = interactive ? range : 0;
-  const from = win && win < lastHand ? lastHand - win : 0;
-  // Every line resampled over the window, in the plotted unit; lines that ended before it drop out.
-  const drawn = new Map(models.map(m => [m.name, resample(m.cumulative_bb, from).map(([n, v]) => [n, v * k] as [number, number])]));
-  const shown = models.filter(m => drawn.get(m.name)!.length);
-  const at = (m: ModelStats, n: number) => valueAt(m.cumulative_bb, n) * k;
+  const whole = !(win && win < lastHand);
+  // The x axis starts where the first line does (RATE_FROM hands for bb/100), or at the window.
+  const from = Math.max(whole ? 0 : lastHand - win, Math.min(lastHand - 1, ...listed.map(m => pts(m)[0][0])));
+  // Every line resampled over the window; lines switched off or ended before it drop out.
+  const drawn = new Map(listed.map(m => {
+    const p = pts(m);
+    return [m.name, hidden.includes(m.name) ? [] : resample(p, Math.max(from, p[0][0]))];
+  }));
+  const shown = listed.filter(m => drawn.get(m.name)!.length);
+  // The value at hand n, or null before the line starts.
+  const at = (m: ModelStats, n: number) => (n < pts(m)[0][0] ? null : valueAt(pts(m), n));
   const ys = shown.flatMap(m => drawn.get(m.name)!.map(p => p[1]));
-  const sel = models.find(m => m.name === selected && drawn.get(m.name)!.length);
-  const bandAt = (m: ModelStats, n: number) => band(m, n) * k;
+  const sel = shown.find(m => m.name === selected);
+  // 95% band: bb/100's interval narrows as 1/sqrt(n); a cumulative total's widens as sqrt(n).
+  const bandAt = (m: ModelStats, n: number) =>
+    rate ? (ciHalf(m) ?? 0) * Math.sqrt(m.hands / Math.max(n, 1)) : band(m, n) * (metric === 'chips' ? bigBlind ?? 1 : 1);
   if (sel) drawn.get(sel.name)!.forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
   // The y axis spans the data (and zero over the whole session), with a little air.
-  let lo = Math.min(...ys, ...(from ? [] : [0])), hi = Math.max(...ys, ...(from ? [] : [0]));
+  let lo = Math.min(...ys, ...(whole ? [0] : [])), hi = Math.max(...ys, ...(whole ? [0] : []));
   if (!Number.isFinite(lo)) [lo, hi] = [0, 1];
   if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
   const air = (hi - lo) * 0.04;
@@ -136,43 +179,47 @@ export default function CumulativeChart({
   const w = Math.max(width, 200);
   const fs = mini ? 12 : 14;
   const logo = mini ? 16 : 18;
-  const tick = (t: number) => (bigBlind ? t.toLocaleString() : String(t)).replace('-', '−');
+  const tick = (t: number) => (metric === 'chips' ? t.toLocaleString() : String(t)).replace('-', '−');
   const right = mini ? logo + 10 : race ? 240 : 12;
   const left = 10 + fs * 0.62 * Math.max(4, ...yTicks.map(t => tick(t).length)); // room for the widest y label
   const padTop = fs + 10; // the y axis title sits above the plot
   const padBottom = fs + 10 + fs + 8; // tick labels, then the x axis title
   const x = (n: number) => left + ((n - from) / (lastHand - from || 1)) * (w - left - right);
   const y = (v: number) => padTop + ((yMax - v) / (yMax - yMin || 1)) * (height - padTop - padBottom);
-  const line = (pts: [number, number][]) => pts.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
+  const line = (p: [number, number][]) => p.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
   const selPts = sel ? drawn.get(sel.name)! : [];
   const bandPath = sel
     ? line(selPts.map(([n, v]) => [n, v + bandAt(sel, n)])) +
       [...selPts].reverse().map(([n, v]) => `L${x(n)},${y(v - bandAt(sel, n))}`).join('') + 'Z'
     : '';
   const tween = { duration: reduce || drawnFor === models ? 0 : 0.6, ease: [0.22, 1, 0.36, 1] as const };
-  const hot = models.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
+  const hot = shown.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
   const ordered = [...shown.filter(m => m !== sel && m !== hot), ...(sel && sel !== hot ? [sel] : []), ...(hot ? [hot] : [])]; // selected, then hovered on top
   // Every line ends in a label in the right-hand gutter (a logo in the tile; logo, name and the
   // final figure on the Race screen), spread so none overlap, with a dotted leader to the line's end.
   const ends = shown
-    .map(m => { const pts = drawn.get(m.name)!; return { m, n: pts.at(-1)![0], v: pts.at(-1)![1] }; })
+    .map(m => { const p = drawn.get(m.name)!; return { m, n: p.at(-1)![0], v: p.at(-1)![1] }; })
     .sort((a, b) => b.v - a.v);
   const rowH = mini ? logo + 1 : 22;
   const [eLo, eHi] = [padTop + rowH / 2, height - padBottom - rowH / 2];
   const endYs = spread(ends.map(e => y(e.v)), Math.min(rowH, (eHi - eLo) / Math.max(1, ends.length - 1)), eLo, eHi); // highest value first: ascending y
-  const readout = hover ? shown.map(m => ({ m, v: at(m, hover.n) })).sort((a, b) => b.v - a.v) : [];
+  const readout = hover
+    ? shown.flatMap(m => { const v = at(m, hover.n); return v === null ? [] : [{ m, v }]; }).sort((a, b) => b.v - a.v)
+    : [];
 
   const pick = (clientX: number, clientY: number) => {
     const r = ref.current!.getBoundingClientRect();
     const n = Math.round(Math.min(Math.max(from + ((clientX - r.left - left) / (w - left - right)) * (lastHand - from), from), lastHand));
     const near = shown.reduce<{ name: string; d: number }>((best, m) => {
-      const d = Math.abs(y(at(m, n)) - (clientY - r.top));
+      const v = at(m, n);
+      const d = v === null ? Infinity : Math.abs(y(v) - (clientY - r.top));
       return d < best.d ? { name: m.name, d } : best;
     }, { name: '', d: Infinity });
     setHover({ n, name: near.name });
   };
-  const summary = shown.map(m => `${m.name} ${fmt(final(m) * k)} ${unit} after ${m.cumulative_bb.at(-1)?.[0] ?? 0} hands`).join('; ');
-  const label = `Cumulative ${unit} won over hands. ${summary}.${sel ? ` Shaded: 95% band for ${sel.name}.` : ''}`;
+  const yTitle = rate ? 'bb/100 (running)' : metric === 'chips' ? 'Chips won' : 'Big blinds won';
+  const summary = shown.map(m => `${m.name} ${fmt(finalOf(m))} ${unit} after ${pts(m).at(-1)![0]} hands`).join('; ');
+  const label = `${yTitle} over hands played. ${summary}.${sel ? ` Shaded: 95% band for ${sel.name}.` : ''}`;
   const lead = readout[0];
   const said = hover && lead
     ? `Hand ${hover.n}: ${lead.m.name} leads at ${fmt(lead.v)} ${unit}` + (hot && hot !== lead.m ? `; ${hot.name} ${fmt(readout.find(r => r.m === hot)?.v ?? 0)} ${unit}.` : '.')
@@ -197,20 +244,54 @@ export default function CumulativeChart({
     setHover({ n: Math.min(Math.max(n0 + (e.key === 'ArrowRight' ? step : -step), from), lastHand), name: hover?.name || sel?.name || '' });
   };
   const plotH = height - padTop - padBottom;
+  const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter(s => s !== v) : [...list, v]);
+  // The filters in words, for the overview tile.
+  const filters = [
+    rate ? 'bb/100' : 'Chips',
+    lineup === 'all' && 'All models',
+    license !== 'all' && (license === 'open' ? 'Open weights' : 'Proprietary'),
+    fams.length && fams.join(', '),
+    top && `Top ${top}`,
+  ].filter(Boolean).join(' · ');
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {interactive && (
-        <div className="mb-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[14px]" style={{ color: MUTED }}>
-          <span>Hover the plot for every model at that hand · click a name to shade its 95% band.</span>
-          <Segmented
-            label="Hands shown"
-            options={RANGES.map(r => ({ label: r.label, value: r.n, disabled: r.n > 0 && r.n >= lastHand }))}
-            value={range && range < lastHand ? range : 0}
-            onChange={setRange}
-          />
+        <div className="mb-2 flex flex-col gap-1.5 text-[14px]" style={{ color: MUTED }}>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            <span>Metric</span>
+            <Segmented label="Metric" options={[{ label: 'bb/100', value: 'bb100' as const }, { label: 'Chips', value: 'chips' as const }]} value={metricPick} onChange={setMetric} />
+            <span className="ml-3">Lineup</span>
+            <Segmented label="Lineup" options={[{ label: 'Seated now', value: 'seated' as const }, { label: 'All models', value: 'all' as const, disabled: !everyone?.length }]} value={lineup} onChange={setLineup} />
+            <span className="ml-3">License</span>
+            <Segmented label="License" options={[{ label: 'All', value: 'all' as const }, { label: 'Open weights', value: 'open' as const }, { label: 'Proprietary', value: 'closed' as const }]} value={license} onChange={setLicense} />
+            <span className="ml-3">Show</span>
+            <Segmented label="Top models" options={[{ label: 'All', value: 0 }, { label: 'Top 5', value: 5 }]} value={top} onChange={setTop} />
+            <span className="ml-auto"><Segmented
+              label="Hands shown"
+              options={RANGES.map(r => ({ label: r.label, value: r.n, disabled: r.n > 0 && r.n >= lastHand }))}
+              value={range && range < lastHand ? range : 0}
+              onChange={setRange}
+            /></span>
+          </div>
+          <div role="group" aria-label="Family" className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1">Family</span>
+            {families.map(f => (
+              <button
+                key={f}
+                onClick={() => setFams(toggle(fams, f))}
+                aria-pressed={fams.includes(f)}
+                className="rounded-full border px-2.5 py-px text-[13px] font-medium"
+                style={fams.includes(f) ? { background: TEXT, borderColor: TEXT, color: 'white' } : { borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT }}
+              >
+                {f}
+              </button>
+            ))}
+            {fams.length > 0 && <button onClick={() => setFams([])} className="px-1.5 text-[13px] underline">Clear</button>}
+          </div>
         </div>
       )}
+      {race && mini && <div className="-mt-1 mb-1 text-[12px] truncate" style={{ color: MUTED }}>{filters}</div>}
       {/* The svg is absolute so its height comes from the panel, never the other way round. */}
       <div
         ref={ref}
@@ -227,7 +308,7 @@ export default function CumulativeChart({
       >
         <svg className="absolute inset-0" width="100%" height={height} viewBox={`0 0 ${w} ${height}`} aria-hidden>
           {/* Axis titles: the unit above the y labels, the hands under the x labels. */}
-          <text x={4} y={fs} fontSize={fs} fontWeight={600} fill={AXIS}>{bigBlind ? 'Chips won' : 'Big blinds won'}</text>
+          <text x={4} y={fs} fontSize={fs} fontWeight={600} fill={AXIS}>{yTitle}</text>
           <text x={left + (w - left - right) / 2} y={height - 4} textAnchor="middle" fontSize={fs} fontWeight={600} fill={AXIS}>Hands played</text>
           {yTicks.map(t => (
             <g key={t}>
@@ -275,12 +356,17 @@ export default function CumulativeChart({
             </g>
           )}
         </svg>
+        {race && !shown.length && (
+          <p className="absolute inset-0 flex items-center justify-center text-[14px]" style={{ color: MUTED }}>
+            {listed.length ? 'Every line is switched off in the legend.' : rate ? `No model here has played ${RATE_FROM} hands yet.` : 'No model matches these filters.'}
+          </p>
+        )}
         {race && ends.map((e, i) => mini ? (
           <div key={e.m.name} className="absolute pointer-events-none" style={{ left: w - right + 6, top: endYs[i] - logo / 2 }} title={e.m.name}>
             <LLMLogo model={e.m.name} size={logo} />
           </div>
         ) : (
-          // The Race screen's legend: logo, name and final figure at each line's end.
+          // Logo, name and final figure at each line's end; a click shades its 95% band.
           <button
             key={e.m.name}
             onClick={() => onSelect?.(selected === e.m.name ? '' : e.m.name)}
@@ -301,7 +387,7 @@ export default function CumulativeChart({
         {/* Always mounted, so the first arrow press is announced too; it says the leader and the highlighted line. */}
         {race && <div role="status" className="sr-only">{said}</div>}
         {/* The readout floats over the plot (no layout shift), on the side away from the cursor. */}
-        {hover && (
+        {hover && readout.length > 0 && (
           <div
             ref={tipRef}
             aria-hidden
@@ -323,12 +409,35 @@ export default function CumulativeChart({
           </div>
         )}
       </div>
+      {/* The legend, Arena style: a click switches a line off or on, hovering brings it forward. */}
+      {interactive && listed.length > 0 && (
+        <div role="group" aria-label="Lines shown" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px]">
+          {listed.map(m => {
+            const on = !hidden.includes(m.name);
+            return (
+              <button
+                key={m.name}
+                onClick={() => setHidden(toggle(hidden, m.name))}
+                onPointerEnter={() => on && onHighlight?.(m.name)}
+                onPointerLeave={() => onHighlight?.(undefined)}
+                aria-pressed={on}
+                className="flex items-center gap-1.5 rounded px-1 hover:bg-[rgba(55,53,47,0.06)]"
+                style={{ color: on ? TEXT : MUTED, textDecoration: on ? undefined : 'line-through' }}
+              >
+                <span aria-hidden className="inline-block w-3 h-[3px] rounded-full" style={{ background: on ? modelColor(m.name) : 'rgba(55, 53, 47, 0.25)' }} />
+                {m.name}
+              </button>
+            );
+          })}
+          {rate && <span className="ml-auto" style={{ color: MUTED }}>Lines start at {RATE_FROM} hands · hover for every model · click an end label for its 95% band</span>}
+        </div>
+      )}
       {!race && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Shaded: 95% band</p>}
 
       {/* The chart's numbers for screen readers; tables ignore sr-only's 1px box, so a div clips it. */}
       {sel && (
         <div className="sr-only"><table>
-          <caption>{sel.name}: cumulative {unit} with 95% band</caption>
+          <caption>{sel.name}: {yTitle} with 95% band</caption>
           <thead>
             <tr style={{ color: MUTED }}>
               <th scope="col" className="text-right font-medium px-2">Hand</th>
@@ -338,12 +447,12 @@ export default function CumulativeChart({
             </tr>
           </thead>
           <tbody>
-            {sel.cumulative_bb.map(([n, v]) => (
+            {pts(sel).map(([n, v]) => (
               <tr key={n} className="border-t border-notion">
                 <th scope="row" className="text-right font-normal px-2">{n}</th>
-                <td className="text-right px-2">{fmt(v * k)}</td>
-                <td className="text-right px-2">{fmt(v * k - bandAt(sel, n))}</td>
-                <td className="text-right px-2">{fmt(v * k + bandAt(sel, n))}</td>
+                <td className="text-right px-2">{fmt(v)}</td>
+                <td className="text-right px-2">{fmt(v - bandAt(sel, n))}</td>
+                <td className="text-right px-2">{fmt(v + bandAt(sel, n))}</td>
               </tr>
             ))}
           </tbody>
@@ -352,5 +461,3 @@ export default function CumulativeChart({
     </div>
   );
 }
-
-const final = (m: ModelStats) => m.cumulative_bb.at(-1)?.[1] ?? 0;
