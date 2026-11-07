@@ -222,6 +222,9 @@ export const modelSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]
 
 export const ciHalf = (m: ModelStats) => (m.bb100_ci ? (m.bb100_ci[1] - m.bb100_ci[0]) / 2 : null);
 
+// The hover text for a bb/100 cell: its 95% interval, e.g. "95% range: +148 to +462".
+export const ciTitle = (m: ModelStats) => (m.bb100_ci ? `95% range: ${signed(m.bb100_ci[0], 0)} to ${signed(m.bb100_ci[1], 0)}` : undefined);
+
 // Arena-style rank spread: the best and worst rank each model's 95% bb/100 interval allows among
 // `models`. Best = 1 + the models whose interval lies wholly above its own; worst = n − the models
 // wholly below it. A model without an interval counts as its point estimate.
@@ -260,7 +263,7 @@ export const netColor = (n: number) =>
 // shortcut: written here because docs/stats.md does not exist yet; sync the wording once it lands.
 export const STAT_DEFINITIONS: Record<string, string> = {
   hands: 'Hands dealt to this model in the selected range.',
-  bb100: 'Big blinds won per 100 hands. ± is the half-width of the 95% confidence interval.',
+  bb100: 'Big blinds won per 100 hands. Hover a value for its 95% confidence interval.',
   trend: 'Running bb/100 over the model\'s last 50 hands, on one scale for every row; the dot is now. Sorts by bb/100 won within those hands.',
   rank: 'Rank spread: the best and worst rank the 95% intervals allow. Models whose intervals overlap may be in either order.',
   aiev_bb100: 'bb/100 with all-in pots credited at the equity each player had when the money went in, which strips out run-out luck.',
