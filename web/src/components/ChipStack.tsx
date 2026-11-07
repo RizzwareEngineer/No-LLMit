@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react';
+
 // A pile of casino chips sized by the amount: 1–9 is one chip, 10–99 one stack of 2–4,
 // 100–999 two or three stacks, 1,000 and up four or five. Each stack is one denomination's
 // colour, the biggest denominations the amount reaches first.
@@ -9,7 +11,18 @@ const DENOMS = [
   { v: 5, face: '#d23b3b', edge: '#8f1d1d' }, // red
   { v: 1, face: '#f4f2ee', edge: '#a8a29e' }, // white
 ];
-const PILE = [5, 4, 5, 3, 4]; // stack heights in a pile, so it reads as a heap, not a bar
+const PILE = [5, 4, 5, 3, 4];
+
+// Draft styles to compare on the real page with ?chips=ink | outline | casino (the default).
+type Style = 'casino' | 'ink' | 'outline';
+const INK = { face: '#55534e', edge: '#37352f' }; // the site's text colour, flat
+const OUTLINE = { face: '#ffffff', edge: '#37352f' }; // white chips with a dark rim, like the cards
+const readStyle = (): Style => {
+  const q = new URLSearchParams(window.location.search).get('chips');
+  return q === 'ink' || q === 'outline' ? q : 'casino';
+};
+const noSubscribe = () => () => {};
+const useStyle = () => useSyncExternalStore(noSubscribe, readStyle, () => 'casino' as Style); // stack heights in a pile, so it reads as a heap, not a bar
 
 export function chipStacks(amount: number): { face: string; edge: string; n: number }[] {
   if (amount <= 0) return [];
@@ -24,7 +37,8 @@ const T = 3; // chip thickness
 const GAP = 12; // stack spacing (stacks overlap a little, like a heap)
 
 export default function ChipStack({ amount }: { amount: number }) {
-  const stacks = chipStacks(amount);
+  const style = useStyle();
+  const stacks = chipStacks(amount).map(st => (style === 'ink' ? { ...st, ...INK } : style === 'outline' ? { ...st, ...OUTLINE } : st));
   if (!stacks.length) return null;
   const tall = Math.max(...stacks.map(s => s.n));
   const w = (stacks.length - 1) * GAP + R * 2 + 2;
@@ -40,7 +54,8 @@ export default function ChipStack({ amount }: { amount: number }) {
               <rect x={cx - R} y={cy} width={R * 2} height={T} fill={s.edge} />
               <ellipse cx={cx} cy={cy + T} rx={R} ry={R / 2} fill={s.edge} />
               <ellipse cx={cx} cy={cy} rx={R} ry={R / 2} fill={s.face} stroke={s.edge} strokeWidth={0.6} />
-              <ellipse cx={cx} cy={cy} rx={R - 2.2} ry={R / 2 - 1.1} fill="none" stroke="rgba(255,255,255,0.75)" strokeWidth={0.9} strokeDasharray="1.6 1.6" />
+              {style === 'casino' && <ellipse cx={cx} cy={cy} rx={R - 2.2} ry={R / 2 - 1.1} fill="none" stroke="rgba(255,255,255,0.75)" strokeWidth={0.9} strokeDasharray="1.6 1.6" />}
+              {style === 'outline' && <ellipse cx={cx} cy={cy} rx={R - 2.4} ry={R / 2 - 1.2} fill="none" stroke="#37352f" strokeWidth={0.6} />}
             </g>
           );
         });
