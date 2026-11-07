@@ -15,6 +15,7 @@ interface PlayerProps {
   winDesc?: string;
   isThinking?: boolean;
   stats?: ModelStats; // all-time stats, shown while the seat is hovered
+  showAction?: boolean; // false until the seat has acted on this street: its last action is from an earlier one
 }
 
 // Position badge colors
@@ -46,7 +47,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, stats }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, stats, showAction = true }: PlayerProps) {
   const [hovered, setHovered] = useState(false);
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
@@ -107,7 +108,7 @@ export default function Player({ player, active, position, folded = false, winAm
                 <span className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+{winAmount.toLocaleString()}</span>
                 <span className="text-[11px] truncate min-w-0" style={{ color: 'rgb(15, 123, 108)' }}>({winDesc})</span>
               </div>
-            ) : player.lastAction ? (
+            ) : player.lastAction && showAction ? (
               <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
                 <div className="text-[11px] font-mono uppercase font-bold tracking-wider shrink-0" style={{ color: 'rgb(55, 53, 47)' }}>
                   {player.lastAction}

@@ -185,9 +185,7 @@ export default function TableFelt({
           cards.map((card, i) => (
             <Card key={`${card}-${i}`} value={card} className="w-11 h-16" />
           ))
-        ) : (
-          <div className="text-[11px] text-gray-600 uppercase">No cards dealt</div>
-        )}
+        ) : null}
       </div>
 
       {/* Next hand countdown. Its slot is always there, so the felt (and the seat rows) never

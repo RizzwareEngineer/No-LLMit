@@ -378,6 +378,8 @@ export default function Home() {
                 buttonDetermination={buttonDetermination}
                 hidePositions={!!buttonDetermination}
                 notice={tableNotice}
+                street={street}
+                handNumber={handNumber}
                 stats={seatStats}
               />
 

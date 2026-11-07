@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import CornerBorders from "@/components/CornerBorders";
 import Player from "@/components/Player";
 import TableFelt, { FeltBet } from "@/components/TableFelt";
@@ -45,6 +46,8 @@ interface PokerTableProps {
   buttonDetermination?: ButtonDetermination | null;
   hidePositions?: boolean;
   notice?: TableNoticePayload | null;
+  street: string;
+  handNumber: number;
   stats?: Record<string, ModelStats>; // by model name, for the hover stats on each seat
 }
 
@@ -103,9 +106,28 @@ export default function PokerTable({
   buttonDetermination,
   hidePositions = false,
   notice,
+  street,
+  handNumber,
   stats,
 }: PokerTableProps) {
   const totalPlayers = players.length;
+
+  // The engine keeps each seat's last action until the hand ends. A seat shows it only once it has
+  // acted on the current street: its action, amount or stack changed since the street started, or
+  // it was on the clock during this street (that catches a second CHECK in a row).
+  const sig = (p: PlayerState) => `${p.lastAction}|${p.lastAmount}|${p.stack}`;
+  const streetKey = `${handNumber}:${street}`;
+  const [view, setView] = useState({ key: '', start: null as Record<string, string> | null, acted: [] as string[] });
+  if (players.length && view.key !== streetKey) {
+    // The first street seen (a late joiner) has no starting point: see `shown`.
+    setView({ key: streetKey, start: view.key ? Object.fromEntries(players.map(p => [p.id, sig(p)])) : null, acted: [] });
+  }
+  const onClock = thinkingPlayerIdx !== undefined ? players[thinkingPlayerIdx]?.id : undefined;
+  if (onClock && view.key === streetKey && !view.acted.includes(onClock)) setView({ ...view, acted: [...view.acted, onClock] });
+  // Without a starting point, after the flop only seats with chips in this street have surely acted.
+  const shown = (p: PlayerState) => view.start
+    ? view.acted.includes(p.id) || view.start[p.id] !== sig(p)
+    : street === 'preflop' || p.currentBet > 0;
   
   if (players.length === 0) {
     return (
@@ -131,6 +153,7 @@ export default function PokerTable({
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
       stats={stats?.[players[idx].name]}
+      showAction={shown(players[idx])}
     />
   );
 
