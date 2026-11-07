@@ -154,7 +154,7 @@ function burst(layer: HTMLElement | null, x: number, y: number, color: string) {
     layer.appendChild(dot);
     dot.animate(
       [{ transform: 'none', opacity: 1 }, { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) scale(0.5)`, opacity: 0 }],
-      { duration: 600, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+      { duration: 600, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', id: 'burst' },
     ).onfinish = () => dot.remove();
   }
 }
@@ -188,7 +188,7 @@ export default function CumulativeChart({
   const fxLayer = useRef<HTMLDivElement>(null);
   const pillEls = useRef(new Map<string, HTMLElement>());
   // Last frame's pushed pills and order, and when each effect last played (no repeats, no blinking).
-  const fx = useRef({ pushed: new Set<string>(), rank: new Map<string, number>(), shook: new Map<string, number>(), burst: new Map<string, number>(), pair: new Map<string, number>() });
+  const fx = useRef({ pushed: new Set<string>(), order: [] as string[], shook: new Map<string, number>(), lastBurst: -Infinity, lastShake: -Infinity, pair: new Map<string, number>() });
   const clipId = useId();
   const reduce = useReducedMotion();
   // The box the chart fits in. Measured in the same frame as the tile↔card layout change, so the glide
@@ -280,8 +280,9 @@ export default function CumulativeChart({
   const head = from + progress * (lastHand - from);
   const endOf = (name: string) => (handNow === null ? head : playedAt(timeline!, name, handNow));
   // The camera, Arena style: while the race plays the x axis shows the last `span` hands up to the
-  // leading tip, which stays at one spot while history slides past. After, it shows the Hands window.
-  const span = whole ? Math.max(100, Math.round((lastHand - from) / 2)) : win;
+  // leading tip (40% of the history, or the Hands window), which stays at one spot while history slides
+  // past. After, it shows the Hands window.
+  const span = whole ? Math.max(100, Math.round((lastHand - from) * 0.4)) : win;
   const scene: Scene = {
     key: [metric, playing ? 'camera' : from, lastHand, span, ...lines.keys(), '|', ...evs.keys()].join(),
     camera: playing, span, x0: from, x1: lastHand, lines, evs,
@@ -382,13 +383,13 @@ export default function CumulativeChart({
       .map(t => ({ t, o: is.includes(t) ? (was.includes(t) ? 1 : kk) : 1 - kk }))
       .filter(d => d.o > 0 && d.t >= Math.min(a, b) - 1e-6 && d.t <= Math.max(a, b) + 1e-6);
   const yTicksOf = (a: number, b: number) => niceTicks(a, b, 8).filter(t => t >= a && t <= b);
-  const xTicksOf = (a: number, b: number) => niceTicks(a, b, 10, true).filter(t => t >= Math.max(a, from) && t <= b);
+  const xTicksOf = (a: number, b: number) => niceTicks(a, b, 10, true).filter(t => t >= Math.max(a, 0) && t <= b);
   const yTicks = blend(yTicksOf(yr.a[0], yr.a[1]), yTicksOf(yr.b[0], yr.b[1]), Y0, Y1, ky);
   // Under the camera the ticks keep one step and slide with history, fading in at the leading edge and out at the left.
   const camTicks = xTicksOf(X0, X1);
   const fadeW = ((camTicks[1] ?? X1) - (camTicks[0] ?? X0)) * 0.35 || 1;
   const xTicks = race && playing
-    ? camTicks.map(t => ({ t, o: Math.min(1, (X1 - t) / fadeW, t > from ? (t - X0) / fadeW : 1) })).filter(d => d.o > 0.01)
+    ? camTicks.map(t => ({ t, o: Math.min(1, (X1 - t) / fadeW, t > 0 ? (t - X0) / fadeW : 1) })).filter(d => d.o > 0.01)
     : blend(xTicksOf(wa[0], wa[1]), xTicksOf(wb[0], wb[1]), X0, X1, k);
   const tick = (t: number) => (metric === 'chips' ? t.toLocaleString() : String(t)).replace('-', '−');
   // Every line ends in a dot and a pill (logo and name) just past it, Arena style. Pills that would
@@ -407,33 +408,42 @@ export default function CumulativeChart({
   // The collision effects play while the race does: a pill newly pushed by another shakes once, and
   // a line that passes another bursts in its colour at its tip. Each plays once per event.
   const live = race && playing && !reduce && k === 1;
-  const pushed = ends.filter((e, i) => Math.abs(pillYs[i] - e.ty) > 1.5).map(e => e.m.name);
+  const pushed = ends.filter((e, i) => Math.abs(pillYs[i] - e.ty) > 4).map(e => e.m.name);
   useEffect(() => {
     const f = fx.current, now = clockMs();
-    const rank = new Map(ends.map((e, i) => [e.m.name, i]));
+    // The order, with a little hysteresis: a line passes another once it is 6px clear of it, so
+    // two lines touching never flicker the order. New lines join at their place, without an event.
+    const byN = new Map(ends.map(e => [e.m.name, e]));
+    const order = [...f.order.filter(n => byN.has(n)), ...ends.filter(e => !f.order.includes(e.m.name)).map(e => e.m.name)];
+    const passes: [string, string][] = [];
+    for (let i = 1; i < order.length; i++) {
+      for (let j = i; j > 0 && byN.get(order[j])!.ty < byN.get(order[j - 1])!.ty - (f.order.includes(order[j]) ? 6 : 0); j--) {
+        if (f.order.includes(order[j])) passes.push([order[j], order[j - 1]]);
+        [order[j - 1], order[j]] = [order[j], order[j - 1]];
+      }
+    }
     if (live) {
       for (const n of pushed) {
-        if (f.pushed.has(n) || now - (f.shook.get(n) ?? -Infinity) < 2000) continue;
+        if (f.pushed.has(n) || now - (f.shook.get(n) ?? -Infinity) < 5000 || now - f.lastShake < 1000) continue;
         f.shook.set(n, now);
+        f.lastShake = now;
         pillEls.current.get(n)?.animate(
           [{ transform: 'none' }, { transform: 'translateX(-2.5px)' }, { transform: 'translateX(2.5px)' }, { transform: 'translateX(-1.5px)' }, { transform: 'none' }],
-          { duration: 320, easing: 'ease-out' },
+          { duration: 320, easing: 'ease-out', id: 'pill-shake' },
         );
       }
-      for (const e of ends) {
-        const [i, was] = [rank.get(e.m.name)!, f.rank.get(e.m.name)];
-        if (was === undefined || e.o < 0.5 || now - (f.burst.get(e.m.name) ?? -Infinity) < 1500) continue;
-        // Passed: a line it was below is now below it (both in view in both frames).
-        const passed = ends.find((d, j) => j > i && d.o >= 0.5 && (f.rank.get(d.m.name) ?? Infinity) < was && now - (f.pair.get(`${e.m.name}>${d.m.name}`) ?? -Infinity) > 5000);
-        if (!passed) continue;
-        f.burst.set(e.m.name, now);
-        f.pair.set(`${e.m.name}>${passed.m.name}`, now);
-        f.pair.set(`${passed.m.name}>${e.m.name}`, now); // and no burst for it passing straight back
-        burst(fxLayer.current, e.tx, e.ty, modelColor(e.m.name));
+      for (const [a, b] of passes) {
+        const e = byN.get(a)!;
+        const pair = [a, b].sort().join('|');
+        // One burst at a time, and a pair that keeps swapping bursts once.
+        if (e.o < 0.5 || byN.get(b)!.o < 0.5 || now - f.lastBurst < 2000 || now - (f.pair.get(pair) ?? -Infinity) < 15_000) continue;
+        f.lastBurst = now;
+        f.pair.set(pair, now);
+        burst(fxLayer.current, e.tx, e.ty, modelColor(a));
       }
     }
     f.pushed = new Set(pushed);
-    f.rank = rank;
+    f.order = order;
   });
   // The pills' tips in page pixels, for checks: the plot is scaled (and glides) as a whole.
   useLayoutEffect(() => {
@@ -692,6 +702,7 @@ export default function CumulativeChart({
           <motion.div {...appear} role="group" aria-label="Lines shown" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px]">
             {listed.map(m => {
               const shownNow = !hidden.includes(m.name);
+              const inView = shown.includes(m); // the legend follows the lines in view: one out of the camera's window dims
               return (
                 <button
                   key={m.name}
@@ -699,8 +710,8 @@ export default function CumulativeChart({
                   onPointerEnter={() => shownNow && onHighlight?.(m.name)}
                   onPointerLeave={() => onHighlight?.(undefined)}
                   aria-pressed={shownNow}
-                  className="flex items-center gap-1.5 rounded px-1 hover:bg-[rgba(55,53,47,0.06)]"
-                  style={{ color: shownNow ? TEXT : MUTED, textDecoration: shownNow ? undefined : 'line-through' }}
+                  className="flex items-center gap-1.5 rounded px-1 transition-opacity duration-300 hover:bg-[rgba(55,53,47,0.06)]"
+                  style={{ color: shownNow ? TEXT : MUTED, textDecoration: shownNow ? undefined : 'line-through', opacity: shownNow && !inView ? 0.4 : 1 }}
                 >
                   <span aria-hidden className="inline-block w-3 h-[3px] rounded-full" style={{ background: shownNow ? modelColor(m.name) : 'rgba(55, 53, 47, 0.25)' }} />
                   {m.name}
