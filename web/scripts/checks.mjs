@@ -99,6 +99,25 @@ await check('history-filters-still', 'The plot box does not move when a filter s
   const d = Math.max(Math.abs(a.w - b.w), Math.abs(a.h - b.h), Math.abs(a.x - b.x), Math.abs(a.y - b.y));
   return { pass: d <= 1, detail: `moved ${d.toFixed(1)}px` };
 });
+// Arena-style labels: pills ride the line tips (each pill carries data-tip-x, its tip's page x),
+// and no column is reserved at the right; the camera keeps the leading tips still while history slides.
+await check('history-pills-at-tips', 'Model labels are pills at the line tips, not a reserved column', async () => {
+  const r = await pg.evaluate(() => {
+    const pills = [...document.querySelectorAll('[data-pill]')].filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.top < innerHeight && b.bottom > 0; });
+    if (!pills.length) return { n: 0 };
+    const gaps = pills.map(e => e.getBoundingClientRect().left - +e.dataset.tipX);
+    return { n: pills.length, worst: Math.max(...gaps.map(Math.abs)) };
+  });
+  return { pass: r.n > 0 && r.worst <= 28, detail: r.n ? `${r.n} pills, farthest ${r.worst.toFixed(0)}px from its tip` : 'no [data-pill] labels' };
+});
+await check('history-camera-follows', 'While replaying, the leading tips stay put and history slides past', async () => {
+  const lead = () => pg.evaluate(() => { const xs = [...document.querySelectorAll('[data-pill]')].map(e => +e.dataset.tipX).filter(Number.isFinite); return xs.length ? Math.max(...xs) : null; });
+  const firstTick = () => pg.evaluate(() => { const t = [...document.querySelectorAll('[data-x-tick]')].filter(e => e.getBoundingClientRect().width > 0).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0]; return t ? [t.textContent, t.getBoundingClientRect().left] : null; });
+  const a = await lead(), ta = await firstTick(); await sleep(1500); const b = await lead(), tb = await firstTick();
+  if (a == null || b == null || !ta || !tb) return { pass: false, detail: 'needs [data-pill] with data-tip-x and [data-x-tick] hooks' };
+  const slid = ta[0] !== tb[0] || Math.abs(ta[1] - tb[1]) > 4;
+  return { pass: Math.abs(a - b) <= 6 && slid, detail: `lead tip ${a.toFixed(0)} → ${b.toFixed(0)}, first tick ${ta[0]}@${ta[1].toFixed(0)} → ${tb[0]}@${tb[1].toFixed(0)}` };
+});
 await check('replay-no-reset', 'The replay never restarts on open, back or scroll', async () => {
   const playing = await pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
   if (!playing && !(await clickText(pg, 'Replay'))) return { pass: false, detail: 'neither Skip nor Replay shown' };
