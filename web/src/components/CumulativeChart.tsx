@@ -18,7 +18,8 @@ const GLIDE = { duration: GLIDE_MS / 1000, ease: EASE } as const;
 const TWEEN_S = 0.5;
 // The Race is laid out once at this size (the Race card at 1440×900) and scaled as a whole into its
 // box, so the overview tile and the card show one picture at two sizes and nothing ever stretches.
-const W = 1220, H = 520;
+const W = 1220, H = 500;
+const LEGEND_H = 68; // the legend under the Race card's plot: up to three rows (every model, and the note)
 
 // The race replay's clock, once per page load: its start time, so switching between the tile and the
 // card, scrolling or a remount picks it up where it is. null: not started yet (the lines show in full).
@@ -210,7 +211,9 @@ export default function CumulativeChart({
   const pts = (m: ModelStats) => line$.get(m.name)!;
   const finalOf = (m: ModelStats) => pts(m).at(-1)?.[1] ?? 0;
   const pool = race && lineup === 'all' && everyone?.length ? everyone : models;
-  const families = [...new Set(pool.map(m => family(m.name)))].sort();
+  // Every family in the history, so the bar never rewraps; those not in the lineup are greyed out.
+  const families = [...new Set([...(everyone ?? []), ...models].map(m => family(m.name)))].sort();
+  const inPool = new Set(pool.map(m => family(m.name)));
   // The legend: every model the filters let through, best first; `top` keeps the leaders.
   const listed = pool
     .filter(m => !race || ((license === 'all' || openWeights(m.name) === (license === 'open')) && (!fams.length || fams.includes(family(m.name)))))
@@ -265,7 +268,8 @@ export default function CumulativeChart({
   // The design size the chart is laid out at, and the one scale that fits it in its box. Outside
   // the Race (the model drawer) it simply fills its box.
   const [lw, lh] = race ? [W, H] : [Math.max(box.w, 200), box.h];
-  const s = race ? Math.min(box.w / W, box.h / H) : 1;
+  // The legend's rows are set aside, so a filter that changes its length never rescales the plot.
+  const s = race ? Math.min(box.w / W, (box.h - (interactive ? LEGEND_H : 0)) / H) : 1;
   const fs = 14;
   const logo = 18;
   const right = race ? 240 : 12;
@@ -388,8 +392,13 @@ export default function CumulativeChart({
           <Field label="Show">
             <Segmented label="Top models" options={[{ label: 'All', value: 0 }, { label: 'Top 5', value: 5 }]} value={top} onChange={setTop} />
           </Field>
+          <Toggles
+            label="All-in EV"
+            title="Dashed lines: what each model would have won if every all-in were paid out by its odds at that moment. Solid above dashed means it ran lucky."
+            items={[{ label: 'All-in EV', on: luck, toggle: () => setLuck(l => !l) }]}
+          />
           <Field label="Family">
-            <Toggles label="Family" items={families.map(f => ({ label: f, on: fams.includes(f), toggle: () => setFams(toggle(fams, f)) }))} />
+            <Toggles label="Family" items={families.map(f => ({ label: f, on: fams.includes(f), disabled: !inPool.has(f) && !fams.includes(f), toggle: () => setFams(toggle(fams, f)) }))} />
             {fams.length > 0 && <button onClick={() => setFams([])} className="text-[13px] underline">Clear</button>}
           </Field>
           <Field label="Hands">
@@ -400,16 +409,12 @@ export default function CumulativeChart({
               onChange={setRange}
             />
           </Field>
-          <Toggles
-            label="All-in EV"
-            title="Dashed lines: what each model would have won if every all-in were paid out by its odds at that moment. Solid above dashed means it ran lucky."
-            items={[{ label: 'All-in EV', on: luck, toggle: () => setLuck(l => !l) }]}
-          />
         </motion.div>
       )}
       {race && mini && filters && <div className="-mt-1 mb-1 text-[12px] truncate" style={{ color: MUTED }}>{filters}</div>}
       {/* The chart's box: its size comes from the panel, never the other way round. */}
-      <div ref={area} className={`relative w-full flex-1 ${mini ? 'min-h-[100px]' : 'min-h-[160px]'}`}>
+      <div ref={area} className={`relative w-full flex-1 flex flex-col ${mini ? 'min-h-[100px]' : 'min-h-[160px]'}`}>
+        <div className="relative shrink-0" style={{ height: lh * s }}>
         {/* The plot at one aspect ratio, centred across the box and at its top, so a legend that wraps
             differently never moves it. `layout` keeps it unstretched while the panel around it glides:
             both of its boxes have the same shape, so the glide scales it evenly. */}
@@ -543,31 +548,32 @@ export default function CumulativeChart({
             )}
           </div>
         </motion.div>
+        </div>
+        {/* The legend, Arena style: a click switches a line off or on, hovering brings it forward. */}
+        {interactive && listed.length > 0 && (
+          <motion.div {...appear} role="group" aria-label="Lines shown" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px]">
+            {listed.map(m => {
+              const shownNow = !hidden.includes(m.name);
+              return (
+                <button
+                  key={m.name}
+                  onClick={() => setHidden(toggle(hidden, m.name))}
+                  onPointerEnter={() => shownNow && onHighlight?.(m.name)}
+                  onPointerLeave={() => onHighlight?.(undefined)}
+                  aria-pressed={shownNow}
+                  className="flex items-center gap-1.5 rounded px-1 hover:bg-[rgba(55,53,47,0.06)]"
+                  style={{ color: shownNow ? TEXT : MUTED, textDecoration: shownNow ? undefined : 'line-through' }}
+                >
+                  <span aria-hidden className="inline-block w-3 h-[3px] rounded-full" style={{ background: shownNow ? modelColor(m.name) : 'rgba(55, 53, 47, 0.25)' }} />
+                  {m.name}
+                </button>
+              );
+            })}
+            {rate && <span className="ml-auto" style={{ color: MUTED }}>Lines start at {RATE_FROM} hands · hover for every model · click an end label for its 95% band</span>}
+            {young && <span className="ml-auto" style={{ color: MUTED }}>Showing chips: bb/100 starts once a model has played {RATE_FROM} hands.</span>}
+          </motion.div>
+        )}
       </div>
-      {/* The legend, Arena style: a click switches a line off or on, hovering brings it forward. */}
-      {interactive && listed.length > 0 && (
-        <motion.div {...appear} role="group" aria-label="Lines shown" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px]">
-          {listed.map(m => {
-            const shownNow = !hidden.includes(m.name);
-            return (
-              <button
-                key={m.name}
-                onClick={() => setHidden(toggle(hidden, m.name))}
-                onPointerEnter={() => shownNow && onHighlight?.(m.name)}
-                onPointerLeave={() => onHighlight?.(undefined)}
-                aria-pressed={shownNow}
-                className="flex items-center gap-1.5 rounded px-1 hover:bg-[rgba(55,53,47,0.06)]"
-                style={{ color: shownNow ? TEXT : MUTED, textDecoration: shownNow ? undefined : 'line-through' }}
-              >
-                <span aria-hidden className="inline-block w-3 h-[3px] rounded-full" style={{ background: shownNow ? modelColor(m.name) : 'rgba(55, 53, 47, 0.25)' }} />
-                {m.name}
-              </button>
-            );
-          })}
-          {rate && <span className="ml-auto" style={{ color: MUTED }}>Lines start at {RATE_FROM} hands · hover for every model · click an end label for its 95% band</span>}
-          {young && <span className="ml-auto" style={{ color: MUTED }}>Showing chips: bb/100 starts once a model has played {RATE_FROM} hands.</span>}
-        </motion.div>
-      )}
       {!race && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Shaded: 95% band</p>}
 
       {/* The chart's numbers for screen readers; tables ignore sr-only's 1px box, so a div clips it. */}
@@ -604,16 +610,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // Buttons in the same tray as Segmented, each pressed on its own (Family, All-in EV).
-function Toggles({ label, items, title }: { label: string; items: { label: string; on: boolean; toggle: () => void }[]; title?: string }) {
+function Toggles({ label, items, title }: { label: string; items: { label: string; on: boolean; disabled?: boolean; toggle: () => void }[]; title?: string }) {
   return (
     <div role="group" aria-label={label} className="flex flex-wrap rounded p-0.5 text-[14px]" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
       {items.map(o => (
         <button
           key={o.label}
           onClick={o.toggle}
+          disabled={o.disabled}
           aria-pressed={o.on}
           title={title}
-          className="rounded px-3 py-0.5 font-medium"
+          className="rounded px-3 py-0.5 font-medium disabled:opacity-40"
           style={o.on ? { background: 'white', color: TEXT, boxShadow: SHADOW } : { color: MUTED }}
         >
           {o.label}
