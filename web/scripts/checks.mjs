@@ -172,6 +172,28 @@ await check('profiles-table-only', 'Opened Profiles shows the table only', async
   return { pass: bad.length === 0, detail: bad.length ? `found ${bad.join(', ')}` : 'ok' };
 });
 
+// A detail screen shows its own card alone: no other card peeking out behind or beside it.
+await check('detail-alone', 'An opened card is the only card visible (no card peeking out behind it)', async () => {
+  const bad = [];
+  for (const id of ['race', 'stats-table', 'pairwise']) {
+    await goto(pg, id); await sleep(1500);
+    const n = await pg.evaluate(() => [...document.querySelectorAll('.card-chrome')].filter(c => {
+      const r = c.getBoundingClientRect(); if (r.width < 40 || r.height < 40) return false;
+      const vis = Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 44)) * Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0));
+      let o = 1; for (let e = c; e; e = e.parentElement) o *= +getComputedStyle(e).opacity;
+      return vis > 400 && o > 0.05;
+    }).length);
+    if (n > 1) bad.push(`${id}: ${n} cards visible`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(', ') : 'each opened card is alone' };
+});
+// The Matchups tile is a readable preview: its cells show numbers.
+await check('matchups-tile-numbers', 'The Matchups tile shows a number in its cells', async () => {
+  await goto(pg, 'stats'); await sleep(1500);
+  const r = await pg.evaluate(() => { const cells = [...document.querySelectorAll('#pairwise-panel td')].filter(c => c.getBoundingClientRect().width > 4); const withNum = cells.filter(c => /[0-9]/.test(c.textContent)); const fs = withNum.length ? parseFloat(getComputedStyle(withNum[0]).fontSize) : 0; return { cells: cells.length, withNum: withNum.length, fs }; });
+  return { pass: r.withNum >= r.cells * 0.5 && r.fs >= 10, detail: `${r.withNum}/${r.cells} cells with numbers, ${r.fs}px text` };
+});
+
 // The overview must hold its proportions at any window size or browser zoom: rows and matrix
 // cells are sized by content, never stretched by the window's height.
 await check('stats-any-viewport', 'The overview keeps its proportions from 1280x720 to 3840x2160 (any zoom)', async () => {
