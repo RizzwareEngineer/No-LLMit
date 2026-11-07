@@ -162,6 +162,33 @@ await check('profiles-table-only', 'Opened Profiles shows the table only', async
   return { pass: bad.length === 0, detail: bad.length ? `found ${bad.join(', ')}` : 'ok' };
 });
 
+// The overview must hold its proportions at any window size or browser zoom: rows and matrix
+// cells are sized by content, never stretched by the window's height.
+await check('stats-any-viewport', 'The overview keeps its proportions from 1280x720 to 3840x2160 (any zoom)', async () => {
+  const bad = [];
+  for (const [w, h] of [[1280, 720], [1440, 900], [2560, 1440], [3840, 2160]]) {
+    const p2 = await browser.newPage(); await p2.setViewport({ width: w, height: h });
+    await p2.goto(BASE, { waitUntil: 'domcontentloaded' }); await sleep(4000);
+    await goto(p2, 'stats'); await sleep(2000);
+    const m = await p2.evaluate(() => {
+      const rows = [...document.querySelectorAll('#stats-panel tbody tr, #stats-panel [role=row]')].map(r => r.getBoundingClientRect().height).filter(x => x > 0);
+      const cells = [...document.querySelectorAll('#pairwise-panel td')].map(c => c.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4);
+      const ratio = cells.length ? Math.max(...cells.map(r => Math.max(r.width / r.height, r.height / r.width))) : 0;
+      const race = document.querySelector('#race-panel').getBoundingClientRect();
+      const svg = [...document.querySelectorAll('#race-panel svg')].sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+      const fill = svg ? svg.getBoundingClientRect().width / race.width : 0;
+      return { row: rows.length ? Math.max(...rows) : 0, ratio, fill };
+    });
+    await p2.close();
+    const why = [];
+    if (m.row > 44) why.push(`Profiles rows ${m.row.toFixed(0)}px tall`);
+    if (m.ratio > 1.15) why.push(`Matchups cells ${m.ratio.toFixed(2)}:1`);
+    if (m.fill < 0.8) why.push(`History chart fills ${(m.fill * 100).toFixed(0)}% of its tile`);
+    if (why.length) bad.push(`${w}x${h}: ${why.join(', ')}`);
+  }
+  return { pass: bad.length === 0, detail: bad.length ? bad.join(' | ') : 'all four sizes hold' };
+});
+
 await browser.close();
 const w = Math.max(...results.map(r => r.id.length));
 for (const r of results) console.log(`${r.pass ? 'PASS' : 'FAIL'}  ${r.id.padEnd(w)}  ${r.detail}   (${r.rule})`);
