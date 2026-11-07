@@ -30,6 +30,7 @@ export const useReplay = <T,>(select: (p: number) => T): T => useSyncExternalSto
 type Profile = Pick<ModelStats, 'hands' | 'bb100' | 'vpip' | 'pfr' | 'af'>;
 export interface Timeline {
   hands: number;
+  step: number; // profile_step: hands between profiles snapshots
   snaps: number[]; // the hands with a profiles snapshot, ascending
   profiles: Map<string, Profile>[]; // per snapshot: each model seated by then, with its figures then
   pairs: { a: string; b: string; at: number[]; sum: number[] }[]; // per pair: what a had taken from b by each change point
@@ -47,7 +48,7 @@ export function lastAtOrBefore(xs: number[], x: number) {
 }
 
 type Table = { fields: string[]; rows: (number | null)[][] };
-function parse(j: { hands?: unknown; models?: unknown; profiles?: Table; matchups?: Table }): Timeline {
+function parse(j: { hands?: unknown; profile_step?: unknown; models?: unknown; profiles?: Table; matchups?: Table }): Timeline {
   if (typeof j?.hands !== 'number' || !Array.isArray(j.models) || !Array.isArray(j.profiles?.rows) || !Array.isArray(j.matchups?.rows)) {
     throw new Error('timeline: unexpected shape');
   }
@@ -68,7 +69,7 @@ function parse(j: { hands?: unknown; models?: unknown; profiles?: Table; matchup
     pair.at.push(r[m.hand]!);
     pair.sum.push((pair.sum.at(-1) ?? 0) + r[m.chips]!);
   }
-  return { hands: j.hands, snaps, profiles, pairs: [...pairs.values()] };
+  return { hands: j.hands, step: Number(j.profile_step) || 0, snaps, profiles, pairs: [...pairs.values()] };
 }
 
 // The timeline for a scope ('' all time, or a session id), refetched when `refreshKey` changes (the
@@ -92,6 +93,11 @@ export const useReplayHand = (tl: Timeline | null) => useReplay(p => (tl && p < 
 // The profiles snapshot the replay shows (the latest at or before its hand): an index into
 // tl.snaps (-1 before the first), or null while not replaying. Changes every profile_step hands only.
 export const useReplaySnap = (tl: Timeline | null) => useReplay(p => (tl && p < 1 ? lastAtOrBefore(tl.snaps, Math.floor(p * tl.hands)) : null));
+
+// The hand a synced card shows, as data attributes for checks (the scope's last hand when not
+// replaying); none until the timeline loads. `step` adds profile_step (Profiles).
+export const syncAttrs = (tl: Timeline | null, hand: number | null, step = false) =>
+  tl ? { 'data-sync-hand': hand ?? tl.hands, ...(step ? { 'data-sync-step': tl.step } : {}) } : {};
 
 // Hands `name` had played by hand `hand` (fractional): exact on a snapshot, linear between two.
 export function playedAt(tl: Timeline, name: string, hand: number) {

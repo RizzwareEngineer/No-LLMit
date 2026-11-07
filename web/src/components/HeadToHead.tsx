@@ -31,32 +31,36 @@ export function pairwiseVerdict(models: ModelStats[], scope: string) {
   return `${top.leader} is up ${fmt(top.total)} ${scope}.` + (top.from ? ` It took the most from ${top.from.name}, ${fmt(top.from.net)}.` : '');
 }
 
-// +53,743 as +54k, for cells too narrow for the full figure.
-const short = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: Math.abs(n) < 1e4 ? 1 : 0 }).format(Math.abs(n)).toLowerCase()}`;
+// +53,743 as +54k, for cells too narrow for the full figure. The formats are built once: the grid
+// re-renders on every hand History replays.
+const COMPACT = [0, 1].map(d => Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: d }));
+const short = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${COMPACT[Math.abs(n) < 1e4 ? 1 : 0].format(Math.abs(n)).toLowerCase()}`;
 
 // A figure sized by its own cell (an inline-size container): the full figure where it fits at a
 // readable size, else the short one shrunk to the width, and in a sliver too narrow for 9px text
 // none (the tint and the tooltip carry it). Never clipped. Screen readers get the full figure.
-function Fit({ n }: { n: number }) {
+// Memoized: while History replays only the cells whose figure changed render again.
+const Fit = memo(function Fit({ n }: { n: number }) {
   return (
     <div className="@container w-full" aria-hidden>
       <span className="hidden @min-[70px]:inline" style={{ fontSize: 'min(1em, 19cqi)' }}>{chips(n)}</span>
       <span className="hidden @min-[30px]:inline @min-[70px]:hidden" style={{ fontSize: 'min(1em, 29cqi)' }}>{short(n)}</span>
     </div>
   );
-}
+});
 
 // A changed cell: a soft tint in the colour of the change and one 2px shake (tint only under reduced
 // motion), once, half a second; `delay` staggers the cells that changed together into a ripple.
+const playing = new WeakMap<Element, Animation>(); // not el.getAnimations(), which forces a style recalc per cell
 function wiggle(el: HTMLElement, delta: number, delay: number, still: boolean) {
-  el.getAnimations().forEach(a => a.cancel()); // a newer change replaces one still playing
+  playing.get(el)?.cancel(); // a newer change replaces one still playing
   const glow = (a: number) => `inset 0 0 0 100px rgba(${delta > 0 ? '15, 123, 108' : '200, 50, 50'}, ${a})`;
-  el.animate(
+  playing.set(el, el.animate(
     still
       ? [{ boxShadow: glow(0.35) }, { boxShadow: glow(0) }]
       : [{ boxShadow: glow(0.35), transform: 'translateX(0)' }, { transform: 'translateX(-2px)', offset: 0.2 }, { transform: 'translateX(2px)', offset: 0.5 }, { boxShadow: glow(0), transform: 'translateX(0)' }],
     { duration: 500, delay, easing: 'ease-out' },
-  );
+  ));
 }
 
 // Chips won from each opponent in pots they both played. With `focus`, one model's opponents
@@ -154,7 +158,7 @@ export default memo(function HeadToHead({
   // The grid fills its panel: a size container whose cells share the space and whose text scales
   // with it (cq units). Narrow panels show logos for row names and short figures in the cells.
   return (
-    <div ref={outer} data-hand={hand ?? 'now'} className="relative flex-1 min-h-0 flex flex-col">
+    <div ref={outer} className="relative flex-1 min-h-0 flex flex-col">
       {/* No scroller of its own: a grid taller than a phone's preview spills into the panel's one scroll. */}
       <div className="flex-1 min-h-0" style={{ containerType: 'size' }} onMouseLeave={() => setTip(null)}>
         {/* cq units resolve against the wrapper above, never the element that sets them. */}

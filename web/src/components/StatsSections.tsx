@@ -10,7 +10,7 @@ import StatsTable, { Bb100, SLIDE } from '@/components/StatsTable';
 import HeadToHead, { PairwiseBars, pairwiseLeader } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
 import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, pct, seatedModels, useStats } from '@/lib/stats';
-import { Timeline, matchupsAt, playedAt, profilesAt, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
+import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
 
 type Stats = ReturnType<typeof useStats>;
 
@@ -282,7 +282,11 @@ export default memo(function StatsSections({
         </AtHand>
       </Definition>
       <AtHand key={session} tl={tl} models={field}>
-        {(ms, hand) => (view === 'matrix' ? <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed /> : <PairwiseBars models={ms} />)}
+        {(ms, hand) => (
+          <div {...syncAttrs(tl, hand)} className="contents">
+            {view === 'matrix' ? <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed /> : <PairwiseBars models={ms} />}
+          </div>
+        )}
       </AtHand>
     </>
   );
@@ -360,7 +364,7 @@ export default memo(function StatsSections({
                 body={on === 'pairwise' ? 'card' : 'tile'}
                 {...tile('pairwise')}
               >
-                {on === 'pairwise' ? pairwiseBody : ready ? <AtHand key={session} tl={tl} models={field}>{(ms, hand) => <HeadToHead models={ms} hand={hand} mini />}</AtHand> : message}
+                {on === 'pairwise' ? pairwiseBody : ready ? <AtHand key={session} tl={tl} models={field}>{(ms, hand) => <div {...syncAttrs(tl, hand)} className="contents"><HeadToHead models={ms} hand={hand} mini /></div>}</AtHand> : message}
               </Panel>
             </div>
           </div>
@@ -418,7 +422,7 @@ function useProfilesAt(tl: Timeline | null, models: ModelStats[]) {
 
 function SyncedProfiles({ tl, models, seated }: { tl: Timeline | null; models: ModelStats[]; seated?: string[] }) {
   const { shown, pending, hand } = useProfilesAt(tl, models);
-  return <div data-hand={hand ?? 'now'} className="contents"><StatsTable models={shown} seated={seated} pending={pending} /></div>;
+  return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} /></div>;
 }
 
 // The Profiles tile: every seated model by bb/100 and VPIP, rows sharing the tile's height; the 95% range
@@ -428,7 +432,7 @@ function MiniStats({ tl, models }: { tl: Timeline | null; models: ModelStats[] }
   const { shown, pending, hand } = useProfilesAt(tl, models);
   const rows = [...shown].sort((a, b) => b.bb100 - a.bb100);
   return (
-    <div className="flex-1 min-h-0" data-hand={hand ?? 'now'}>
+    <div className="flex-1 min-h-0" {...syncAttrs(tl, hand, true)}>
       <table className="w-full h-full table-fixed tabular-nums text-[13px]" style={{ color: TEXT }}>
         <thead>
           <tr style={{ color: MUTED }}>

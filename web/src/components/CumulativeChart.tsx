@@ -6,7 +6,7 @@ import { GLIDE_MS, SHADOW, Segmented } from '@/components/Section';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
-import { Timeline, playReplay, playedAt, replayStarted, skipReplay, useReplay } from '@/lib/timeline';
+import { Timeline, playReplay, playedAt, replayStarted, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
 
 const GRID = 'rgba(55, 53, 47, 0.12)';
 const AXIS = 'rgba(55, 53, 47, 0.75)';
@@ -369,7 +369,7 @@ export default function CumulativeChart({
   const appear = { layout: 'position', transition: GLIDE, initial: { opacity: 0 }, animate: { opacity: 1, transition: { duration: 0.3, delay: 0.08 } } } as const;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
+    <div className="flex-1 min-h-0 flex flex-col" {...syncAttrs(race ? timeline ?? null : null, handNow === null ? null : Math.floor(handNow))}>
       {interactive && (
         // One bar for every control; it wraps on narrow widths.
         <motion.div {...appear} className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[14px]" style={{ color: MUTED }}>
