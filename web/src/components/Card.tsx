@@ -23,10 +23,7 @@ const Card = ({ value, className = "", faceDown = false }: CardProps) => {
   const suit = value.slice(-1);
   const rank = value.slice(0, -1);
 
-  let rankText = rank;
-  if (rank === 'T') {
-    rankText = '10';
-  }
+  const rankText = rank; // the ten is T, like every other rank: one letter, one size
 
   // Suit colors: hearts=red, diamonds=blue, clubs=green, spades=grey
   const getSuitColor = () => {
@@ -60,7 +57,7 @@ const Card = ({ value, className = "", faceDown = false }: CardProps) => {
       {(!faceDown || isHovered) ? (
         // Face up card
         <div aria-hidden className="flex flex-row gap-1 items-center justify-center w-full h-full" style={{ color: 'rgb(55, 53, 47)' }}>
-          <span className={`font-bold ${rankText === '10' ? 'text-[10px] sm:text-[11px] -mr-0.5' : 'text-xs sm:text-sm'}`}>{rankText}</span>
+          <span className="font-bold text-xs sm:text-sm">{rankText}</span>
           {suit === 'h' && <Heart className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
           {suit === 'd' && <Diamond className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
           {suit === 'c' && <Club className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
