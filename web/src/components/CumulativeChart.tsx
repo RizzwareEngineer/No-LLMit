@@ -124,17 +124,18 @@ const PILL_GAP = 7; // from the tip's dot to its pill
 
 // Pill centres, each as near its target as it can be: two pills whose spans overlap across x are
 // pushed apart (half each, the bounds taking the rest) until they are `gap` apart; pills apart
-// across x never push each other. `ps` must be sorted by y ascending.
+// across x never push each other. The push ramps in over the first 16px of overlap, so pills
+// meeting across x ease apart instead of jumping. `ps` must be sorted by y ascending.
 export function stack(ps: { x: number; w: number; y: number }[], gap: number, lo: number, hi: number) {
   const out = ps.map(p => Math.min(Math.max(p.y, lo), hi));
   gap = Math.min(gap, (hi - lo) / Math.max(1, ps.length - 1)); // shortcut: crowds of 13+ pills squeeze every gap
-  const near = (a: (typeof ps)[number], b: (typeof ps)[number]) => a.x < b.x + b.w + 4 && b.x < a.x + a.w + 4;
+  const near = (a: (typeof ps)[number], b: (typeof ps)[number]) => Math.min(1, Math.max(0, (Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + 4) / 16));
   for (let it = 0, moved = true; moved && it < 40; it++) {
     moved = false;
     for (let i = 0; i < ps.length; i++) {
       for (let j = i + 1; j < ps.length; j++) {
-        const d = gap - (out[j] - out[i]);
-        if (d < 0.05 || !near(ps[i], ps[j])) continue;
+        const d = (gap - (out[j] - out[i])) * near(ps[i], ps[j]);
+        if (d < 0.05) continue;
         const up = Math.min(d / 2 + Math.max(0, out[j] + d / 2 - hi), out[i] - lo);
         out[i] -= up;
         out[j] = Math.min(hi, out[j] + d - up);
@@ -413,7 +414,7 @@ export default function CumulativeChart({
       const [n, v] = p.at(-1)!;
       const tx = x(n);
       const grown = Math.min(1, Math.max(0, (tx - Math.max(left, x(pts(m)[0][0]))) / 24), Math.max(0, (tx - left) / 48));
-      return { m, n, v, tx, ty: y(v), w: Math.min(PILL_ROOM - 12, 34 + m.name.length * 7), o: fade(old.lines, lines, m.name) * grown };
+      return { m, n, v, tx, ty: y(v), w: Math.min(PILL_ROOM - 12, 34 + m.name.length * 7.4), o: fade(old.lines, lines, m.name) * grown };
     })
     .sort((a, b) => b.v - a.v); // best first: ascending y
   const pillYs = stack(ends.map(e => ({ x: e.tx + PILL_GAP, w: e.w, y: e.ty })), PILL_H + 3, padTop + PILL_H / 2, padTop + plotH - PILL_H / 2);
@@ -656,7 +657,6 @@ export default function CumulativeChart({
                   left: e.tx + PILL_GAP, top: pillYs[i] - PILL_H / 2, height: PILL_H, maxWidth: PILL_ROOM - 12, color: TEXT,
                   borderColor: modelColor(e.m.name), opacity: (hot && hot !== e.m ? 0.45 : 1) * e.o,
                   background: selected === e.m.name ? `color-mix(in srgb, ${modelColor(e.m.name)} 16%, white)` : 'white',
-                  transition: reduce ? undefined : 'top 180ms ease-out', // a stacking nudge glides
                 }}
               >
                 <span ref={el => { if (el) pillEls.current.set(e.m.name, el); else pillEls.current.delete(e.m.name); }} className="flex min-w-0 items-center gap-1">
