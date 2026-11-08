@@ -259,7 +259,26 @@ const camRun = async () => {
           emph: pills.filter(e => e.hasAttribute('data-emph')).map(name), lineEmph: plot.querySelectorAll('path[data-emph]').length,
           markers: [...plot.querySelectorAll('[data-overtake-marker]')].map(e => e.dataset.overtakeMarker),
           swaps: pills.filter(e => e.getAnimations().some(a => a.id === 'pill-swap' && a.playState === 'running')).map(name),
-          jiggle: document.getAnimations().filter(a => /shake|burst/.test(a.id)).length,
+          jiggle: document.getAnimations().filter(a => /shake/.test(a.id)).length,
+          // Overtake splashes on screen: who, where (design units) and in what colour, beside the passer's pill.
+          bursts: [...plot.querySelectorAll('[data-burst]')].map(b => {
+            const pill = pills.find(e => name(e) === b.dataset.burst), dot = b.querySelector('span');
+            return { name: b.dataset.burst, x: +b.dataset.x, y: +b.dataset.y, color: dot && getComputedStyle(dot).backgroundColor, tx: pill ? +pill.dataset.tx : null, ty: pill ? +pill.dataset.ty : null, pillColor: pill && getComputedStyle(pill).borderTopColor };
+          }),
+          // How far (design px) any line's recent stretch (the last quarter of its drawn window) or tip lies outside the plot band.
+          clip: (() => {
+            const svg = plot.querySelector('svg'), x0 = +svg.querySelector('clipPath rect').getAttribute('x');
+            const ls = [...svg.querySelectorAll('g[clip-path] > path[fill=none]:not([stroke-dasharray])')].map(p => ({ who: p.getAttribute('stroke'), q: (p.getAttribute('d') || '').split(/[ML]/).filter(Boolean).map(s => s.split(',').map(Number)) })).filter(l => l.q.length);
+            const end = Math.max(...ls.map(l => l.q.at(-1)[0])), cut = x0 + 0.75 * (end - x0);
+            let worst = 0, who = '', y0 = Infinity, y1 = -Infinity;
+            for (const l of ls) for (const [px, py] of [...l.q.filter(q => q[0] >= cut), l.q.at(-1)]) {
+              const d = Math.max(0, top - py, py - top - h);
+              if (d > worst) [worst, who] = [d, `${l.who} at x ${px.toFixed(0)}`];
+              [y0, y1] = [Math.min(y0, py), Math.max(y1, py)];
+            }
+            // span: how much of the plot's height the recent stretches and tips cover (the zoom onto them).
+            return { worst, who, lines: ls.length, span: ls.length ? (y1 - y0) / h : null };
+          })(),
         });
       }
       if (performance.now() - t0 < 63_000) requestAnimationFrame(f);
@@ -274,7 +293,10 @@ const near = (ss, s) => ss.reduce((a, b) => (Math.abs(b.t - s * 1000) < Math.abs
 // dynamic y axis will make those diffs much more apparent", pointing at Exa's chart). It replaces the
 // steady axis (history-y-steady) and the one-third fill floor (history-y-fill): the axis follows the
 // lines in view, narrowing as well as widening, so the pack fills the plot; it eases, never jumps.
-await check('history-y-dynamic', 'The y axis follows the lines in view: it moves in the replay (widens and narrows), the visible tips span ≥60% of the plot at 10 s, 30 s, 50 s and at rest, tips never leave the plot, and it eases (≤4% of its range per 60 Hz frame)', async () => {
+// Since 2026-11-08 the lines' recent stretch is never clipped (history-no-recent-clip), so where a line ran
+// beyond the tips lately (the leader's peak above its tip at rest) the zoom is judged on that stretch instead:
+// the tips span ≥60% of the plot, or the recent stretches and tips span ≥80% (the axis hugs them, air aside).
+await check('history-y-dynamic', 'The y axis follows the lines in view: it moves in the replay (widens and narrows), the visible tips span ≥60% of the plot (or the recent stretches ≥80%) at 10 s, 30 s, 50 s and at rest, tips never leave the plot, and it eases (≤4% of its range per 60 Hz frame)', async () => {
   const all = await camRun(), ss = all.filter(s => s.t > 1000);
   const at = [10, 30, 50].map(s => near(ss, s)), rest = all.at(-1);
   let moved = 0, wider = 0, narrower = 0, worst = 0;
@@ -288,10 +310,12 @@ await check('history-y-dynamic', 'The y axis follows the lines in view: it moves
     worst = Math.max(worst, (Math.abs(ss[i].y0 - ss[i - 1].y0) / r) * k, (Math.abs(ss[i].y1 - ss[i - 1].y1) / r) * k);
   }
   const outs = ss.filter(s => s.out > 2);
-  const fills = [...at, rest].map(a => a.fill);
-  const ok = ss.length > 100 && moved / ss.length >= 0.25 && wider > 0 && narrower > 0 && fills.every(f => f != null && f >= 0.6) && !outs.length && worst <= 0.04;
+  const fills = [...at, rest].map(a => a.fill), spans = [...at, rest].map(a => a.clip.span);
+  const zoomed = fills.every((f, i) => (f != null && f >= 0.6) || (spans[i] != null && spans[i] >= 0.8));
+  const ok = ss.length > 100 && moved / ss.length >= 0.25 && wider > 0 && narrower > 0 && zoomed && !outs.length && worst <= 0.04;
   const pct = f => (f == null ? 'no tips' : `${(f * 100).toFixed(0)}%`);
-  return { pass: ok, detail: `fill 10s ${pct(fills[0])}, 30s ${pct(fills[1])}, 50s ${pct(fills[2])}, rest ${pct(fills[3])}; axis moved in ${((moved / (ss.length || 1)) * 100).toFixed(0)}% of frames (${wider} wider, ${narrower} narrower), worst ${(worst * 100).toFixed(1)}% per frame; tips outside the plot in ${outs.length} frames` };
+  const both = i => `${pct(fills[i])} (recent ${pct(spans[i])})`;
+  return { pass: ok, detail: `fill 10s ${both(0)}, 30s ${both(1)}, 50s ${both(2)}, rest ${both(3)}; axis moved in ${((moved / (ss.length || 1)) * 100).toFixed(0)}% of frames (${wider} wider, ${narrower} narrower), worst ${(worst * 100).toFixed(1)}% per frame; tips outside the plot in ${outs.length} frames` };
 });
 // Gaps readable: 6–8 labelled gridlines at rest, and at least 6 through nearly all of the replay.
 await check('history-y-gridlines', 'At least 6 labelled y gridlines (6–8 at rest, ≥6 in 90% of replay frames)', async () => {
@@ -312,7 +336,8 @@ await check('history-pill-rank-value', 'Every History pill shows its rank (in or
   return { pass: r.length > 1 && !bad.length, detail: bad.length ? `bad: ${JSON.stringify(bad.slice(0, 3))}` : r.map(p => `${p[0]} ${p[1]} ${p[2]}`).join(', ') };
 });
 // An overtake is obvious: the two pills swap with a slide, the passer's pill and line light up while
-// the rest dim, and a marker shows the crossing. One event at a time; no shake or burst (calm motion).
+// the rest dim, and a marker shows the crossing. One event at a time; no shake (calm motion). The splash
+// is allowed again since 2026-11-08 (history-overtake-burst) and no longer counts here.
 await check('history-overtake', 'A rank change in the replay swaps the pills (slide), highlights the passer (pill and line) and marks the crossing; one at a time, no shake', async () => {
   const ss = await camRun();
   const starts = ss.filter((s, i) => s.markers.length && s.markers[0] !== ss[i - 1]?.markers[0]);
@@ -323,7 +348,86 @@ await check('history-overtake', 'A rank change in the replay swaps the pills (sl
   });
   const many = ss.filter(s => s.markers.length > 1 || s.emph.length > 1).length, jiggle = ss.filter(s => s.jiggle).length;
   const changes = ss.filter((s, i) => i && s.order !== ss[i - 1].order).length;
-  return { pass: full.length >= 1 && !many && !jiggle, detail: `${starts.length} overtake events in ${((ss.at(-1)?.t ?? 0) / 1000).toFixed(0)} s (${changes} rank changes), ${full.length} with swap + highlight + marker; ${many} frames with two at once, ${jiggle} with shake/burst` };
+  return { pass: full.length >= 1 && !many && !jiggle, detail: `${starts.length} overtake events in ${((ss.at(-1)?.t ?? 0) / 1000).toFixed(0)} s (${changes} rank changes), ${full.length} with swap + highlight + marker; ${many} frames with two at once, ${jiggle} with shake` };
+});
+// The Arena-style overtake splash is back (owner 2026-11-08: "what happened to the 'splashes/collisions' any
+// time a lead change occurs in history? i liked that from the lm arena"): a small burst in the passer's
+// colour at its tip, timed with the swap, the highlight and the ring; one on screen at a time.
+await check('history-overtake-burst', 'An overtake in the replay splashes in the passer\'s colour at its tip, with the swap, highlight and crossing ring; never two splashes at once', async () => {
+  const ss = await camRun();
+  const starts = ss.filter((s, i) => s.markers.length && s.markers[0] !== ss[i - 1]?.markers[0]);
+  const bstarts = ss.flatMap((s, i) => s.bursts.filter(b => !ss[i - 1]?.bursts.some(c => c.name === b.name)).map(b => ({ ...b, t: s.t })));
+  const good = starts.filter(e => {
+    const [a] = e.markers[0].split('|');
+    const w = ss.filter(s => s.t >= e.t - 50 && s.t <= e.t + 400);
+    const cues = w.some(s => s.emph.includes(a) && s.lineEmph === 1) && w.some(s => s.swaps.includes(a));
+    const b = bstarts.find(b => b.name === a && Math.abs(b.t - e.t) <= 150);
+    return cues && b && b.tx != null && Math.hypot(b.x - b.tx, b.y - b.ty) <= 8 && b.color === b.pillColor;
+  });
+  const two = ss.filter(s => s.bursts.length > 1).length;
+  const offs = bstarts.filter(b => b.tx == null || Math.hypot(b.x - b.tx, b.y - b.ty) > 8 || b.color !== b.pillColor);
+  const why = offs.map(b => `${b.name} at ${(b.t / 1000).toFixed(1)} s: ${b.tx == null ? 'no pill' : `${Math.hypot(b.x - b.tx, b.y - b.ty).toFixed(0)}px from its tip, ${b.color} vs ${b.pillColor}`}`).join(', ');
+  return { pass: good.length >= 1 && !two && !offs.length, detail: `${bstarts.length} splashes over ${starts.length} overtake events; ${good.length} at the passer's tip in its colour with swap + highlight + ring; ${offs.length} off the tip or off colour${why ? ` (${why})` : ''}; ${two} frames with two at once` };
+});
+// The y axis never clips the lines' recent stretch (owner 2026-11-08: "the end graph at the end cuts off part
+// of the line for mistral"): at rest and through the replay, every line's last quarter and every tip lie
+// inside the plot band (2px for the clip's own margin); only older history may be clamped at the edge.
+await check('history-no-recent-clip', 'No line\'s recent stretch (last quarter of the window) or tip lies outside the plot, at rest and at 10, 20, 30, 40 and 50 s of the replay', async () => {
+  const all = await camRun(), ss = all.filter(s => s.t > 1000);
+  const at = [...[10, 20, 30, 40, 50].map(s => ({ when: `${s}s`, s: near(ss, s) })), { when: 'rest', s: all.at(-1) }];
+  const bad = at.filter(a => !a.s.clip.lines || a.s.clip.worst > 2);
+  const frames = ss.filter(s => s.clip.worst > 2).length, worst = ss.reduce((m, s) => (s.clip.worst > m.clip.worst ? s : m), ss[0]);
+  return { pass: !bad.length, detail: `${bad.length ? bad.map(a => `${a.when}: ${a.s.clip.worst.toFixed(0)}px out (${a.s.clip.who})`).join('; ') : 'rest and 10–50 s clear'}; ${frames} of ${ss.length} replay frames over 2px, worst ${worst.clip.worst.toFixed(1)}px at ${(worst.t / 1000).toFixed(1)} s` };
+});
+// The pill column is for pills only (owner 2026-11-08: "why is the x axis and graph lines going beyond the left
+// side of each model name in the trend graph ... the right side of trends where all the model names are should be
+// cleared for model names only"): gridlines, axes, ticks, lines, markers and splashes stop at the plot's right edge,
+// left of the pills. Measured on the opened card at rest and every frame from 8 s to 40 s of the replay (after the
+// first seconds, when the tips are still growing toward the column), at 1440x900 and 1728x1117.
+await check('history-pill-column-clear', 'Nothing but pills and their leaders right of the leftmost pill: no gridline, axis, tick, line, marker or splash, at rest and through the replay, at 1440x900 and 1728x1117', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
+    const p = await pageAt(w, h, 'race');
+    try {
+      await clickCenter(p, '#race-panel'); await sleep(1500);
+      await p.evaluate(() => {
+        // How far (px) anything drawn in the plot reaches past the leftmost visible pill's left edge.
+        window.__over = () => {
+          const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
+          const pills = [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5);
+          if (!pills.length) return null;
+          const edge = Math.min(...pills.map(e => e.getBoundingClientRect().left));
+          const op = e => { let o = 1; for (let n = e; n && n !== plot; n = n.parentElement) o *= +getComputedStyle(n).opacity; return o; };
+          const els = [...plot.querySelectorAll('svg line, svg path:not([data-leader]), svg circle, svg text, [data-burst] > span')];
+          let worst = 0, who = '';
+          for (const e of els) {
+            const r = e.getBoundingClientRect();
+            if (r.width + r.height === 0 || op(e) < 0.05 || r.right - edge <= worst) continue;
+            worst = r.right - edge; who = `${e.tagName}${e.dataset?.xTick !== undefined ? ' x tick ' + e.textContent : ''}${e.getAttribute('stroke') ? ' ' + e.getAttribute('stroke') : ''}`;
+          }
+          return { worst, who };
+        };
+      });
+      await clickText(p, 'Skip'); await sleep(1500);
+      const rest = await p.evaluate(() => window.__over());
+      if (!(await clickText(p, 'Replay'))) { bad.push(`${w}x${h}: no Replay`); continue; }
+      const run = await p.evaluate(() => new Promise(res => {
+        const t0 = performance.now(); let worst = { worst: 0, who: '', t: 0 }, n = 0;
+        const f = () => {
+          const t = performance.now() - t0;
+          if (t > 8000) { const o = window.__over(); if (o) { n++; if (o.worst > worst.worst) worst = { ...o, t }; } }
+          if (t < 40000) requestAnimationFrame(f); else res({ ...worst, n });
+        };
+        requestAnimationFrame(f);
+      }));
+      if (!rest) bad.push(`${w}x${h}: no pills at rest`);
+      else if (rest.worst > 0.5) bad.push(`${w}x${h} at rest: ${rest.who} ${rest.worst.toFixed(0)}px into the pill column`);
+      if (!run.n) bad.push(`${w}x${h}: no replay frames sampled`);
+      else if (run.worst > 0.5) bad.push(`${w}x${h} at ${(run.t / 1000).toFixed(1)} s: ${run.who} ${run.worst.toFixed(0)}px into the pill column`);
+      seen.push(`${w}x${h}: clear at rest and in ${run.n} replay frames (8–40 s)`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 });
 // One type for the chart's furniture (owner: "the y axis and x axis of history is not same font").
 await check('history-type', 'History type: x and y ticks alike, axis titles alike (13px muted body sans), pills 13px (names medium, values tabular)', async () => {

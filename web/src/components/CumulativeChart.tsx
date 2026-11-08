@@ -157,14 +157,15 @@ export function gridTicks(a: number, b: number) {
 // The y axis' range for a set of values, Arena style: their 5th to 95th percentile (so one spike
 // does not flatten the pack) and every value in `keep` (the lines' tips), plus 8% air each side.
 // A tip far outside the pack (more than the pack's own span beyond it) is left out, to sit at the
-// edge with an arrow rather than squash everyone. `zero`: always include break-even.
-export function robustRange(vs: number[], keep: number[] = [], zero = true): [number, number] {
+// edge with an arrow rather than squash everyone. `zero`: always include break-even. `must`: values
+// always inside, however far out (the lines' recent stretch, which is never clipped).
+export function robustRange(vs: number[], keep: number[] = [], zero = true, must: number[] = []): [number, number] {
   const s = (vs.some(Number.isFinite) ? vs : keep).filter(Number.isFinite).sort((p, q) => p - q);
   if (!s.length) return [-1, 1];
   const q = (f: number) => s[Math.round(f * (s.length - 1))];
   const [q0, q1] = [q(0.05), q(0.95)], reach = Math.max(q1 - q0, 1e-9);
   const near = keep.filter(v => v >= q0 - reach && v <= q1 + reach);
-  let [lo, hi] = [Math.min(q0, ...near, ...(zero ? [0] : [])), Math.max(q1, ...near, ...(zero ? [0] : []))];
+  let [lo, hi] = [Math.min(q0, ...near, ...must, ...(zero ? [0] : [])), Math.max(q1, ...near, ...must, ...(zero ? [0] : []))];
   if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
   const air = (hi - lo) * 0.08;
   return [lo - air, hi + air];
@@ -187,6 +188,7 @@ export function crossing(a: Pts, b: Pts, ns: number[]): [number, number] | null 
 // The vertical camera: [lo, hi] follows its target as a critically damped spring, so the y axis eases
 // to each new fit with no overshoot, no jump when the target moves and no per-frame jitter.
 const CAM_W = 7; // the spring's rate, 1/s: a step settles in about 0.8 s, trailing a moving target by 2/CAM_W
+const LOOK_S = 0.6; // while the replay plays, the axis also fits the next this-many seconds of the lines, so the spring is there before a jump
 function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
   const [cur, setCur] = useState<[number, number]>([lo, hi]);
   const cam = useRef({ x: [lo, hi], v: [0, 0], tgt: [lo, hi], t: 0, raf: 0 });
@@ -271,14 +273,41 @@ if (process.env.NODE_ENV === 'development') {
   }
   const [rl, rh] = robustRange([...Array.from({ length: 98 }, (_, i) => i - 49), 5000, -5000]);
   console.assert(rl > -60 && rh < 60, 'robustRange: one spike each way does not stretch the axis');
+  console.assert(robustRange([0, 1, 2], [], false, [50])[1] > 50, 'robustRange: a must value is always inside');
   const cr = crossing([[0, 0], [10, 10]], [[0, 5], [10, 5]], [0, 10]);
   console.assert(cr !== null && Math.abs(cr[0] - 5) < 1e-9 && Math.abs(cr[1] - 5) < 1e-9, 'crossing: where a rises through b');
 }
 
-// An overtake: `a` passed `b` at hand n and value v, `t` seconds into the replay.
-type Overtake = { a: string; b: string; n: number; v: number; t: number };
+// An overtake: `a` passed `b` at hand n and value v, `t` seconds into the replay; the passer's tip was at (tx, ty).
+type Overtake = { a: string; b: string; n: number; v: number; t: number; tx: number; ty: number };
 const EMPH_S = 0.6, MARK_S = 2, NEXT_S = 1.5; // the passer's emphasis, the crossing marker's fade, the gap before the next event
 const PAIR_S = 6; // a pair that keeps swapping gets one event per this long
+const BURST_GAP_MS = 2000, BURST_PAIR_MS = 15_000; // one splash at a time; a pair that keeps swapping splashes once per 15 s
+
+// Arena's overtake splash: eight dots in the passer's colour fly out from its tip and fade (600 ms). They
+// spray back over the plot (the left half-circle), so the pill column right of the tips stays clear.
+// Drawn straight into the fx layer, outside React, so a splash never re-renders the chart.
+function burst(layer: HTMLElement | null, x: number, y: number, name: string, color: string) {
+  if (!layer) return;
+  const g = document.createElement('span');
+  Object.assign(g.dataset, { burst: name, x: x.toFixed(1), y: y.toFixed(1) }); // for checks
+  g.style.cssText = `position:absolute;left:${x}px;top:${y}px`;
+  layer.appendChild(g);
+  for (let i = 0; i < 8; i++) {
+    const a = Math.PI / 2 + ((i + 0.2 + Math.random() * 0.6) / 8) * Math.PI, d = 12 + Math.random() * 10;
+    const dot = document.createElement('span');
+    dot.style.cssText = `position:absolute;left:-2.5px;top:-2.5px;width:5px;height:5px;border-radius:9999px;background:${color}`;
+    g.appendChild(dot);
+    dot.animate(
+      [
+        { transform: 'none', opacity: 1, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+        { transform: `translate(${Math.cos(a) * d * 0.8}px, ${Math.sin(a) * d * 0.8}px)`, opacity: 1, offset: 0.45 },
+        { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) scale(0.4)`, opacity: 0 },
+      ],
+      { duration: 600, id: 'burst' },
+    ).onfinish = () => { dot.remove(); if (!g.childElementCount) g.remove(); };
+  }
+}
 
 export default function CumulativeChart({
   models,
@@ -306,6 +335,8 @@ export default function CumulativeChart({
   const area = useRef<HTMLDivElement>(null);
   const plot = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
+  const fxLayer = useRef<HTMLDivElement>(null);
+  const fx = useRef({ last: -Infinity, pair: new Map<string, number>() });
   const pillEls = useRef(new Map<string, HTMLElement>());
   // Last frame's pill order and slots, for the swap slide.
   const slots = useRef({ order: [] as string[], ys: new Map<string, number>() });
@@ -463,10 +494,15 @@ export default function CumulativeChart({
     // While the replay plays, the lines (and all-in EV lines) over the recent quarter of the window's
     // drawn part (a rate's early hands are noise that would flatten the pack); at rest, the whole
     // window; before any line is in view, the whole race's.
+    // Either way the recent quarter itself and every tip are always inside: the leader's latest run is never clipped.
     const inView = [...[...lines.keys()].map(n => drawn.get(n) ?? []), ...evDrawn.filter(e => evs.has(e.n)).map(e => e.p)].filter(p => p.length);
-    const cut = playing ? lerp(X0, Math.min(X1, nowX), 0.75) : -Infinity;
+    const cut = lerp(X0, Math.min(X1, nowX), 0.75);
+    const recent = inView.flatMap(p => p.filter(q => q[0] >= cut).map(q => q[1]));
+    const tips = [...lines.keys()].flatMap(n => drawn.get(n)?.at(-1)?.[1] ?? []);
+    // The replay is known ahead: the next LOOK_S of each line, so the eased axis is never caught out by a jump.
+    const ahead = handNow === null ? [] : [...lines.values()].flatMap(p => trace(p, nowX, nowX + (LOOK_S * 1000 / PLAY_MS) * timeline!.hands, Infinity).map(q => q[1]));
     want = inView.length
-      ? robustRange(inView.flatMap(p => p.filter(q => q[0] >= cut).map(q => q[1])), [...lines.keys()].flatMap(n => drawn.get(n)?.at(-1)?.[1] ?? []), false)
+      ? robustRange(playing ? recent : inView.flatMap(p => p.map(q => q[1])), tips, false, [...recent, ...tips, ...ahead])
       : robustRange([...lines.values()].flatMap(p => trace(p, from, lastHand).map(q => q[1])), [], false);
   } else {
     const ys = [...drawn.values()].flatMap(p => p.map(q => q[1]));
@@ -496,6 +532,7 @@ export default function CumulativeChart({
   const plotH = lh - padTop - padBottom;
   // The leading edge sits this far in from the right; the leader's pill rides just past it.
   const leadW = plotW - (race ? pillRoom : 0);
+  const plotR = left + leadW; // the plot's right edge: gridlines, ticks and lines stop here; past it is the pill column
   const x = (n: number) => left + ((n - X0) / (X1 - X0 || 1)) * leadW;
   const y = (v: number) => padTop + ((Y1 - v) / (Y1 - Y0 || 1)) * plotH;
   const line = (p: [number, number][]) => p.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
@@ -580,7 +617,7 @@ export default function CumulativeChart({
     if ((ev && tNow - ev.t < NEXT_S) || tNow - (pairs[pair] ?? -Infinity) < PAIR_S || byN.get(a)!.o < 0.5 || byN.get(b)!.o < 0.5) continue;
     const pa = drawn.get(a)!, pb = drawn.get(b)!;
     const c = crossing(pa, pb, pa.slice(-24).map(q => q[0])) ?? [byN.get(a)!.n, byN.get(a)!.v];
-    ev = { a, b, n: c[0], v: c[1], t: tNow };
+    ev = { a, b, n: c[0], v: c[1], t: tNow, tx: byN.get(a)!.tx, ty: byN.get(a)!.ty };
     pairs[pair] = tNow;
   }
   if (order.join('|') !== rk.order.join('|') || ev !== rk.ev) setRk({ order, ev, pairs });
@@ -591,6 +628,18 @@ export default function CumulativeChart({
   const age = ev ? tNow - ev.t : Infinity;
   const emph = age < EMPH_S ? Math.min(1, age / 0.1, (EMPH_S - age) / 0.2) : 0;
   const emphOn = emph > 0 ? ev!.a : null;
+  // Each new overtake also splashes at the passer's tip, in step with the slide, the emphasis and the ring.
+  useEffect(() => {
+    const e = rk.ev;
+    if (!e) return;
+    const f = fx.current, now = performance.now(), pair = [e.a, e.b].sort().join('|');
+    if (now - f.last < BURST_GAP_MS || now - (f.pair.get(pair) ?? -Infinity) < BURST_PAIR_MS) return;
+    f.last = now;
+    f.pair.set(pair, now);
+    burst(fxLayer.current, e.tx, e.ty, e.a, modelColor(e.a));
+  }, [rk.ev]);
+  // A splash never outlives its replay: Skip, the end, a restart or a filter change clears any in flight.
+  useEffect(() => { if (!live) fxLayer.current?.replaceChildren(); }, [live]);
   // Two pills that swap places slide there over 300 ms (FLIP: they jump to their new slots, then
   // ease from where they were), rather than jumping a slot in one frame.
   useLayoutEffect(() => {
@@ -610,6 +659,13 @@ export default function CumulativeChart({
     if (!p) return;
     const r = p.getBoundingClientRect();
     p.querySelectorAll<HTMLElement>('[data-pill]').forEach(e => { e.dataset.tipX = (r.left + +e.dataset.tx! * (r.width / lw)).toFixed(1); });
+    // A splash rides its passer's tip (early in the replay the tips still move right).
+    fxLayer.current?.querySelectorAll<HTMLElement>('[data-burst]').forEach(g => {
+      const e = byN.get(g.dataset.burst!);
+      if (!e) return;
+      Object.assign(g.dataset, { x: e.tx.toFixed(1), y: e.ty.toFixed(1) });
+      Object.assign(g.style, { left: `${e.tx}px`, top: `${e.ty}px` });
+    });
   });
   const readout = hover
     ? shown.flatMap(m => { const v = at(m, hover.n); return v === null ? [] : [{ m, v }]; }).sort((a, b) => b.v - a.v)
@@ -731,21 +787,22 @@ export default function CumulativeChart({
         >
           <div className="absolute left-0 top-0 origin-top-left" style={{ width: lw, height: lh, transform: s === 1 ? undefined : `scale(${s})` }}>
             <svg className="absolute inset-0" width={lw} height={lh} viewBox={`0 0 ${lw} ${lh}`} aria-hidden>
-              <defs><clipPath id={clipId}><rect x={left} y={padTop - 2} width={plotW} height={plotH + 4} /></clipPath></defs>
+              <defs><clipPath id={clipId}><rect x={left} y={padTop - 2} width={leadW} height={plotH + 4} /></clipPath></defs>
               {/* Axis titles: the unit above the y labels, the hands under the x labels. */}
               {/* One type for the chart's furniture: x and y ticks alike, both titles alike (13px, muted). */}
               <text x={4} y={ts} fontSize={ts} fontWeight={500} fill={MUTED} className="tabular-nums" data-axis-title="y">{yTitle}</text>
-              <text x={left + plotW / 2} y={lh - 4} textAnchor="middle" fontSize={ts} fontWeight={500} fill={MUTED} className="tabular-nums" data-axis-title="x">Hands played</text>
+              <text x={left + leadW / 2} y={lh - 4} textAnchor="middle" fontSize={ts} fontWeight={500} fill={MUTED} className="tabular-nums" data-axis-title="x">Hands played</text>
               {[...yTicks, ...yGone].map(t => (
                 <g key={t} opacity={edge(t)}>
                   <g className={`transition-opacity duration-300 starting:opacity-0 ${yTicks.includes(t) ? '' : 'opacity-0'}`}>
-                    <line x1={left} x2={lw - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.5)' : GRID} />
+                    <line x1={left} x2={plotR} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.5)' : GRID} />
                     <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={ts} fontWeight={400} fill={MUTED} className="tabular-nums" data-y-tick={yTicks.includes(t) ? '' : undefined}>{tick(t)}</text>
                   </g>
                 </g>
               ))}
               <line x1={left} x2={left} y1={padTop} y2={padTop + plotH} stroke={GRID} />
-              {xTicks.map(({ t, o }) => (
+              {xTicks.map(({ t, o }) => ({ t, o: o * Math.min(1, Math.max(0, (plotR - x(t) - t.toLocaleString().length * ts * 0.31) / 12)) })).filter(d => d.o > 0.01).map(({ t, o }) => (
+                // A label fades out before it would reach past the plot into the pill column.
                 <g key={t} opacity={o}>
                   <line x1={x(t)} x2={x(t)} y1={padTop + plotH} y2={padTop + plotH + 4} stroke={AXIS} />
                   <text x={x(t)} y={padTop + plotH + ts + 6} textAnchor="middle" fontSize={ts} fontWeight={400} fill={MUTED} className="tabular-nums" data-x-tick>{t.toLocaleString()}</text>
@@ -777,7 +834,7 @@ export default function CumulativeChart({
                 // The tip's dot (an arrow at the edge for a tip beyond the axis), and a dotted leader to
                 // its pill when stacking moved the pill off the line.
                 <g key={e.m.name} opacity={(hot && hot !== e.m ? 0.3 : 1) * e.o}>
-                  {Math.abs(pillYs[i] - e.ty) > pillH / 2 && <path d={`M${e.tx},${e.ty}L${e.tx + PILL_GAP},${pillYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none" opacity={0.7} />}
+                  {Math.abs(pillYs[i] - e.ty) > pillH / 2 && <path data-leader d={`M${e.tx},${e.ty}L${e.tx + PILL_GAP},${pillYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none" opacity={0.7} />}
                   {e.off
                     ? <path data-off-axis={e.off < 0 ? 'up' : 'down'} d={`M${e.tx},${e.ty + e.off * 6}l-5,${-e.off * 9}h10z`} fill={modelColor(e.m.name)} stroke="white" strokeWidth={1.5} strokeLinejoin="round" />
                     : <circle cx={e.tx} cy={e.ty} r={3.5} fill={modelColor(e.m.name)} stroke="white" strokeWidth={1.5} />}
@@ -849,6 +906,8 @@ export default function CumulativeChart({
                 )}
               </div>
             )}
+            {/* Overtake splashes are drawn here, outside React (see burst). */}
+            <div ref={fxLayer} aria-hidden className="absolute inset-0 pointer-events-none" />
             {/* Always mounted, so the first arrow press is announced too; it says the leader and the highlighted line. */}
             {race && <div role="status" className="sr-only">{said}</div>}
             {/* The readout floats over the plot (no layout shift), on the side away from the cursor. */}
