@@ -6,7 +6,7 @@ import { GLIDE_MS, SHADOW, Segmented } from '@/components/Section';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
-import { PLAY_MS, Timeline, playReplay, playedAt, replayStarted, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
+import { PLAY_MS, Timeline, playReplay, playedAt, replaySpeed, replayStarted, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
 
 const GRID = 'rgba(55, 53, 47, 0.12)';
 const AXIS = 'rgba(55, 53, 47, 0.75)'; // tick marks
@@ -200,7 +200,7 @@ function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
     if (c.raf) return; // the running loop picks up the new target
     c.t = performance.now();
     const step = (t: number) => {
-      const dt = Math.min(0.25, Math.max(0, (t - c.t) / 1000)), span = Math.abs(c.tgt[1] - c.tgt[0]) || 1;
+      const dt = Math.min(0.25, Math.max(0, ((t - c.t) / 1000) * replaySpeed())), span = Math.abs(c.tgt[1] - c.tgt[0]) || 1;
       c.t = t;
       let still = true;
       for (let i = 0; i < 2; i++) {
@@ -304,7 +304,7 @@ function burst(layer: HTMLElement | null, x: number, y: number, name: string, co
         { transform: `translate(${Math.cos(a) * d * 0.8}px, ${Math.sin(a) * d * 0.8}px)`, opacity: 1, offset: 0.45 },
         { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) scale(0.4)`, opacity: 0 },
       ],
-      { duration: 600, id: 'burst' },
+      { duration: 600 / replaySpeed(), id: 'burst' },
     ).onfinish = () => { dot.remove(); if (!g.childElementCount) g.remove(); };
   }
 }
@@ -633,7 +633,7 @@ export default function CumulativeChart({
     const e = rk.ev;
     if (!e) return;
     const f = fx.current, now = performance.now(), pair = [e.a, e.b].sort().join('|');
-    if (now - f.last < BURST_GAP_MS || now - (f.pair.get(pair) ?? -Infinity) < BURST_PAIR_MS) return;
+    if (now - f.last < BURST_GAP_MS / replaySpeed() || now - (f.pair.get(pair) ?? -Infinity) < BURST_PAIR_MS / replaySpeed()) return;
     f.last = now;
     f.pair.set(pair, now);
     burst(fxLayer.current, e.tx, e.ty, e.a, modelColor(e.a));
@@ -647,7 +647,7 @@ export default function CumulativeChart({
     ends.forEach((e, i) => {
       const was = sl.ys.get(e.m.name), el = pillEls.current.get(e.m.name);
       if (el && was != null && sl.order.indexOf(e.m.name) !== i && sl.order.includes(e.m.name) && Math.abs(was - pillYs[i]) > pillH / 2 && !reduce) {
-        el.animate([{ transform: `translateY(${was - pillYs[i]}px)` }, { transform: 'none' }], { duration: 300, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', id: 'pill-swap' });
+        el.animate([{ transform: `translateY(${was - pillYs[i]}px)` }, { transform: 'none' }], { duration: 300 / replaySpeed(), easing: 'cubic-bezier(0.22, 1, 0.36, 1)', id: 'pill-swap' });
       }
     });
     sl.order = ends.map(e => e.m.name);

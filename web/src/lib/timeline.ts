@@ -9,17 +9,21 @@ import type { ModelStats } from '@/lib/stats';
 // view; Skip ends it, Replay restarts it. `progress` is 0..1 of the way (1: not started or done, the
 // cards show now). Its own frame loop, so every card reads the same value in the same frame.
 export const PLAY_MS = 60_000;
+// Test-only: a check sets window.__replaySpeed before it starts a replay to watch the same replay that many times
+// faster; the chart's real-time effects (camera spring, splash timing, pill slide) scale with replaySpeed(). Visitors: 1.
+let speed = 1;
+export const replaySpeed = () => speed;
 let start: number | null = null;
 let progress = 1;
 let frame = 0;
 const subs = new Set<() => void>();
 function tick(t: number) {
-  progress = start === null ? 1 : Math.min(1, Math.max(0, (t - start) / PLAY_MS));
+  progress = start === null ? 1 : Math.min(1, Math.max(0, ((t - start) * speed) / PLAY_MS));
   subs.forEach(f => f());
   cancelAnimationFrame(frame);
   if (progress < 1) frame = requestAnimationFrame(tick);
 }
-export const playReplay = () => { start = performance.now(); tick(start); };
+export const playReplay = () => { speed = (window as { __replaySpeed?: number }).__replaySpeed || 1; start = performance.now(); tick(start); };
 export const skipReplay = () => { start = -Infinity; tick(0); };
 export const replayStarted = () => start !== null;
 const subscribe = (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; };
