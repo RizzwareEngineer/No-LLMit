@@ -19,7 +19,7 @@ const TWEEN_S = 0.5;
 // The Race is laid out once at this size (the Race card's width at 1440×900, about 3.6:1) and scaled as
 // a whole into its box. The overview's History tile has the same shape (StatsSections sizes its row),
 // so the tile and the card show one picture, filling their width, and nothing ever stretches.
-export const W = 1220, H = 340;
+export const W = 1220, H = 470; // History's shape, 2.6:1: tall enough to tell close lines apart
 const LEGEND_H = 68; // the legend under the Race card's plot: up to three rows (every model, and the note)
 
 type Pts = [number, number][];
