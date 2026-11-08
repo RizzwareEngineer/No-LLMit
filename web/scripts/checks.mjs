@@ -765,7 +765,7 @@ group(() => check('history-overtake-sound', 'Trends overtakes sound through the 
     const before = await stretch();
     await p.keyboard.press('Shift'); await sleep(300); // the first trusted key press unlocks audio
     const on = await stretch();
-    await p.evaluate(() => document.querySelector('button[aria-label="Table sounds"]').click()); await sleep(300); // mute
+    await p.evaluate(() => document.querySelector('button[aria-label="Sounds"]').click()); await sleep(300); // mute
     const muted = await stretch();
     const ok = before.sounds === 0 && on.sounds >= 1 && on.sounds <= on.events && !on.overlaps && muted.sounds === 0 && on.events > 0;
     return { pass: ok, detail: `before any key press: ${before.sounds} sounds over ${before.events} overtake frames; sound on: ${on.sounds} sounds over ${on.events} overtake frames, ${on.overlaps} overlapping; muted: ${muted.sounds} sounds over ${muted.events}` };

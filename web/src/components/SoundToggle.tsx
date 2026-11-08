@@ -4,7 +4,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { SpeakerHigh, SpeakerSlash } from "@phosphor-icons/react";
 import { isSoundOn, setSoundOn, subscribeSound, unlockOnFirstGesture } from "@/lib/sound";
 
-// Header switch for the table sounds (off by default).
+// Header switch for the site sounds: the table and the Trends overtakes (off by default).
 export default function SoundToggle() {
   const on = useSyncExternalStore(subscribeSound, isSoundOn, () => false);
   useEffect(() => {
@@ -21,7 +21,7 @@ export default function SoundToggle() {
       type="button"
       onClick={() => setSoundOn(!on)}
       aria-pressed={on}
-      aria-label="Table sounds"
+      aria-label="Sounds"
       title={on ? 'Sound on. Browsers start it after your first click or key press on the page.' : 'Sound off'}
       className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[14px] hover:bg-black/5"
       style={{ color: on ? 'rgb(55, 53, 47)' : 'rgba(55, 53, 47, 0.65)' }}
