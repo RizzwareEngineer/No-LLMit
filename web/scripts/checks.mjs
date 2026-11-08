@@ -41,6 +41,15 @@ const replayHand = async pg => {
   return h;
 };
 
+// A fresh page at a window size, on the overview once the stats have loaded.
+const pageAt = async (w, h, id = 'stats') => {
+  const p = await browser.newPage(); await p.setViewport({ width: w, height: h });
+  await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 90000 }); await sleep(5000);
+  await goto(p, id); await sleep(2000);
+  return p;
+};
+const rect = (p, sel) => p.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; }, sel);
+
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--mute-audio'] });
 const pg = await browser.newPage();
 await pg.setViewport({ width: 1440, height: 900 });
@@ -159,24 +168,113 @@ await check('sync-in-step', 'While History replays, Profiles and Matchups stay w
   return { pass: ok, detail: `history ${race.hand}, profiles ${prof.hand} (step ${step}), matchups ${mu.hand}` };
 });
 
-// While the replay steps Profiles through its snapshots, rows never sit on top of each other.
-await check('profiles-rows-no-overlap', 'During the replay, no two Profiles rows overlap', async () => {
+// While the replay steps Profiles through its snapshots, rows never sit on top of each other. Rows
+// now slide to a new place (each cell's content moves; Chrome ignores transforms on a table row), and
+// two rows that swap cross mid-slide by design: the rule is judged on rows at rest.
+const nameOffsets = () => [...document.querySelectorAll('#stats-card tbody tr')].map(r => { const s = r.querySelector('th span'); return s ? { o: s.getBoundingClientRect().top - r.getBoundingClientRect().top, b: s.getBoundingClientRect() } : null; }).filter(Boolean);
+await check('profiles-rows-no-overlap', 'During the replay, no two Profiles rows overlap (rows at rest)', async () => {
   await goto(pg, 'race'); await sleep(800); // Skip and Replay live on the History card
   const playing = () => pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
   if (!(await playing()) && !(await clickText(pg, 'Replay'))) return { pass: false, detail: 'neither Skip nor Replay shown' };
   await sleep(500); await goto(pg, 'stats-table'); await sleep(600);
   let worst = 0, samples = 0;
-  for (let i = 0; i < 12; i++) {
-    const o = await pg.evaluate(() => {
-      const rs = [...document.querySelectorAll('#stats-card tbody tr')].map(r => r.getBoundingClientRect()).filter(r => r.height > 4);
+  for (let i = 0; i < 16; i++) {
+    const o = await pg.evaluate(src => {
+      const rows = (0, eval)(src)();
+      if (!rows.length) return null;
+      const rest = Math.min(...rows.map(r => r.o));
+      if (rows.some(r => Math.abs(r.o - rest) > 3)) return 'moving';
       let w = 0;
-      for (let a = 0; a < rs.length; a++) for (let b = a + 1; b < rs.length; b++) w = Math.max(w, Math.min(rs[a].bottom, rs[b].bottom) - Math.max(rs[a].top, rs[b].top));
-      return rs.length ? w : null;
-    });
-    if (o !== null) { samples++; worst = Math.max(worst, o); }
+      for (let a = 0; a < rows.length; a++) for (let b = a + 1; b < rows.length; b++) w = Math.max(w, Math.min(rows[a].b.bottom, rows[b].b.bottom) - Math.max(rows[a].b.top, rows[b].b.top));
+      return w;
+    }, `(${nameOffsets})`);
+    if (typeof o === 'number') { samples++; worst = Math.max(worst, o); }
     await sleep(250);
   }
-  return { pass: samples > 0 && worst <= 2, detail: samples ? `worst overlap ${worst.toFixed(1)}px over ${samples} samples` : 'no rows found' };
+  return { pass: samples > 0 && worst <= 2, detail: samples ? `worst overlap ${worst.toFixed(1)}px over ${samples} samples at rest` : 'no rows at rest found' };
+});
+
+// Owner, 2026-11-07: "the animation that you use to switch rows in profits and losses, I want that same
+// animation for profiles". While the replay reorders Profiles, a row's content is seen mid-slide.
+await check('profiles-rows-slide', 'When the replay reorders Profiles, rows slide to their new place (not snap)', async () => {
+  await goto(pg, 'stats-table'); await sleep(300);
+  const r = await pg.evaluate(src => new Promise(res => {
+    const read = (0, eval)(src);
+    const t0 = performance.now(); let mid = 0, frames = 0, order = null, reorders = 0;
+    const loop = () => {
+      frames++;
+      const rows = read();
+      const names = [...document.querySelectorAll('#stats-card tbody tr th')].map(e => e.textContent).join('|');
+      if (order !== null && names !== order) reorders++;
+      order = names;
+      if (rows.length) { const rest = Math.min(...rows.map(x => x.o)); if (rows.some(x => x.o - rest > 4)) mid++; }
+      if (performance.now() - t0 < 9000 && mid < 3) requestAnimationFrame(loop); else res({ mid, frames, reorders });
+    };
+    requestAnimationFrame(loop);
+  }), `(${nameOffsets})`);
+  return { pass: r.mid >= 3, detail: `${r.reorders} reorders, ${r.mid} frames with a row mid-slide (of ${r.frames})` };
+});
+
+// Owner, 2026-11-07: "I still see the cells jiggle a bit when a number changes". A changed Matchups
+// cell only changes colour and figure: every cell stays exactly in its grid slot, at its size.
+await check('matchups-cells-still', 'Matchups cells never move or scale when a value changes', async () => {
+  await goto(pg, 'stats'); await sleep(800);
+  const r = await pg.evaluate(() => new Promise(res => {
+    const sel = '#pairwise-panel [data-cell]';
+    const box = c => c.getBoundingClientRect();
+    const first = [...document.querySelectorAll(sel)];
+    const xs = new Set(first.map(c => Math.round(box(c).left * 2) / 2)), ys = new Set(first.map(c => Math.round(box(c).top * 2) / 2));
+    const size = new Map(first.map(c => [c.dataset.cell, [box(c).width, box(c).height]]));
+    const text0 = new Map(first.map(c => [c.dataset.cell, c.textContent]));
+    const near = (set, v) => [...set].some(x => Math.abs(x - v) <= 0.5);
+    let worst = 0, off = 0, changed = 0; const t0 = performance.now();
+    const loop = () => {
+      for (const c of document.querySelectorAll(sel)) {
+        const b = box(c), s = size.get(c.dataset.cell);
+        if (!near(xs, b.left) || !near(ys, b.top)) off++;
+        if (s) worst = Math.max(worst, Math.abs(b.width - s[0]), Math.abs(b.height - s[1]));
+        if (text0.has(c.dataset.cell) && text0.get(c.dataset.cell) !== c.textContent) { changed++; text0.set(c.dataset.cell, c.textContent); }
+      }
+      if (performance.now() - t0 < 4000) requestAnimationFrame(loop); else res({ worst, off, changed });
+    };
+    requestAnimationFrame(loop);
+  }));
+  return { pass: r.changed > 0 && r.off === 0 && r.worst <= 0.5, detail: r.changed ? `${r.changed} value changes; ${r.off} cell frames off their grid slot, worst size change ${r.worst.toFixed(1)}px` : 'no value changed in 4s (is the replay running?)' };
+});
+
+// Owner, 2026-11-07: "History ... pretty smooth. For profiles, it's not as smooth" (the tile's text
+// shrank to ~45% on the first frame of the glide and grew back, as the card's table replaced it scaled
+// down), and the card took over from the gliding tile with a jump in size. While a tile glides to its
+// card, Profiles' figures stay at their size, and the card takes over exactly where the tile ends.
+await check('glide-smooth', 'Opening Profiles and Matchups: no jump at the hand-over, Profiles text never shrinks', async () => {
+  const bad = [], seen = [];
+  for (const [tile, card, id] of [['#stats-panel', '#stats-card', 'stats-table'], ['#pairwise-panel', '#pairwise-card', 'pairwise']]) {
+    await goto(pg, 'stats'); await sleep(1500);
+    const pt = await pg.evaluate(s => { const b = document.querySelector(s).getBoundingClientRect(); return [b.left + b.width / 2, b.top + 20]; }, tile);
+    const run = pg.evaluate(([tile, card]) => new Promise(res => {
+      const y0 = scrollY, out = []; const t0 = performance.now();
+      const loop = () => {
+        const on = scrollY === y0;
+        const el = on ? document.querySelector(tile) : document.querySelector(`${card} .card-chrome`);
+        const b = el.getBoundingClientRect();
+        const fig = [...el.querySelectorAll('tbody td span')].find(e => /\d/.test(e.textContent) && e.offsetHeight > 0 && !e.querySelector('*'));
+        out.push({ on, b: [b.left, b.top, b.right, b.bottom], s: fig ? fig.getBoundingClientRect().height / fig.offsetHeight : 1 });
+        if (performance.now() - t0 < 1200) requestAnimationFrame(loop); else res(out);
+      };
+      requestAnimationFrame(loop);
+    }), [tile, card]);
+    await pg.mouse.click(pt[0], pt[1]);
+    const f = await run;
+    const i = f.findIndex(x => !x.on);
+    if (i < 1) { bad.push(`${id}: never reached its card`); continue; }
+    const jump = Math.max(...f[i].b.map((v, k) => Math.abs(v - f[i - 1].b[k])));
+    const lo = Math.min(...f.map(x => x.s)), hi = Math.max(...f.map(x => x.s));
+    seen.push(`${id} hand-over ${jump.toFixed(1)}px${id === 'stats-table' ? `, text ×${lo.toFixed(2)}–${hi.toFixed(2)}` : ''}`);
+    if (jump > 2) bad.push(`${id}: the card takes over ${jump.toFixed(0)}px off the tile`);
+    if (id === 'stats-table' && (lo < 0.85 || hi > 1.15)) bad.push(`Profiles text drawn at ×${lo.toFixed(2)}–${hi.toFixed(2)} of its size mid-glide`);
+    await clickText(pg, 'Back to overview'); await sleep(1200);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 });
 
 // --- Matchups and Profiles opened ---
@@ -255,17 +353,19 @@ await check('cards-no-scope', 'No hands/all time/blinds line, Session picker or 
   }
   return { pass: !bad.length, detail: bad.join(', ') || 'none' };
 });
-await check('matchups-wider', 'On the overview the Matchups tile is wider than the Profiles tile', async () => {
+// Was "Matchups is wider than Profiles"; the owner's 2026-11-07 priorities replace it: History leads the
+// overview, and Matchups is at least comparable to Profiles.
+await check('matchups-comparable', 'On the overview the Matchups tile is at least comparable to Profiles (70% of its area or more)', async () => {
   await goto(pg, 'stats'); await sleep(1200);
-  const [p, m] = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel'].map(s => Math.round(document.querySelector(s).getBoundingClientRect().width)));
-  return { pass: m > p, detail: `Profiles ${p}px, Matchups ${m}px` };
+  const [p, m] = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel'].map(s => { const b = document.querySelector(s).getBoundingClientRect(); return Math.round(b.width * b.height); }));
+  return { pass: m >= 0.7 * p, detail: `Profiles ${p}px², Matchups ${m}px² (${(m / p * 100).toFixed(0)}%)` };
 });
-// The Matchups tile is its names and its square, edge to edge: no empty band beside them.
+// The Matchups tile is its names, its square and its totals, edge to edge: no empty band beside them.
 await check('matchups-tile-filled', 'The Matchups matrix and its names fill the tile (no empty space beside them)', async () => {
   await goto(pg, 'stats'); await sleep(1200);
   const r = await pg.evaluate(() => {
     const t = document.querySelector('#pairwise-panel').getBoundingClientRect();
-    const cells = [...document.querySelectorAll('#pairwise-panel td, #pairwise-panel a, #pairwise-panel th')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2 && b.height > 2);
+    const cells = [...document.querySelectorAll('#pairwise-panel td, #pairwise-panel a, #pairwise-panel th, #pairwise-panel div[data-cell]')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2 && b.height > 2);
     const l = Math.min(...cells.map(b => b.left)), rt = Math.max(...cells.map(b => b.right));
     const names = [...document.querySelectorAll('#pairwise-panel a span')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2);
     return { span: (rt - l) / (t.width - 32), nameLeft: names.length ? (Math.min(...names.map(b => b.left)) - t.left - 16) / (t.width - 32) : 1 };
@@ -275,6 +375,76 @@ await check('matchups-tile-filled', 'The Matchups matrix and its names fill the 
 await check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar on a preview)', async () => {
   const bad = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel', '#race-panel'].flatMap(s => [...document.querySelectorAll(`${s} *`)].filter(e => ['auto', 'scroll'].includes(getComputedStyle(e).overflowY)).map(() => s)));
   return { pass: !bad.length, detail: bad.length ? `scrollable inside ${[...new Set(bad)].join(', ')}` : 'none' };
+});
+
+// Owner, 2026-11-07: the overview was "too big"; "the history graph should be the 'biggest' one ...
+// the first thing that people look at"; not wall-to-wall. At 1440x900 and 1728x1117: History on top and
+// the largest tile (1.5x the area of each other tile, and the tallest row), the block at most 1400px wide
+// and 80% of the window, with page around it (64px at the sides, 24px above and below).
+// Then the opened Matchups card ("so much white space to the left"; "takes up too much of the screen"):
+// it hugs names, matrix and totals (no band over 8px between its edge and its content) and leaves
+// page around it (at most 70% of the window's width and 85% of its height).
+await check('overview-history-leads', 'History is the dominant tile, first in reading order; the overview keeps page around it', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
+    const p = await pageAt(w, h);
+    const [race, prof, mu] = await Promise.all(['#race-panel', '#stats-panel', '#pairwise-panel'].map(s => rect(p, s)));
+    await p.close();
+    const area = b => b.w * b.h;
+    const left = race.l, right = w - Math.max(race.r, mu.r), top = race.t - 44, bottom = h - Math.max(prof.b, mu.b), width = Math.max(race.r, mu.r) - race.l;
+    seen.push(`${w}x${h}: History ${race.w.toFixed(0)}x${race.h.toFixed(0)}, Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}, Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)}, block ${width.toFixed(0)}px, page ${left.toFixed(0)}/${right.toFixed(0)} beside, ${top.toFixed(0)}/${bottom.toFixed(0)} above/below`);
+    if (!(race.b <= Math.min(prof.t, mu.t))) bad.push(`${w}x${h}: History is not on top`);
+    if (area(race) < 1.5 * Math.max(area(prof), area(mu))) bad.push(`${w}x${h}: History ${(area(race) / Math.max(area(prof), area(mu))).toFixed(2)}x the next tile's area`);
+    if (race.h <= Math.max(prof.h, mu.h)) bad.push(`${w}x${h}: History's row is not the tallest`);
+    if (width > 1400 || width > 0.8 * w) bad.push(`${w}x${h}: block ${width.toFixed(0)}px wide`);
+    if (left < 64 || right < 64 || top < 24 || bottom < 24) bad.push(`${w}x${h}: page around the block ${left.toFixed(0)}/${right.toFixed(0)}/${top.toFixed(0)}/${bottom.toFixed(0)}px`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+});
+await check('matchups-card-hugs', 'The opened Matchups card hugs its names, matrix and totals, and leaves page around it', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
+    const p = await pageAt(w, h, 'pairwise');
+    const r = await p.evaluate(() => {
+      const card = document.querySelector('#pairwise-card .card-chrome'), c = card.getBoundingClientRect();
+      const names = [...card.querySelectorAll('a span')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2);
+      const right = [...card.querySelectorAll('div[data-cell], td[data-cell]')].map(e => e.getBoundingClientRect().right);
+      return { c: { l: c.left, t: c.top, w: c.width, h: c.height }, gapL: Math.min(...names.map(b => b.left)) - (c.left + 16), gapR: c.right - 16 - Math.max(...right) };
+    });
+    await p.close();
+    seen.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)}, bands ${r.gapL.toFixed(0)}/${r.gapR.toFixed(0)}px`);
+    if (r.gapL > 8 || r.gapR > 8) bad.push(`${w}x${h}: empty band beside the matrix (${r.gapL.toFixed(0)}px left, ${r.gapR.toFixed(0)}px right)`);
+    if (r.c.w > 0.7 * w || r.c.h > 0.85 * h || r.c.l < 64) bad.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)} at x ${r.c.l.toFixed(0)}`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+});
+// Owner, 2026-11-07: "the font for the numbers in matchups doesn't feel like it matches ... unify all
+// of the fonts". The reference is Profiles' cells (body sans, 14px, tabular figures): in the cards,
+// Matchups' cells, its Total column and the Leader figure match it; the Matchups tile uses one size for
+// every cell (no per-cell scaling); Profits & Losses uses the same family and tabular figures.
+await check('stats-font-unified', 'One number font across the stats cards (family, tabular figures, size by role)', async () => {
+  const font = sel => pg.evaluate(sel => [...document.querySelectorAll(sel)].filter(e => e.getBoundingClientRect().width > 0 && /\d/.test(e.textContent)).map(e => { const s = getComputedStyle(e); return `${s.fontFamily.split(',')[0]}|${s.fontVariantNumeric}|${s.fontSize}`; }), sel);
+  await goto(pg, 'stats-table'); await sleep(1500);
+  const prof = await font('#stats-card tbody td span:not([class*="sr-only"])');
+  await goto(pg, 'pairwise'); await sleep(1500);
+  const cells = await font('#pairwise-card td[data-cell] span[aria-hidden]');
+  const totals = await font('#pairwise-card div[data-cell] span[aria-hidden]');
+  const leader = await font('#pairwise-card h2 ~ div span.font-bold');
+  await goto(pg, 'stats'); await sleep(1500);
+  const tile = await font('#pairwise-panel td[data-cell] span[aria-hidden]');
+  await pg.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(800);
+  const pl = await font('ol li div.tabular-nums');
+  const ref = prof[0];
+  const fam = f => f?.split('|').slice(0, 2).join('|');
+  const bad = [];
+  for (const [name, fs] of [['Matchups cells', cells], ['Totals', totals], ['Leader', leader]]) {
+    if (!fs.length) bad.push(`${name}: none found`);
+    else if (fs.some(f => f !== ref)) bad.push(`${name}: ${[...new Set(fs)].join(', ')}`);
+  }
+  if (!ref || !ref.endsWith('|14px') || !ref.includes('tabular-nums')) bad.push(`Profiles cells: ${ref}`);
+  if (new Set(tile).size !== 1 || fam(tile[0]) !== fam(ref)) bad.push(`Matchups tile: ${[...new Set(tile)].join(', ')}`);
+  if (!pl.length || pl.some(f => fam(f) !== fam(ref))) bad.push(`Profits & Losses: ${[...new Set(pl)].join(', ') || 'none found'}`);
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `cards ${ref}; tile ${tile[0]}; P&L ${pl[0]}` };
 });
 
 // The overview must hold its proportions at any window size or browser zoom: rows and matrix

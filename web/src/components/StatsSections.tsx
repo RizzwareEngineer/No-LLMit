@@ -400,7 +400,7 @@ function Leader({ tl, models, bigBlind, scope }: { tl: Timeline | null; models: 
     <span className="flex items-center gap-1.5 tabular-nums text-[14px]" style={{ color: TEXT }}>
       <span style={{ color: MUTED }}>Leader</span>
       <LLMLogo model={top.m.name} size={18} />
-      <span className="font-bold">{top.m.name}</span>
+      <span translate="no" className="font-bold">{top.m.name}</span>
       <span className="font-bold" style={{ color: netColor(top.n) }}>{chips(top.n)} chips {scope}</span>
     </span>
   );

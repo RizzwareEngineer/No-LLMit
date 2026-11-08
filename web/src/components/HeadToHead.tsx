@@ -182,7 +182,7 @@ export default memo(function HeadToHead({
           <span className="block" style={slot} />
           {sorted.map(row => (
             <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-2 whitespace-nowrap ${mini ? 'text-[13px]' : 'hover:underline'} ${row.name === top?.leader ? 'font-bold' : 'font-medium'}`}>
-              <span className="truncate">{row.name}</span>
+              <span translate="no" className="truncate">{row.name}</span>
             </a>
           ))}
         </div>

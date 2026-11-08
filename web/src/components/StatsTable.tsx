@@ -245,7 +245,7 @@ export function Bb100({ m }: { m: ModelStats }) {
 
 // A row's model: logo and name, a link to its drawer (plain text on the tile, which opens the card).
 function Name({ href, name, children }: { href?: string; name: string; children?: React.ReactNode }) {
-  const inner = <><LLMLogo model={name} size={16} /><span className="truncate @max-md:sr-only">{name}</span>{children}</>;
+  const inner = <><LLMLogo model={name} size={16} /><span translate="no" className="truncate @max-md:sr-only">{name}</span>{children}</>;
   return href
     ? <a href={href} className="flex items-center gap-2 min-w-0 hover:underline" style={{ color: TEXT }} title={name}>{inner}</a>
     : <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>{inner}</span>;
@@ -386,7 +386,7 @@ function Grid({
             <th scope="row" className={`${cell} text-left font-bold`}>
               <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>
                 <LLMLogo model={name} size={16} />
-                <span className="truncate @max-md:sr-only">{name}</span>
+                <span translate="no" className="truncate @max-md:sr-only">{name}</span>
               </span>
             </th>
             {columns.map(c => <td key={c.key} className={`${cell} ${added(c)} text-right`} style={{ color: MUTED }}>{DASH}</td>)}
