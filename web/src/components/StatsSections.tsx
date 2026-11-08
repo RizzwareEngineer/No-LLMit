@@ -4,10 +4,10 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExt
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
 import { Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, CountUp, GLIDE_MS, HEADER, Segmented, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE_MS, HEADER, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
 import StatsTable, { MINI_ROW } from '@/components/StatsTable';
-import HeadToHead, { PairwiseBars, pairwiseLeader } from '@/components/HeadToHead';
+import HeadToHead, { pairwiseLeader } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, seatedModels, useStats } from '@/lib/stats';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
@@ -47,26 +47,18 @@ const noop = () => () => {};
 const useNativeTimeline = () =>
   useSyncExternalStore(noop, () => CSS.supports('animation-timeline: view()') && CSS.supports('timeline-scope: --a'), () => true);
 
-// The three panels under the live table. `picked` is the session chosen in the Profiles
-// section (or all time); `all` carries the session list. Memoized: the page re-renders every
+// The three panels under the live table, all time. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
 export default memo(function StatsSections({
   all,
-  picked,
   seated: lineup,
-  session,
-  onSession,
 }: {
   all: Stats;
-  picked: Stats;
-  seated?: string[]; // the page's lineup (with its fallback for an older engine), when `picked` is all-time or live
-  session: string;
-  onSession: (id: string) => void;
+  seated?: string[]; // the page's lineup (with its fallback for an older engine)
 }) {
-  const { data, sample, loading, error, current } = picked;
+  const { data, sample, loading, error, current } = all;
   const [selected, setSelected] = useState('');
   const [highlight, setHighlight] = useState<string | undefined>();
-  const [view, setView] = useState<'matrix' | 'bars'>('matrix'); // Matchups: the 9x9 grid, or a bar per model
   // The tile filling the stage (null: the overview grid); `lift`, the one focused last, stays on top
   // while it glides back. Race fills it on every screen after the overview: the cards slide over it.
   const [tiles, setTiles] = useState<{ on: Tile | null; snap: boolean; lift: Tile | null }>({ on: null, snap: false, lift: null });
@@ -260,41 +252,12 @@ export default memo(function StatsSections({
   const seated = data?.seated ?? lineup;
   const field = useMemo(() => seatedModels(data?.models ?? [], seated), [data, seated]);
   const bigBlind = data?.scope.big_blind ?? 10;
-  // One scope for History, Profiles and Matchups (all time by default; the session picker changes all
-  // three) and one clock: History's replay, which the other two follow through the timeline.
-  const tl = useTimeline(session, data?.scope.hands);
-  const live = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
-  const range = session === '' ? 'all time' : live ? 'this session' : 'that session';
+  // One scope for History, Profiles and Matchups (all time) and one clock: History's replay,
+  // which the other two follow through the timeline.
+  const tl = useTimeline('', data?.scope.hands);
   // The leader, in one unit and one scope on every screen: net chips over the range shown.
-  const lead = ready && <Leader tl={tl} models={field} bigBlind={bigBlind} scope={range} />;
-  const scope = ready && (
-    <span className="tabular-nums text-[14px]" style={{ color: MUTED }}>
-      <CountUp value={data.scope.hands} /> hands · {range} · blinds {bigBlind / 2}/{bigBlind}
-    </span>
-  );
+  const lead = ready && <Leader tl={tl} models={field} bigBlind={bigBlind} scope="all time" />;
 
-  // Each card's header extras and body, shared by its card and by its tile while that tile glides
-  // in or out, so the page can swap one for the other without a visible change.
-  const statsAside = <>
-    {scope}
-    <label className="flex items-center gap-2 text-[14px]" style={{ color: TEXT }}>
-      Session
-      <select
-        value={session}
-        onChange={e => onSession(e.target.value)}
-        className="rounded border border-[rgba(55,53,47,0.16)] bg-white px-2 py-0.5 text-[14px]"
-      >
-        <option value="">All time</option>
-        {(all.data?.sessions ?? []).map(s => (
-          <option key={s.id} value={s.id}>
-            {new Date(s.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-            {s.ended_at ? '' : ' (live)'} · {s.hands.toLocaleString()} hands
-          </option>
-        ))}
-      </select>
-    </label>
-    {lead}
-  </>;
   // Each card's body, in its tile (`card` false: the tile's content alone) and in the card. The tile's
   // table or matrix stays the same element when it opens and grows into the card's; what the card adds
   // around it fades in (`fade`), never the content itself.
@@ -304,20 +267,15 @@ export default memo(function StatsSections({
         <Added still={!fade}>
           {stale}
           <Definition>
-            Rank spread: the best and worst rank each model&apos;s 95% interval allows. Click rows to compare them.
+            Click rows to compare them.
             {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
             {data.partial && ' All-in EV still computing…'}
           </Definition>
         </Added>
       )}
-      <SyncedProfiles key={session} tl={tl} models={models} seated={seated} mini={!card} />
+      <SyncedProfiles tl={tl} models={models} seated={seated} mini={!card} />
     </>
   );
-  const pairwiseAside = <>
-    {scope}
-    <Segmented label="View" options={[{ label: 'Matrix', value: 'matrix' }, { label: 'Bars', value: 'bars' }]} value={view} onChange={setView} />
-    {lead}
-  </>;
   const pairwiseBody = (card: boolean, fade = false) => !ready ? message : (
     <>
       {card && (
@@ -330,10 +288,10 @@ export default memo(function StatsSections({
           </Definition>
         </Added>
       )}
-      <AtHand key={session} tl={tl} models={field}>
+      <AtHand tl={tl} models={field}>
         {(ms, hand) => (
           <div {...syncAttrs(tl, hand)} className="contents">
-            {card && view === 'bars' ? <PairwiseBars models={ms} /> : <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} />}
+            <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} />
           </div>
         )}
       </AtHand>
@@ -380,7 +338,7 @@ export default memo(function StatsSections({
                 is its chart's shape at the block's width plus the tile's padding and header (72px), the
                 second row holds ten fixed-height table rows (and Matchups' square of ten cells), and the
                 block's width is what lets the two fit the window, at most 1252px, centred. */}
-            <div className="relative h-full md:h-(--block-h) grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-[minmax(0,1fr)_var(--col2)] md:grid-rows-[var(--row1)_var(--row2)]">
+            <div className="relative h-full md:h-(--block-h) grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-[minmax(0,2fr)_minmax(var(--col2),3fr)] md:grid-rows-[var(--row1)_var(--row2)]">
               <Panel id="race-panel" title="History" href="#race" away={{ y: -1 }} className="row-start-1 md:col-span-2" aside={lead} fit={raceFit} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
@@ -395,7 +353,7 @@ export default memo(function StatsSections({
                 href="#stats-table"
                 away={{ x: -1 }}
                 className="row-start-2 md:col-start-1"
-                extra={on === 'stats-table' && <div className={ASIDE}>{statsAside}</div>}
+                extra={on === 'stats-table' && <div className={ASIDE}>{lead}</div>}
                 fit="content"
                 {...tile('stats-table')}
               >
@@ -408,7 +366,7 @@ export default memo(function StatsSections({
                 href="#pairwise"
                 away={{ x: 1 }}
                 className="row-start-3 md:row-start-2 md:col-start-2"
-                extra={on === 'pairwise' && <div className={ASIDE}>{pairwiseAside}</div>}
+                extra={on === 'pairwise' && <div className={ASIDE}>{lead}</div>}
                 {...tile('pairwise')}
               >
                 {pairwiseBody(on === 'pairwise', !snap)}
@@ -420,11 +378,11 @@ export default memo(function StatsSections({
         {/* The History screen's scroll range: the stage stays as it is. */}
         <div className="h-svh" aria-hidden />
 
-        <Card id="stats-card" title={<>Profiles {sample && <SampleBadge />}</>} aside={statsAside} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit>
+        <Card id="stats-card" title={<>Profiles {sample && <SampleBadge />}</>} aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit>
           {statsBody(true)}
         </Card>
 
-        <Card id="pairwise-card" title="Matchups" aside={pairwiseAside} z="z-20">
+        <Card id="pairwise-card" title="Matchups" aside={lead} z="z-20">
           {pairwiseBody(true)}
         </Card>
       </div>
@@ -487,7 +445,7 @@ const BLOCK_VARS = {
   '--block-w': `max(560px, min(1252px, calc((100svh - 44px - 4svh - var(--bar-h, 0px) - ${12 + 72 + ROW2}px) * ${W / H} + 32px)))`,
   '--row1': `calc((100cqw - 32px) * ${H / W} + 72px)`,
   '--row2': `${ROW2}px`,
-  '--col2': `${ROW2 - 72 + 32 + 48}px`, // Matchups: its square of ten cells, its padding and a little air
+  '--col2': `${ROW2 - 72 + 32 + 48}px`, // Matchups at least: its square of ten cells, its padding and a little air; it takes 3/5 of the row, Profiles 2/5
   '--block-h': `calc(var(--row1) + 12px + var(--row2))`,
 } as React.CSSProperties;
 

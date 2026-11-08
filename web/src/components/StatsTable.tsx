@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { RATE_FROM } from '@/components/CumulativeChart';
-import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rankSpread, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
 interface Column {
   key: keyof typeof STAT_DEFINITIONS;
@@ -13,16 +13,13 @@ interface Column {
   value: (m: ModelStats) => number | null;
   render: (m: ModelStats) => React.ReactNode;
   lowerIsBetter?: boolean;
-  core?: boolean; // shown before "All stats" is expanded
   extremes?: boolean; // mark the highest and lowest value
 }
 
 // bb/100 renders separately (its cell carries the 95% range as a tooltip).
-const BB100: Column = { key: 'bb100', core: true, label: 'bb/100', value: m => m.bb100, render: () => null };
-// Rank spread renders separately too (it compares every row); it sorts with bb/100.
-const RANK: Column = { key: 'rank', core: true, label: 'Rank spread', value: m => m.bb100, render: () => null };
+const BB100: Column = { key: 'bb100', label: 'bb/100', value: m => m.bb100, render: () => null };
 // The sparkline renders separately (every row shares one y-scale); it sorts by bb/100 within the window.
-const TREND: Column = { key: 'trend', core: true, label: 'Last 50 hands', value: m => recent(m).rate, render: () => null };
+const TREND: Column = { key: 'trend', label: 'Last 50 hands', value: m => recent(m).rate, render: () => null };
 
 // Running bb/100 at each of the model's points in its last 50 hands (from cumulative_bb), plus the
 // bb/100 won within them. Starts at the point at or before the window, so a series the engine thinned
@@ -69,25 +66,24 @@ const GROUPS: { label: string; columns: Column[] }[] = [
   {
     label: 'Results',
     columns: [
-      RANK,
       BB100,
       TREND,
-      { key: 'hands', core: true, label: 'Hands', value: m => m.hands, render: m => m.hands.toLocaleString() },
+      { key: 'hands', label: 'Hands', value: m => m.hands, render: m => m.hands.toLocaleString() },
       { key: 'aiev_bb100', label: 'All-in adj.', value: m => m.aiev_bb100, render: m => signedBrief(m.aiev_bb100) },
     ],
   },
   {
     label: 'Preflop',
     columns: [
-      { key: 'vpip', core: true, extremes: true, label: 'VPIP', value: m => m.vpip, render: m => pct(m.vpip) },
-      { key: 'pfr', core: true, extremes: true, label: 'PFR', value: m => m.pfr, render: m => pct(m.pfr) },
+      { key: 'vpip', extremes: true, label: 'VPIP', value: m => m.vpip, render: m => pct(m.vpip) },
+      { key: 'pfr', extremes: true, label: 'PFR', value: m => m.pfr, render: m => pct(m.pfr) },
       { key: 'three_bet', label: '3-bet', value: m => m.three_bet, render: m => pct(m.three_bet) },
     ],
   },
   {
     label: 'Postflop',
     columns: [
-      { key: 'af', core: true, extremes: true, label: 'AF', value: m => m.af, render: m => m.af?.toFixed(1) ?? DASH },
+      { key: 'af', extremes: true, label: 'AF', value: m => m.af, render: m => m.af?.toFixed(1) ?? DASH },
       { key: 'cbet', label: 'C-bet', value: m => m.cbet, render: m => pct(m.cbet) },
       { key: 'fold_to_cbet', label: 'Fold to c-bet', value: m => m.fold_to_cbet, render: m => pct(m.fold_to_cbet) },
       { key: 'wtsd', label: 'WTSD', value: m => m.wtsd, render: m => pct(m.wtsd) },
@@ -105,9 +101,11 @@ const GROUPS: { label: string; columns: Column[] }[] = [
   },
 ];
 const COLUMNS = GROUPS.flatMap(g => g.columns);
-const CORE = GROUPS.map(g => ({ ...g, columns: g.columns.filter(c => c.core) }));
-// The overview tile: the core columns that are one number each (no rank spread, no sparkline).
-const MINI = CORE.map(g => ({ ...g, columns: g.columns.filter(c => c !== RANK && c !== TREND) }));
+// The default view: hands first, then the style stats, then the recent trend. No bb/100: History
+// above already shows it (rows stay in bb/100 order). The overview tile drops the sparkline.
+const byKey = (k: string) => COLUMNS.find(c => c.key === k)!;
+const CORE = [{ label: 'Core', columns: [byKey('hands'), byKey('vpip'), byKey('pfr'), byKey('af'), TREND] }];
+const MINI = [{ label: 'Core', columns: CORE[0].columns.filter(c => c !== TREND) }];
 // Rows on the overview tile: a fixed height, so the tile's size never comes from the window.
 export const MINI_ROW = 32; // as tall as a Matchups tile cell, which needs room for a +1.2k figure
 
@@ -193,10 +191,8 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
   const atTable = seated ? sorted.filter(m => seated.includes(m.name)) : sorted;
   const rest = seated ? sorted.filter(m => !seated.includes(m.name)) : [];
   const more = rest.length + unseated.length;
-  // Ranks among the models at the table (all of them without a lineup).
-  const ranks = rankSpread(atTable);
   const grid = (groups: typeof GROUPS, grouped: boolean, caption: string, last = true) => (
-    <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={last && !mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} ranks={ranks} picked={picked} onPick={isolate} caption={caption} mini={mini} />
+    <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={last && !mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} picked={picked} onPick={isolate} caption={caption} mini={mini} />
   );
   const toggle = 'text-[14px] hover:underline';
 
@@ -214,7 +210,7 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
       </div>
       {!mini && <div className="add-in mt-2 flex flex-wrap gap-x-5 gap-y-1">
         <button onClick={() => setAll(v => !v)} aria-expanded={expanded} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>
-          {expanded ? 'Fewer stats' : `All stats (${COLUMNS.length - COLUMNS.filter(c => c.core).length} more)`}
+          {expanded ? 'Fewer stats' : `All stats (${COLUMNS.length - CORE[0].columns.length} more)`}
         </button>
         {seated && more > 0 && (
           <button onClick={() => setEveryone(v => !v)} aria-expanded={everyone} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>
@@ -255,7 +251,6 @@ function Grid({
   sort,
   onSort,
   grouped,
-  ranks,
   picked,
   onPick,
   caption,
@@ -269,7 +264,6 @@ function Grid({
   sort: { key: string; desc: boolean };
   onSort: (c: Column) => void;
   grouped: boolean; // a group header row above the column headers
-  ranks: Map<string, readonly [number, number]>;
   picked: Set<string>; // rows clicked to compare; the others fade
   onPick: (name: string) => void;
   caption: string;
@@ -305,11 +299,11 @@ function Grid({
   // Every column of All stats shares the width, so its cells pad less.
   // Sticky: the header stays put while the card scrolls the rows under it.
   const head = `sticky top-0 z-10 bg-white ${mini ? 'px-1.5 md:px-3 py-0 text-[13px]' : grouped ? 'p-1 text-[14px]' : 'px-1.5 py-1.5 md:px-3 text-[14px]'}`;
-  const rowH = mini ? 'h-[32px] text-[14px]' : 'h-6';
+  // The card's default view has five columns and room to spare, so its rows breathe; All stats packs them.
+  const rowH = mini ? 'h-[32px] text-[14px]' : grouped ? 'h-6' : 'h-10';
   // Columns the card adds to the tile's fade in as it opens.
-  const added = (c: Column) => (!mini && (c === RANK || c === TREND) ? 'add-in' : '');
+  const added = (c: Column) => (!mini && c === TREND ? 'add-in' : '');
   const cell = grouped ? 'px-1' : 'px-1.5 md:px-3';
-  const spread = (m: ModelStats) => { const r = ranks.get(m.name); return !r ? DASH : r[0] === r[1] ? `${r[0]}` : `${r[0]}–${r[1]}`; };
   const row = (m: ModelStats, i: number | null) => {
     return (
     <motion.tr
@@ -335,7 +329,7 @@ function Grid({
       </th>
       {columns.map(c => (
         <td key={c.key} className={`${cell} ${added(c)} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
-          {c === BB100 ? <Bb100 m={m} /> : c === TREND ? <Spark m={m} lo={lo} hi={hi} /> : c === RANK ? spread(m) : <>{i !== null && mark(c, m)}{c.render(m)}</>}
+          {c === BB100 ? <Bb100 m={m} /> : c === TREND ? <Spark m={m} lo={lo} hi={hi} /> : <>{i !== null && mark(c, m)}{c.render(m)}</>}
         </td>
       ))}
     </motion.tr>
@@ -347,7 +341,7 @@ function Grid({
       <caption className="sr-only">{caption} Column headers sort the table; the info buttons explain each stat.</caption>
       <colgroup>
         {/* Narrow panels show logos only; wider ones give names the room they need. */}
-        <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : 'w-[44px] @md:w-[32%] @4xl:w-[24%]'} />
+        <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : mini ? 'w-[44px] @md:w-[46%]' : 'w-[44px] @md:w-[32%] @4xl:w-[24%]'} />
         {columns.map(c => <col key={c.key} className={c === BB100 ? (grouped ? 'w-[80px]' : 'w-[80px]') : c === TREND ? 'w-[112px]' : ''} />)}
       </colgroup>
       <thead>

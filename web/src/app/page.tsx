@@ -134,14 +134,8 @@ export default function Home() {
   const winners = gameState?.winners || lastHandResult?.winners || [];
   const isHandComplete = street === 'complete';
 
-  // All-time stats feed the leaderboard and drawer; the session picker below the table may
-  // narrow the sections. Both refetch as each hand finishes; a finished session never changes.
-  // The session History, Profiles and Matchups show: all time ('') until the visitor picks one in the
-  // Profiles card's picker.
-  const [session, setSession] = useState('');
+  // All-time stats feed the leaderboard, the drawer and the stats sections; they refetch as each hand finishes.
   const all = useStats(undefined, true, handNumber);
-  const pickedLive = !!session && !!all.data?.sessions.some(s => s.id === session && !s.ended_at);
-  const picked = useStats(session || undefined, !!session, pickedLive ? handNumber : undefined);
   // Profits & Losses covers the live table session (the one not ended yet: the table the engine
   // is playing). Until that session has a saved hand, the panel shows this game's winnings.
   const liveId = all.data?.sessions.find(s => !s.ended_at)?.id;
@@ -419,10 +413,7 @@ export default function Home() {
       {/* Screens 2-5: the overview, then race, stats and pairwise one at a time. */}
       <StatsSections
         all={all}
-        picked={session ? picked : all}
-        seated={!session || pickedLive ? seated : undefined}
-        session={session}
-        onSession={setSession}
+        seated={seated}
       />
       </main>
 

@@ -233,6 +233,36 @@ await check('matchups-tile-numbers', 'The Matchups tile shows a number in its ce
   return { pass: r.withNum >= r.cells * 0.5 && r.fs >= 10, detail: `${r.withNum}/${r.cells} cells with numbers, ${r.fs}px text` };
 });
 
+// Owner's rules from 2026-11-07: Profiles leads with Hands (no bb/100, no rank spread); no scope line,
+// session picker or Bars view on the cards; Matchups gets the wider tile; tiles never scroll.
+await check('profiles-columns', 'Profiles columns are Model, Hands, VPIP, PFR, AF (tile), then the trend (card)', async () => {
+  const heads = sel => pg.evaluate(sel => [...document.querySelectorAll(`${sel} thead th`)].map(e => e.textContent.trim()).filter(Boolean), sel);
+  await goto(pg, 'stats'); await sleep(1500); const tile = (await heads('#stats-panel')).join(',');
+  // A card header also holds its tooltip's text: judge it by how it starts.
+  await goto(pg, 'stats-table'); await sleep(1500); const card = (await heads('#stats-card')).map(h => ['Model', 'Hands', 'VPIP', 'PFR', 'AF', 'Last 50 hands', 'bb/100', 'Rank spread'].find(l => h.startsWith(l)) ?? h.slice(0, 12)).join(',');
+  return { pass: tile === 'Model,Hands,VPIP,PFR,AF' && card === 'Model,Hands,VPIP,PFR,AF,Last 50 hands', detail: `tile ${tile} | card ${card}` };
+});
+await check('cards-no-scope', 'No hands/all time/blinds line, Session picker or Bars view on Profiles and Matchups', async () => {
+  const bad = [];
+  for (const [id, card] of [['stats-table', '#stats-card'], ['pairwise', '#pairwise-card']]) {
+    await goto(pg, id); await sleep(1500);
+    const r = await pg.evaluate(c => { const e = document.querySelector(c); return { t: e.innerText, sel: !!e.querySelector('select'), bars: [...e.querySelectorAll('button')].some(b => b.textContent.trim() === 'Bars') }; }, card);
+    if (/blinds \d|all time ·|Rank spread/.test(r.t)) bad.push(`${id}: scope text`);
+    if (r.sel) bad.push(`${id}: session picker`);
+    if (r.bars) bad.push(`${id}: Bars view`);
+  }
+  return { pass: !bad.length, detail: bad.join(', ') || 'none' };
+});
+await check('matchups-wider', 'On the overview the Matchups tile is wider than the Profiles tile', async () => {
+  await goto(pg, 'stats'); await sleep(1200);
+  const [p, m] = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel'].map(s => Math.round(document.querySelector(s).getBoundingClientRect().width)));
+  return { pass: m > p, detail: `Profiles ${p}px, Matchups ${m}px` };
+});
+await check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar on a preview)', async () => {
+  const bad = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel', '#race-panel'].flatMap(s => [...document.querySelectorAll(`${s} *`)].filter(e => ['auto', 'scroll'].includes(getComputedStyle(e).overflowY)).map(() => s)));
+  return { pass: !bad.length, detail: bad.length ? `scrollable inside ${[...new Set(bad)].join(', ')}` : 'none' };
+});
+
 // The overview must hold its proportions at any window size or browser zoom: rows and matrix
 // cells are sized by content, never stretched by the window's height.
 await check('stats-any-viewport', 'The overview keeps its proportions from 1280x720 to 3840x2160 (any zoom)', async () => {

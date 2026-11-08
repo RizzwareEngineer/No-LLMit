@@ -207,7 +207,8 @@ export default function Panel({
           {overview && <span aria-hidden className="text-[14px] font-medium" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span>}
         </div>
       </motion.div>
-      <motion.div layout transition={move} className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">
+      {/* A tile never scrolls (it opens its card instead); only the focused card may. */}
+      <motion.div layout transition={move} className={`panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 ${focused ? 'overflow-auto' : 'overflow-hidden'}`}>
         {children}
       </motion.div>
     </motion.section>

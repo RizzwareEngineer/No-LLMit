@@ -225,19 +225,6 @@ export const ciHalf = (m: ModelStats) => (m.bb100_ci ? (m.bb100_ci[1] - m.bb100_
 // The hover text for a bb/100 cell: its 95% interval, e.g. "95% range: +148 to +462".
 export const ciTitle = (m: ModelStats) => (m.bb100_ci ? `95% range: ${signed(m.bb100_ci[0], 0)} to ${signed(m.bb100_ci[1], 0)}` : undefined);
 
-// Arena-style rank spread: the best and worst rank each model's 95% bb/100 interval allows among
-// `models`. Best = 1 + the models whose interval lies wholly above its own; worst = n − the models
-// wholly below it. A model without an interval counts as its point estimate.
-export function rankSpread(models: ModelStats[]) {
-  const iv = (m: ModelStats) => m.bb100_ci ?? [m.bb100, m.bb100];
-  return new Map(models.map(m => {
-    const [lo, hi] = iv(m);
-    const above = models.filter(o => iv(o)[0] > hi).length;
-    const below = models.filter(o => iv(o)[1] < lo).length;
-    return [m.name, [1 + above, models.length - below] as const];
-  }));
-}
-
 export const DASH = '—';
 
 export const signed = (n: number, digits = 1) =>
