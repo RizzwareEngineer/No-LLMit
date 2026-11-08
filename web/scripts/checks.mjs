@@ -118,6 +118,25 @@ await check('history-camera-follows', 'While replaying, the leading tips stay pu
   const slid = ta[0] !== tb[0] || Math.abs(ta[1] - tb[1]) > 4;
   return { pass: Math.abs(a - b) <= 6 && slid, detail: `lead tip ${a.toFixed(0)} → ${b.toFixed(0)}, first tick ${ta[0]}@${ta[1].toFixed(0)} → ${tb[0]}@${tb[1].toFixed(0)}` };
 });
+// Like Arena: every line's tip is "now", so the tips share one x; and the plot is never mostly
+// empty, because the window starts at the first hand until the lines reach the camera's edge.
+await check('history-tips-aligned', 'All line tips sit at the same x (one shared clock, like Arena)', async () => {
+  const xs = await pg.evaluate(() => [...document.querySelectorAll('[data-pill]')].filter(e => getComputedStyle(e).opacity > 0.5).map(e => +e.dataset.tipX).filter(Number.isFinite));
+  if (xs.length < 2) return { pass: false, detail: `${xs.length} pills` };
+  const spread = Math.max(...xs) - Math.min(...xs);
+  return { pass: spread <= 6, detail: `${xs.length} tips spread over ${spread.toFixed(0)}px` };
+});
+await check('history-no-empty-left', 'The lines start at the plot\'s left edge (no empty band before them)', async () => {
+  const r = await pg.evaluate(() => {
+    const svg = [...document.querySelectorAll('svg')].filter(e => { const b = e.getBoundingClientRect(); return b.width > 300 && b.top < innerHeight && b.bottom > 0; }).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+    const xs = [...svg.querySelectorAll('[data-x-tick]')].map(t => t.getBoundingClientRect().left);
+    const paths = [...svg.querySelectorAll('path')].filter(p => (p.getAttribute('stroke') || '').startsWith('#') || (p.getAttribute('stroke') || '').startsWith('rgb') ).map(p => p.getBoundingClientRect()).filter(b => b.width > 10);
+    const plotLeft = Math.min(...xs, ...paths.map(b => b.left)), leftmostLine = Math.min(...paths.map(b => b.left)), right = Math.max(...paths.map(b => b.right));
+    const box = svg.getBoundingClientRect();
+    return { gap: (leftmostLine - box.left) / box.width, width: (right - leftmostLine) / box.width };
+  });
+  return { pass: r.gap <= 0.12 && r.width >= 0.5, detail: `lines start ${(r.gap * 100).toFixed(0)}% in and span ${(r.width * 100).toFixed(0)}% of the plot` };
+});
 await check('replay-no-reset', 'The replay never restarts on open, back or scroll', async () => {
   const playing = await pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
   if (!playing && !(await clickText(pg, 'Replay'))) return { pass: false, detail: 'neither Skip nor Replay shown' };
@@ -155,11 +174,70 @@ await check('matchups-no-fade', 'Opening Matchups grows the matrix without fadin
   }
   return { pass: min >= 0.95, detail: `lowest matrix opacity ${min.toFixed(2)}` };
 });
+// Every matrix cell is a square, on the overview tile and in the card (the matrix grows uniformly, never stretched).
+await check('matchups-square-cells', 'Matchups cells are squares on the tile and in the card', async () => {
+  const ratio = sel => pg.evaluate(sel => {
+    const c = [...document.querySelectorAll(`${sel} td[data-cell]`)].map(e => e.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4);
+    return c.length ? Math.max(...c.map(r => Math.max(r.width / r.height, r.height / r.width))) : 0;
+  }, sel);
+  await goto(pg, 'stats'); await sleep(1500); const tile = await ratio('#pairwise-panel');
+  await goto(pg, 'pairwise'); await sleep(1500); const card = await ratio('#pairwise-card');
+  return { pass: tile > 0 && card > 0 && tile <= 1.05 && card <= 1.05, detail: `tile ${tile.toFixed(3)}:1, card ${card.toFixed(3)}:1` };
+});
 await check('profiles-table-only', 'Opened Profiles shows the table only', async () => {
   await goto(pg, 'stats-table'); await sleep(1500);
   const t = await pg.evaluate(() => { const s = document.getElementById('stats-table'); const b = s.getBoundingClientRect(); return `${s.innerText}\n${[...document.querySelectorAll('.card-chrome')].filter(c => { const r = c.getBoundingClientRect(); return r.top >= -2 && r.top < innerHeight / 2 && r.width > 900; }).map(c => c.innerText).join('\n')}`; });
   const bad = ['with its 95% interval', '±'].filter(s => t.includes(s));
   return { pass: bad.length === 0, detail: bad.length ? `found ${bad.join(', ')}` : 'ok' };
+});
+
+// A detail screen shows its own card alone: no other card peeking out behind or beside it.
+await check('detail-alone', 'An opened card is the only card visible (no card peeking out behind it)', async () => {
+  const bad = [];
+  for (const id of ['race', 'stats-table', 'pairwise']) {
+    await goto(pg, id); await sleep(1500);
+    const n = await pg.evaluate(() => [...document.querySelectorAll('.card-chrome')].filter(c => {
+      const r = c.getBoundingClientRect(); if (r.width < 40 || r.height < 40) return false;
+      const vis = Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 44)) * Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0));
+      let o = 1; for (let e = c; e; e = e.parentElement) o *= +getComputedStyle(e).opacity;
+      return vis > 400 && o > 0.05;
+    }).length);
+    if (n > 1) bad.push(`${id}: ${n} cards visible`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(', ') : 'each opened card is alone' };
+});
+// The Matchups tile is a readable preview: its cells show numbers.
+await check('matchups-tile-numbers', 'The Matchups tile shows a number in its cells', async () => {
+  await goto(pg, 'stats'); await sleep(1500);
+  const r = await pg.evaluate(() => { const cells = [...document.querySelectorAll('#pairwise-panel td')].filter(c => c.getBoundingClientRect().width > 4); const withNum = cells.filter(c => /[0-9]/.test(c.textContent)); const fs = withNum.length ? parseFloat(getComputedStyle(withNum[0]).fontSize) : 0; return { cells: cells.length, withNum: withNum.length, fs }; });
+  return { pass: r.withNum >= r.cells * 0.5 && r.fs >= 10, detail: `${r.withNum}/${r.cells} cells with numbers, ${r.fs}px text` };
+});
+
+// The overview must hold its proportions at any window size or browser zoom: rows and matrix
+// cells are sized by content, never stretched by the window's height.
+await check('stats-any-viewport', 'The overview keeps its proportions from 1280x720 to 3840x2160 (any zoom)', async () => {
+  const bad = [];
+  for (const [w, h] of [[1280, 720], [1440, 900], [2560, 1440], [3840, 2160]]) {
+    const p2 = await browser.newPage(); await p2.setViewport({ width: w, height: h });
+    await p2.goto(BASE, { waitUntil: 'domcontentloaded' }); await sleep(4000);
+    await goto(p2, 'stats'); await sleep(2000);
+    const m = await p2.evaluate(() => {
+      const rows = [...document.querySelectorAll('#stats-panel tbody tr, #stats-panel [role=row]')].map(r => r.getBoundingClientRect().height).filter(x => x > 0);
+      const cells = [...document.querySelectorAll('#pairwise-panel td')].map(c => c.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4);
+      const ratio = cells.length ? Math.max(...cells.map(r => Math.max(r.width / r.height, r.height / r.width))) : 0;
+      const race = document.querySelector('#race-panel').getBoundingClientRect();
+      const svg = [...document.querySelectorAll('#race-panel svg')].sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+      const fill = svg ? svg.getBoundingClientRect().width / race.width : 0;
+      return { row: rows.length ? Math.max(...rows) : 0, ratio, fill };
+    });
+    await p2.close();
+    const why = [];
+    if (m.row > 44) why.push(`Profiles rows ${m.row.toFixed(0)}px tall`);
+    if (m.ratio > 1.15) why.push(`Matchups cells ${m.ratio.toFixed(2)}:1`);
+    if (m.fill < 0.8) why.push(`History chart fills ${(m.fill * 100).toFixed(0)}% of its tile`);
+    if (why.length) bad.push(`${w}x${h}: ${why.join(', ')}`);
+  }
+  return { pass: bad.length === 0, detail: bad.length ? bad.join(' | ') : 'all four sizes hold' };
 });
 
 await browser.close();

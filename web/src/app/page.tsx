@@ -14,7 +14,7 @@ import ModelDrawer from "@/components/ModelDrawer";
 import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
-import { MUTED, useStats } from "@/lib/stats";
+import { useStats } from "@/lib/stats";
 import { isPaging, pageBy, resnap, scrollsInside } from "@/components/Section";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
@@ -89,6 +89,8 @@ export default function Home() {
   // Refresh usage stats when an LLM action is revealed
   useEffect(() => {
     if (displayState?.phase === 'revealed') {
+      // Mirrors a server event (an action revealed) into a refetch key; runs once per reveal.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUsageRefreshTrigger(prev => prev + 1);
     }
   }, [displayState?.phase]);
@@ -259,6 +261,8 @@ export default function Home() {
   const nextHandInMs = gameState?.nextHandInMs;
   useEffect(() => {
     if (!isHandComplete) {
+      // Mirrors the server's next-hand timer into the local countdown.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNextHandCountdown(null);
     } else if (nextHandInMs) {
       setNextHandCountdown(Math.ceil(nextHandInMs / 1000));
@@ -292,7 +296,7 @@ export default function Home() {
     <div className="px-3 lg:px-4" style={{ background: '#FFFFFF', ['--bar-h' as string]: !isConnected || error ? '40px' : '0px' }}>
       <main className="flex flex-col items-center-safe">
       {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
-      <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-clip flex flex-col items-center-safe pt-3 pb-[calc(2.25rem+var(--bar-h))] lg:pt-4">
+      <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-clip flex flex-col items-center-safe justify-center-safe pt-3 pb-[calc(1rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
         <div className="mb-1 text-center">
           <h1 className="text-[28px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
@@ -358,8 +362,8 @@ export default function Home() {
 
         <SessionProgress table={usageError ? undefined : usage?.table} />
 
-        {/* Main content */}
-        <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
+        {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
+        <div className="mt-6 flex items-center-safe justify-center-safe w-full md:w-auto">
           <div className="stage-zoom flex flex-col w-full md:w-auto">
             {/* Row 1: Table + Winnings (stacked on phones) */}
             <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
@@ -405,10 +409,10 @@ export default function Home() {
 
         <button
           onClick={() => pageBy(1)}
-          className="absolute bottom-[calc(0.5rem+var(--bar-h))] left-1/2 -translate-x-1/2 flex items-center gap-1 rounded px-2 py-1 text-[12px] font-medium hover:bg-[rgba(55,53,47,0.06)]"
-          style={{ color: MUTED }}
+          className="mt-6 flex items-center gap-2 rounded-full border px-5 py-2 text-[15px] font-semibold bg-white hover:bg-[rgba(55,53,47,0.04)] shadow-sm"
+          style={{ color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.2)' }}
         >
-          Stats <ArrowDown size={12} weight="bold" aria-hidden />
+          Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>
       </section>
 

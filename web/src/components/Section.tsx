@@ -107,20 +107,22 @@ export function scrollsInside(el: Element | null, dir: number) {
 
 // The glide between a tile and its screen's card: ease-out, half a second.
 export const GLIDE_MS = 500;
-const GLIDE = { duration: GLIDE_MS / 1000, ease: [0.22, 1, 0.36, 1] } as const;
+export const GLIDE = { duration: GLIDE_MS / 1000, ease: [0.22, 1, 0.36, 1] } as const;
 const NONE = { duration: 0 } as const;
-// The cross-fade inside a gliding tile: the old content goes quickly, the new comes in just after,
-// so the two barely overlap.
+// What a card adds to its tile (and the header extras) fades in just after the glide starts, and out quickly.
 const OUT = { duration: 0.12, ease: 'easeOut' } as const;
 const IN = { duration: 0.3, delay: 0.08, ease: 'easeOut' } as const;
 
 // A tile of the overview: a linked title, a teaser and an "Open ↓" affordance. A click (or Enter or
 // Space with the tile focused) calls onOpen, except on links and controls inside it.
-// `focused`: the tile fills the stage, in its screen card's place; motion's layout animation turns
-// that jump into a glide (transforms only, nothing under reduced motion). `covered`: another tile
-// is focused, and this one slides off the screen by `away` (back in when it is not). `lifted`: the tile focused last, on top while it glides back.
-// `snap`: change without animating (the stage is hidden under a card). A new `body` key cross-fades
-// the body (a tile's teaser to its card's content); `extra` fades in and out the same way. The body scrolls inside itself when it overflows.
+// `focused`: the tile stands in its screen card's place; motion's layout animation turns that jump
+// into a glide (transforms only, nothing under reduced motion). `fit` sets that place: a height in px
+// or 'content', centred in the stage at the stage's width; without it the tile fills the stage.
+// `covered`: another tile is focused, and this one slides off the screen by `away` (back in when it
+// is not). `lifted`: the tile focused last, on top while it glides back. `snap`: change without
+// animating (the stage is hidden under a card). The body never cross-fades: the caller keeps the
+// tile's content mounted so it grows into the card, and wraps what the card adds in <Added>.
+// `extra` (the card's header extras) fades in the same way. The body scrolls inside itself when it overflows.
 export default function Panel({
   id,
   href,
@@ -132,7 +134,7 @@ export default function Panel({
   away = {},
   lifted = false,
   snap = false,
-  body = 'tile',
+  fit,
   onOpen,
   className = '',
   children,
@@ -144,10 +146,10 @@ export default function Panel({
   extra?: React.ReactNode; // header extras of the card this tile stands in for, while focused
   focused?: boolean;
   covered?: boolean;
-  away?: { x?: string; y?: string }; // how far it slides off, as a share of its own size
+  away?: { x?: number; y?: number }; // which way it slides off, in viewport lengths (one clears the screen at any size)
   lifted?: boolean;
   snap?: boolean;
-  body?: string;
+  fit?: number | 'content';
   onOpen: () => void;
   className?: string;
   children: React.ReactNode;
@@ -163,8 +165,12 @@ export default function Panel({
   // block, so a focused section still fills the whole grid.
   return (
     <motion.div
+      // A projection node, so the layout children inside (table rows, the matrix) measure through the
+      // slide instead of chasing it when they re-render mid-slide.
+      layout
       initial={false}
-      animate={covered ? { x: away.x ?? 0, y: away.y ?? 0 } : { x: 0, y: 0 }}
+      // In px (motion's projection can only factor numbers out of its measurements); only read when covered.
+      animate={covered ? { x: (away.x ?? 0) * innerWidth, y: (away.y ?? 0) * innerHeight } : { x: 0, y: 0 }}
       transition={move}
       className={`flex flex-col min-h-0 min-w-0 ${className}`}
     >
@@ -181,8 +187,8 @@ export default function Panel({
         if (t.closest(`#${id}-title a`) || !t.closest('a, button, select, input, label')) open(e);
       } : undefined}
       onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && open(e) : undefined}
-      className={`${CARD} overflow-hidden ${focused ? 'absolute inset-0' : 'relative flex-1'} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''}`}
-      style={{ boxShadow: CARD_SHADOW }}
+      className={`${CARD} overflow-hidden ${!focused ? 'relative flex-1' : fit === undefined ? 'absolute inset-0' : `absolute inset-x-0 inset-y-0 my-auto max-h-full ${fit === 'content' ? 'h-fit' : ''}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''}`}
+      style={{ boxShadow: CARD_SHADOW, height: focused && typeof fit === 'number' ? fit : undefined }}
     >
       <motion.div layout="position" transition={move} className={HEADER}>
         <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>
@@ -201,22 +207,17 @@ export default function Panel({
           {overview && <span aria-hidden className="text-[14px] font-medium" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span>}
         </div>
       </motion.div>
-      <AnimatePresence initial={false} mode="popLayout">
-        <motion.div
-          key={body}
-          layout
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1, transition: snap ? NONE : IN }}
-          exit={{ opacity: 0, transition: OUT }}
-          transition={move}
-          className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto"
-        >
-          {children}
-        </motion.div>
-      </AnimatePresence>
+      <motion.div layout transition={move} className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">
+        {children}
+      </motion.div>
     </motion.section>
     </motion.div>
   );
+}
+
+// Something the card adds around its tile's content: fades in as the tile glides open (nothing when `still`).
+export function Added({ still = false, className, style, children }: { still?: boolean; className?: string; style?: React.CSSProperties; children: React.ReactNode }) {
+  return <motion.div initial={still ? false : { opacity: 0 }} animate={{ opacity: 1, transition: IN }} className={className} style={style}>{children}</motion.div>;
 }
 
 export const SHADOW = 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px';

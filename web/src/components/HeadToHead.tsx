@@ -1,7 +1,8 @@
 'use client';
 
 import { memo, useEffect, useRef, useState } from 'react';
-import { useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
+import { Added, GLIDE } from '@/components/Section';
 import LLMLogo from '@/components/LLMLogo';
 import { DASH, MUTED, ModelStats, TEXT, VsStats, chips, modelHref, netAmong, netColor, plural, signed, useChanges } from '@/lib/stats';
 
@@ -37,29 +38,29 @@ const COMPACT = [0, 1].map(d => Intl.NumberFormat('en', { notation: 'compact', m
 const short = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${COMPACT[Math.abs(n) < 1e4 ? 1 : 0].format(Math.abs(n)).toLowerCase()}`;
 
 // A figure sized by its own cell (an inline-size container): the full figure where it fits at a
-// readable size, else the short one shrunk to the width, and in a sliver too narrow for 9px text
+// readable size, else the short one shrunk to the width (10px at least), and in a sliver too narrow for it
 // none (the tint and the tooltip carry it). Never clipped. Screen readers get the full figure.
 // Memoized: while History replays only the cells whose figure changed render again.
 const Fit = memo(function Fit({ n }: { n: number }) {
   return (
     <div className="@container w-full" aria-hidden>
       <span className="hidden @min-[70px]:inline" style={{ fontSize: 'min(1em, 19cqi)' }}>{chips(n)}</span>
-      <span className="hidden @min-[30px]:inline @min-[70px]:hidden" style={{ fontSize: 'min(1em, 29cqi)' }}>{short(n)}</span>
+      <span className="hidden @min-[28px]:inline @min-[70px]:hidden" style={{ fontSize: 'max(10px, min(1em, 33cqi))' }}>{short(n)}</span>
     </div>
   );
 });
 
-// A changed cell: a soft tint in the colour of the change and one 2px shake (tint only under reduced
-// motion), once, half a second; `delay` staggers the cells that changed together into a ripple.
+// A changed cell: a light tint in the colour of the change and a 1px nudge (tint only under reduced
+// motion), once, 300ms; `delay` staggers the cells that changed together into a quiet ripple.
 const playing = new WeakMap<Element, Animation>(); // not el.getAnimations(), which forces a style recalc per cell
 function wiggle(el: HTMLElement, delta: number, delay: number, still: boolean) {
   playing.get(el)?.cancel(); // a newer change replaces one still playing
   const glow = (a: number) => `inset 0 0 0 100px rgba(${delta > 0 ? '15, 123, 108' : '200, 50, 50'}, ${a})`;
   playing.set(el, el.animate(
     still
-      ? [{ boxShadow: glow(0.35) }, { boxShadow: glow(0) }]
-      : [{ boxShadow: glow(0.35), transform: 'translateX(0)' }, { transform: 'translateX(-2px)', offset: 0.2 }, { transform: 'translateX(2px)', offset: 0.5 }, { boxShadow: glow(0), transform: 'translateX(0)' }],
-    { duration: 500, delay, easing: 'ease-out' },
+      ? [{ boxShadow: glow(0.16) }, { boxShadow: glow(0) }]
+      : [{ boxShadow: glow(0.16), transform: 'translateX(0)' }, { transform: 'translateX(1px)', offset: 0.3 }, { boxShadow: glow(0), transform: 'translateX(0)' }],
+    { duration: 300, delay, easing: 'ease-out' },
   ));
 }
 
@@ -100,7 +101,7 @@ export default memo(function HeadToHead({
   useEffect(() => {
     if (!deltas.size || !outer.current) return;
     const cells = new Map([...outer.current.querySelectorAll<HTMLElement>('[data-cell]')].map(el => [el.dataset.cell!, el]));
-    const gap = Math.min(35, 420 / deltas.size); // a big change (Skip) still ripples within half a second
+    const gap = Math.min(20, 240 / deltas.size); // a big change (Skip) still ripples within a quarter second
     let i = 0;
     for (const [k, d] of deltas) { const el = cells.get(k); if (el) wiggle(el, d, i++ * gap, !!reduce); }
   }, [seq, deltas, reduce]);
@@ -155,58 +156,60 @@ export default memo(function HeadToHead({
   // The verdict's leader (row) and the model it took the most from (column), marked in the headers.
   const top = pairwiseLeader(sorted);
   const HOT = 'rgba(35, 131, 226, 0.12)';
-  // The grid fills its panel: a size container whose cells share the space and whose text scales
-  // with it (cq units). Narrow panels show logos for row names and short figures in the cells.
+  // Square cells: the header row and the label column are one cell each, so the matrix is k×k squares
+  // and grows from the tile into the card as one piece (motion layout on its box, one aspect: no
+  // stretch). The card adds the row names to its left and the totals to its right, outside the square.
+  const k = sorted.length + 1;
+  const side = mini ? '0px' : 'clamp(64px, 20cqw, 240px)';
+  const S = `min(100cqh, 100cqw - 2 * ${side})`;
+  const slot = { height: `calc(${S} / ${k})` }; // a side column's row
+  const rowH = { height: `calc((${S} - ${k + 1}px) / ${k})` }; // a matrix row, inside the 1px border spacing
   return (
     <div ref={outer} className="relative flex-1 min-h-0 flex flex-col">
-      {/* No scroller of its own: a grid taller than a phone's preview spills into the panel's one scroll. */}
-      <div className="flex-1 min-h-0" style={{ containerType: 'size' }} onMouseLeave={() => setTip(null)}>
-        {/* cq units resolve against the wrapper above, never the element that sets them. */}
-        <table
-          className={`w-full h-full table-fixed tabular-nums border-separate border-spacing-px @3xl:border-spacing-[2px] ${zoomed ? 'text-[clamp(11px,min(3cqh,1.5cqw),22px)] md:text-[clamp(14px,min(3cqh,1.5cqw),22px)]' : 'text-[clamp(12px,min(2.4cqh,1.3cqw),15px)]'}`}
-        >
-          <caption className="sr-only">Matchups: chips each row model won from each column model, sorted by net chips</caption>
-          <thead>
-            <tr>
-              <td className="w-[30px] @3xl:w-[19%]" />
-              {sorted.map(m => (
-                <th key={m.name} scope="col" className="p-0.5 font-medium rounded-sm" title={m.name} style={{ background: m.name === top?.from?.name ? HOT : undefined }}>
-                  <span className="flex justify-center"><LLMLogo model={m.name} size={zoomed ? 24 : 16} /></span>
-                  <span className="sr-only">{m.name}</span>
-                </th>
-              ))}
-              <th scope="col" className="w-[14%] @xl:w-[20%] @3xl:w-[15%] px-1 text-right font-bold align-bottom" style={{ color: TEXT }} title="The row's cells added up">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map(row => {
-              const total = netOf.get(row.name)!;
-              const none = row.hands === 0; // no hands yet at the replay's hand
-              return (
-                <tr key={row.name}>
-                  <th scope="row" className={`text-left pr-1 overflow-hidden rounded-sm ${row.name === top?.leader ? 'font-bold' : 'font-medium'}`} style={{ background: row.name === top?.leader ? HOT : undefined }}>
-                    {mini ? (
-                      <span className="flex items-center gap-1.5 min-w-0 px-1" style={{ color: TEXT }} title={row.name}>
-                        <LLMLogo model={row.name} size={16} />
-                        <span className="sr-only">{row.name}</span>
-                      </span>
-                    ) : (
-                      <a href={modelHref(row.name)} className="flex items-center gap-1.5 min-w-0 px-1 hover:underline" style={{ color: TEXT }} title={row.name}>
-                        <LLMLogo model={row.name} size={zoomed ? 24 : 16} />
-                        <span className="truncate @max-3xl:sr-only">{row.name}</span>
-                      </a>
-                    )}
+      {/* A size container: the square takes the largest size that fits it. No scroller of its own. */}
+      <div className="flex-1 min-h-0 flex justify-center" style={{ containerType: 'size' }} onMouseLeave={() => setTip(null)}>
+        {!mini && (
+          <Added className="shrink-0 flex flex-col tabular-nums" style={{ width: side }}>
+            <span className="block" style={slot} />
+            {sorted.map(row => (
+              <a key={row.name} href={modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-2 hover:underline ${row.name === top?.leader ? 'font-bold' : 'font-medium'}`}>
+                <span className="truncate" style={{ fontSize: 'clamp(12px, 1.6cqh, 16px)' }}>{row.name}</span>
+              </a>
+            ))}
+          </Added>
+        )}
+        <motion.div layout layoutDependency={mini} transition={GLIDE} className="shrink-0" style={{ width: S, height: S }}>
+          <table className="w-full h-full table-fixed tabular-nums border-separate border-spacing-px" style={{ fontSize: `clamp(10px, calc(${S} / ${k} * 0.32), 20px)` }}>
+            <caption className="sr-only">Matchups: chips each row model won from each column model, sorted by net chips</caption>
+            <colgroup>{Array.from({ length: k }, (_, i) => <col key={i} style={{ width: `${100 / k}%` }} />)}</colgroup>
+            <thead>
+              <tr style={rowH}>
+                <th aria-hidden />
+                {sorted.map(m => (
+                  <th key={m.name} scope="col" className="p-0 font-medium rounded-sm" title={m.name} style={{ background: m.name === top?.from?.name ? HOT : undefined }}>
+                    <span className="flex justify-center"><LLMLogo model={m.name} size={zoomed ? 24 : 16} /></span>
+                    <span className="sr-only">{m.name}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map(row => (
+                <tr key={row.name} style={rowH}>
+                  <th scope="row" className="p-0 rounded-sm" title={row.name} style={{ background: row.name === top?.leader ? HOT : undefined }}>
+                    <span className="flex justify-center"><LLMLogo model={row.name} size={zoomed ? 24 : 16} /></span>
+                    <span className="sr-only">{row.name}</span>
                   </th>
                   {sorted.map(col => {
                     const v = row.vs?.[col.name];
                     if (row.name === col.name || !v) {
-                      return <td key={col.name} data-cell={`${row.name}|${col.name}`} className="text-center rounded-sm" style={{ color: MUTED, background: row.name === col.name ? 'rgba(55, 53, 47, 0.16)' : 'rgba(55, 53, 47, 0.04)' }}>{row.name === col.name ? '' : '·'}</td>;
+                      return <td key={col.name} data-cell={`${row.name}|${col.name}`} className="p-0 text-center rounded-sm" style={{ color: MUTED, background: row.name === col.name ? 'rgba(55, 53, 47, 0.16)' : 'rgba(55, 53, 47, 0.04)' }}>{row.name === col.name ? '' : '·'}</td>;
                     }
                     return (
                       <td
                         key={col.name}
                         data-cell={`${row.name}|${col.name}`}
-                        className="relative text-center rounded-sm font-bold whitespace-nowrap"
+                        className="relative p-0 text-center rounded-sm font-bold whitespace-nowrap"
                         style={{ color: TEXT, background: tint(v.net_chips), outline: tip?.row === row.name && tip.col === col.name ? `2px solid ${TEXT}` : undefined }}
                         onMouseEnter={mini ? undefined : e => show(e, row.name, col.name)}
                       >
@@ -215,25 +218,36 @@ export default memo(function HeadToHead({
                       </td>
                     );
                   })}
-                  <td data-cell={`${row.name}|`} className="relative pl-1 text-right font-bold whitespace-nowrap" style={{ color: none ? MUTED : netColor(total), fontSize: zoomed ? 'max(14px, 1.1em)' : '1.05em' }}>
-                    {/* Sized by its own cell: bar and full figure when wide, the short figure when narrow. */}
-                    {none ? DASH : <div className="@container w-full">
-                      <span className="flex items-center justify-end gap-1.5" aria-hidden>
-                        {/* A bar as long as the total, against the largest total either way. */}
-                        <span className="hidden @min-[150px]:block flex-1 h-2 rounded-sm" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
-                          <span className="block h-full rounded-sm" style={{ width: `${(Math.abs(total) / maxTotal) * 100}%`, background: netColor(total), opacity: 0.7 }} />
-                        </span>
-                        <span className="hidden @min-[84px]:inline" style={{ fontSize: 'min(1em, 17cqi)' }}>{chips(total)}</span>
-                        <span className="@min-[84px]:hidden" style={{ fontSize: 'min(1em, 26cqi)' }}>{short(total)}</span>
-                      </span>
-                      <span className="sr-only">{chips(total)}</span>
-                    </div>}
-                  </td>
                 </tr>
+              ))}
+            </tbody>
+          </table>
+        </motion.div>
+        {!mini && (
+          <Added className="shrink-0 flex flex-col tabular-nums font-bold" style={{ width: side, fontSize: 'clamp(13px, 1.8cqh, 18px)' }}>
+            <span style={slot} className="flex items-end pl-2 pb-1" title="The row's cells added up">Total</span>
+            {sorted.map(row => {
+              const total = netOf.get(row.name)!;
+              const none = row.hands === 0; // no hands yet at the replay's hand
+              return (
+                // Sized by its own box: bar and full figure when wide, the short figure when narrow.
+                <div key={row.name} data-cell={`${row.name}|`} style={{ ...slot, color: none ? MUTED : netColor(total) }} className="@container flex items-center pl-2 whitespace-nowrap">
+                  {none ? DASH : <>
+                    <span className="flex flex-1 items-center gap-1.5" aria-hidden>
+                      {/* A bar as long as the total, against the largest total either way. */}
+                      <span className="hidden @min-[150px]:block flex-1 h-2 rounded-sm" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
+                        <span className="block h-full rounded-sm" style={{ width: `${(Math.abs(total) / maxTotal) * 100}%`, background: netColor(total), opacity: 0.7 }} />
+                      </span>
+                      <span className="hidden @min-[84px]:inline">{chips(total)}</span>
+                      <span className="@min-[84px]:hidden">{short(total)}</span>
+                    </span>
+                    <span className="sr-only">{row.name} total {chips(total)}</span>
+                  </>}
+                </div>
               );
             })}
-          </tbody>
-        </table>
+          </Added>
+        )}
       </div>
       {/* The hovered cell's readout floats over the grid, clamped inside it. */}
       {tip && tipV && (

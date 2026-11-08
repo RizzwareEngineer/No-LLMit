@@ -1,15 +1,15 @@
 'use client';
 
-import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
 import { Warning } from '@phosphor-icons/react';
-import Panel, { CARD, CARD_SHADOW, CountUp, GLIDE_MS, HEADER, Segmented, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
+import Panel, { Added, CARD, CARD_SHADOW, CountUp, GLIDE_MS, HEADER, Segmented, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
-import StatsTable, { Bb100, SLIDE } from '@/components/StatsTable';
+import StatsTable, { MINI_ROW } from '@/components/StatsTable';
 import HeadToHead, { PairwiseBars, pairwiseLeader } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
-import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, pct, seatedModels, useStats } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, seatedModels, useStats } from '@/lib/stats';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
 
 type Stats = ReturnType<typeof useStats>;
@@ -76,6 +76,29 @@ export default memo(function StatsSections({
   const pairwiseScreen = useRef<HTMLDivElement>(null);
   // A failed refetch keeps the last good data on screen, with the problem as a status line.
   const ready = !!data && current;
+  // The History card's height: its tile's, plus the filter bar and the legend the card adds, so the
+  // chart keeps its size (the stage's height at most: past that the chart shrinks a little, evenly).
+  const [raceFit, setRaceFit] = useState<number>();
+  const zoomedNow = tiles.on === 'race';
+  useLayoutEffect(() => {
+    const sec = document.getElementById('race-panel');
+    const tile = sec?.parentElement; // the grid cell keeps the tile's size while the card is out
+    if (!sec || !tile) return;
+    const fit = () => {
+      // The chart's root: its filter bar, then its box (the tallest child), whose own legend reserve is LEGEND.
+      const root = sec.querySelector('.panel-scroll')?.lastElementChild;
+      const kids = root ? [...root.children] as HTMLElement[] : [];
+      const box = kids.reduce<HTMLElement | null>((a, c) => (!a || c.offsetHeight > a.offsetHeight ? c : a), null);
+      const bar = zoomedNow && root && box ? root.clientHeight - box.offsetHeight : 64 + 8;
+      const h = Math.ceil(tile.offsetHeight + bar + LEGEND);
+      setRaceFit(f => (f !== undefined && Math.abs(f - h) < 1 ? f : h));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(tile);
+    if (zoomedNow) ro.observe(sec);
+    return () => ro.disconnect();
+  }, [zoomedNow, ready]);
 
   // The screen crossing the middle of the window sets the stage; the table screen counts as the
   // overview. pageBy announces its target first so the Race tile starts gliding with the key press.
@@ -257,15 +280,22 @@ export default memo(function StatsSections({
     </label>
     {lead}
   </>;
-  const statsBody = !ready ? message : (
+  // Each card's body, in its tile (`card` false: the tile's content alone) and in the card. The tile's
+  // table or matrix stays the same element when it opens and grows into the card's; what the card adds
+  // around it fades in (`fade`), never the content itself.
+  const statsBody = (card: boolean, fade = false) => !ready ? message : (
     <>
-      {stale}
-      <Definition>
-        Rank spread: the best and worst rank each model&apos;s 95% interval allows. Click rows to compare them.
-        {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
-        {data.partial && ' All-in EV still computing…'}
-      </Definition>
-      <SyncedProfiles key={session} tl={tl} models={models} seated={seated} />
+      {card && (
+        <Added still={!fade}>
+          {stale}
+          <Definition>
+            Rank spread: the best and worst rank each model&apos;s 95% interval allows. Click rows to compare them.
+            {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
+            {data.partial && ' All-in EV still computing…'}
+          </Definition>
+        </Added>
+      )}
+      <SyncedProfiles key={session} tl={tl} models={models} seated={seated} mini={!card} />
     </>
   );
   const pairwiseAside = <>
@@ -273,18 +303,22 @@ export default memo(function StatsSections({
     <Segmented label="View" options={[{ label: 'Matrix', value: 'matrix' }, { label: 'Bars', value: 'bars' }]} value={view} onChange={setView} />
     {lead}
   </>;
-  const pairwiseBody = !ready ? message : (
+  const pairwiseBody = (card: boolean, fade = false) => !ready ? message : (
     <>
-      <Definition>
-        Each cell: chips the row model took from the column model (green) or lost to it (red) in the hands both played; rows and columns in rank order.
-        <AtHand tl={tl} models={field}>
-          {ms => { const top = pairwiseLeader(ms); return top?.from && <> {top.leader} took the most from {top.from.name}: {chips(top.from.net)} chips.</>; }}
-        </AtHand>
-      </Definition>
+      {card && (
+        <Added still={!fade}>
+          <Definition>
+            Each cell: chips the row model took from the column model (green) or lost to it (red) in the hands both played; rows and columns in rank order.
+            <AtHand tl={tl} models={field}>
+              {ms => { const top = pairwiseLeader(ms); return top?.from && <> {top.leader} took the most from {top.from.name}: {chips(top.from.net)} chips.</>; }}
+            </AtHand>
+          </Definition>
+        </Added>
+      )}
       <AtHand key={session} tl={tl} models={field}>
         {(ms, hand) => (
           <div {...syncAttrs(tl, hand)} className="contents">
-            {view === 'matrix' ? <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed /> : <PairwiseBars models={ms} />}
+            {card && view === 'bars' ? <PairwiseBars models={ms} /> : <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} />}
           </div>
         )}
       </AtHand>
@@ -325,15 +359,14 @@ export default memo(function StatsSections({
             sticky bar (44px) plus the table screen's own outer padding; the clip, at the window's
             edges (the page pads its sides), keeps tiles sliding off from adding a page scrollbar. */}
         <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px]">
-          <div className={`@container h-full ${WIDTH} mx-auto ${EDGE}`}>
+          <div className={`@container ${BLOCK} ${EDGE}`} style={BLOCK_VARS}>
             {/* Overview: three tiles, each a miniature of its screen, History on top (stacked on phones).
-                History's row is as tall as its chart at full width (the chart's shape plus the tile's
-                padding and header, 72px), so the tile has the card's shape; at most 62% of the stage. */}
-            <div
-              className="relative h-full grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-2 md:grid-rows-[var(--rows)]"
-              style={{ '--rows': `minmax(0, min(calc((100cqw - 32px) * ${H / W} + 72px), 62%)) minmax(0, 1fr)` } as React.CSSProperties}
-            >
-              <Panel id="race-panel" title="History" href="#race" away={{ y: '-150%' }} className="row-start-1 md:col-span-2" aside={lead} {...tile('race')}>
+                Every size comes from content and fixed shapes, never the window's height: History's row
+                is its chart's shape at the block's width plus the tile's padding and header (72px), the
+                second row holds ten fixed-height table rows (and Matchups' square of ten cells), and the
+                block's width is what lets the two fit the window, at most 1252px, centred. */}
+            <div className="relative h-full md:h-(--block-h) grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-[minmax(0,1fr)_var(--col2)] md:grid-rows-[var(--row1)_var(--row2)]">
+              <Panel id="race-panel" title="History" href="#race" away={{ y: -1 }} className="row-start-1 md:col-span-2" aside={lead} fit={raceFit} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
@@ -345,26 +378,25 @@ export default memo(function StatsSections({
                 id="stats-panel"
                 title={<>Profiles {sample && <SampleBadge />}</>}
                 href="#stats-table"
-                away={{ x: '-130%' }}
+                away={{ x: -1 }}
                 className="row-start-2 md:col-start-1"
                 extra={on === 'stats-table' && <div className={ASIDE}>{statsAside}</div>}
-                body={on === 'stats-table' ? 'card' : 'tile'}
+                fit="content"
                 {...tile('stats-table')}
               >
-                {on === 'stats-table' ? statsBody : ready ? <MiniStats key={session} tl={tl} models={field} /> : message}
+                {statsBody(on === 'stats-table', !snap)}
               </Panel>
 
               <Panel
                 id="pairwise-panel"
                 title="Matchups"
                 href="#pairwise"
-                away={{ x: '130%' }}
+                away={{ x: 1 }}
                 className="row-start-3 md:row-start-2 md:col-start-2"
                 extra={on === 'pairwise' && <div className={ASIDE}>{pairwiseAside}</div>}
-                body={on === 'pairwise' ? 'card' : 'tile'}
                 {...tile('pairwise')}
               >
-                {on === 'pairwise' ? pairwiseBody : ready ? <AtHand key={session} tl={tl} models={field}>{(ms, hand) => <div {...syncAttrs(tl, hand)} className="contents"><HeadToHead models={ms} hand={hand} mini /></div>}</AtHand> : message}
+                {pairwiseBody(on === 'pairwise', !snap)}
               </Panel>
             </div>
           </div>
@@ -373,12 +405,12 @@ export default memo(function StatsSections({
         {/* The History screen's scroll range: the stage stays as it is. */}
         <div className="h-svh" aria-hidden />
 
-        <Card id="stats-card" title={<>Profiles {sample && <SampleBadge />}</>} aside={statsAside} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10">
-          {statsBody}
+        <Card id="stats-card" title={<>Profiles {sample && <SampleBadge />}</>} aside={statsAside} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit>
+          {statsBody(true)}
         </Card>
 
         <Card id="pairwise-card" title="Matchups" aside={pairwiseAside} z="z-20">
-          {pairwiseBody}
+          {pairwiseBody(true)}
         </Card>
       </div>
     </div>
@@ -420,65 +452,37 @@ function useProfilesAt(tl: Timeline | null, models: ModelStats[]) {
   );
 }
 
-function SyncedProfiles({ tl, models, seated }: { tl: Timeline | null; models: ModelStats[]; seated?: string[] }) {
+// Profiles' table, on the tile (`mini`: fewer columns, short rows) and in the card: one element, so
+// opening the tile grows this table into the card's.
+function SyncedProfiles({ tl, models, seated, mini = false }: { tl: Timeline | null; models: ModelStats[]; seated?: string[]; mini?: boolean }) {
   const { shown, pending, hand } = useProfilesAt(tl, models);
-  return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} /></div>;
-}
-
-// The Profiles tile: every seated model by bb/100 and VPIP, rows sharing the tile's height; the 95% range
-// is a tooltip. Models without hands yet at the replayed hand wait at the bottom with dashes.
-function MiniStats({ tl, models }: { tl: Timeline | null; models: ModelStats[] }) {
-  const reduce = useReducedMotion();
-  const { shown, pending, hand } = useProfilesAt(tl, models);
-  const rows = [...shown].sort((a, b) => b.bb100 - a.bb100);
-  return (
-    <div className="flex-1 min-h-0" {...syncAttrs(tl, hand, true)}>
-      <table className="w-full h-full table-fixed tabular-nums text-[13px]" style={{ color: TEXT }}>
-        <thead>
-          <tr style={{ color: MUTED }}>
-            <th scope="col" className="text-left font-medium">Model</th>
-            <th scope="col" className="w-[42%] text-right font-medium">bb/100</th>
-            <th scope="col" className="w-[18%] text-right font-medium">VPIP</th>
-          </tr>
-        </thead>
-        <tbody>
-          {[...rows, ...pending].map(m => {
-            const name = typeof m === 'string' ? m : m.name;
-            return (
-              <motion.tr key={name} layout={reduce ? false : 'position'} {...SLIDE} className="relative hover:z-10 border-t border-notion">
-                <th scope="row" className="text-left font-medium">
-                  <span className="flex items-center gap-2 min-w-0"><LLMLogo model={name} size={16} /><span className="truncate">{name}</span></span>
-                </th>
-                {typeof m === 'string' ? <>
-                  <td className="text-right" style={{ color: MUTED }}>{DASH}</td>
-                  <td className="text-right" style={{ color: MUTED }}>{DASH}</td>
-                </> : <>
-                  <td className="text-right whitespace-nowrap"><Bb100 m={m} /></td>
-                  <td className="text-right">{pct(m.vpip)}</td>
-                </>}
-              </motion.tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
+  return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} mini={mini} /></div>;
 }
 
 const PAGE = '#FAFAF9';
 const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1'; // a card header's extras
 
-// The cards are the main thing on their screen but not the whole screen: about 90% of the
-// width (the live table's 1252px at most) and about 80% of the height, centred under the bar.
-const WIDTH = 'max-w-[1252px]';
+// The overview block and every card: the live table's 1252px wide at most, and on wider screens
+// only as wide as lets History's tile (its chart's shape) and the second row fit the window's height;
+// centred, with the page around it. Its height comes from that width (BLOCK_VARS), never the window.
+const ROW2 = 72 + 10 * MINI_ROW; // the second row: a tile's padding and header, and ten table rows (or matrix cells)
+const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
+const BLOCK = 'h-full w-full max-w-[1252px] md:max-w-(--block-w) mx-auto flex flex-col justify-center';
+const BLOCK_VARS = {
+  '--block-w': `max(560px, min(1252px, calc((100svh - 44px - 4svh - var(--bar-h, 0px) - ${12 + 72 + ROW2}px) * ${W / H} + 32px)))`,
+  '--row1': `calc((100cqw - 32px) * ${H / W} + 72px)`,
+  '--row2': `${ROW2}px`,
+  '--col2': `${ROW2 - 72 + 32 + 48}px`, // Matchups: its square of ten cells, its padding and a little air
+  '--block-h': `calc(var(--row1) + 12px + var(--row2))`,
+} as React.CSSProperties;
 
-// Under the 44px sticky bar and above the connection bar, with 7% of the window above the
-// card and 9% below it, so the card reads as a card on a page rather than a page of its own.
-const EDGE = 'pt-[calc(44px+7svh)] pb-[calc(9svh+var(--bar-h,0px))]';
+// Under the 44px sticky bar and above the connection bar, at least 2% of the window above and
+// below the block; the block is centred in what is left, so it reads as cards on a page.
+const EDGE = 'pt-[calc(44px+2svh)] pb-[calc(2svh+var(--bar-h,0px))]';
 
-// Shrinks and dims its content as the screen `by` slides up over it: a CSS scroll-driven
+// Shrinks and dims its content as the screen `by` slides up over it, then hides it as that screen lands: a CSS scroll-driven
 // animation on the named view timeline of that screen where supported, motion's useScroll
-// otherwise. Transform and opacity only; scrolling back reverses it; nothing under reduced motion.
+// otherwise. Transform and opacity only; scrolling back reverses it; only the hiding under reduced motion.
 function Recede({
   by,
   timeline,
@@ -497,21 +501,22 @@ function Recede({
   const { scrollYProgress } = useScroll({ target: by, offset: ['start end', 'start start'] });
   const scale = useTransform(scrollYProgress, [0, 1], [1, 0.94]);
   const dim = useTransform(scrollYProgress, [0, 1], [0, 0.14]); // the keyframes in globals.css
+  const hide = useTransform(scrollYProgress, [0, 0.6, 1], [1, 1, 0]);
   const fallback = !!by && !native && !reduce;
   // No box of its own: only the cards inside show, and --dim darkens each one (card-chrome).
   return (
     <motion.div
       ref={ref}
       className={`${className} ${by && native ? 'recede' : ''} origin-center`}
-      style={{ ['--recede-by' as string]: timeline, scale: fallback ? scale : undefined, ['--dim' as string]: fallback ? dim : undefined }}
+      style={{ ['--recede-by' as string]: timeline, scale: fallback ? scale : undefined, ['--dim' as string]: fallback ? dim : undefined, opacity: by && !native ? hide : undefined }}
     >
       {children}
     </motion.div>
   );
 }
 
-// A screen after Race: a full-height card that slides up over the one before it, in the same
-// chrome, size and place as the zoomed Race panel.
+// A screen after History: a card that slides up over the one before it, in the same chrome, size
+// and place as its focused overview tile.
 function Card({
   id,
   title,
@@ -520,6 +525,7 @@ function Card({
   timeline,
   ref,
   z,
+  fit = false,
   children,
 }: {
   id: string;
@@ -529,18 +535,22 @@ function Card({
   timeline?: string;
   ref?: React.Ref<HTMLElement>;
   z: string;
+  fit?: boolean; // as tall as its content (centred, at most the overview's height), not the overview's box
   children: React.ReactNode;
 }) {
   return (
     <section ref={ref} id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className={`sticky top-0 h-svh outline-none ${z}`}>
       <Recede by={by} timeline={timeline} className="h-full">
-        <div className={`h-full ${WIDTH} mx-auto ${EDGE} flex flex-col`}>
-          <div className={`${CARD} relative flex-1`} style={{ boxShadow: CARD_SHADOW }}>
+        <div className={`@container ${BLOCK} ${EDGE}`} style={BLOCK_VARS}>
+          {/* The overview's box, where its tile stands in for this card. */}
+          <div className="relative h-full md:h-(--block-h)">
+          <div className={`${CARD} absolute inset-x-0 inset-y-0 my-auto max-h-full ${fit ? 'h-fit' : ''}`} style={{ boxShadow: CARD_SHADOW }}>
             <div className={HEADER}>
               <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
               {aside && <div className={ASIDE}>{aside}</div>}
             </div>
             <div className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{children}</div>
+          </div>
           </div>
         </div>
       </Recede>
