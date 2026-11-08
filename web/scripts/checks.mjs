@@ -671,7 +671,7 @@ await check('stats-type-scale', 'Every text role on the stats tiles and cards us
   const roles = {
     stats: [
       ['tile titles', '#race-panel h2, #stats-panel h2, #pairwise-panel h2', 20, [700], [TEXT]],
-      ['Open ↓', '#race-panel h2 ~ div > span, #stats-panel h2 ~ div > span, #pairwise-panel h2 ~ div > span', 14, [500], [BLUE]],
+      ['Open ↓', '#race-panel h2 ~ div > span[aria-hidden], #stats-panel h2 ~ div > span[aria-hidden], #pairwise-panel h2 ~ div > span[aria-hidden]', 14, [500], [BLUE]],
       ['Leader line', '#race-panel h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
       ['Profiles headers', '#stats-panel thead th', 13, [500], [MUTED]],
       ['Profiles names', '#stats-panel tbody th [translate=no]', 14, [700], [TEXT]],
@@ -688,7 +688,7 @@ await check('stats-type-scale', 'Every text role on the stats tiles and cards us
       ['Profiles headers', '#stats-card thead th', 13, [500], [MUTED, TEXT]],
       ['Profiles names', '#stats-card tbody th [translate=no]', 14, [700], [TEXT]],
       ['Profiles figures', '#stats-card tbody td > span', 14, [400], null, true],
-      ['toggles', '#stats-card .add-in button', 14, [500], [BLUE]],
+      ['toggles', '#stats-card div.add-in > button', 14, [500], [BLUE]],
     ],
     pairwise: [
       ['card title', '#pairwise-card h2', 20, [700], [TEXT]],
@@ -720,7 +720,8 @@ await check('stats-type-scale', 'Every text role on the stats tiles and cards us
           if (parseFloat(s.fontSize) !== size) why.add(`${s.fontSize}`);
           if (!weights.includes(+s.fontWeight)) why.add(`weight ${s.fontWeight}`);
           if (colours && !colours.includes(s.color)) why.add(`colour ${s.color}`);
-          if (tab && /\d/.test(own) && !s.fontVariantNumeric.includes('tabular-nums')) why.add('not tabular');
+          // A figure (not a name with a digit in it, like GPT-OSS 120B) is tabular.
+          if (tab && /^[+−-]?\$?\d[\d,.]*(%|k| s)?\.?$/.test(own.trim()) && !s.fontVariantNumeric.includes('tabular-nums')) why.add('not tabular');
         }
         return { role, n: els.length, why: [...why] };
       });
