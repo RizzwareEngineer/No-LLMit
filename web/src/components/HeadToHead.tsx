@@ -58,9 +58,10 @@ function flash(el: HTMLElement, delay: number) {
   playing.set(el, el.animate([{ backgroundColor: from }, { backgroundColor: to || 'rgba(0, 0, 0, 0)' }], { duration: 400, delay, easing: 'ease-out' }));
 }
 
-// The grid's side columns and its row of column logos, on the tile (StatsSections sizes the tile with them).
+// The grid's names column and its row of column logos, on the tile (StatsSections sizes the tile with them).
+// The tile has no Total column (owner, 2026-11-08: "no need for a [Total] column for preview of matchups"); the card does.
 export const NAMES = 140; // row names, at most
-export const TOTALS = 56; // the Total column (72 in the card: 14px figures)
+const TOTALS = 72; // the card's Total column (14px figures)
 export const STRIP = 18; // the column logos' row (28 in the card: 24px logos)
 // The tile's figures: one size for every cell and total, whatever the window (the card's are 14px).
 export const TILE_PX = 11;
@@ -169,7 +170,7 @@ export default memo(function HeadToHead({
   const HOT = 'rgba(35, 131, 226, 0.12)';
   // Square cells: the matrix is n×n squares under one short row of column logos (the row names to its left
   // say who each row is), and grows from the tile into the card as one piece (motion layout on its box,
-  // about one aspect: no stretch). Row names sit to its left and the totals to its right, the three edge to
+  // about one aspect: no stretch). Row names sit to its left and (the card only) the totals to its right, edge to
   // edge, centred. On the tile the matrix is the largest that fits the tile (a size container); in the card
   // it is --card-m wide (StatsSections) and the card hugs it. One font size per place: 14px in the card,
   // like Profiles' cells; TILE_PX on the tile. A figure keeps PAD clear each side and is shortened (+1.1k)
@@ -177,17 +178,18 @@ export default memo(function HeadToHead({
   const n = sorted.length;
   const px = mini ? TILE_PX : 14;
   const strip = mini ? STRIP : 28;
-  const totals = mini ? TOTALS : 72;
+  const totals = mini ? 0 : TOTALS;
   const names = mini ? `clamp(0px, 100cqw - (100cqh - ${strip}px) - ${totals}px, ${NAMES}px)` : 'auto';
-  const M = mini ? `min(100cqh - ${strip}px, 100cqw - ${names} - ${totals}px)` : 'var(--card-m)'; // the matrix's width: n cells
+  const M = mini ? `min(100cqh - ${strip}px, 100cqw - ${names} - ${totals}px)` : 'var(--card-m-phone, var(--card-m))'; // the matrix's width: n cells (globals.css sets a phone's)
   const slot = { height: `calc(${M} / ${n})` }; // a side column's row
   const rowH = { height: `calc((${M} - ${n + 2}px) / ${n})` }; // a matrix row: square with a cell inside the 1px spacing (n + 2 of them across, with the row headers)
   const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
   return (
     <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : ''}`}>
       {/* On the tile, a size container: the square takes the largest size that fits it. No scroller of its own. */}
-      <div className={`flex justify-center tabular-nums ${mini ? 'flex-1 min-h-0' : ''}`} style={{ containerType: mini ? 'size' : undefined, fontSize: px }} onMouseLeave={() => setTip(null)}>
-        <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: names }}>
+      {/* Centred, but never past the left edge: a phone's card scrolls sideways to the matrix, its names sticky. */}
+      <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : ''}`} style={{ containerType: mini ? 'size' : undefined, fontSize: px }} onMouseLeave={() => setTip(null)}>
+        <div className={`shrink-0 flex flex-col overflow-hidden ${mini ? '' : 'max-md:sticky max-md:left-0 max-md:z-[1] max-md:bg-white'}`} style={{ width: names }}>
           <span className="block shrink-0" style={{ height: strip }} />
           {/* Model names as in Profiles (14px bold); the verdict's leader on the highlight. */}
           {sorted.map(row => (
@@ -239,8 +241,8 @@ export default memo(function HeadToHead({
             </tbody>
           </table>
         </motion.div>
-        {/* The row's cells added up: the same figure as the leader's, bold in its colour. */}
-        <div className="shrink-0 flex flex-col font-bold" style={{ width: totals }}>
+        {/* The row's cells added up: the same figure as the leader's, bold in its colour. The card only. */}
+        {!mini && <div className="shrink-0 flex flex-col font-bold" style={{ width: totals }}>
           {/* A column header: 13px muted, like Profiles'. */}
           <span style={{ height: strip, color: MUTED }} className="shrink-0 flex items-end pl-2 text-[13px] leading-none font-medium" title="The row's cells added up">Total</span>
           {sorted.map(row => {
@@ -255,7 +257,7 @@ export default memo(function HeadToHead({
               </div>
             );
           })}
-        </div>
+        </div>}
       </div>
       {/* The hovered cell's readout floats over the grid, clamped inside it. */}
       {tip && tipV && (

@@ -7,8 +7,8 @@ import About from '@/components/About';
 import { ArrowDown, Warning } from '@phosphor-icons/react';
 import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
-import StatsTable from '@/components/StatsTable';
-import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
+import StatsTable, { MINI_CHROME } from '@/components/StatsTable';
+import HeadToHead, { NAMES, STRIP } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, seatedModels, useStats } from '@/lib/stats';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
@@ -25,7 +25,7 @@ type Stats = ReturnType<typeof useStats>;
 const SCREENS = [
   { id: 'stats', label: 'Overview' },
   { id: 'about', label: 'About' },
-  { id: 'race', label: 'History' },
+  { id: 'race', label: 'Trends' },
   { id: 'stats-table', label: 'Profiles' },
   { id: 'pairwise', label: 'Matchups' },
 ] as const;
@@ -70,9 +70,12 @@ export default memo(function StatsSections({
   const pairwiseScreen = useRef<HTMLDivElement>(null);
   // A failed refetch keeps the last good data on screen, with the problem as a status line.
   const ready = !!data && current;
-  // The History card's height: its tile's, plus the filter bar and the legend the card adds, so the
+  // The Trends card's height: its tile's, plus the filter bar and the legend the card adds, so the
   // chart keeps its size (the stage's height at most: past that the chart shrinks a little, evenly).
+  // Phones (PHONE): the tile and the card are what is around the chart plus the chart at their full width,
+  // in its shape (raceTile, raceFit); the chart sizes to its box, so the box must be given that height.
   const [raceFit, setRaceFit] = useState<number>();
+  const [raceTile, setRaceTile] = useState<number>();
   const zoomedNow = tiles.on === 'race';
   useLayoutEffect(() => {
     const sec = document.getElementById('race-panel');
@@ -83,16 +86,47 @@ export default memo(function StatsSections({
       const root = sec.querySelector('.panel-scroll')?.lastElementChild;
       const kids = root ? [...root.children] as HTMLElement[] : [];
       const box = kids.reduce<HTMLElement | null>((a, c) => (!a || c.offsetHeight > a.offsetHeight ? c : a), null);
+      const keep = (h: number) => (f: number | undefined) => (f !== undefined && Math.abs(f - h) < 1 ? f : h);
+      if (innerWidth < 768) {
+        // Everything above the chart's box (padding, header, the card's filter bar), whatever the section's height now.
+        // The box is the chart's last child (a phone's filter bar can be taller).
+        let above = 0;
+        for (let e = root?.lastElementChild as HTMLElement | null; e && e !== sec; e = e.offsetParent as HTMLElement | null) above += e.offsetTop;
+        // Under the plot, the card's legend: LEGEND reserved, more where a phone wraps it to more rows.
+        const area = root?.lastElementChild as HTMLElement | null;
+        const legend = zoomedNow ? Math.max(LEGEND, (area?.scrollHeight ?? 0) - ((area?.firstElementChild as HTMLElement | null)?.offsetHeight ?? 0)) : 0;
+        const h = Math.ceil(above + ((sec.clientWidth - 32) * H) / W + legend + 16);
+        (zoomedNow ? setRaceFit : setRaceTile)(keep(h));
+        return;
+      }
       const bar = zoomedNow && root && box ? root.clientHeight - box.offsetHeight : 64 + 8;
-      const h = Math.ceil(tile.offsetHeight + bar + LEGEND);
-      setRaceFit(f => (f !== undefined && Math.abs(f - h) < 1 ? f : h));
+      setRaceFit(keep(Math.ceil(tile.offsetHeight + bar + LEGEND)));
     };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(tile);
-    if (zoomedNow) ro.observe(sec);
+    ro.observe(sec);
+    if (sec.firstElementChild) ro.observe(sec.firstElementChild); // the header, which wraps on a phone
+    // The chart's box, which gives way when the card's filter bar appears above it.
+    [...(sec.querySelector('.panel-scroll')?.lastElementChild?.children ?? [])].forEach(k => ro.observe(k));
     return () => ro.disconnect();
   }, [zoomedNow, ready]);
+
+  // Profiles' tile at its content's width (BLOCK_VARS): its longest name (full, even when truncated) plus the
+  // rest of its row (MINI_CHROME). Names change with the roster only, so the overview never shifts mid-replay.
+  const room = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const names = [...document.querySelectorAll<HTMLElement>('#stats-panel tbody th [translate=no]')];
+      if (names.length) room.current?.style.setProperty('--prof-w', `${Math.ceil(Math.max(...names.map(e => e.scrollWidth))) + MINI_CHROME}px`);
+    };
+    measure();
+    document.fonts?.ready.then(measure);
+  }, [ready, data]);
+  // A phone's overview scrolls inside its stage: a tile opening starts from the stage's top, where its card sits.
+  useLayoutEffect(() => {
+    if (tiles.on && innerWidth < 768) stage.current?.scrollTo({ top: 0, behavior: 'instant' });
+  }, [tiles.on]);
 
   // The screen crossing the middle of the window sets the stage; the table screen counts as the
   // overview. pageBy announces its target first so the Race tile starts gliding with the key press.
@@ -225,7 +259,7 @@ export default memo(function StatsSections({
   // which the other two follow through the timeline.
   const tl = useTimeline('', data?.scope.hands);
   // The leader, in one unit and one scope on every screen: net chips over the range shown.
-  const lead = ready && <Leader tl={tl} models={field} bigBlind={bigBlind} scope="all time" />;
+  const lead = ready && <Leader tl={tl} models={field} bigBlind={bigBlind} />;
 
   // Each card's body, in its tile (`card` false: the tile's content alone) and in the card. The tile's
   // table or matrix stays the same element when it opens and grows into the card's; what the card adds
@@ -266,6 +300,7 @@ export default memo(function StatsSections({
 
   return (
     <div
+      ref={room}
       className="stats-room relative isolate w-full"
       style={{ timelineScope: '--card-stats, --card-pairwise' } as React.CSSProperties}
       // A click on the page around a detail screen's card (not on the card) goes back to the overview.
@@ -289,14 +324,24 @@ export default memo(function StatsSections({
       <div data-stage className="absolute inset-0">
         {/* The overview stage: pinned from the overview to the end. The top padding clears the
             sticky bar (44px) plus the table screen's own outer padding; the clip, at the window's
-            edges (the page pads its sides), keeps tiles sliding off from adding a page scrollbar. */}
-        <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px]">
-          <div className={`@container ${BLOCK}`} style={BLOCK_VARS}>
-            {/* Overview: three tiles, each a miniature of its screen, History on top (stacked on phones).
-                History's row is its chart's shape at the block's width plus the tile's padding and header
-                (72px); the second row is a little shorter (BLOCK_VARS), split into Profiles and Matchups. */}
-            <div className="relative h-full md:h-(--block-h) grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-[minmax(0,1fr)_var(--col2)] md:grid-rows-[var(--row1)_var(--row2)]">
-              <Panel id="race-panel" title="History" away={{ y: -1 }} className="row-start-1 md:col-span-2" aside={lead} fit={raceFit} {...tile('race')}>
+            edges (the page pads its sides), keeps tiles sliding off from adding a page scrollbar.
+            Phones (PHONE) scroll it instead: the tiles stack at their content's size. */}
+        <Recede by={statsScreen} timeline="--card-stats" ref={stage} scrolls className="sticky top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px] max-md:overflow-x-hidden max-md:overflow-y-auto">
+          <div className={`@container ${BLOCK} ${PAD} max-md:h-auto max-md:min-h-full max-md:pb-[var(--bar-h,0px)]`} style={BLOCK_VARS}>
+            {/* Overview: three tiles, each a miniature of its screen, Trends on top (stacked on phones).
+                Trends' row is its chart's shape at the block's width plus the tile's padding and header
+                (72px); the second row is solved for Profiles' and Matchups' widths (BLOCK_VARS). On a phone, a
+                focused tile's card takes the window's box (Trends: its own height), as the cards do. */}
+            <div
+              className={`relative grid gap-3 grid-cols-1 md:h-(--block-h) md:grid-cols-[minmax(0,1fr)_var(--col2)] md:grid-rows-[var(--row1)_var(--row2)] ${on ? 'max-md:h-(--focus-h) max-md:overflow-hidden' : ''}`}
+              style={{
+                '--race-tile': raceTile && `${raceTile}px`,
+                '--focus-h': on === 'race' && raceFit ? `${raceFit}px` : PHONE_BOX,
+                // Matchups' tile on a phone: its matrix as wide as leaves its names 140px, cells 26px at least.
+                '--mu-h': `calc(max(${27 * field.length + 2}px, 100cqw - ${32 + NAMES}px) + ${MU_V}px)`,
+              } as React.CSSProperties}
+            >
+              <Panel id="race-panel" title="Trends" away={{ y: -1 }} className="row-start-1 md:col-span-2 max-md:h-(--race-tile)" aside={lead} fit={raceFit} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
@@ -320,7 +365,7 @@ export default memo(function StatsSections({
                 id="pairwise-panel"
                 title="Matchups"
                 away={{ x: 1 }}
-                className="row-start-3 md:row-start-2 md:col-start-2"
+                className="row-start-3 md:row-start-2 md:col-start-2 max-md:h-(--mu-h)"
                 extra={on === 'pairwise' && <div className={ASIDE}>{lead}</div>}
                 fit="hug"
                 {...tile('pairwise')}
@@ -335,8 +380,8 @@ export default memo(function StatsSections({
             initial={false}
             animate={{ opacity: on === null ? 1 : 0 }}
             transition={GLIDE}
-            className="absolute inset-x-0 flex items-center justify-center"
-            style={{ bottom: 'var(--bar-h, 0px)', height: BELOW }}
+            className="absolute bottom-[var(--bar-h,0px)] inset-x-0 flex items-center justify-center max-md:relative max-md:bottom-auto"
+            style={{ height: BELOW }}
           >
             {/* Compact (same style, smaller) on a window too short for the full size beside 32px Matchups cells. */}
             <button onClick={() => pageBy(1)} className={`${NEXT_BUTTON} [@media(max-height:959px)]:py-0.5 [@media(max-height:959px)]:text-[14px]`} style={NEXT_STYLE}>
@@ -367,19 +412,22 @@ export default memo(function StatsSections({
   );
 });
 
-// The leader by net chips over the range shown, at the hand History is replaying (its chart value then),
-// else now; nobody before anyone has a hand. `scope` names the range, the same words on every card.
-function Leader({ tl, models, bigBlind, scope }: { tl: Timeline | null; models: ModelStats[]; bigBlind: number; scope: string }) {
+// The leader by net chips over the range shown, at the hand Trends is replaying (its chart value then),
+// else now; nobody before anyone has a hand. The scope says which: "at hand N" while the replay plays,
+// "all time" once it has finished or been skipped; the same words on every card (one shared clock).
+function Leader({ tl, models, bigBlind }: { tl: Timeline | null; models: ModelStats[]; bigBlind: number }) {
   const hand = useReplayHand(tl);
+  const scope = hand === null ? 'all time' : `at hand ${hand.toLocaleString()}`;
   const played = (m: ModelStats) => (hand === null ? m.hands : playedAt(tl!, m.name, hand));
   const net = (m: ModelStats) => (hand === null ? m.net_chips : Math.round(valueAt(m.cumulative_bb, played(m)) * bigBlind));
   const [top] = models.filter(m => played(m) > 0).map(m => ({ m, n: net(m) })).sort((a, b) => b.n - a.n);
   return top && (
-    <span className="flex items-center gap-1.5 tabular-nums text-[14px]" style={{ color: TEXT }}>
+    // One line: on a phone the name truncates rather than wrapping, so the header keeps its height as the leader changes.
+    <span className="flex items-center gap-1.5 min-w-0 whitespace-nowrap tabular-nums text-[14px]" style={{ color: TEXT }}>
       <span style={{ color: MUTED }}>Leader</span>
       <LLMLogo model={top.m.name} size={18} />
-      <span translate="no" className="font-bold">{top.m.name}</span>
-      <span className="font-bold" style={{ color: netColor(top.n) }}>{chips(top.n)} chips {scope}</span>
+      <span translate="no" className="font-bold truncate">{top.m.name}</span>
+      <span className="font-bold shrink-0" style={{ color: netColor(top.n) }}>{chips(top.n)} chips {scope}</span>
     </span>
   );
 }
@@ -419,40 +467,64 @@ function SyncedProfiles({ tl, models, seated, mini = false }: { tl: Timeline | n
 
 const PAGE = '#FAFAF9';
 const SLIDE_MS = 320; // a Profiles row's slide (StatsTable's SLIDE), and a frame to spare
-const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1'; // a card header's extras
+const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1 min-w-0'; // a card header's extras
 
-// The overview block and every card, centred with the page around them. The block is as wide as lets
-// History's row (its chart's shape plus the tile's 72px of padding and header) and the second row fit
-// the window with a margin above and below (MARGIN), at most MAX_W and never within SIDE of the window's
-// sides. History leads by area (it spans the block) and stays the tallest row, LEAD taller than the second;
-// the second row is nearly as tall, so Matchups' cells have room (about 34px at 1440x900, 43px at
-// 1728x1117). Matchups' tile is its names, its matrix and its totals, edge to edge; Profiles, five compact
-// columns, takes the rest of the row. Only viewport units, so every var resolves the same in nested containers.
+// The overview block and every card, centred with the page around them (from md; phones stack the tiles at
+// their content's size and scroll, see PHONE). The block is as wide as lets Trends' row (its chart's shape plus
+// the tile's 72px of padding and header) and the second row fit the window with a margin above and below
+// (MARGIN), at most MAX_W and never within SIDE of the window's sides.
+// The second row is Profiles at its content's width (--prof-w, measured: the longest name and four compact
+// columns; never wider than it was before Matchups dropped its Total column, so its names keep their room on a
+// short window) and Matchups, its names and its square matrix edge to edge. Matchups' matrix is as tall as its
+// row, so the row heights are solved for the widths: Trends' row gives up the height that lets the second row
+// fill the block exactly, Matchups' cells growing with every pixel Profiles and the Total column gave up. Trends
+// stays the dominant tile: it spans the block, on top, and the second row is at most DOM times its height (about
+// 1.6x Matchups' area at 1728x1117), never so short that its chart's text shrinks (R1_MIN). Cells: about 33px at
+// 1440x900, 43px at 1728x1117. The opened Matchups card keeps its matrix from before (--card-m, from R1_0); the
+// Trends and Profiles cards are the block's width, so they narrow with it.
+// Only viewport units, so every var resolves the same in nested containers.
 const MAX_W = 1320; // about three quarters of a 1728px window: the overview reads as cards on a page
 const SIDE = 64; // the least page beside the block
 // The page above the block and the "About ↓" band below it (.stats-room in globals.css): 16px and 42px on a short
 // window (the compact pill), else the margin (24px, 46px on 1117px) and the margin plus 34px (the full-size pill).
 const MARGIN = 'var(--top)';
 const BELOW = 'var(--below)';
-const LEAD = 4; // px: History's row over the second row
+const LEAD = 4; // px: Trends' row over the second row before the rows were solved (the cards' sizes, W0 and R1_0)
+const DOM = 1.1; // the second row is at most this times Trends' row
+// Trends' row at least this tall (or as before, if less): CumulativeChart keeps its text at 13px on screen down to
+// a 1/1.5 scale of its W x H layout, so its plot is never narrower than W / 1.5 (history-type).
+const R1_MIN = Math.ceil(H / 1.5 + 72);
 const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
 const A = (H / W).toFixed(5);
 const ROOM = `(100svh - 44px - var(--bar-h, 0px) - ${MARGIN} - ${BELOW})`; // the block's height at most
 const BLOCK = 'h-full w-full md:max-w-(--block-w) mx-auto flex flex-col justify-center';
+// Matchups' tile around its matrix, top to bottom: padding and header (72), then the column logos' row.
+const MU_V = 72 + STRIP;
 const BLOCK_VARS = {
-  '--block-w': `max(560px, min(${MAX_W}px, 100vw - ${2 * SIDE}px, ((${ROOM} - 12px + ${LEAD}px) / 2 - 72px) / ${A} + 32px))`,
+  // Before (equal rows, Matchups with a Total column): the cards' box, and Profiles' width then (P0).
+  '--w0': `max(560px, min(${MAX_W}px, 100vw - ${2 * SIDE}px, ((${ROOM} - 12px + ${LEAD}px) / 2 - 72px) / ${A} + 32px))`,
+  '--r1-0': `calc((var(--w0) - 32px) * ${A} + 72px)`,
+  '--p': `min(var(--prof-w, 9999px), var(--w0) - var(--r1-0) - ${NAMES + 10 - LEAD}px)`,
+  // The second row's height when the window's height holds the block: Trends' row plus 12px plus this fill ROOM,
+  // and Profiles plus 12px plus Matchups (names, matrix as tall as the row, padding) fill Trends' width.
+  '--r2h': `min((${ROOM} - 84px - ${A} * (var(--p) + ${NAMES - MU_V + 12}px)) / ${(1 + +A).toFixed(5)}, ${DOM} * (${ROOM} - 12px) / ${1 + DOM}, ${ROOM} - 12px - min(var(--r1-0), ${R1_MIN}px))`,
+  '--block-w': `max(560px, min(${MAX_W}px, 100vw - ${2 * SIDE}px, (${ROOM} - 12px - var(--r2h) - 72px) / ${A} + 32px))`,
   '--row1': `calc((var(--block-w) - 32px) * ${A} + 72px)`,
-  '--row2': `calc(var(--row1) - ${LEAD}px)`,
+  '--row2': `min(var(--r2h), var(--block-w) - var(--p) - ${NAMES + 32 - MU_V + 12}px, ${DOM} * var(--row1))`,
   '--mini-row': 'calc((var(--row2) - 72px) / 10)',
-  '--col2': `calc(var(--row2) - 72px - ${STRIP}px + 32px + ${NAMES + TOTALS}px)`, // Matchups: names, its matrix, totals, padding
+  '--col2': `calc(var(--row2) + ${NAMES + 32 - MU_V}px)`, // Matchups: names, its matrix, padding
   '--block-h': 'calc(var(--row1) + 12px + var(--row2))',
-  // The opened Matchups card's matrix width: a little over History's row, so the two cards have the same presence.
-  '--card-m': 'min(var(--row1) + 40px, var(--block-h) - 260px)',
-  // Under the 44px sticky bar the margin, above the connection bar the About band; the block fills what is
-  // left (centred when the window's width holds it back), and every card takes the same box.
-  paddingTop: `calc(44px + ${MARGIN})`,
-  paddingBottom: `calc(${BELOW} + var(--bar-h, 0px))`,
+  // The opened Matchups card's matrix width: a little over Trends' row (as it was), so the two cards have the same presence.
+  '--card-m': `min(var(--r1-0) + 40px, 2 * var(--r1-0) - ${260 + LEAD - 12}px)`,
 } as React.CSSProperties;
+// Phones (under md, 768px: a phone, or a laptop at 200% zoom) stack the tiles at their content's size: Trends
+// at its chart's shape (raceTile), Profiles at its rows, Matchups at a square that leaves its names 140px; the
+// overview scrolls inside its stage. An opened card takes the window's box under the sticky bar (PHONE_BOX), as
+// the Profiles and Matchups cards do, and scrolls inside itself; Trends' card is as tall as its content.
+const PHONE_BOX = 'calc(100svh - 44px - var(--top) - var(--below) - var(--bar-h, 0px))';
+// Under the 44px sticky bar the margin, above the connection bar the About band; the block fills what is
+// left (centred when the window's width holds it back), and every card takes the same box.
+const PAD = 'pt-[calc(44px+var(--top))] pb-[calc(var(--below)+var(--bar-h,0px))]';
 
 // Shrinks and dims its content as the screen `by` slides up over it, then hides it as that screen lands: a CSS scroll-driven
 // animation on the named view timeline of that screen where supported, motion's useScroll
@@ -462,12 +534,14 @@ function Recede({
   timeline,
   ref,
   className,
+  scrolls = false,
   children,
 }: {
   by?: React.RefObject<HTMLElement | null>;
   timeline?: string;
   ref?: React.Ref<HTMLDivElement>;
   className: string;
+  scrolls?: boolean; // scrolls itself (a phone's overview): motion's layout measurements account for it
   children: React.ReactNode;
 }) {
   const native = useNativeTimeline();
@@ -481,6 +555,7 @@ function Recede({
   return (
     <motion.div
       ref={ref}
+      layoutScroll={scrolls}
       className={`${className} ${by && native ? 'recede' : ''} origin-center`}
       style={{ ['--recede-by' as string]: timeline, scale: fallback ? scale : undefined, ['--dim' as string]: fallback ? dim : undefined, opacity: by && !native ? hide : undefined }}
     >
@@ -489,7 +564,7 @@ function Recede({
   );
 }
 
-// A screen after History: a card that slides up over the one before it, in the same chrome, size
+// A screen after Trends: a card that slides up over the one before it, in the same chrome, size
 // and place as its focused overview tile.
 function Card({
   id,
@@ -515,7 +590,7 @@ function Card({
   return (
     <section ref={ref} id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className={`sticky top-0 h-svh outline-none ${z}`}>
       <Recede by={by} timeline={timeline} className="h-full">
-        <div className={`@container ${BLOCK}`} style={BLOCK_VARS}>
+        <div className={`@container ${BLOCK} ${PAD}`} style={BLOCK_VARS}>
           {/* The overview's box, where its tile stands in for this card. */}
           <div className="relative h-full md:h-(--block-h)">
           <div className={`${CARD} absolute ${fit === 'hug' ? HUG : `inset-x-0 inset-y-0 my-auto max-h-full ${fit ? 'h-fit' : ''}`}`} style={{ boxShadow: CARD_SHADOW }}>
@@ -523,7 +598,7 @@ function Card({
               <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
               {aside && <div className={ASIDE}>{aside}</div>}
             </div>
-            <div className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{children}</div>
+            <motion.div layoutScroll className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{children}</motion.div>
           </div>
           </div>
         </div>

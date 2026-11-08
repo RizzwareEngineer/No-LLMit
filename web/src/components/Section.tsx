@@ -178,6 +178,10 @@ export default function Panel({
     onOpen();
   };
   const move = snap ? NONE : GLIDE;
+  // Measured only when the tile's place changes (opens, closes, slides off, its card's height): a phone's tiles
+  // also move as the ones above them fill in, and a glide started then would leave the content inside, which
+  // measures only when it changes, in its place from before.
+  const place = `${focused}|${covered}|${fit}`;
   // The slide lives on a wrapper (the grid cell), the glide on the section: motion drops an x/y
   // that changes in the same render as a layout snap. Untransformed, the wrapper is no containing
   // block, so a focused section still fills the whole grid.
@@ -186,6 +190,7 @@ export default function Panel({
       // A projection node, so the layout children inside (table rows, the matrix) measure through the
       // slide instead of chasing it when they re-render mid-slide.
       layout
+      layoutDependency={place}
       initial={false}
       // In px (motion's projection can only factor numbers out of its measurements); only read when covered.
       animate={covered ? { x: (away.x ?? 0) * innerWidth, y: (away.y ?? 0) * innerHeight } : { x: 0, y: 0 }}
@@ -194,6 +199,7 @@ export default function Panel({
     >
     <motion.section
       layout
+      layoutDependency={place}
       initial={false}
       transition={move}
       id={id}
@@ -207,12 +213,12 @@ export default function Panel({
       className={`${CARD} overflow-hidden ${!focused ? 'relative flex-1' : fit === undefined ? 'absolute inset-0' : fit === 'hug' ? `absolute ${HUG}` : `absolute inset-x-0 inset-y-0 my-auto max-h-full ${fit === 'content' ? 'h-fit' : ''}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''}`}
       style={{ boxShadow: CARD_SHADOW, height: focused && typeof fit === 'number' ? fit : undefined }}
     >
-      <motion.div layout="position" transition={move} className={HEADER}>
+      <motion.div layout="position" layoutDependency={place} transition={move} className={HEADER}>
         <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>
           {/* No link (the URL never names a stats screen): the tile itself is the one tab stop that opens it. */}
           <span className="hover:underline">{title}</span>
         </h2>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 min-w-0">
           {aside}
           <AnimatePresence initial={false} mode="popLayout">
             {extra && (
@@ -221,11 +227,11 @@ export default function Panel({
               </motion.div>
             )}
           </AnimatePresence>
-          {overview && <span aria-hidden className="text-[14px] font-medium" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span>}
+          {overview && <span aria-hidden className="text-[14px] font-medium whitespace-nowrap" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span>}
         </div>
       </motion.div>
       {/* A tile never scrolls (it opens its card instead); only the focused card may. */}
-      <motion.div layout transition={move} className={`panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 ${focused ? 'overflow-auto' : 'overflow-hidden'}`}>
+      <motion.div layout layoutDependency={place} layoutScroll transition={move} className={`panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 ${focused ? 'overflow-auto' : 'overflow-hidden'}`}>
         {children}
       </motion.div>
     </motion.section>

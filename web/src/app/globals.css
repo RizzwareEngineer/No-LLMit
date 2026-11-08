@@ -360,3 +360,10 @@ html:has([data-screen]) {
   }
   }
 }
+
+/* Phones (StatsSections' PHONE): the opened Matchups card's matrix keeps 14px figures readable (about 46px cells
+   for nine models), its card scrolling sideways under the sticky names; the desktop size (--card-m, set inline on
+   the stats block) follows the window. */
+@media (max-width: 767px) {
+  .stats-room { --card-m-phone: 420px; }
+}

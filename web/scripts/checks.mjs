@@ -22,7 +22,7 @@ const clickText = (pg, t) => pg.evaluate(t => { const b = [...document.querySele
 // A button whose text starts with `t` (a label that carries a short form for narrow screens, e.g. "Back to overviewOverview").
 const clickPrefix = (pg, t) => pg.evaluate(t => { const b = [...document.querySelectorAll('button, a')].find(e => e.textContent.trim().startsWith(t) && e.getBoundingClientRect().width > 0); if (b) b.click(); return !!b; }, t);
 const clickCenter = async (pg, sel) => { const r = await pg.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, sel); if (!r) throw new Error(`no ${sel}`); await pg.mouse.click(r[0], r[1]); };
-// The biggest visible chart svg on screen: the History plot.
+// The biggest visible chart svg on screen: the Trends plot.
 const chartBox = pg => pg.evaluate(() => {
   const s = [...document.querySelectorAll('svg')].map(e => ({ e, r: e.getBoundingClientRect() }))
     .filter(({ e, r }) => r.width > 300 && r.bottom > 0 && r.top < innerHeight && e.querySelectorAll('path').length > 3)
@@ -141,10 +141,10 @@ await check('table-no-hscroll', 'No sideways scroll on the page; the table scree
   return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : fits.map(f => `${f.size}${f.screenScroll > 0 ? ' (scrolls at floor)' : ''}`).join(', ') };
 });
 
-// --- History (overview tile, then the card) ---
+// --- Trends (overview tile, then the card) ---
 await goto(pg, 'stats'); await sleep(2500);
 // The unit is the default metric's: bb/100 again since 2026-11-08 (owner: "the default should be bb100 not chips").
-await check('history-unit-once', '"bb/100" shows once on the History tile', async () => {
+await check('history-unit-once', '"bb/100" shows once on the Trends tile', async () => {
   const n = await pg.evaluate(() => [...document.querySelectorAll('#race-panel *')].filter(e => e.childElementCount === 0 && e.textContent.trim() === 'bb/100' && e.getBoundingClientRect().width > 0).length);
   return { pass: n === 1, detail: `${n} times` };
 });
@@ -152,18 +152,18 @@ const tile = await chartBox(pg);
 const tileCard = await pg.evaluate(() => { const b = document.querySelector('#race-panel').getBoundingClientRect(); return { w: b.width, h: b.height }; });
 await clickCenter(pg, '#race-panel'); await sleep(1500);
 const card = await chartBox(pg);
-await check('history-card-size', 'Opening History moves the tile to the middle and adds the filters; it does not balloon', async () => {
+await check('history-card-size', 'Opening Trends moves the tile to the middle and adds the filters; it does not balloon', async () => {
   const c = await pg.evaluate(() => { const svg = [...document.querySelectorAll('svg')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 300 && r.top < innerHeight && r.bottom > 0; }).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0]; const b = svg.closest('.card-chrome').getBoundingClientRect(); const bar = [...svg.closest('.card-chrome').querySelectorAll('.flex-wrap')].find(e => e.textContent.startsWith('Metric')); return { w: b.width, h: b.height, bar: bar ? bar.getBoundingClientRect().height + 8 : 0 }; });
   // The card may add exactly its filter bar (however many rows it wraps to) and the legend (68px), plus 12px.
   const room = c.bar + 68 + 12;
   const ok = Math.abs(c.w - tileCard.w) / tileCard.w <= 0.05 && c.h - tileCard.h <= room;
   return { pass: ok, detail: `tile ${Math.round(tileCard.w)}x${Math.round(tileCard.h)} → card ${Math.round(c.w)}x${Math.round(c.h)} (allowed: same width ±5%, +${Math.round(room)}px: the filter bar and legend)` };
 });
-await check('history-no-stretch', 'The History chart keeps its shape from tile to card', async () => {
+await check('history-no-stretch', 'The Trends chart keeps its shape from tile to card', async () => {
   const a = tile.w / tile.h, b = card.w / card.h;
   return { pass: Math.abs(a - b) / a < 0.02, detail: `tile ${a.toFixed(3)} vs card ${b.toFixed(3)}` };
 });
-await check('history-dead-space', 'The opened History card has at most 15% dead space', async () => {
+await check('history-dead-space', 'The opened Trends card has at most 15% dead space', async () => {
   const ws = await pg.evaluate(() => {
     const svg = [...document.querySelectorAll('svg')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 300 && r.top < innerHeight && r.bottom > 0; }).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
     const cardEl = svg.closest('.card-chrome'); const c = cardEl.getBoundingClientRect();
@@ -220,12 +220,12 @@ await check('history-no-empty-left', 'The lines start at the plot\'s left edge (
   });
   return { pass: r.gap <= 0.12 && r.width >= 0.5, detail: `lines start ${(r.gap * 100).toFixed(0)}% in and span ${(r.width * 100).toFixed(0)}% of the plot` };
 });
-// --- History overtakes (owner 2026-11-08): "the default should be bb100 not chips"; "its not as
+// --- Trends overtakes (owner 2026-11-08): "the default should be bb100 not chips"; "its not as
 // obvious when a given place change happens ... do we keep the y axis static the same way lmarena
 // does?"; "the 'distance' between each llm is not that big and apparent"; "the y axis and x axis of
 // history is not same font". bb/100 by default, a steady y axis, finer gridlines, pills with rank and
 // value, and an overtake shown by a pill swap, a highlight and a crossing marker. The card is open here. ---
-await check('history-default-bb100', 'History opens on bb/100; Chips is one click away', async () => {
+await check('history-default-bb100', 'Trends opens on bb/100; Chips is one click away', async () => {
   const r = await pg.evaluate(() => {
     const g = [...document.querySelectorAll('[role=group][aria-label=Metric]')].find(e => e.getBoundingClientRect().width > 0);
     const on = g && [...g.querySelectorAll('button')].find(b => b.getAttribute('aria-pressed') === 'true')?.textContent.trim();
@@ -326,7 +326,7 @@ await check('history-y-gridlines', 'At least 6 labelled y gridlines (6–8 at re
   return { pass: rest.length >= 6 && rest.length <= 8 && ok6 >= 0.9, detail: `at rest ${rest.length} [${rest.join(' ')}]; ≥6 in ${(ok6 * 100).toFixed(0)}% of replay frames` };
 });
 // Every pill says its rank (1, 2, … top to bottom) and its value, so the gap to its neighbour is explicit.
-await check('history-pill-rank-value', 'Every History pill shows its rank (in order, top to bottom) and its current value', async () => {
+await check('history-pill-rank-value', 'Every Trends pill shows its rank (in order, top to bottom) and its current value', async () => {
   const r = await pg.evaluate(() => {
     const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
     const pills = [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5).sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
@@ -430,7 +430,7 @@ await check('history-pill-column-clear', 'Nothing but pills and their leaders ri
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 });
 // One type for the chart's furniture (owner: "the y axis and x axis of history is not same font").
-await check('history-type', 'History type: x and y ticks alike, axis titles alike (13px muted body sans), pills 13px (names medium, values tabular)', async () => {
+await check('history-type', 'Trends type: x and y ticks alike, axis titles alike (13px muted body sans), pills 13px (names medium, values tabular)', async () => {
   const r = await pg.evaluate(() => {
     const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
     const svg = plot.querySelector('svg'), k = plot.getBoundingClientRect().width / svg.viewBox.baseVal.width;
@@ -456,7 +456,7 @@ await check('history-type', 'History type: x and y ticks alike, axis titles alik
 });
 // Since 2026-11-08 ticks and pills are 13px (history-type, the orchestrator's type audit); the hover
 // readout keeps the Profiles cells' 14px.
-await check('history-number-style', 'History numbers (ticks, pills, readout) use the body sans, tabular; the readout at the Profiles cells\' 14px, ticks and pills at 13px', async () => {
+await check('history-number-style', 'Trends numbers (ticks, pills, readout) use the body sans, tabular; the readout at the Profiles cells\' 14px, ticks and pills at 13px', async () => {
   const c = await pg.evaluate(() => { const p = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0).getBoundingClientRect(); return [p.left + p.width * 0.45, p.top + p.height * 0.5]; });
   await pg.mouse.move(c[0], c[1]); await sleep(300);
   const r = await pg.evaluate(() => {
@@ -519,7 +519,7 @@ await check('replay-no-reset', 'The replay never restarts on open, back or scrol
 });
 
 // --- Time sync (the replay is running from the check above) ---
-await check('sync-in-step', 'While History replays, Profiles and Matchups stay within one step of its hand', async () => {
+await check('sync-in-step', 'While Trends replays, Profiles and Matchups stay within one step of its hand', async () => {
   await goto(pg, 'stats'); await sleep(1200);
   const h = await hands(pg);
   const race = h['race-panel'], prof = h['stats-panel'], mu = h['pairwise-panel'];
@@ -535,7 +535,7 @@ await check('sync-in-step', 'While History replays, Profiles and Matchups stay w
 // Each row's name (the content that moves) and its offset from the row's top; rows without one (dash rows) are left out.
 const nameOffsets = () => [...document.querySelectorAll('#stats-card tbody tr')].map(r => { const s = r.querySelector('th > span.inline-block'); return s ? { o: s.getBoundingClientRect().top - r.getBoundingClientRect().top, b: s.getBoundingClientRect() } : null; }).filter(Boolean);
 await check('profiles-rows-no-overlap', 'During the replay, no two Profiles rows overlap (rows at rest)', async () => {
-  await goto(pg, 'race'); await sleep(800); // Skip and Replay live on the History card
+  await goto(pg, 'race'); await sleep(800); // Skip and Replay live on the Trends card
   const playing = () => pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
   if (!(await playing()) && !(await clickText(pg, 'Replay'))) return { pass: false, detail: 'neither Skip nor Replay shown' };
   await sleep(500); await goto(pg, 'stats-table'); await sleep(600);
@@ -604,7 +604,7 @@ await check('matchups-cells-still', 'Matchups cells never move or scale when a v
   return { pass: r.changed > 0 && r.off === 0 && r.worst <= 0.5, detail: r.changed ? `${r.changed} value changes; ${r.off} cell frames off their grid slot, worst size change ${r.worst.toFixed(1)}px` : 'no value changed in 4s (is the replay running?)' };
 });
 
-// Owner, 2026-11-07: "History ... pretty smooth. For profiles, it's not as smooth" (the tile's text
+// Owner, 2026-11-07: "Trends ... pretty smooth. For profiles, it's not as smooth" (the tile's text
 // shrank to ~45% on the first frame of the glide and grew back, as the card's table replaced it scaled
 // down), and the card took over from the gliding tile with a jump in size. While a tile glides to its
 // card, Profiles' figures stay at their size, and the card takes over exactly where the tile ends.
@@ -735,8 +735,8 @@ await check('cards-no-scope', 'No hands/all time/blinds line, Session picker or 
 });
 // Was "Matchups is wider than Profiles", then "at least comparable" (70% of Profiles' area). Owner, 2026-11-08:
 // "matchups should be the bigger square compared to profiles. right now the numbers are too dense". At the
-// three common laptop windows the Matchups tile is wider and larger than Profiles (History still leads:
-// overview-history-leads). Reports History's share of the overview's tile area.
+// three common laptop windows the Matchups tile is wider and larger than Profiles (Trends still leads:
+// overview-history-leads). Reports Trends's share of the overview's tile area.
 await check('matchups-bigger', 'On the overview the Matchups tile is wider and larger than Profiles at 1440x900, 1512x982 and 1728x1117', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117]]) {
@@ -744,7 +744,7 @@ await check('matchups-bigger', 'On the overview the Matchups tile is wider and l
     const [race, prof, mu] = await Promise.all(['#race-panel', '#stats-panel', '#pairwise-panel'].map(s => rect(p, s)));
     await p.close();
     const area = b => b.w * b.h;
-    seen.push(`${w}x${h}: Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)} vs Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)} (${(area(mu) / area(prof)).toFixed(2)}x), History ${(area(race) / (area(race) + area(prof) + area(mu)) * 100).toFixed(0)}% of the area`);
+    seen.push(`${w}x${h}: Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)} vs Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)} (${(area(mu) / area(prof)).toFixed(2)}x), Trends ${(area(race) / (area(race) + area(prof) + area(mu)) * 100).toFixed(0)}% of the area`);
     if (!(mu.w > prof.w && area(mu) > area(prof))) bad.push(`${w}x${h}: Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)} is not bigger than Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
@@ -752,9 +752,13 @@ await check('matchups-bigger', 'On the overview the Matchups tile is wider and l
 // The same instruction: the tile's figures are not dense. Each cell is at least MIN px a side (td box),
 // every figure sits at the tile's one size with at least 2px clear on each side (shortened to +1.1k when
 // it would not), and no cell with a matchup is left without its figure.
-await check('matchups-cells-roomy', 'Matchups tile cells are at least 32px (1440x900) / 40px (1728x1117), one figure size, never edge to edge or blank', async () => {
+// Owner, 2026-11-08: "matchups should be bigger so that the numbers are easier to read ... no need for a [Total]
+// column for preview of matchups ... use that new space for the matchups graph". Was 32px / 40px; with the Total
+// column and Profiles' spare width turned into height for the square: 33px / 42.5px (about 33.3 and 43.2; at 1440x900
+// Trends' row cannot give more without its chart's text dropping under 13px, history-type).
+await check('matchups-cells-roomy', 'Matchups tile cells are at least 33px (1440x900) / 42.5px (1728x1117), one figure size, never edge to edge or blank', async () => {
   const bad = [], seen = [];
-  for (const [w, h, min] of [[1440, 900, 32], [1728, 1117, 40]]) {
+  for (const [w, h, min] of [[1440, 900, 33], [1728, 1117, 42.5]]) {
     const p = await pageAt(w, h);
     // Skip the replay: the final figures are the widest.
     await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(800); await goto(p, 'stats'); await sleep(1500);
@@ -800,14 +804,15 @@ await check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar on a p
 });
 
 // Owner, 2026-11-07: the overview was "too big"; "the history graph should be the 'biggest' one ...
-// the first thing that people look at"; not wall-to-wall. At 1440x900 and 1728x1117: History on top and
-// the largest tile (1.5x the area of each other tile, and the tallest row), the block at most 1400px wide
+// the first thing that people look at"; not wall-to-wall. At 1440x900 and 1728x1117: Trends on top and
+// the largest tile (1.5x the area of each other tile; the tallest row until 2026-11-08, when the second row
+// grew to give Matchups bigger cells: now at most 1.1x Trends' row), the block at most 1400px wide
 // and 80% of the window, with page around it (64px at the sides, 24px below; 16px above since 2026-11-08,
 // when a short window gave its top margin to the "About ↓" band so Matchups' cells keep 32px).
 // Then the opened Matchups card ("so much white space to the left"; "takes up too much of the screen"):
 // it hugs names, matrix and totals (no band over 8px between its edge and its content) and leaves
 // page around it (at most 70% of the window's width and 85% of its height).
-await check('overview-history-leads', 'History is the dominant tile, first in reading order; the overview keeps page around it', async () => {
+await check('overview-history-leads', 'Trends is the dominant tile, first in reading order; the overview keeps page around it', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await pageAt(w, h);
@@ -815,10 +820,10 @@ await check('overview-history-leads', 'History is the dominant tile, first in re
     await p.close();
     const area = b => b.w * b.h;
     const left = race.l, right = w - Math.max(race.r, mu.r), top = race.t - 44, bottom = h - Math.max(prof.b, mu.b), width = Math.max(race.r, mu.r) - race.l;
-    seen.push(`${w}x${h}: History ${race.w.toFixed(0)}x${race.h.toFixed(0)}, Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}, Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)}, block ${width.toFixed(0)}px, page ${left.toFixed(0)}/${right.toFixed(0)} beside, ${top.toFixed(0)}/${bottom.toFixed(0)} above/below`);
-    if (!(race.b <= Math.min(prof.t, mu.t))) bad.push(`${w}x${h}: History is not on top`);
-    if (area(race) < 1.5 * Math.max(area(prof), area(mu))) bad.push(`${w}x${h}: History ${(area(race) / Math.max(area(prof), area(mu))).toFixed(2)}x the next tile's area`);
-    if (race.h <= Math.max(prof.h, mu.h)) bad.push(`${w}x${h}: History's row is not the tallest`);
+    seen.push(`${w}x${h}: Trends ${race.w.toFixed(0)}x${race.h.toFixed(0)}, Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}, Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)}, block ${width.toFixed(0)}px, page ${left.toFixed(0)}/${right.toFixed(0)} beside, ${top.toFixed(0)}/${bottom.toFixed(0)} above/below`);
+    if (!(race.b <= Math.min(prof.t, mu.t))) bad.push(`${w}x${h}: Trends is not on top`);
+    if (area(race) < 1.5 * Math.max(area(prof), area(mu))) bad.push(`${w}x${h}: Trends ${(area(race) / Math.max(area(prof), area(mu))).toFixed(2)}x the next tile's area`);
+    if (race.h * 1.1 < Math.max(prof.h, mu.h) - 1) bad.push(`${w}x${h}: the second row is ${(Math.max(prof.h, mu.h) / race.h).toFixed(2)}x Trends' row (at most 1.1)`);
     if (width > 1400 || width > 0.8 * w) bad.push(`${w}x${h}: block ${width.toFixed(0)}px wide`);
     if (left < 64 || right < 64 || top < 16 || bottom < 24) bad.push(`${w}x${h}: page around the block ${left.toFixed(0)}/${right.toFixed(0)}/${top.toFixed(0)}/${bottom.toFixed(0)}px`);
   }
@@ -874,7 +879,7 @@ await check('stats-font-unified', 'One number font across the stats cards (famil
 });
 
 // Owner, 2026-11-08: "we need to do an audit on the fonts and sizes and all". One family (the body's sans),
-// tabular figures, and one small scale by role on every stats tile and card (History's chart internals are
+// tabular figures, and one small scale by role on every stats tile and card (Trends's chart internals are
 // checked by history-number-style): titles 20px bold; model names and data figures 14px; controls 14px
 // medium; column headers and secondary text 13px (muted); the Matchups tile's figures one size (11px).
 await check('stats-type-scale', 'Every text role on the stats tiles and cards uses the agreed family, size, weight and colour', async () => {
@@ -889,9 +894,7 @@ await check('stats-type-scale', 'Every text role on the stats tiles and cards us
       ['Profiles names', '#stats-panel tbody th [translate=no]', 14, [700], [TEXT]],
       ['Profiles figures', '#stats-panel tbody td', 14, [400], null, true],
       ['Matchups names', '#pairwise-panel a [translate=no]', 14, [700], [TEXT]],
-      ['Matchups Total header', '#pairwise-panel [title="The row\'s cells added up"]', 13, [500], [MUTED]],
       ['Matchups tile figures', '#pairwise-panel td[data-cell] [aria-hidden]', 11, [400], null, true],
-      ['Matchups tile totals', '#pairwise-panel div[data-cell] [aria-hidden]', 11, [700], null, true],
     ],
     'stats-table': [
       ['card title', '#stats-card h2', 20, [700], [TEXT]],
@@ -969,7 +972,7 @@ await check('stats-any-viewport', 'The overview keeps its proportions from 1280x
     const why = [];
     if (Math.abs(m.row - m.even) > 3) why.push(`Profiles rows ${m.row.toFixed(0)}px tall, not ${m.even.toFixed(0)}px`);
     if (m.ratio > 1.15) why.push(`Matchups cells ${m.ratio.toFixed(2)}:1`);
-    if (m.fill < 0.8) why.push(`History chart fills ${(m.fill * 100).toFixed(0)}% of its tile`);
+    if (m.fill < 0.8) why.push(`Trends chart fills ${(m.fill * 100).toFixed(0)}% of its tile`);
     if (why.length) bad.push(`${w}x${h}: ${why.join(', ')}`);
   }
   return { pass: bad.length === 0, detail: bad.length ? bad.join(' | ') : 'all four sizes hold' };
@@ -1062,10 +1065,10 @@ await check('about-button', '"About ↓" sits under the overview in the band bel
 // Opens a card from the overview the way a visitor does (a click on its tile), and waits for the glide.
 const median = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return Math.round(b[b.length >> 1]); };
 const openTile = async (p, tile) => { await goto(p, 'stats'); await sleep(900); await clickCenter(p, tile); await sleep(1300); await p.mouse.move(p.viewport().width / 2, p.viewport().height / 2); };
-await check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, notch, phased) and key (PageDown/Up, arrows, Space) moves exactly one screen, both ways, landing on a screen edge, at 1440x900 and 1728x1117: overview ↔ About, and History ↔ Profiles ↔ Matchups once a tile opened them; down and up move at the same speed and fade the card underneath alike; a gesture\'s ambiguous first wheel event is claimed', async () => {
+await check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, notch, phased) and key (PageDown/Up, arrows, Space) moves exactly one screen, both ways, landing on a screen edge, at 1440x900 and 1728x1117: overview ↔ About, and Trends ↔ Profiles ↔ Matchups once a tile opened them; down and up move at the same speed and fade the card underneath alike; a gesture\'s ambiguous first wheel event is claimed', async () => {
   const bad = [], seen = [];
   const KEYS = new Set(['PageDown', 'ArrowDown', 'Space']);
-  // [from, direction, to]: the main scroll's stats leg, then the cards' loop (entered by a click on History's tile).
+  // [from, direction, to]: the main scroll's stats leg, then the cards' loop (entered by a click on Trends's tile).
   const MAIN = [['stats', 1, 'about'], ['about', -1, 'stats']];
   const LOOP = [['race', 1, 'stats-table'], ['stats-table', 1, 'pairwise'], ['pairwise', -1, 'stats-table'], ['stats-table', -1, 'race']];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
@@ -1126,12 +1129,12 @@ await check('main-scroll', 'The main scroll is table ↔ overview ↔ About, one
   await p.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 });
-await check('matchups-wraps', 'The cards loop back to the overview: down on Matchups and up on History (wheel or key) go back to it with the Back to overview glide, and stay there', async () => {
+await check('matchups-wraps', 'The cards loop back to the overview: down on Matchups and up on Trends (wheel or key) go back to it with the Back to overview glide, and stay there', async () => {
   const bad = [], seen = [];
   const p = await pageAt(1440, 900);
   await p.mouse.move(720, 450);
   for (const [kind, dir] of [['trackpad swipe', 1], ['wheel notch', 1], ['phased gesture', 1], ['PageDown', 1], ['ArrowDown', 1], ['Space', 1], ['trackpad swipe', -1], ['wheel notch', -1], ['PageDown', -1], ['Space', -1]]) {
-    // Down on Matchups, up on History: each card reached from its tile, as a visitor does.
+    // Down on Matchups, up on Trends: each card reached from its tile, as a visitor does.
     const [tile, sel] = dir > 0 ? ['#pairwise-panel', '#pairwise-panel'] : ['#race-panel', '#race-panel'];
     await openTile(p, tile);
     // The tile's box per frame (4 s: a loaded machine draws few frames): the glide back shows it between its card place and its tile place.
@@ -1142,7 +1145,7 @@ await check('matchups-wraps', 'The cards loop back to the overview: down on Matc
     const frames = await p.evaluate(() => window.__gl);
     // A glide passes through in-between sizes (card to tile); a jump shows two.
     const sizes = new Set(frames.map(f => `${f[1]}x${f[2]}`)).size;
-    const name = `${dir > 0 ? '↓ Matchups' : '↑ History'} ${kind}`;
+    const name = `${dir > 0 ? '↓ Matchups' : '↑ Trends'} ${kind}`;
     seen.push(`${name}: ${r.id ?? 'mid-way'}, ${sizes} tile sizes`);
     if (r.id !== 'stats' || !still) bad.push(`${name}: landed on ${r.id ?? `y ${r.y}`}${r.id === 'stats' && !still ? ', then moved on' : ''}`);
     else if (sizes < 4) bad.push(`${name}: no glide back (${sizes} tile sizes)`);
@@ -1205,6 +1208,124 @@ await check('matchups-no-definition', 'The opened Matchups card has no definitio
   await p.close();
   const found = ['Each cell', 'took the most from'].filter(x => r.t.includes(x));
   return { pass: !found.length && !r.p, detail: found.length || r.p ? `found ${found.join(', ')} (${r.p} p)` : 'no definition line' };
+});
+
+// --- Batch 2 (owner, 2026-11-08) ---
+// "History" is "Trends" everywhere a visitor sees it: tile, card, sticky bar, Back links and labels.
+await check('trends-name', 'No visible "History" on the stats screens or the sticky bar (text or labels); the tile and the opened card are titled Trends', async () => {
+  const bad = [];
+  const p = await pageAt(1440, 900);
+  const look = () => p.evaluate(() => {
+    const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight; };
+    const text = [...document.querySelectorAll('body *')].filter(e => vis(e) && [...e.childNodes].some(n => n.nodeType === 3 && /History/.test(n.textContent))).map(e => e.textContent.trim().slice(0, 40));
+    const labels = [...document.querySelectorAll('[aria-label], [title]')].filter(e => /History/.test(`${e.getAttribute('aria-label') ?? ''} ${e.getAttribute('title') ?? ''}`)).map(e => e.getAttribute('aria-label') ?? e.getAttribute('title'));
+    return { text, labels, title: document.querySelector('#race-panel h2')?.textContent.trim() };
+  });
+  const a = await look();
+  await clickCenter(p, '#race-panel'); await sleep(1500);
+  const b = await look();
+  for (const id of ['stats-table', 'pairwise']) { await goto(p, id); await sleep(1200); const c = await look(); bad.push(...c.text.map(t => `${id}: "${t}"`)); }
+  await p.close();
+  bad.push(...a.text.map(t => `overview: "${t}"`), ...b.text.map(t => `Trends card: "${t}"`), ...[...new Set([...a.labels, ...b.labels])].map(l => `label "${l}"`));
+  if (a.title !== 'Trends' || b.title !== 'Trends') bad.push(`titles: tile "${a.title}", card "${b.title}"`);
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : 'Trends on the tile and the card; no History anywhere' };
+});
+// The Leader line names its scope from the shared replay clock: "at hand N" while Trends replays, "all time"
+// once it has finished or been skipped; every card says the same in the same frame.
+await check('leader-scope', 'The Leader says "at hand N" while the replay plays and "all time" after Skip, the same words on every card', async () => {
+  const bad = [], seen = [];
+  const p = await pageAt(1440, 900, 'race');
+  const read = () => p.evaluate(() => [...document.querySelectorAll('span')].filter(e => /^Leader/.test(e.textContent) && e.querySelector('span')).map(e => e.textContent.replace(/^Leader.*?chips /, '')));
+  const playing = () => p.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
+  if (!(await playing())) await clickText(p, 'Replay');
+  await sleep(1500);
+  for (const id of ['race', 'stats-table', 'pairwise']) {
+    await goto(p, id); await sleep(700);
+    const ls = await read();
+    seen.push(`${id} playing: ${[...new Set(ls)].join(' / ')}`);
+    if (!ls.length) bad.push(`${id}: no Leader`);
+    else if (new Set(ls).size !== 1 || !/^at hand \d[\d,]*$/.test(ls[0])) bad.push(`${id} while playing: ${[...new Set(ls)].join(' / ')}`);
+  }
+  await goto(p, 'race'); await sleep(700);
+  if (!(await clickText(p, 'Skip'))) bad.push('no Skip button');
+  await sleep(800);
+  for (const id of ['race', 'stats-table', 'pairwise']) {
+    await goto(p, id); await sleep(700);
+    const ls = await read();
+    seen.push(`${id} after Skip: ${[...new Set(ls)].join(' / ')}`);
+    if (!ls.length || ls.some(l => l !== 'all time')) bad.push(`${id} after Skip: ${[...new Set(ls)].join(' / ') || 'no Leader'}`);
+  }
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+});
+// Owner, 2026-11-08: "no need for a [Total] column for preview of matchups". The opened card keeps it.
+await check('matchups-tile-no-total', 'The Matchups tile has no Total column; the opened card does', async () => {
+  await goto(pg, 'stats'); await sleep(1200);
+  const tile = await pg.evaluate(() => ({ head: [...document.querySelectorAll('#pairwise-panel *')].some(e => e.childElementCount === 0 && e.textContent.trim() === 'Total'), cells: document.querySelectorAll('#pairwise-panel div[data-cell]').length }));
+  await goto(pg, 'pairwise'); await sleep(1200);
+  const card = await pg.evaluate(() => ({ head: [...document.querySelectorAll('#pairwise-card *')].some(e => e.childElementCount === 0 && e.textContent.trim() === 'Total' && e.getBoundingClientRect().width > 0), cells: document.querySelectorAll('#pairwise-card div[data-cell]').length, rows: document.querySelectorAll('#pairwise-card tbody tr').length }));
+  const ok = !tile.head && !tile.cells && card.head && card.cells === card.rows && card.rows > 0;
+  return { pass: ok, detail: `tile: ${tile.head ? 'Total header' : 'no Total header'}, ${tile.cells} totals; card: ${card.head ? 'Total header' : 'no Total header'}, ${card.cells} totals for ${card.rows} rows` };
+});
+// Phones and 200% browser zoom (CSS width under 768px). Owner's report: the opened Trends card collapsed to a
+// strip, Matchups rows to 2-17px and overlapping, Profiles showed logos only with overlapping rows, the Matchups
+// card cut off names and its last column, the overview cut off its last row. The Trends plot is at least 200px
+// tall where the chart's 2.6:1 shape allows it at the card's full width (a 390px phone: about 129px; a taller
+// plot there needs a phone shape in CumulativeChart).
+await check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'s plot fills its width (200px+ tall where the shape allows), table and matrix rows at least 24px and never overlapping, model names in Profiles and Matchups, nothing clipped without a way to scroll to it', async () => {
+  const bad = [], seen = [];
+  // Rows of `sel`: each at least 24px, none overlapping the next; names (`names`) visible: 5+ at least 30px wide;
+  // every element of `reach` inside every clipping ancestor, and never before a scroller's start.
+  const inspect = (p, rows, names, reach) => p.evaluate((rows, names, reach) => {
+    const rs = [...document.querySelectorAll(rows)].map(e => e.getBoundingClientRect()).filter(b => b.width > 0);
+    const short = rs.filter(b => b.height < 24).length;
+    let overlap = 0; for (let i = 1; i < rs.length; i++) overlap = Math.max(overlap, rs[i - 1].bottom - rs[i].top);
+    const named = [...document.querySelectorAll(names)].filter(e => e.getBoundingClientRect().width >= 30).length;
+    const cut = [];
+    for (const e of document.querySelectorAll(reach)) {
+      const b = e.getBoundingClientRect(); if (b.width === 0 || b.height === 0) continue;
+      for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) {
+        const s = getComputedStyle(a), r = a.getBoundingClientRect();
+        for (const [ax, lo, hi, alo, ahi, sc] of [['X', b.left, b.right, r.left, r.right, a.scrollLeft], ['Y', b.top, b.bottom, r.top, r.bottom, a.scrollTop]]) {
+          const o = s[`overflow${ax}`];
+          if ((o === 'hidden' || o === 'clip') && (lo < alo - 1 || hi > ahi + 1)) cut.push(`${e.textContent.trim().slice(0, 14) || e.tagName} cut ${ax}`);
+          if ((o === 'auto' || o === 'scroll') && lo - alo + sc < -1) cut.push(`${e.textContent.trim().slice(0, 14) || e.tagName} before its scroller ${ax}`);
+        }
+      }
+    }
+    return { rows: rs.length, short, overlap, named, cut: [...new Set(cut)] };
+  }, rows, names, reach);
+  const judge = (where, m, wantNames = true) => {
+    seen.push(`${where} ${m.rows} rows${m.overlap > 0 ? `, overlap ${m.overlap.toFixed(0)}px` : ''}${wantNames ? `, ${m.named} names` : ''}`);
+    if (!m.rows) bad.push(`${where}: no rows`);
+    if (m.short) bad.push(`${where}: ${m.short} rows under 24px`);
+    if (m.overlap > 1) bad.push(`${where}: rows overlap ${m.overlap.toFixed(0)}px`);
+    if (wantNames && m.named < 5) bad.push(`${where}: ${m.named} names visible`);
+    if (m.cut.length) bad.push(`${where}: ${m.cut.slice(0, 4).join(', ')}`);
+  };
+  for (const [w, h, d] of [[390, 844, 2], [720, 450, 2]]) {
+    const size = `${w}x${h}${d > 1 ? `@${d}x` : ''}`;
+    const p = await browser.newPage(); await p.setViewport({ width: w, height: h, deviceScaleFactor: d });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p); await sleep(3000);
+    await goto(p, 'stats'); await sleep(1500);
+    judge(`${size} Profiles tile`, await inspect(p, '#stats-panel tbody tr', '#stats-panel tbody th [translate=no]', '#stats-panel tbody th, #stats-panel tbody td, #stats-panel h2'));
+    judge(`${size} Matchups tile`, await inspect(p, '#pairwise-panel tbody tr', '#pairwise-panel a [translate=no]', '#pairwise-panel td[data-cell], #pairwise-panel a, #pairwise-panel h2'));
+    const tileH = await rect(p, '#race-panel');
+    if (!tileH || tileH.h < 150) bad.push(`${size}: Trends tile ${tileH ? tileH.h.toFixed(0) : 'missing'}px tall`);
+    await clickCenter(p, '#race-panel'); await sleep(2000);
+    const c = await chartBox(p);
+    const shape = c ? Math.min(200, (c.w * 470) / 1220) : 200; // the chart's height at its width, at most the 200px floor
+    seen.push(`${size} Trends plot ${c ? `${c.w.toFixed(0)}x${c.h.toFixed(0)}` : 'missing'}`);
+    if (!c || c.h < shape - 2) bad.push(`${size}: Trends plot ${c ? `${c.w.toFixed(0)}x${c.h.toFixed(0)}` : 'missing'} (want ${shape.toFixed(0)}px tall)`);
+    const legend = await inspect(p, '#race-panel h2', '#none', '#race-panel h2, #race-panel [role=group]');
+    if (legend.cut.length) bad.push(`${size} Trends card: ${legend.cut.slice(0, 4).join(', ')}`);
+    await goto(p, 'stats-table'); await sleep(1500);
+    judge(`${size} Profiles card`, await inspect(p, '#stats-card tbody tr', '#stats-card tbody th [translate=no]', '#stats-card tbody th, #stats-card tbody td'));
+    await goto(p, 'pairwise'); await sleep(1500);
+    judge(`${size} Matchups card`, await inspect(p, '#pairwise-card tbody tr', '#pairwise-card a [translate=no]', '#pairwise-card td[data-cell], #pairwise-card a, #pairwise-card div[data-cell]'));
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 });
 
 await browser.close();
