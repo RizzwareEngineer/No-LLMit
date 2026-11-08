@@ -5,7 +5,7 @@ import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react'
 import LLMLogo from '@/components/LLMLogo';
 import About from '@/components/About';
 import { ArrowDown, Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen } from '@/components/Section';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
 import StatsTable from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
@@ -40,6 +40,7 @@ const TILES: Record<Tile, { panel: string; land: string }> = {
 const isTile = (id: string): id is Tile => id in TILES;
 const jump = (id: string) => {
   const el = document.getElementById(id);
+  stopPaging();
   if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' });
 };
 

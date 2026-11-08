@@ -19,6 +19,9 @@ const settle = () => {
   pendingId = null;
   clearTimeout(clearTimer);
 };
+// An instant jump elsewhere (a tile opening, Back to overview) replaces a running paged scroll: its end must not
+// land the page back on the paged scroll's screen.
+export const stopPaging = settle;
 
 // Scroll one screen down (1) or up (-1); a screen taller than the window (the phone table)
 // moves one window at a time inside it. Smooth through scroll-behavior in globals.css, which
