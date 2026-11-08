@@ -244,8 +244,9 @@ export function Bb100({ m }: { m: ModelStats }) {
 }
 
 // A row's model: logo and name, a link to its drawer (plain text on the tile, which opens the card).
-function Name({ href, name, children }: { href?: string; name: string; children?: React.ReactNode }) {
-  const inner = <><LLMLogo model={name} size={16} /><span translate="no" className="truncate @max-md:sr-only">{name}</span>{children}</>;
+// The overview tile keeps names down to a 288px table (truncated), so a short window still says who's who.
+function Name({ href, name, mini = false, children }: { href?: string; name: string; mini?: boolean; children?: React.ReactNode }) {
+  const inner = <><LLMLogo model={name} size={16} /><span translate="no" className={`truncate ${mini ? '@max-2xs:sr-only' : '@max-md:sr-only'}`}>{name}</span>{children}</>;
   return href
     ? <a href={href} className="flex items-center gap-2 min-w-0 hover:underline" style={{ color: TEXT }} title={name}>{inner}</a>
     : <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>{inner}</span>;
@@ -338,7 +339,7 @@ function Grid({
     >
       <th scope="row" className={`${cell} text-left font-bold`}>
         <Glides at={at} move={move}>
-          <Name href={mini ? undefined : modelHref(m.name)} name={m.name}>
+          <Name href={mini ? undefined : modelHref(m.name)} name={m.name} mini={mini}>
             {m.hands < MIN_HANDS && (
               <Warning size={14} weight="bold" className="shrink-0 @max-md:hidden" style={{ color: 'rgb(140, 95, 20)' }} aria-label={`Fewer than ${MIN_HANDS} hands`} />
             )}
@@ -359,7 +360,7 @@ function Grid({
       <caption className="sr-only">{caption} Column headers sort the table; the info buttons explain each stat.</caption>
       <colgroup>
         {/* Narrow panels show logos only; wider ones give names the room they need. */}
-        <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : mini ? 'w-[44px] @md:w-[46%]' : 'w-[44px] @md:w-[32%] @4xl:w-[24%]'} />
+        <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : mini ? 'w-[44px] @2xs:w-[44%]' : 'w-[44px] @md:w-[32%] @4xl:w-[24%]'} />
         {columns.map(c => <col key={c.key} className={c === BB100 ? (grouped ? 'w-[80px]' : 'w-[80px]') : c === TREND ? 'w-[112px]' : ''} />)}
       </colgroup>
       <thead>
@@ -374,7 +375,7 @@ function Grid({
           </tr>
         )}
         <tr className={`border-b border-notion ${mini ? rowH : ''}`}>
-          <th scope="col" className={`${head} text-left font-medium align-bottom`} style={{ color: MUTED }}><Glides at={mini} move={GLIDE}><span className="@max-md:sr-only">Model</span></Glides></th>
+          <th scope="col" className={`${head} text-left font-medium align-bottom`} style={{ color: MUTED }}><Glides at={mini} move={GLIDE}><span className={mini ? '@max-2xs:sr-only' : '@max-md:sr-only'}>Model</span></Glides></th>
           {/* The trend's label wraps: its 112px column cannot hold it, its sort mark and its info button on one line. */}
           {columns.map(c => <HeaderCell key={c.key} col={c} sort={sort} onSort={mini ? undefined : () => onSort(c)} className={`${head} ${added(c)}`} wrap={grouped || c === TREND} mini={mini} />)}
         </tr>
@@ -386,7 +387,7 @@ function Grid({
             <th scope="row" className={`${cell} text-left font-bold`}>
               <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>
                 <LLMLogo model={name} size={16} />
-                <span translate="no" className="truncate @max-md:sr-only">{name}</span>
+                <span translate="no" className={`truncate ${mini ? '@max-2xs:sr-only' : '@max-md:sr-only'}`}>{name}</span>
               </span>
             </th>
             {columns.map(c => <td key={c.key} className={`${cell} ${added(c)} text-right`} style={{ color: MUTED }}>{DASH}</td>)}

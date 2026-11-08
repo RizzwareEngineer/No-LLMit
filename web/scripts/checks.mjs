@@ -497,6 +497,20 @@ await check('profiles-columns', 'Profiles columns are Model, Hands, VPIP, PFR, A
   await goto(pg, 'stats-table'); await sleep(1500); const card = (await heads('#stats-card')).map(h => ['Model', 'Hands', 'VPIP', 'PFR', 'AF', 'Last 50 hands', 'bb/100', 'Rank spread'].find(l => h.startsWith(l)) ?? h.slice(0, 12)).join(',');
   return { pass: tile === 'Model,Hands,VPIP,PFR,AF' && card === 'Model,Hands,VPIP,PFR,AF,Last 50 hands', detail: `tile ${tile} | card ${card}` };
 });
+// The Profiles tile names its models (truncated if need be) at every overview size, not logos alone.
+await check('profiles-tile-names', 'The Profiles tile shows model names at 1440x900 and 1728x1117', async () => {
+  const bad = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
+    const p2 = await browser.newPage(); await p2.setViewport({ width: w, height: h });
+    await p2.goto(BASE, { waitUntil: 'domcontentloaded' });
+    await p2.waitForFunction(() => document.querySelectorAll('#stats-panel tbody tr').length > 3, { timeout: 120000 });
+    await goto(p2, 'stats'); await sleep(1500);
+    const n = await p2.evaluate(() => [...document.querySelectorAll('#stats-panel tbody th span[translate=no]')].filter(e => e.getBoundingClientRect().width > 30).length);
+    await p2.close();
+    if (n < 5) bad.push(`${w}x${h}: ${n} names visible`);
+  }
+  return { pass: !bad.length, detail: bad.join(', ') || 'names visible at both sizes' };
+});
 await check('cards-no-scope', 'No hands/all time/blinds line, Session picker or Bars view on Profiles and Matchups', async () => {
   const bad = [];
   for (const [id, card] of [['stats-table', '#stats-card'], ['pairwise', '#pairwise-card']]) {
