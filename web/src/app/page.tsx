@@ -159,6 +159,33 @@ export default function Home() {
     return () => io.disconnect();
   }, []);
 
+  // Fit-to-screen: the stage (table, sidebar, reasoning) takes one uniform zoom so the whole
+  // table screen fits the window, up to 125% (the size the owner chose) and down to 75%; below
+  // that the screen scrolls instead of shrinking further. Browser zoom shrinks the CSS viewport,
+  // so it lowers this scale and is never fought. Phones (< 768px) reflow to the list layout at 1.
+  const stageRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const stage = stageRef.current, screen = stage?.closest('section');
+    if (!stage || !screen) return;
+    const fit = () => {
+      if (window.innerWidth < 768) { stage.style.zoom = ''; return; }
+      const cs = getComputedStyle(screen);
+      const kids = [...screen.children];
+      // Everything on the screen but the stage: header, gaps, Stats button and padding.
+      const chrome = kids[kids.length - 1].getBoundingClientRect().bottom - kids[0].getBoundingClientRect().top
+        - stage.getBoundingClientRect().height + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      // offsetWidth/offsetHeight are the stage's unzoomed size.
+      const s = Math.min(screen.clientWidth / stage.offsetWidth, (document.documentElement.clientHeight - chrome) / stage.offsetHeight);
+      stage.style.zoom = String(Math.floor(Math.min(1.25, Math.max(0.75, s)) * 1000) / 1000);
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(stage);
+    ro.observe(screen);
+    window.addEventListener('resize', fit);
+    return () => { ro.disconnect(); window.removeEventListener('resize', fit); };
+  }, []);
+
   // ↑ ↓ ← → and PageUp/PageDown page between screens, unless a field, the drawer or a panel
   // that can still scroll that way has the keys.
   useEffect(() => {
@@ -290,7 +317,7 @@ export default function Home() {
     <div className="px-3 lg:px-4" style={{ background: '#FFFFFF', ['--bar-h' as string]: !isConnected || error ? '40px' : '0px' }}>
       <main className="flex flex-col items-center-safe">
       {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
-      <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-clip flex flex-col items-center-safe justify-center-safe pt-3 pb-[calc(1rem+var(--bar-h))] lg:pt-4">
+      <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-auto flex flex-col items-center-safe justify-center-safe pt-3 pb-[calc(1rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
         <div className="mb-1 text-center">
           <h1 className="text-[28px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
@@ -358,7 +385,7 @@ export default function Home() {
 
         {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
         <div className="mt-6 flex items-center-safe justify-center-safe w-full md:w-auto">
-          <div className="stage-zoom flex flex-col w-full md:w-auto">
+          <div ref={stageRef} className="stage-zoom flex flex-col w-full md:w-auto">
             {/* Row 1: Table + Winnings (stacked on phones) */}
             <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
               {/* Main game grid */}
