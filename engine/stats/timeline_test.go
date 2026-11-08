@@ -182,17 +182,29 @@ func TestTimelineEndsAtTheTotals(t *testing.T) {
 	}
 }
 
-func TestTimelineComputesFast(t *testing.T) {
-	hands := syntheticHands(10000)
+// fastestOf3 times ComputeWithTimeline and keeps the best of three runs.
+func fastestOf3(hands []history.HandRecord) time.Duration {
 	best := time.Hour
-	for range 3 { // best of three, so a busy machine does not fail it
+	for range 3 {
 		t0 := time.Now()
 		ComputeWithTimeline(hands)
 		best = min(best, time.Since(t0))
 	}
-	t.Logf("10k hands: stats and timeline in %v", best)
-	if best > 50*time.Millisecond {
-		t.Errorf("10k hands took %v, want under 50ms", best)
+	return best
+}
+
+// Guards against super-linear work by comparing 2k and 10k hands on the same machine, back to back.
+// A fixed 50ms limit failed whenever the machine was busy (52-105ms under load); a ratio holds under
+// load, because both sizes run in the same conditions.
+func TestTimelineComputesFast(t *testing.T) {
+	small, large := fastestOf3(syntheticHands(2000)), fastestOf3(syntheticHands(10000))
+	ratio := float64(large) / float64(small)
+	t.Logf("2k hands in %v, 10k hands in %v (%.1fx)", small, large, ratio)
+	if ratio > 12 { // linear work grows 5x from 2k to 10k hands; quadratic would grow 25x
+		t.Errorf("10k hands took %.1fx as long as 2k (%v vs %v), want under 12x", ratio, large, small)
+	}
+	if large > 500*time.Millisecond { // a loose ceiling for a slowdown that is linear but large
+		t.Errorf("10k hands took %v, want under 500ms", large)
 	}
 }
 
