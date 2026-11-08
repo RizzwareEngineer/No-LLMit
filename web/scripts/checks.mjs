@@ -56,6 +56,9 @@ const pageAt = async (w, h, id = 'stats') => {
 const rect = (p, sel) => p.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; }, sel);
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--mute-audio'] });
+// Never leave a headless Chrome behind: close it on a crash or Ctrl-C too.
+const bail = async e => { if (e) console.error(e); try { await browser.close(); } catch {} process.exit(1); };
+process.on('uncaughtException', bail); process.on('unhandledRejection', bail); process.on('SIGINT', () => bail()); process.on('SIGTERM', () => bail());
 const pg = await browser.newPage();
 await pg.setViewport({ width: 1440, height: 900 });
 await pg.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });

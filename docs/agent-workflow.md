@@ -30,3 +30,10 @@ not the code.
 
 ## The owner's two approvals
 Screenshots of each finished item (taste cannot be checked by code), and the merge to main.
+
+## Cleanup
+A worker's last step is `scripts/stop-server.sh <its port>`: its dev server and the npm/next wrapper
+stop. The check script closes its headless Chrome even when it crashes or is interrupted. The
+orchestrator runs `scripts/stop-server.sh` with no ports in every progress update: it lists any Next
+server not on :3100 and any headless Chrome older than 30 minutes, and anything that belongs to no
+running worker is stopped.
