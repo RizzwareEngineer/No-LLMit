@@ -72,7 +72,8 @@ for (const [w, h, d] of FIT_SIZES) {
   if (!want('table-fit') && !want('table-reachable') && !want('table-no-hscroll')) break;
   const p2 = await browser.newPage(); await p2.setViewport({ width: w, height: h, deviceScaleFactor: d });
   await p2.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await p2.waitForFunction(() => document.querySelector('table') || innerWidth < 768, { timeout: 60000 }).catch(() => {});
+  // Wait for the live table: the grid, or on phones the seat list (its Hand # in the status row).
+  await p2.waitForFunction(() => document.querySelector('table') || (innerWidth < 768 && /Hand #\d/.test(document.body.innerText)), { timeout: 60000 }).catch(() => {});
   await sleep(2500);
   const m = await p2.evaluate(() => {
     const sec = document.querySelector('section[data-screen]'), stage = document.querySelector('.stage-zoom');
