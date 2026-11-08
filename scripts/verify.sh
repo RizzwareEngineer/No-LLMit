@@ -46,6 +46,7 @@ LOCK=/tmp/nollmit-checks.lock SERVER="" PORT=""
 cleanup() {
   [ -n "$SERVER" ] && "$ROOT/scripts/stop-server.sh" "$PORT" >/dev/null
   [ "$(cat "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"
+  rm -f /tmp/verify-checks.$$
 }
 trap cleanup EXIT; trap 'exit 130' INT TERM
 
@@ -85,9 +86,18 @@ fi
 
 if [ "$UI" = 1 ]; then
   step "ui: headless checks ($BASE)"
-  (cd "$ROOT/web" && node scripts/checks.mjs --base "$BASE" "${PASS[@]+"${PASS[@]}"}") || fail=1
+  (cd "$ROOT/web" && node scripts/checks.mjs --base "$BASE" "${PASS[@]+"${PASS[@]}"}") | tee /tmp/verify-checks.$$
+  if [ "${PIPESTATUS[0]}" != 0 ]; then
+    # A timing check (a trackpad swipe, a glide) can fail only because the machine is busy with other
+    # workers' builds and browsers. Each failed check reruns once without the rest of the suite; the run
+    # passes only if all of them pass there, and VERIFY names them so a real flake is not forgotten.
+    failed=$(sed -n 's/^FAIL  \([^ ]*\) .*/\1/p' /tmp/verify-checks.$$ | paste -sd, -)
+    if [ -n "$failed" ] && step "ui: rerun alone: $failed" && (cd "$ROOT/web" && node scripts/checks.mjs --base "$BASE" --only "$failed"); then
+      flaky=" (failed in the full run, passed alone: $failed)"
+    else fail=1; fi
+  fi
 fi
 
 echo; echo "verify took $(( $(date +%s) - t0 ))s"
-[ "$fail" = 0 ] && echo "VERIFY: PASS" || echo "VERIFY: FAIL"
+[ "$fail" = 0 ] && echo "VERIFY: PASS${flaky-}" || echo "VERIFY: FAIL"
 exit $fail

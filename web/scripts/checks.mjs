@@ -136,7 +136,11 @@ const sharedAt = async (w, h, id = 'stats') => {
     const q = await pageAt(w, h, id, owner === browser ? (browser.__sharedCtx ??= await browser.createBrowserContext()) : owner);
     q.__life = await q.createCDPSession(); shared().set(`${w}x${h}`, q); return q;
   }
-  await life(p, 'active'); await goto(p, id); await sleep(2000);
+  await life(p, 'active');
+  // A resumed page reconnects for a moment; measure once its connection bar is gone. Timer polling: a page
+  // in a background tab draws no frames, so frame polling would never run.
+  await p.waitForFunction(() => getComputedStyle(document.querySelector('[data-page]')).getPropertyValue('--bar-h').trim() === '0px', { polling: 250, timeout: 15000 }).catch(() => {});
+  await goto(p, id); await sleep(2000);
   return p;
 };
 const parkShared = () => Promise.all([...shared().values()].map(p => life(p, 'frozen').catch(() => {})));
@@ -1294,7 +1298,7 @@ main(() => check('stats-font-unified', 'One number font across the stats cards (
   await goto(pg, 'stats'); await sleep(1500);
   const tile = await font('#pairwise-panel td[data-cell]');
   await pg.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(800);
-  const pl = await font('ol li div.tabular-nums');
+  const pl = await font('#table ol li div.tabular-nums');
   const ref = prof[0];
   const fam = f => f?.split('|').slice(0, 2).join('|');
   const bad = [];
@@ -1344,7 +1348,7 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
       ['Matchups totals', '#pairwise-card div[data-cell] [aria-hidden]', 14, [700], null, true],
     ],
     '': [
-      ['Profits & Losses', 'ol li', 13, [700], null, true],
+      ['Profits & Losses', '#table ol li', 13, [700], null, true],
     ],
   };
   const bad = [], seen = [];

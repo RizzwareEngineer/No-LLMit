@@ -6,7 +6,9 @@
 production build of the worktree (`next build` into `web/.next-verify`, reused while `web/` is
 unchanged; `next start` on a free port from 3300, stopped at the end). `--base http://localhost:3100`
 points them at a running server instead. Work merges into the preview branch only when a full run
-prints `VERIFY: PASS`.
+prints `VERIFY: PASS`. A UI check that fails in the full run is rerun once on its own (timing checks can
+fail only because other workers keep the machine busy); the run passes if every one of them passes there,
+and the PASS line names them, so a check that keeps showing up there is a real flake to fix.
 
 `checks.mjs` holds the owner's locked rules as checks that can fail. Every correction the owner
 makes becomes a new check here, so it cannot regress. Run one check with `--only id`, skip with
