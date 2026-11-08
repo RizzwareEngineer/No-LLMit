@@ -35,12 +35,12 @@ function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
 
   return (
     <div className="flex flex-row items-center gap-2 p-2 px-3">
-      <span className="text-[12px] w-5 font-bold tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{rank}.</span>
+      <span className="text-[13px] w-5 font-bold tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{rank}.</span>
       <LLMLogo model={player.name} size={20} />
       <div className="flex-1 min-w-0">
-        <div className="text-[12px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
+        <div className="text-[13px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
       </div>
-      <div className="flex flex-row items-center gap-1 text-[12px] font-bold tabular-nums" style={{ color }}>
+      <div className="flex flex-row items-center gap-1 text-[13px] font-bold tabular-nums" style={{ color }}>
         {winnings > 0 && <CaretUp size={11} weight="bold" aria-hidden />}
         {winnings < 0 && <CaretDown size={11} weight="bold" aria-hidden />}
         {winnings > 0 ? '+' : winnings < 0 ? '−' : ''}{Math.abs(winnings).toLocaleString()}

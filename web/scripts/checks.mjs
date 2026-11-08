@@ -522,12 +522,54 @@ await check('cards-no-scope', 'No hands/all time/blinds line, Session picker or 
   }
   return { pass: !bad.length, detail: bad.join(', ') || 'none' };
 });
-// Was "Matchups is wider than Profiles"; the owner's 2026-11-07 priorities replace it: History leads the
-// overview, and Matchups is at least comparable to Profiles.
-await check('matchups-comparable', 'On the overview the Matchups tile is at least comparable to Profiles (70% of its area or more)', async () => {
-  await goto(pg, 'stats'); await sleep(1200);
-  const [p, m] = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel'].map(s => { const b = document.querySelector(s).getBoundingClientRect(); return Math.round(b.width * b.height); }));
-  return { pass: m >= 0.7 * p, detail: `Profiles ${p}px², Matchups ${m}px² (${(m / p * 100).toFixed(0)}%)` };
+// Was "Matchups is wider than Profiles", then "at least comparable" (70% of Profiles' area). Owner, 2026-11-08:
+// "matchups should be the bigger square compared to profiles. right now the numbers are too dense". At the
+// three common laptop windows the Matchups tile is wider and larger than Profiles (History still leads:
+// overview-history-leads). Reports History's share of the overview's tile area.
+await check('matchups-bigger', 'On the overview the Matchups tile is wider and larger than Profiles at 1440x900, 1512x982 and 1728x1117', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117]]) {
+    const p = await pageAt(w, h);
+    const [race, prof, mu] = await Promise.all(['#race-panel', '#stats-panel', '#pairwise-panel'].map(s => rect(p, s)));
+    await p.close();
+    const area = b => b.w * b.h;
+    seen.push(`${w}x${h}: Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)} vs Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)} (${(area(mu) / area(prof)).toFixed(2)}x), History ${(area(race) / (area(race) + area(prof) + area(mu)) * 100).toFixed(0)}% of the area`);
+    if (!(mu.w > prof.w && area(mu) > area(prof))) bad.push(`${w}x${h}: Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)} is not bigger than Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+});
+// The same instruction: the tile's figures are not dense. Each cell is at least MIN px a side (td box),
+// every figure sits at the tile's one size with at least 2px clear on each side (shortened to +1.1k when
+// it would not), and no cell with a matchup is left without its figure.
+await check('matchups-cells-roomy', 'Matchups tile cells are at least 32px (1440x900) / 40px (1728x1117), one figure size, never edge to edge or blank', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, min] of [[1440, 900, 32], [1728, 1117, 40]]) {
+    const p = await pageAt(w, h);
+    // Skip the replay: the final figures are the widest.
+    await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(800); await goto(p, 'stats'); await sleep(1500);
+    const r = await p.evaluate(() => {
+      const cells = [...document.querySelectorAll('#pairwise-panel td[data-cell]')].map(td => {
+        const b = td.getBoundingClientRect(), fig = td.querySelector('[aria-hidden]');
+        let tw = 0; if (fig && fig.textContent) { const g = document.createRange(); g.selectNodeContents(fig); tw = g.getBoundingClientRect().width; }
+        return { w: b.width, h: b.height, tw, text: fig?.textContent ?? null, size: fig ? getComputedStyle(fig).fontSize : null };
+      });
+      const totals = [...document.querySelectorAll('#pairwise-panel div[data-cell] [aria-hidden]')].map(e => getComputedStyle(e).fontSize);
+      return { cells, totals };
+    });
+    await p.close();
+    const fig = r.cells.filter(c => c.text !== null);
+    const side = Math.min(...r.cells.map(c => Math.min(c.w, c.h)));
+    const tight = fig.filter(c => c.text && (c.w - c.tw) / 2 < 2);
+    const blank = fig.filter(c => !c.text);
+    const sizes = new Set([...fig.map(c => c.size), ...r.totals]);
+    seen.push(`${w}x${h}: cells ${side.toFixed(1)}px, figures ${[...sizes].join('/')}, least clearance ${Math.min(...fig.filter(c => c.text).map(c => (c.w - c.tw) / 2)).toFixed(1)}px`);
+    if (!r.cells.length) bad.push(`${w}x${h}: no cells`);
+    if (side < min) bad.push(`${w}x${h}: cells ${side.toFixed(1)}px (< ${min})`);
+    if (sizes.size !== 1) bad.push(`${w}x${h}: figure sizes ${[...sizes].join(', ')}`);
+    if (tight.length) bad.push(`${w}x${h}: ${tight.length} figures edge to edge (${tight.slice(0, 3).map(c => c.text).join(', ')})`);
+    if (blank.length) bad.push(`${w}x${h}: ${blank.length} matchups without a figure`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 });
 // The Matchups tile is its names, its square and its totals, edge to edge: no empty band beside them.
 await check('matchups-tile-filled', 'The Matchups matrix and its names fill the tile (no empty space beside them)', async () => {
@@ -617,6 +659,79 @@ await check('stats-font-unified', 'One number font across the stats cards (famil
   if (new Set(tile).size !== 1 || fam(tile[0]) !== fam(ref)) bad.push(`Matchups tile: ${[...new Set(tile)].join(', ')}`);
   if (!pl.length || pl.some(f => fam(f) !== fam(ref))) bad.push(`Profits & Losses: ${[...new Set(pl)].join(', ') || 'none found'}`);
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `cards ${ref}; tile ${tile[0]}; P&L ${pl[0]}` };
+});
+
+// Owner, 2026-11-08: "we need to do an audit on the fonts and sizes and all". One family (the body's sans),
+// tabular figures, and one small scale by role on every stats tile and card (History's chart internals are
+// checked by history-number-style): titles 20px bold; model names and data figures 14px; controls 14px
+// medium; column headers and secondary text 13px (muted); the Matchups tile's figures one size (11px).
+await check('stats-type-scale', 'Every text role on the stats tiles and cards uses the agreed family, size, weight and colour', async () => {
+  const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)';
+  // [role, selector, size px, weights, colours (null: any), figures must be tabular]
+  const roles = {
+    stats: [
+      ['tile titles', '#race-panel h2, #stats-panel h2, #pairwise-panel h2', 20, [700], [TEXT]],
+      ['Open ↓', '#race-panel h2 ~ div > span, #stats-panel h2 ~ div > span, #pairwise-panel h2 ~ div > span', 14, [500], [BLUE]],
+      ['Leader line', '#race-panel h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
+      ['Profiles headers', '#stats-panel thead th', 13, [500], [MUTED]],
+      ['Profiles names', '#stats-panel tbody th [translate=no]', 14, [700], [TEXT]],
+      ['Profiles figures', '#stats-panel tbody td', 14, [400], null, true],
+      ['Matchups names', '#pairwise-panel a [translate=no]', 14, [700], [TEXT]],
+      ['Matchups Total header', '#pairwise-panel [title="The row\'s cells added up"]', 13, [500], [MUTED]],
+      ['Matchups tile figures', '#pairwise-panel td[data-cell] [aria-hidden]', 11, [400], null, true],
+      ['Matchups tile totals', '#pairwise-panel div[data-cell] [aria-hidden]', 11, [700], null, true],
+    ],
+    'stats-table': [
+      ['card title', '#stats-card h2', 20, [700], [TEXT]],
+      ['Leader line', '#stats-card h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
+      ['definition', '#stats-card p', 13, [400], [MUTED]],
+      ['Profiles headers', '#stats-card thead th', 13, [500], [MUTED, TEXT]],
+      ['Profiles names', '#stats-card tbody th [translate=no]', 14, [700], [TEXT]],
+      ['Profiles figures', '#stats-card tbody td > span', 14, [400], null, true],
+      ['toggles', '#stats-card .add-in button', 14, [500], [BLUE]],
+    ],
+    pairwise: [
+      ['card title', '#pairwise-card h2', 20, [700], [TEXT]],
+      ['Leader line', '#pairwise-card h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
+      ['definition', '#pairwise-card p', 13, [400], [MUTED]],
+      ['Matchups names', '#pairwise-card a [translate=no]', 14, [700], [TEXT]],
+      ['Matchups Total header', '#pairwise-card [title="The row\'s cells added up"]', 13, [500], [MUTED]],
+      ['Matchups figures', '#pairwise-card td[data-cell] [aria-hidden]', 14, [400], null, true],
+      ['Matchups totals', '#pairwise-card div[data-cell] [aria-hidden]', 14, [700], null, true],
+    ],
+    '': [
+      ['Profits & Losses', 'ol li', 13, [700], null, true],
+    ],
+  };
+  const bad = [], seen = [];
+  for (const [screen, list] of Object.entries(roles)) {
+    if (screen) { await goto(pg, screen); await sleep(1500); } else { await pg.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(800); }
+    const out = await pg.evaluate(list => {
+      const body = getComputedStyle(document.body).fontFamily;
+      return list.map(([role, sel, size, weights, colours, tab]) => {
+        // Every visible element under the selector that holds text itself (screen-reader copies, closed tooltips
+        // and Profiles' 13px ▲▼ marks aside).
+        const els = [...document.querySelectorAll(sel)].flatMap(e => [e, ...e.querySelectorAll('*')])
+          .filter(e => !e.closest('.sr-only, [role=tooltip], svg, [title=Highest], [title=Lowest]') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+        const why = new Set();
+        for (const e of els) {
+          const s = getComputedStyle(e), own = [...e.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('');
+          if (s.fontFamily !== body) why.add(`family ${s.fontFamily.split(',')[0]}`);
+          if (parseFloat(s.fontSize) !== size) why.add(`${s.fontSize}`);
+          if (!weights.includes(+s.fontWeight)) why.add(`weight ${s.fontWeight}`);
+          if (colours && !colours.includes(s.color)) why.add(`colour ${s.color}`);
+          if (tab && /\d/.test(own) && !s.fontVariantNumeric.includes('tabular-nums')) why.add('not tabular');
+        }
+        return { role, n: els.length, why: [...why] };
+      });
+    }, list);
+    for (const o of out) {
+      if (!o.n) bad.push(`${screen || 'table'} ${o.role}: none found`);
+      else if (o.why.length) bad.push(`${screen || 'table'} ${o.role}: ${o.why.join(', ')}`);
+    }
+    seen.push(`${screen || 'table'} ${out.reduce((a, o) => a + o.n, 0)} elements`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${seen.join(', ')}: all on the scale` };
 });
 
 // The overview must hold its proportions at any window size or browser zoom: rows and matrix
