@@ -293,13 +293,6 @@ html:has([data-screen]) {
   html:has([data-screen]) { scroll-snap-type: y proximity; }
 }
 
-/* The table, sidebar and reasoning panel render at 125% on wide windows: the size the owner
-   chose (the live site viewed at Chrome's 125% zoom). 1252px of layout at 1.25 fits from 1640px;
-   narrower windows stay at 1. */
-@media (min-width: 1640px) {
-  .stage-zoom { zoom: 1.25; --stage-zoom: 1.25; } /* the custom property keeps the rule from being dropped by the CSS compiler */
-}
-
 /* Stats panels scroll inside themselves with a scrollbar that stays visible. */
 .panel-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .panel-scroll::-webkit-scrollbar-thumb { background: rgba(55, 53, 47, 0.2); border-radius: 4px; }

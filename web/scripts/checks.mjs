@@ -49,16 +49,72 @@ await sleep(5000);
 
 // --- Table screen (locked) ---
 await check('seat-size', 'Seat cells stay 200x128', async () => {
-  const r = await pg.evaluate(() => { const b = document.querySelector('td.w-\\[200px\\]').getBoundingClientRect(); return [Math.round(b.width), Math.round(b.height)]; });
+  // offsetWidth/offsetHeight: the unscaled CSS size (the stage's fit-to-screen zoom is uniform on top).
+  const r = await pg.evaluate(() => { const b = document.querySelector('td.w-\\[200px\\]'); return [b.offsetWidth, b.offsetHeight]; });
   return { pass: Math.abs(r[0] - 200) <= 1 && Math.abs(r[1] - 128) <= 2, detail: r.join('x') };
 });
 await check('table-width', 'The table stays 1000px wide', async () => {
-  const w = await pg.evaluate(() => Math.round(document.querySelector('table').getBoundingClientRect().width));
+  const w = await pg.evaluate(() => document.querySelector('table').offsetWidth);
   return { pass: Math.abs(w - 1000) <= 1, detail: `${w}px` };
 });
 await check('no-currency', 'No ¤ sign anywhere on the table screen', async () => {
   const n = await pg.evaluate(() => (document.body.innerText.match(/¤/g) || []).length);
   return { pass: n === 0, detail: `${n} found` };
+});
+
+// --- Table screen fit-to-screen and browser zoom (industry practice: respect browser zoom, reflow
+// or scroll, never clip; a fixed-proportion canvas fits the window between a floor and a cap) ---
+const FIT_FLOOR = 0.75, FIT_CAP = 1.25;
+// [width, height, devicePixelRatio]: browser zoom N% of W x H is a W/N x H/N viewport at ratio N.
+const FIT_SIZES = [[1280, 720, 1], [1440, 900, 1], [1728, 1117, 1], [2560, 1440, 1], [720, 450, 2], [864, 558, 2]];
+const fits = [];
+for (const [w, h, d] of FIT_SIZES) {
+  if (!want('table-fit') && !want('table-reachable') && !want('table-no-hscroll')) break;
+  const p2 = await browser.newPage(); await p2.setViewport({ width: w, height: h, deviceScaleFactor: d });
+  await p2.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p2.waitForFunction(() => document.querySelector('table') || innerWidth < 768, { timeout: 60000 }).catch(() => {});
+  await sleep(2500);
+  const m = await p2.evaluate(() => {
+    const sec = document.querySelector('section[data-screen]'), stage = document.querySelector('.stage-zoom');
+    const sr = sec.getBoundingClientRect(), sy = scrollY;
+    const docH = document.documentElement.scrollHeight;
+    // The pieces of the screen: header rows, the stage's boxes, the Stats button.
+    const els = [...sec.children, ...stage.querySelectorAll('table, #table > *, .stage-zoom > *')].filter(e => e.getBoundingClientRect().width > 0);
+    const bad = [];
+    for (const e of els) {
+      const r = e.getBoundingClientRect();
+      const name = e.id || e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '');
+      // Reachable: inside the screen's scroll width sideways, inside the page's scroll height downwards.
+      if (r.left < sr.left - 1 || r.right > sr.left + sec.scrollWidth + 1) bad.push(`${name} x ${Math.round(r.left)}..${Math.round(r.right)}`);
+      if (r.top + sy < -1 || r.bottom + sy > docH + 1) bad.push(`${name} y ${Math.round(r.top + sy)}..${Math.round(r.bottom + sy)}`);
+    }
+    const zoom = parseFloat(getComputedStyle(stage).zoom) || 1;
+    return { zoom, phone: innerWidth < 768, bad, pageScroll: document.documentElement.scrollWidth - innerWidth, screenScroll: sec.scrollWidth - sec.clientWidth,
+      tallBy: Math.round(sec.getBoundingClientRect().height - document.documentElement.clientHeight), slackW: (sec.clientWidth - stage.getBoundingClientRect().width) / sec.clientWidth,
+      slackH: (document.documentElement.clientHeight - (sec.lastElementChild.getBoundingClientRect().bottom + parseFloat(getComputedStyle(sec).paddingBottom))) / document.documentElement.clientHeight };
+  });
+  await p2.close();
+  fits.push({ size: `${w}x${h}${d > 1 ? `@${d}x` : ''}`, ...m });
+}
+await check('table-fit', `The table screen takes one uniform scale in [${FIT_FLOOR}, ${FIT_CAP}], fitting the window (phones: list layout at 1)`, async () => {
+  const bad = [];
+  for (const f of fits) {
+    if (f.phone) { if (f.zoom !== 1) bad.push(`${f.size}: phone layout at ${f.zoom}`); continue; }
+    if (f.zoom < FIT_FLOOR - 1e-3 || f.zoom > FIT_CAP + 1e-3) bad.push(`${f.size}: scale ${f.zoom}`);
+    const floor = f.zoom <= FIT_FLOOR + 1e-3, cap = f.zoom >= FIT_CAP - 1e-3;
+    // Above the floor the whole screen fits the window; between floor and cap one side is tight (it is the largest that fits).
+    if (!floor && f.tallBy > 1) bad.push(`${f.size}: screen ${f.tallBy}px taller than the window at ${f.zoom}`);
+    if (!floor && !cap && Math.min(f.slackW, f.slackH) > 0.02) bad.push(`${f.size}: ${f.zoom} leaves ${(Math.min(f.slackW, f.slackH) * 100).toFixed(1)}% spare`);
+  }
+  return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : fits.map(f => `${f.size} ${f.phone ? 'list' : f.zoom}`).join(', ') };
+});
+await check('table-reachable', 'Nothing on the table screen is clipped or off-screen-unreachable at any size or browser zoom', async () => {
+  const bad = fits.filter(f => f.bad.length).map(f => `${f.size}: ${f.bad.slice(0, 3).join(', ')}`);
+  return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : `${fits.length} sizes, all reachable` };
+});
+await check('table-no-hscroll', 'No sideways scroll on the page; the table screen scrolls sideways only at the floor', async () => {
+  const bad = fits.filter(f => f.pageScroll > 0 || (f.screenScroll > 0 && (f.phone || f.zoom > FIT_FLOOR + 1e-3))).map(f => `${f.size}: page +${f.pageScroll}px, screen +${f.screenScroll}px at ${f.zoom}`);
+  return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : fits.map(f => `${f.size}${f.screenScroll > 0 ? ' (scrolls at floor)' : ''}`).join(', ') };
 });
 
 // --- History (overview tile, then the card) ---
