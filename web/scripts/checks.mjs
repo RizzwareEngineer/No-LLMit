@@ -817,6 +817,25 @@ main(() => check('profiles-tile-names', 'The Profiles tile shows model names at 
   }
   return { pass: !bad.length, detail: bad.join(', ') || 'names visible at both sizes' };
 }));
+// No hole between the names and Hands on the Profiles tile (owner, repeatedly, 2026-11-08): the space from the
+// end of the longest name to the Hands figures is no bigger than the space between two number columns.
+main(() => check('profiles-no-name-gap', 'The Profiles tile has no gap between the model names and the Hands column', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117], [1910, 1278]]) {
+    const p2 = await sharedAt(w, h);
+    // The Model column hugs the longest name (only its cell padding after it), and no name is cut short.
+    const r = await p2.evaluate(() => {
+      const ths = [...document.querySelectorAll('#stats-panel tbody th')].filter(t => t.getBoundingClientRect().height > 4);
+      const names = ths.map(t => t.querySelector('[translate=no]')).filter(Boolean);
+      const nameEnd = Math.max(...names.map(n => n.getBoundingClientRect().right));
+      const colEnd = Math.max(...ths.map(t => t.getBoundingClientRect().right));
+      return { slack: colEnd - nameEnd, cut: names.filter(n => n.scrollWidth > n.clientWidth + 1).length };
+    });
+    seen.push(`${w}x${h}: ${Math.round(r.slack)}px after the longest name, ${r.cut} cut`);
+    if (r.slack > 24 || r.cut) bad.push(w);
+  }
+  return { pass: !bad.length, detail: seen.join(' | ') };
+}));
 main(() => check('cards-no-scope', 'No hands/all time/blinds line, Session picker or Bars view on Profiles and Matchups', async () => {
   const bad = [];
   for (const [id, card] of [['stats-table', '#stats-card'], ['pairwise', '#pairwise-card']]) {
