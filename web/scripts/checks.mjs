@@ -257,8 +257,11 @@ await check('glide-smooth', 'Opening Profiles and Matchups: no jump at the hand-
         const on = scrollY === y0;
         const el = on ? document.querySelector(tile) : document.querySelector(`${card} .card-chrome`);
         const b = el.getBoundingClientRect();
-        const fig = [...el.querySelectorAll('tbody td span')].find(e => /\d/.test(e.textContent) && e.offsetHeight > 0 && !e.querySelector('*'));
-        out.push({ on, b: [b.left, b.top, b.right, b.bottom], s: fig ? fig.getBoundingClientRect().height / fig.offsetHeight : 1 });
+        // A figure's drawn text height (a Range over its text, so every transform above it counts).
+        const td = [...el.querySelectorAll('tbody td')].find(e => /^\d/.test(e.textContent.trim()));
+        const text = td && [...td.querySelectorAll('*'), td].flatMap(e => [...e.childNodes]).find(n => n.nodeType === 3 && /\d/.test(n.textContent));
+        let s = 0; if (text) { const r = document.createRange(); r.selectNodeContents(text); s = r.getBoundingClientRect().height; }
+        out.push({ on, b: [b.left, b.top, b.right, b.bottom], s });
         if (performance.now() - t0 < 1200) requestAnimationFrame(loop); else res(out);
       };
       requestAnimationFrame(loop);
@@ -268,7 +271,8 @@ await check('glide-smooth', 'Opening Profiles and Matchups: no jump at the hand-
     const i = f.findIndex(x => !x.on);
     if (i < 1) { bad.push(`${id}: never reached its card`); continue; }
     const jump = Math.max(...f[i].b.map((v, k) => Math.abs(v - f[i - 1].b[k])));
-    const lo = Math.min(...f.map(x => x.s)), hi = Math.max(...f.map(x => x.s));
+    const rest = f.at(-1).s || 1; // the text's height once the card has landed
+    const lo = Math.min(...f.map(x => x.s / rest)), hi = Math.max(...f.map(x => x.s / rest));
     seen.push(`${id} hand-over ${jump.toFixed(1)}px${id === 'stats-table' ? `, text ×${lo.toFixed(2)}–${hi.toFixed(2)}` : ''}`);
     if (jump > 2) bad.push(`${id}: the card takes over ${jump.toFixed(0)}px off the tile`);
     if (id === 'stats-table' && (lo < 0.85 || hi > 1.15)) bad.push(`Profiles text drawn at ×${lo.toFixed(2)}–${hi.toFixed(2)} of its size mid-glide`);
@@ -423,15 +427,18 @@ await check('matchups-card-hugs', 'The opened Matchups card hugs its names, matr
 // Matchups' cells, its Total column and the Leader figure match it; the Matchups tile uses one size for
 // every cell (no per-cell scaling); Profits & Losses uses the same family and tabular figures.
 await check('stats-font-unified', 'One number font across the stats cards (family, tabular figures, size by role)', async () => {
-  const font = sel => pg.evaluate(sel => [...document.querySelectorAll(sel)].filter(e => e.getBoundingClientRect().width > 0 && /\d/.test(e.textContent)).map(e => { const s = getComputedStyle(e); return `${s.fontFamily.split(',')[0]}|${s.fontVariantNumeric}|${s.fontSize}`; }), sel);
+  // Every visible element under `sel` that holds a figure's text itself (screen-reader copies aside).
+  const font = sel => pg.evaluate(sel => [...document.querySelectorAll(sel)].flatMap(e => [e, ...e.querySelectorAll('*')])
+    .filter(e => !e.closest('.sr-only') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && /\d/.test(n.textContent)))
+    .map(e => { const s = getComputedStyle(e); return `${s.fontFamily.split(',')[0]}|${s.fontVariantNumeric}|${s.fontSize}`; }), sel);
   await goto(pg, 'stats-table'); await sleep(1500);
-  const prof = await font('#stats-card tbody td span:not([class*="sr-only"])');
+  const prof = await font('#stats-card tbody td');
   await goto(pg, 'pairwise'); await sleep(1500);
-  const cells = await font('#pairwise-card td[data-cell] span[aria-hidden]');
-  const totals = await font('#pairwise-card div[data-cell] span[aria-hidden]');
-  const leader = await font('#pairwise-card h2 ~ div span.font-bold');
+  const cells = await font('#pairwise-card td[data-cell]');
+  const totals = await font('#pairwise-card div[data-cell]');
+  const leader = (await font('#pairwise-card h2 ~ div span.font-bold')).slice(-1); // its figure, after the name
   await goto(pg, 'stats'); await sleep(1500);
-  const tile = await font('#pairwise-panel td[data-cell] span[aria-hidden]');
+  const tile = await font('#pairwise-panel td[data-cell]');
   await pg.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(800);
   const pl = await font('ol li div.tabular-nums');
   const ref = prof[0];
