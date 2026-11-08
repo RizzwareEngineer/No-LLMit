@@ -122,17 +122,25 @@ const PILL_ROOM = 190; // the plot's width past the leading edge, for the leader
 const PILL_H = 20;
 const PILL_GAP = 7; // from the tip's dot to its pill
 
-// Pill centres: pills whose spans overlap across x are spread at least `gap` apart (as `spread`),
-// the rest keep their targets. `ps` must be sorted by y ascending.
+// Pill centres, each as near its target as it can be: two pills whose spans overlap across x are
+// pushed apart (half each, the bounds taking the rest) until they are `gap` apart; pills apart
+// across x never push each other. `ps` must be sorted by y ascending.
 export function stack(ps: { x: number; w: number; y: number }[], gap: number, lo: number, hi: number) {
-  const group = ps.map((_, i) => i);
-  const root = (i: number): number => (group[i] === i ? i : (group[i] = root(group[i])));
-  ps.forEach((a, i) => ps.forEach((b, j) => { if (j > i && a.x < b.x + b.w + 4 && b.x < a.x + a.w + 4) group[root(j)] = root(i); }));
-  const out = ps.map(p => p.y);
-  for (const r of new Set(ps.map((_, i) => root(i)))) {
-    const ids = ps.flatMap((_, i) => (root(i) === r ? [i] : []));
-    const ys = spread(ids.map(i => ps[i].y), Math.min(gap, (hi - lo) / Math.max(1, ids.length - 1)), lo, hi);
-    ids.forEach((i, j) => { out[i] = ys[j]; });
+  const out = ps.map(p => Math.min(Math.max(p.y, lo), hi));
+  gap = Math.min(gap, (hi - lo) / Math.max(1, ps.length - 1)); // shortcut: crowds of 13+ pills squeeze every gap
+  const near = (a: (typeof ps)[number], b: (typeof ps)[number]) => a.x < b.x + b.w + 4 && b.x < a.x + a.w + 4;
+  for (let it = 0, moved = true; moved && it < 40; it++) {
+    moved = false;
+    for (let i = 0; i < ps.length; i++) {
+      for (let j = i + 1; j < ps.length; j++) {
+        const d = gap - (out[j] - out[i]);
+        if (d < 0.05 || !near(ps[i], ps[j])) continue;
+        const up = Math.min(d / 2 + Math.max(0, out[j] + d / 2 - hi), out[i] - lo);
+        out[i] -= up;
+        out[j] = Math.min(hi, out[j] + d - up);
+        moved = true;
+      }
+    }
   }
   return out;
 }
@@ -150,11 +158,15 @@ function burst(layer: HTMLElement | null, x: number, y: number, color: string) {
   for (let i = 0; layer && i < 8; i++) {
     const a = (i / 8) * 2 * Math.PI + Math.random() * 0.6, d = 12 + Math.random() * 10;
     const dot = document.createElement('span');
-    dot.style.cssText = `position:absolute;left:${x - 2}px;top:${y - 2}px;width:4px;height:4px;border-radius:9999px;background:${color}`;
+    dot.style.cssText = `position:absolute;left:${x - 2.5}px;top:${y - 2.5}px;width:5px;height:5px;border-radius:9999px;background:${color}`;
     layer.appendChild(dot);
     dot.animate(
-      [{ transform: 'none', opacity: 1 }, { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) scale(0.5)`, opacity: 0 }],
-      { duration: 600, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', id: 'burst' },
+      [
+        { transform: 'none', opacity: 1, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+        { transform: `translate(${Math.cos(a) * d * 0.8}px, ${Math.sin(a) * d * 0.8}px)`, opacity: 1, offset: 0.45 },
+        { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) scale(0.4)`, opacity: 0 },
+      ],
+      { duration: 600, id: 'burst' },
     ).onfinish = () => dot.remove();
   }
 }
