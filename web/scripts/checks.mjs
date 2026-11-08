@@ -44,7 +44,9 @@ const replayHand = async pg => {
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--mute-audio'] });
 const pg = await browser.newPage();
 await pg.setViewport({ width: 1440, height: 900 });
-await pg.goto(BASE, { waitUntil: 'domcontentloaded' });
+await pg.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+// A loaded machine can take longer than a fixed wait to deal the table: wait for it, then settle.
+await pg.waitForFunction(() => document.querySelector('td.w-\\[200px\\]'), { timeout: 60000 }).catch(() => {});
 await sleep(5000);
 
 // --- Table screen (locked) ---
