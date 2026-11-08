@@ -138,6 +138,26 @@ await check('sync-in-step', 'While History replays, Profiles and Matchups stay w
   return { pass: ok, detail: `history ${race.hand}, profiles ${prof.hand} (step ${step}), matchups ${mu.hand}` };
 });
 
+// While the replay steps Profiles through its snapshots, rows never sit on top of each other.
+await check('profiles-rows-no-overlap', 'During the replay, no two Profiles rows overlap', async () => {
+  await goto(pg, 'race'); await sleep(800); // Skip and Replay live on the History card
+  const playing = () => pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
+  if (!(await playing()) && !(await clickText(pg, 'Replay'))) return { pass: false, detail: 'neither Skip nor Replay shown' };
+  await sleep(500); await goto(pg, 'stats-table'); await sleep(600);
+  let worst = 0, samples = 0;
+  for (let i = 0; i < 12; i++) {
+    const o = await pg.evaluate(() => {
+      const rs = [...document.querySelectorAll('#stats-card tbody tr')].map(r => r.getBoundingClientRect()).filter(r => r.height > 4);
+      let w = 0;
+      for (let a = 0; a < rs.length; a++) for (let b = a + 1; b < rs.length; b++) w = Math.max(w, Math.min(rs[a].bottom, rs[b].bottom) - Math.max(rs[a].top, rs[b].top));
+      return rs.length ? w : null;
+    });
+    if (o !== null) { samples++; worst = Math.max(worst, o); }
+    await sleep(250);
+  }
+  return { pass: samples > 0 && worst <= 2, detail: samples ? `worst overlap ${worst.toFixed(1)}px over ${samples} samples` : 'no rows found' };
+});
+
 // --- Matchups and Profiles opened ---
 await check('matchups-no-fade', 'Opening Matchups grows the matrix without fading it', async () => {
   await goto(pg, 'stats'); await sleep(1500);
