@@ -2,12 +2,15 @@
 // in localStorage. The AudioContext is only created inside a user gesture, so nothing
 // plays before the viewer has clicked or pressed a key on the page.
 
-export type SoundKind = 'deal' | 'chip' | 'showdown';
+// 'overtake' and 'lead': Trends' replay, one line passing another and a new #1.
+export type SoundKind = 'deal' | 'chip' | 'showdown' | 'overtake' | 'lead';
 
 const STORAGE_KEY = 'nollmit:sound';
 let ctx: AudioContext | null = null;
 let noise: AudioBuffer | null = null;
+let whooshNoise: AudioBuffer | null = null;
 let enabled: boolean | null = null; // null until read from storage
+let raceUntil = 0; // when the race sound now playing ends, in AudioContext time: they never overlap
 const listeners = new Set<() => void>();
 
 // Called only from gesture handlers. Throws where Web Audio is missing.
@@ -77,6 +80,39 @@ export function playSound(kind: SoundKind) {
   if (!enabled || !ctx || ctx.state !== 'running') return;
   const c = ctx;
   const now = c.currentTime;
+  if (kind === 'overtake' || kind === 'lead') {
+    // One at a time: a whoosh while another race sound plays is dropped; a lead chime waits for it to end.
+    if (kind === 'overtake' && now < raceUntil) return;
+    const at = Math.max(now, raceUntil);
+    if (kind === 'overtake') {
+      // A soft whoosh: 120 ms of noise, swept up through a band-pass, swelling in and out.
+      if (!whooshNoise) {
+        whooshNoise = c.createBuffer(1, Math.ceil(c.sampleRate * 0.12), c.sampleRate);
+        const data = whooshNoise.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      }
+      const src = c.createBufferSource();
+      const filter = c.createBiquadFilter();
+      const gain = c.createGain();
+      src.buffer = whooshNoise;
+      filter.type = 'bandpass';
+      filter.Q.value = 1.2;
+      filter.frequency.setValueAtTime(700, at);
+      filter.frequency.exponentialRampToValueAtTime(2600, at + 0.12);
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.09, at + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.12);
+      src.connect(filter).connect(gain).connect(c.destination);
+      src.start(at);
+      raceUntil = at + 0.12;
+    } else {
+      // A brighter two-note chime (E6 then B6) for a new leader.
+      tone(c, 1318.5, at, 0.22, 'sine', 0.09);
+      tone(c, 1975.5, at + 0.07, 0.3, 'sine', 0.07);
+      raceUntil = at + 0.39;
+    }
+    return;
+  }
   if (kind === 'deal') {
     // A short band-passed noise burst: a card sliding on felt.
     if (!noise) {

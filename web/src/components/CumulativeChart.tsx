@@ -7,6 +7,7 @@ import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
 import { PLAY_MS, Timeline, playReplay, playedAt, replaySpeed, replayStarted, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
+import { playSound } from '@/lib/sound';
 
 const GRID = 'rgba(55, 53, 47, 0.12)';
 const AXIS = 'rgba(55, 53, 47, 0.75)'; // tick marks
@@ -101,17 +102,19 @@ export function trace(pts: Pts, x0: number, x1: number, end = Infinity, to?: Pts
 
 // The Race window choices: the last 100 or 1,000 hands, or all of them.
 const RANGES = [{ label: 'Last 100', n: 100 }, { label: 'Last 1k', n: 1000 }, { label: 'All', n: 0 }] as const;
-// A running bb/100 over a handful of hands is noise, so the rate lines start here.
+// A running bb/100 over a model's first hands is mostly noise. Trends draws each rate line from hand 0 but fits its
+// y axis to it only from this many hands on, so those early swings may sit clamped at the plot's edge. (Profiles'
+// sparkline starts here.)
 export const RATE_FROM = 20;
 
 type Metric = 'bb100' | 'chips' | 'bb';
 type License = 'all' | 'open' | 'closed';
 
-// A model's line in the plotted metric: running bb/100 from RATE_FROM hands, or cumulative chips
-// (or bb), as [hands played, value].
+// A model's line in the plotted metric: running bb/100 (break-even at hand 0, where it has no rate yet), or
+// cumulative chips (or bb), as [hands played, value], from hand 0.
 export function series(m: ModelStats, metric: Metric, bigBlind = 1, ev = false): [number, number][] {
   const curve = ev ? m.cumulative_aiev_bb ?? [] : m.cumulative_bb;
-  if (metric === 'bb100') return curve.filter(([n]) => n >= RATE_FROM).map(([n, v]) => [n, (v / n) * 100]);
+  if (metric === 'bb100') return curve.map(([n, v]) => [n, n ? (v / n) * 100 : 0]);
   const k = metric === 'chips' ? bigBlind : 1;
   return curve.map(([n, v]) => [n, v * k]);
 }
@@ -281,22 +284,30 @@ if (process.env.NODE_ENV === 'development') {
 // An overtake: `a` passed `b` at hand n and value v, `t` seconds into the replay; the passer's tip was at (tx, ty).
 type Overtake = { a: string; b: string; n: number; v: number; t: number; tx: number; ty: number };
 const EMPH_S = 0.6, MARK_S = 2, NEXT_S = 1.5; // the passer's emphasis, the crossing marker's fade, the gap before the next event
-const PAIR_S = 6; // a pair that keeps swapping gets one event per this long
-const BURST_GAP_MS = 2000, BURST_PAIR_MS = 15_000; // one splash at a time; a pair that keeps swapping splashes once per 15 s
+const PAIR_S = 6; // a pair that keeps swapping gets one highlight and ring per this long
+// LMArena's place change, on every overtake: both pills shake across x (in em, so a few screen px at any scale;
+// a new #1 harder and longer) and the passer's tip pops; all replay-time ms.
+const SHAKE = { ms: 300, em: 0.23 }, LEAD_SHAKE = { ms: 380, em: 0.46 }, POP_MS = 320;
+const SWINGS = [0, -1, 0.8, -0.55, 0.3, -0.1, 0]; // evenly spaced swings, each eased out, dying away
+const POP_ORIGIN = { transformBox: 'fill-box', transformOrigin: 'center' } as const; // a tip pops about its own centre
+// Splashes start BURST_GAP_MS apart with at most BURST_MAX on screen. A passer whose tip splashed within FRESH_MS is
+// splashing already; one still queued after STALE_MS is dropped, as it would mark the wrong moment.
+const BURST_GAP_MS = 150, BURST_MAX = 3, FRESH_MS = 200, STALE_MS = 1000;
 
-// Arena's overtake splash: eight dots in the passer's colour fly out from its tip and fade (600 ms). They
-// spray back over the plot (the left half-circle), so the pill column right of the tips stays clear.
-// Drawn straight into the fx layer, outside React, so a splash never re-renders the chart.
-function burst(layer: HTMLElement | null, x: number, y: number, name: string, color: string) {
-  if (!layer) return;
+// Arena's overtake splash: dots in the passer's colour fly out from its tip and fade (8 over 450 ms; a lead change
+// 14 bigger ones, further, over 800 ms). They spray back over the plot (the left half-circle), so the pill column
+// right of the tips stays clear. Drawn straight into the fx layer, outside React, so a splash never re-renders the
+// chart. `done` runs once it has gone.
+function burst(layer: HTMLElement, x: number, y: number, name: string, color: string, lead: boolean, n: number, done: () => void) {
+  const [count, size, reach, ms] = lead ? [14, 7, 20, 800] : [8, 5, 12, 450];
   const g = document.createElement('span');
-  Object.assign(g.dataset, { burst: name, x: x.toFixed(1), y: y.toFixed(1) }); // for checks
+  Object.assign(g.dataset, { burst: name, n: String(n), x: x.toFixed(1), y: y.toFixed(1) }, lead ? { lead: '' } : {}); // for checks
   g.style.cssText = `position:absolute;left:${x}px;top:${y}px`;
   layer.appendChild(g);
-  for (let i = 0; i < 8; i++) {
-    const a = Math.PI / 2 + ((i + 0.2 + Math.random() * 0.6) / 8) * Math.PI, d = 12 + Math.random() * 10;
+  for (let i = 0; i < count; i++) {
+    const a = Math.PI / 2 + ((i + 0.2 + Math.random() * 0.6) / count) * Math.PI, d = reach + Math.random() * reach * 0.8;
     const dot = document.createElement('span');
-    dot.style.cssText = `position:absolute;left:-2.5px;top:-2.5px;width:5px;height:5px;border-radius:9999px;background:${color}`;
+    dot.style.cssText = `position:absolute;left:${-size / 2}px;top:${-size / 2}px;width:${size}px;height:${size}px;border-radius:9999px;background:${color}`;
     g.appendChild(dot);
     dot.animate(
       [
@@ -304,9 +315,39 @@ function burst(layer: HTMLElement | null, x: number, y: number, name: string, co
         { transform: `translate(${Math.cos(a) * d * 0.8}px, ${Math.sin(a) * d * 0.8}px)`, opacity: 1, offset: 0.45 },
         { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) scale(0.4)`, opacity: 0 },
       ],
-      { duration: 600 / replaySpeed(), id: 'burst' },
-    ).onfinish = () => { dot.remove(); if (!g.childElementCount) g.remove(); };
+      { duration: ms / replaySpeed(), id: 'burst' },
+    ).onfinish = () => { dot.remove(); if (!g.childElementCount) { g.remove(); done(); } };
   }
+}
+
+// The splash queue: every overtake splashes, BURST_GAP_MS apart and at most BURST_MAX on screen, so a crowd of
+// place changes stays readable. One entry per passer (`at`: its latest overtake); a lead change goes first. Each
+// starts at its passer's tip as it is then (`tips`, updated every frame). `splashed`: when each passer last splashed.
+type Fx = { queue: { a: string; lead: boolean; at: number }[]; timer: number; last: number; n: number; tips: Map<string, { tx: number; ty: number }>; splashed: Map<string, number> };
+function enqueue(f: Fx, a: string, lead: boolean) {
+  const now = performance.now(), q = f.queue.find(e => e.a === a);
+  if (q) {
+    q.at = now; // it keeps its place in line; a lead change moves it to the front
+    if (lead && !q.lead) { q.lead = true; f.queue.splice(f.queue.indexOf(q), 1); f.queue.unshift(q); }
+  } else if (lead || now - (f.splashed.get(a) ?? -Infinity) > FRESH_MS / replaySpeed()) { // else its tip is splashing already
+    f.queue[lead ? 'unshift' : 'push']({ a, lead, at: now });
+  }
+}
+function pump(f: Fx, layer: HTMLElement | null) {
+  clearTimeout(f.timer);
+  const sp = replaySpeed(), now = performance.now();
+  f.queue = f.queue.filter(e => now - e.at < STALE_MS / sp);
+  // Full: the next splash to end pumps again.
+  if (!layer || !f.queue.length || layer.childElementCount >= BURST_MAX) return;
+  const wait = f.last + BURST_GAP_MS / sp - now;
+  if (wait > 0) { f.timer = window.setTimeout(() => pump(f, layer), wait); return; }
+  const { a, lead } = f.queue.shift()!, e = f.tips.get(a);
+  if (e) {
+    burst(layer, e.tx, e.ty, a, modelColor(a), lead, ++f.n, () => pump(f, layer));
+    f.last = now;
+    f.splashed.set(a, now);
+  }
+  pump(f, layer);
 }
 
 export default function CumulativeChart({
@@ -336,7 +377,7 @@ export default function CumulativeChart({
   const plot = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const fxLayer = useRef<HTMLDivElement>(null);
-  const fx = useRef({ last: -Infinity, pair: new Map<string, number>() });
+  const fx = useRef<Fx>({ queue: [], timer: 0, last: -Infinity, n: 0, tips: new Map(), splashed: new Map() });
   const pillEls = useRef(new Map<string, HTMLElement>());
   // Last frame's pill order and slots, for the swap slide.
   const slots = useRef({ order: [] as string[], ys: new Map<string, number>() });
@@ -387,9 +428,7 @@ export default function CumulativeChart({
   const [luck, setLuck] = useState(false); // all-in EV lines for every model (the highlighted one always shows its own)
   const [hidden, setHidden] = useState<string[]>([]); // lines switched off in the legend
 
-  // A fresh history has no model at RATE_FROM hands yet: race on chips until bb/100 has lines to draw.
-  const young = race && metricPick === 'bb100' && ![...(everyone ?? []), ...models].some(m => m.hands >= RATE_FROM);
-  const metric: Metric = race ? (young ? 'chips' : metricPick) : bigBlind ? 'chips' : 'bb';
+  const metric: Metric = race ? metricPick : bigBlind ? 'chips' : 'bb';
   const rate = metric === 'bb100';
   const unit = rate ? 'bb/100' : metric;
   const fmt = (v: number) => (metric === 'chips' ? chips(Math.round(v)) : signed(v));
@@ -415,7 +454,7 @@ export default function CumulativeChart({
   const lastHand = Math.max(1, ...listed.flatMap(m => pts(m).map(p => p[0])));
   const win = race ? range : 0; // the tile shows the card's window too: one picture
   const whole = !(win && win < lastHand);
-  // The x axis starts where the first line does (RATE_FROM hands for bb/100), or at the window.
+  // The x axis starts where the first line does (hand 0), or at the window.
   const from = Math.max(whole ? 0 : lastHand - win, Math.min(lastHand - 1, ...listed.map(m => pts(m)[0][0])));
   // The lines in the window (lines switched off or ended before it drop out), and the all-in EV lines.
   const on = listed.filter(m => !hidden.includes(m.name) && trace(pts(m), from, lastHand).length);
@@ -469,7 +508,8 @@ export default function CumulativeChart({
   }
   useEffect(() => {
     if (reduce) return;
-    const c = animate(0, 1, { duration: TWEEN_S, ease: EASE, onUpdate: setMix });
+    // The replay's start (and a filter changed mid-replay) moves at the replay's speed, so a test run at 4x sees what visitors see.
+    const c = animate(0, 1, { duration: TWEEN_S / (tr.to.camera ? replaySpeed() : 1), ease: EASE, onUpdate: setMix });
     return () => c.stop();
   }, [tr, reduce]);
   const k = reduce ? 1 : mix;
@@ -489,21 +529,25 @@ export default function CumulativeChart({
   // the gaps between models read large. It follows them as the replay plays and settles at rest, easing
   // both ways (useCamera). A tip far from the pack is pinned to the edge with an arrow. The model
   // drawer fits its one line and band whole.
+  // Each rate line's first RATE_FROM hands (to the table hand its model reached them): left out of the y fit and drawn
+  // clamped to the plot's edge (see path), as a tip beyond the axis is.
+  const fitAt = new Map(race && rate ? [...byName.keys()].map(n => [n, table ? onTable(table, n, [[RATE_FROM, 0]], byName.get(n)!.hands)[0]?.[0] ?? Infinity : RATE_FROM]) : []);
+  const fitted = (n: string, p: Pts) => (fitAt.size ? p.filter(q => q[0] >= (fitAt.get(n) ?? Infinity)) : p);
   let want: [number, number];
   if (race) {
     // While the replay plays, the lines (and all-in EV lines) over the recent quarter of the window's
     // drawn part (a rate's early hands are noise that would flatten the pack); at rest, the whole
     // window; before any line is in view, the whole race's.
     // Either way the recent quarter itself and every tip are always inside: the leader's latest run is never clipped.
-    const inView = [...[...lines.keys()].map(n => drawn.get(n) ?? []), ...evDrawn.filter(e => evs.has(e.n)).map(e => e.p)].filter(p => p.length);
+    const inView = [...[...lines.keys()].map(n => fitted(n, drawn.get(n) ?? [])), ...evDrawn.filter(e => evs.has(e.n)).map(e => fitted(e.n, e.p))].filter(p => p.length);
     const cut = lerp(X0, Math.min(X1, nowX), 0.75);
     const recent = inView.flatMap(p => p.filter(q => q[0] >= cut).map(q => q[1]));
-    const tips = [...lines.keys()].flatMap(n => drawn.get(n)?.at(-1)?.[1] ?? []);
+    const tips = [...lines.keys()].flatMap(n => fitted(n, drawn.get(n)?.slice(-1) ?? []).map(q => q[1]));
     // The replay is known ahead: the next LOOK_S of each line, so the eased axis is never caught out by a jump.
-    const ahead = handNow === null ? [] : [...lines.values()].flatMap(p => trace(p, nowX, nowX + (LOOK_S * 1000 / PLAY_MS) * timeline!.hands, Infinity).map(q => q[1]));
+    const ahead = handNow === null ? [] : [...lines].flatMap(([n, p]) => fitted(n, trace(p, nowX, nowX + (LOOK_S * 1000 / PLAY_MS) * timeline!.hands, Infinity)).map(q => q[1]));
     want = inView.length
       ? robustRange(playing ? recent : inView.flatMap(p => p.map(q => q[1])), tips, false, [...recent, ...tips, ...ahead])
-      : robustRange([...lines.values()].flatMap(p => trace(p, from, lastHand).map(q => q[1])), [], false);
+      : robustRange([...lines].flatMap(([n, p]) => fitted(n, trace(p, from, lastHand)).map(q => q[1])), [], false);
   } else {
     const ys = [...drawn.values()].flatMap(p => p.map(q => q[1]));
     if (sel) trace(pts(sel), X0, X1, nowX).forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
@@ -536,6 +580,8 @@ export default function CumulativeChart({
   const x = (n: number) => left + ((n - X0) / (X1 - X0 || 1)) * leadW;
   const y = (v: number) => padTop + ((Y1 - v) / (Y1 - Y0 || 1)) * plotH;
   const line = (p: [number, number][]) => p.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
+  // A line's path, its early swings (before fitAt) held at the plot's edge.
+  const path = (n: string, p: Pts) => line(fitAt.size ? p.map(([h, v]) => [h, h < (fitAt.get(n) ?? Infinity) ? Math.min(Math.max(v, Math.min(Y0, Y1)), Math.max(Y0, Y1)) : v]) : p);
 
   const shown = [...drawn.keys()].flatMap(n => (drawn.get(n)!.length && byName.has(n) ? [byName.get(n)!] : []));
   const hot = shown.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
@@ -596,14 +642,15 @@ export default function CumulativeChart({
   // values the pills show by more than that. New lines join at their place, without an event.
   // It lives in state (updated during render, as React allows for derived state) so the pills show it.
   const tNow = progress * (PLAY_MS / 1000); // the replay's clock, in seconds
-  const [rk, setRk] = useState<{ order: string[]; ev: Overtake | null; pairs: Record<string, number> }>({ order: [], ev: null, pairs: {} });
+  // `swaps`: the latest frame's overtakes (passer, passed; `lead` when the passer became #1; `vis` when either pill shows).
+  const [rk, setRk] = useState<{ order: string[]; ev: Overtake | null; pairs: Record<string, number>; swaps: { a: string; b: string; lead: boolean; vis: boolean }[] }>({ order: [], ev: null, pairs: {}, swaps: [] });
   const byN = new Map(ends0.map(e => [e.m.name, e]));
   const order = [...rk.order.filter(n => byN.has(n)), ...ends0.filter(e => !rk.order.includes(e.m.name)).sort((a, b) => b.v - a.v).map(e => e.m.name)];
   const hyst = (0.5 * (Y1 - Y0)) / (plotH || 1);
-  const passes: [string, string][] = [];
+  const passes: [string, string, boolean][] = []; // passer, passed, and whether the passer took first place then
   for (let i = 1; i < order.length; i++) {
     for (let j = i; j > 0 && byN.get(order[j])!.v > byN.get(order[j - 1])!.v + (rk.order.includes(order[j]) ? hyst : 0); j--) {
-      if (rk.order.includes(order[j]) && rk.order.includes(order[j - 1])) passes.push([order[j], order[j - 1]]);
+      if (rk.order.includes(order[j]) && rk.order.includes(order[j - 1])) passes.push([order[j], order[j - 1], j === 1]);
       [order[j - 1], order[j]] = [order[j], order[j - 1]];
     }
   }
@@ -620,7 +667,11 @@ export default function CumulativeChart({
     ev = { a, b, n: c[0], v: c[1], t: tNow, tx: byN.get(a)!.tx, ty: byN.get(a)!.ty };
     pairs[pair] = tNow;
   }
-  if (order.join('|') !== rk.order.join('|') || ev !== rk.ev) setRk({ order, ev, pairs });
+  const was1 = rk.order.find(n => byN.has(n));
+  const swaps = live && passes.length
+    ? passes.map(([a, b, top]) => ({ a, b, lead: top && a === order[0] && a !== was1, vis: byN.get(a)!.o >= 0.5 || byN.get(b)!.o >= 0.5 }))
+    : rk.swaps;
+  if (order.join('|') !== rk.order.join('|') || ev !== rk.ev || swaps !== rk.swaps) setRk({ order, ev, pairs, swaps });
   const rank = new Map(order.map((n, i) => [n, i + 1]));
   const ends = [...ends0].sort((a, b) => rank.get(a.m.name)! - rank.get(b.m.name)!); // rank order: ascending y
   const pillYs = stack(ends.map(e => ({ x: e.tx + PILL_GAP, w: e.w, y: e.ty })), pillH + 3, padTop + pillH / 2, padTop + plotH - pillH / 2);
@@ -628,18 +679,39 @@ export default function CumulativeChart({
   const age = ev ? tNow - ev.t : Infinity;
   const emph = age < EMPH_S ? Math.min(1, age / 0.1, (EMPH_S - age) / 0.2) : 0;
   const emphOn = emph > 0 ? ev!.a : null;
-  // Each new overtake also splashes at the passer's tip, in step with the slide, the emphasis and the ring.
+  // Every overtake, in the commit that swaps the pills (so in step with the slide, the emphasis and the ring):
+  // both pills shake, the passer's tip pops, the passer splashes (queued; one per passer per frame), and it sounds.
   useEffect(() => {
-    const e = rk.ev;
-    if (!e) return;
-    const f = fx.current, now = performance.now(), pair = [e.a, e.b].sort().join('|');
-    if (now - f.last < BURST_GAP_MS / replaySpeed() || now - (f.pair.get(pair) ?? -Infinity) < BURST_PAIR_MS / replaySpeed()) return;
-    f.last = now;
-    f.pair.set(pair, now);
-    burst(fxLayer.current, e.tx, e.ty, e.a, modelColor(e.a));
-  }, [rk.ev]);
-  // A splash never outlives its replay: Skip, the end, a restart or a filter change clears any in flight.
-  useEffect(() => { if (!live) fxLayer.current?.replaceChildren(); }, [live]);
+    if (!rk.swaps.length) return;
+    const sp = replaySpeed(), f = fx.current;
+    const shake = (n: string, lead: boolean) => {
+      const el = pillEls.current.get(n);
+      if (!el) return;
+      el.getAnimations().forEach(a => /shake/.test(a.id) && a.cancel()); // a pill passed again shakes again
+      const { ms, em } = lead ? LEAD_SHAKE : SHAKE;
+      el.animate(SWINGS.map(k => ({ translate: `${k * em}em 0`, easing: 'ease-out' })), { duration: ms / sp, id: lead ? 'pill-shake-lead' : 'pill-shake' });
+    };
+    const splash = new Map<string, boolean>();
+    for (const { a, b, lead, vis } of rk.swaps) {
+      shake(a, lead);
+      shake(b, false);
+      plot.current?.querySelector(`[data-tip="${CSS.escape(a)}"]`)?.animate(
+        [{ transform: 'none' }, { transform: 'scale(1.6)', offset: 0.35 }, { transform: 'none' }], // 1.6: the popped dot stays clear of its pill
+        { duration: POP_MS / sp, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', id: 'tip-pop' },
+      );
+      if (vis) splash.set(a, splash.get(a) || lead);
+    }
+    for (const [a, lead] of splash) enqueue(f, a, lead);
+    pump(f, fxLayer.current);
+    // One sound per frame of overtakes (a chime if one took first place), when sound is on; never in a sped-up test replay.
+    if (splash.size && sp === 1) playSound([...splash.values()].some(Boolean) ? 'lead' : 'overtake');
+  }, [rk.swaps]);
+  // A splash never outlives its replay: Skip, the end, a restart or a filter change clears any in flight or queued.
+  useEffect(() => {
+    const f = fx.current;
+    if (!live) { f.queue = []; clearTimeout(f.timer); fxLayer.current?.replaceChildren(); }
+  }, [live]);
+  useEffect(() => () => clearTimeout(fx.current.timer), []);
   // Two pills that swap places slide there over 300 ms (FLIP: they jump to their new slots, then
   // ease from where they were), rather than jumping a slot in one frame.
   useLayoutEffect(() => {
@@ -659,7 +731,8 @@ export default function CumulativeChart({
     if (!p) return;
     const r = p.getBoundingClientRect();
     p.querySelectorAll<HTMLElement>('[data-pill]').forEach(e => { e.dataset.tipX = (r.left + +e.dataset.tx! * (r.width / lw)).toFixed(1); });
-    // A splash rides its passer's tip (early in the replay the tips still move right).
+    // A splash rides its passer's tip (early in the replay the tips still move right); queued ones start there.
+    fx.current.tips = byN;
     fxLayer.current?.querySelectorAll<HTMLElement>('[data-burst]').forEach(g => {
       const e = byN.get(g.dataset.burst!);
       if (!e) return;
@@ -724,11 +797,27 @@ export default function CumulativeChart({
   return (
     <div className="flex-1 min-h-0 flex flex-col" {...syncAttrs(race ? timeline ?? null : null, handNow === null ? null : Math.floor(handNow))}>
       {interactive && (
-        // One bar for every control; it wraps on narrow widths.
-        <motion.div {...appear} className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[14px]" style={{ color: MUTED }}>
+        // One bar for every control, 24px between groups (16px on a phone, where it is tall already), wrapping on narrow
+        // widths: what is plotted first (metric, hands, all-in EV), then which models, Family on a row of its own. Every
+        // control is 29px tall: one-of-a-kind choices sit in a tray, on/off toggles are chips, so a long row of chips
+        // wraps into rows of the same height.
+        <motion.div {...appear} className="mb-2 flex flex-wrap items-start gap-x-4 gap-y-1.5 md:gap-x-6 md:gap-y-2.5 text-[14px]" style={{ color: MUTED }}>
           <Field label="Metric">
             <Segmented label="Metric" options={[{ label: 'bb/100', value: 'bb100' as const }, { label: 'Chips', value: 'chips' as const }]} value={metricPick} onChange={setMetric} />
           </Field>
+          <Field label="Hands">
+            <Segmented
+              label="Hands shown"
+              options={RANGES.map(r => ({ label: r.label, value: r.n, disabled: r.n > 0 && r.n >= lastHand }))}
+              value={range && range < lastHand ? range : 0}
+              onChange={setRange}
+            />
+          </Field>
+          <Toggles
+            label="All-in EV"
+            title="Dashed lines: what each model would have won if every all-in were paid out by its odds at that moment. Solid above dashed means it ran lucky."
+            items={[{ label: 'All-in EV', on: luck, toggle: () => setLuck(l => !l) }]}
+          />
           <Field label="Lineup">
             <Segmented label="Lineup" options={[{ label: 'Seated now', value: 'seated' as const }, { label: 'All models', value: 'all' as const, disabled: !everyone?.length }]} value={lineup} onChange={setLineup} />
           </Field>
@@ -738,22 +827,10 @@ export default function CumulativeChart({
           <Field label="Show">
             <Segmented label="Top models" options={[{ label: 'All', value: 0 }, { label: 'Top 5', value: 5 }]} value={top} onChange={setTop} />
           </Field>
-          <Toggles
-            label="All-in EV"
-            title="Dashed lines: what each model would have won if every all-in were paid out by its odds at that moment. Solid above dashed means it ran lucky."
-            items={[{ label: 'All-in EV', on: luck, toggle: () => setLuck(l => !l) }]}
-          />
-          <Field label="Family">
-            <Toggles label="Family" items={families.map(f => ({ label: f, on: fams.includes(f), disabled: !inPool.has(f) && !fams.includes(f), toggle: () => setFams(toggle(fams, f)) }))} />
-            {fams.length > 0 && <button onClick={() => setFams([])} className="text-[13px] underline">Clear</button>}
-          </Field>
-          <Field label="Hands">
-            <Segmented
-              label="Hands shown"
-              options={RANGES.map(r => ({ label: r.label, value: r.n, disabled: r.n > 0 && r.n >= lastHand }))}
-              value={range && range < lastHand ? range : 0}
-              onChange={setRange}
-            />
+          <Field label="Family" full>
+            <Toggles label="Family" items={families.map(f => ({ label: f, on: fams.includes(f), disabled: !inPool.has(f) && !fams.includes(f), toggle: () => setFams(toggle(fams, f)) }))}>
+              {fams.length > 0 && <button onClick={() => setFams([])} className="py-1 text-[13px] underline">Clear</button>}
+            </Toggles>
           </Field>
         </motion.div>
       )}
@@ -770,6 +847,7 @@ export default function CumulativeChart({
           data-plot={`${padTop.toFixed(1)},${plotH.toFixed(1)}`}
           data-y-range={`${Y0},${Y1}`}
           data-y-fit={`${want[0]},${want[1]}`}
+          data-live={live ? '' : undefined} // overtakes count (no scene tween running)
           layout={race}
           layoutDependency={`${mini}:${s}:${box.w}:${box.h}`}
           transition={GLIDE}
@@ -811,12 +889,12 @@ export default function CumulativeChart({
               <g clipPath={`url(#${clipId})`}>
                 {bandPath && <path d={bandPath} fill={modelColor(sel!.name)} opacity={0.14} />}
                 {evDrawn.map(({ n, p, o }) => (luck || n === hot?.name) && p.length ? (
-                  <path key={`ev:${n}`} d={line(p)} fill="none" stroke={modelColor(n)} strokeWidth={1.5} strokeDasharray="5 4" opacity={(!hot || n === hot.name ? 0.7 : 0.2) * o} />
+                  <path key={`ev:${n}`} d={path(n, p)} fill="none" stroke={modelColor(n)} strokeWidth={1.5} strokeDasharray="5 4" opacity={(!hot || n === hot.name ? 0.7 : 0.2) * o} />
                 ) : null)}
                 {[...ordered.filter(m => m.name !== emphOn), ...ordered.filter(m => m.name === emphOn)].map(m => (
                   <path
                     key={m.name}
-                    d={line(drawn.get(m.name)!)}
+                    d={path(m.name, drawn.get(m.name)!)}
                     fill="none"
                     stroke={modelColor(m.name)}
                     strokeWidth={m === hot || m === sel ? 3 : m.name === emphOn ? 2 + 1.5 * emph : 2}
@@ -836,8 +914,8 @@ export default function CumulativeChart({
                 <g key={e.m.name} opacity={(hot && hot !== e.m ? 0.3 : 1) * e.o}>
                   {Math.abs(pillYs[i] - e.ty) > pillH / 2 && <path data-leader d={`M${e.tx},${e.ty}L${e.tx + PILL_GAP},${pillYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none" opacity={0.7} />}
                   {e.off
-                    ? <path data-off-axis={e.off < 0 ? 'up' : 'down'} d={`M${e.tx},${e.ty + e.off * 6}l-5,${-e.off * 9}h10z`} fill={modelColor(e.m.name)} stroke="white" strokeWidth={1.5} strokeLinejoin="round" />
-                    : <circle cx={e.tx} cy={e.ty} r={3.5} fill={modelColor(e.m.name)} stroke="white" strokeWidth={1.5} />}
+                    ? <path data-tip={e.m.name} data-off-axis={e.off < 0 ? 'up' : 'down'} d={`M${e.tx},${e.ty + e.off * 6}l-5,${-e.off * 9}h10z`} fill={modelColor(e.m.name)} stroke="white" strokeWidth={1.5} strokeLinejoin="round" style={POP_ORIGIN} />
+                    : <circle data-tip={e.m.name} cx={e.tx} cy={e.ty} r={3.5} fill={modelColor(e.m.name)} stroke="white" strokeWidth={1.5} style={POP_ORIGIN} />}
                 </g>
               ))}
               {hover && (
@@ -851,7 +929,7 @@ export default function CumulativeChart({
             </svg>
             {race && !shown.length && (
               <p className="absolute inset-0 flex items-center justify-center text-[14px]" style={{ color: MUTED }}>
-                {listed.length ? 'Every line is switched off in the legend.' : rate ? `No model here has played ${RATE_FROM} hands yet.` : 'No model matches these filters.'}
+                {listed.length ? 'Every line is switched off in the legend.' : 'No model matches these filters.'}
               </p>
             )}
             {race && ends.map((e, i) => (
@@ -962,7 +1040,9 @@ export default function CumulativeChart({
         </div>
         {/* The legend, Arena style: a click switches a line off or on, hovering brings it forward. */}
         {interactive && listed.length > 0 && (
-          <motion.div {...appear} role="group" aria-label="Lines shown" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px]">
+          // It fills the room set aside under the plot (LEGEND_H, 4px of it the margin), its rows centred, so a short legend
+          // leaves no band under it; never shorter than its rows (shrink-0: a flex item's set min-height would let it shrink).
+          <motion.div {...appear} role="group" aria-label="Lines shown" className="mt-1 flex shrink-0 flex-wrap content-center items-center gap-x-3 gap-y-0.5 text-[13px]" style={{ minHeight: LEGEND_H - 4 }}>
             {listed.map(m => {
               const shownNow = !hidden.includes(m.name);
               const inView = shown.includes(m); // the legend follows the lines in view: one out of the camera's window dims
@@ -981,8 +1061,6 @@ export default function CumulativeChart({
                 </button>
               );
             })}
-            {rate && <span className="ml-auto" style={{ color: MUTED }}>Lines start at {RATE_FROM} hands · hover for every model · click a label for its 95% band</span>}
-            {young && <span className="ml-auto" style={{ color: MUTED }}>Showing chips: bb/100 starts once a model has played {RATE_FROM} hands.</span>}
           </motion.div>
         )}
       </div>
@@ -1016,15 +1094,17 @@ export default function CumulativeChart({
   );
 }
 
-// A control in the bar: its name, then the control.
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="flex items-center gap-2"><span>{label}</span>{children}</div>;
+// A control in the bar: its name, then the control. The name is as tall as a control (29px), so it lines up with the
+// control's first row. `full`: a row of its own.
+function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
+  return <div className={`flex min-w-0 items-start gap-2 ${full ? 'basis-full' : ''}`}><span className="shrink-0 py-1">{label}</span>{children}</div>;
 }
 
-// Buttons in the same tray as Segmented, each pressed on its own (Family, All-in EV).
-function Toggles({ label, items, title }: { label: string; items: { label: string; on: boolean; disabled?: boolean; toggle: () => void }[]; title?: string }) {
+// On/off toggles as chips (Family, All-in EV), each pressed on its own: the tray's colours (grey off, white on), 29px
+// tall as a tray, 4px apart; a long row wraps chip by chip. `children` follow the chips (Family's Clear).
+function Toggles({ label, items, title, children }: { label: string; items: { label: string; on: boolean; disabled?: boolean; toggle: () => void }[]; title?: string; children?: React.ReactNode }) {
   return (
-    <div role="group" aria-label={label} className="flex flex-wrap rounded p-0.5 text-[14px]" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
+    <div role="group" aria-label={label} className="flex min-w-0 flex-wrap items-start gap-1 text-[14px]">
       {items.map(o => (
         <button
           key={o.label}
@@ -1032,12 +1112,14 @@ function Toggles({ label, items, title }: { label: string; items: { label: strin
           disabled={o.disabled}
           aria-pressed={o.on}
           title={title}
-          className="rounded px-3 py-0.5 font-medium disabled:opacity-40"
-          style={o.on ? { background: 'white', color: TEXT, boxShadow: SHADOW } : { color: MUTED }}
+          data-chip
+          className="rounded px-2 py-1 font-medium disabled:opacity-40"
+          style={o.on ? { background: 'white', color: TEXT, boxShadow: SHADOW } : { background: 'rgba(55, 53, 47, 0.06)', color: MUTED }}
         >
           {o.label}
         </button>
       ))}
+      {children}
     </div>
   );
 }
