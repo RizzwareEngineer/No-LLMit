@@ -315,6 +315,9 @@ function Grid({
     <motion.tr
       key={m.name}
       layout={reduce ? false : 'position'}
+      // Rows slide when the reader re-sorts, and follow the tile↔card glide; data reorders (the
+      // History replay steps every snapshot, a live hand) snap, so rows never cross mid-slide.
+      layoutDependency={`${mini}|${sort.key}|${sort.desc}`}
       {...SLIDE}
       className={`lift relative hover:z-10 ${rowH} ${mini ? '' : 'cursor-pointer'}`}
       tabIndex={mini ? undefined : 0}
