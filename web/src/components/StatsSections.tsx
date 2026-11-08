@@ -185,6 +185,17 @@ export default memo(function StatsSections({
         document.getElementById(TILES[at].panel)?.focus({ preventScroll: true });
       }));
     };
+    // Once the page sits on a card's screen, every card under it is hidden outright, from the scroll
+    // position alone (the scroll-driven recede only fades it, and can miss a jump): the opened card
+    // is the only one on screen after any jump, wheel, key or click. Scrolling back up shows it again.
+    const hideUnder = () => {
+      const y = window.scrollY + 1;
+      const reached = (el: HTMLElement | null) => !!el && y >= el.getBoundingClientRect().top + window.scrollY;
+      const hide = (el: HTMLElement | null, on: boolean) => (on ? el?.style.setProperty('opacity', '0', 'important') : el?.style.removeProperty('opacity'));
+      hide(stage.current, reached(statsScreen.current));
+      hide(statsCard.current, reached(pairwiseScreen.current));
+    };
+    hideUnder();
     const onOpen = (e: Event) => open((e as CustomEvent<Tile>).detail);
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open]') && back();
     window.addEventListener('screenchange', onScreen);
@@ -192,6 +203,8 @@ export default memo(function StatsSections({
     window.addEventListener('overview', back);
     window.addEventListener('tileopen', onOpen);
     window.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', hideUnder, { passive: true });
+    window.addEventListener('resize', hideUnder);
     return () => {
       io.disconnect();
       window.removeEventListener('screenchange', onScreen);
@@ -199,6 +212,8 @@ export default memo(function StatsSections({
       window.removeEventListener('overview', back);
       window.removeEventListener('tileopen', onOpen);
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', hideUnder);
+      window.removeEventListener('resize', hideUnder);
     };
   }, []);
 
