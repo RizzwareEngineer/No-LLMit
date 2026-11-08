@@ -150,7 +150,10 @@ export default function Home() {
   useEffect(() => {
     if (!window.location.hash || isModelHash(window.location.hash)) return;
     history.replaceState(null, "", window.location.pathname + window.location.search);
-    window.scrollTo({ top: 0, behavior: "instant" });
+    const top = () => window.scrollTo({ top: 0, behavior: "instant" });
+    top();
+    // A production build hydrates before the load event, and the browser still scrolls to the old anchor until then.
+    if (document.readyState !== "complete") window.addEventListener("load", top, { once: true });
   }, []);
   const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
 
