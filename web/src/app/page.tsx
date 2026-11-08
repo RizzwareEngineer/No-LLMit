@@ -336,8 +336,9 @@ export default function Home() {
 
   return (
     <MotionConfig reducedMotion="user">
-    {/* --bar-h: room the connection bar takes at the bottom, so it never covers a screen's edge. */}
-    <div className="px-3 lg:px-4" style={{ background: '#FFFFFF', ['--bar-h' as string]: !isConnected || error ? '40px' : '0px' }}>
+    {/* --bar-h: room the connection bar takes at the bottom, so it never covers a screen's edge. data-page: the page's
+        one background (globals.css) behind every screen. */}
+    <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: !isConnected || error ? '40px' : '0px' }}>
       <main className="flex flex-col items-center-safe">
       {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
       <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-auto flex flex-col items-center-safe justify-center-safe pt-3 pb-[calc(1rem+var(--bar-h))] lg:pt-4">

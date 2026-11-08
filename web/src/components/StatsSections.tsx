@@ -16,9 +16,10 @@ import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, u
 type Stats = ReturnType<typeof useStats>;
 
 // Screens 2-6, each an empty full-height snap point in the page flow. Over them sits one layer:
-// the overview stage (pinned from the overview on), About (the main scroll's last screen, sliding up
-// over the overview), the History screen, where the History tile fills the stage, then the Profiles and
-// Matchups cards, which slide up over it as stacked cards while the card under them recedes.
+// the overview stage, About (the main scroll's last screen, under the overview in the flow: the two move
+// like pages), the History screen, where the History tile fills the stage, then the Profiles and
+// Matchups cards, which slide up over it as stacked cards while the card under them recedes. The stage
+// scrolls with the page on the main scroll and is pinned for the cards' loop (data-pin).
 // Main scroll: table, overview, About. The cards are a loop entered from the overview's tiles: paging
 // moves History, Profiles, Matchups, and up on History or down on Matchups goes back to the overview
 // (data-back, read by pageBy). The URL never names a screen (only the model drawer's #model=).
@@ -142,6 +143,10 @@ export default memo(function StatsSections({
   useEffect(() => {
     let target: string | null = null;
     let busy = false; // a glide from a click or Back is running: arrivals leave the stage alone
+    // The stage moves with the page on the main scroll (table, overview, About) and is pinned from half-way between
+    // About and Trends on (the cards' loop, whose cards slide over it). Only a scrollbar drag stops in between.
+    const pin = (on = (document.getElementById('race')?.getBoundingClientRect().top ?? innerHeight) < innerHeight / 2) =>
+      stage.current?.toggleAttribute('data-pin', on);
     const put = (on: Tile | null, snap = false) => {
       // A tile about to slide off goes inert, and inert taking focus away cancels a running page
       // scroll: hand focus to the tile that stays first.
@@ -187,6 +192,7 @@ export default memo(function StatsSections({
       if (busy) return;
       busy = true;
       hold(glide());
+      pin(true); // before the jump into the loop (on the overview pinned or not looks the same)
       put(tile);
       setTimeout(() => {
         busy = false;
@@ -223,6 +229,7 @@ export default memo(function StatsSections({
       const hide = (el: HTMLElement | null, on: boolean) => (on ? el?.style.setProperty('opacity', '0', 'important') : el?.style.removeProperty('opacity'));
       hide(stage.current, reached(statsScreen.current));
       hide(statsCard.current, reached(pairwiseScreen.current));
+      pin();
     };
     hideUnder();
     const onOpen = (e: Event) => open((e as CustomEvent<Tile>).detail);
@@ -309,8 +316,6 @@ export default memo(function StatsSections({
       // A click on the page around a detail screen's card (not on the card) goes back to the overview.
       onClick={e => !(e.target as Element).closest('.card-chrome') && backToOverview()}
     >
-      {/* Off-white behind the stats cards, edge to edge (the page pads its sides), so a card reads as a card. */}
-      <div aria-hidden className="absolute inset-y-0 -inset-x-3 lg:-inset-x-4 -z-10" style={{ background: PAGE }} />
       {SCREENS.map(s => (
         <div
           key={s.id}
@@ -325,11 +330,11 @@ export default memo(function StatsSections({
         />
       ))}
       <div data-stage className="absolute inset-0">
-        {/* The overview stage: pinned from the overview to the end. The top padding clears the
-            sticky bar (44px) plus the table screen's own outer padding; the clip, at the window's
+        {/* The overview stage: in the page's flow on the main scroll, pinned for the cards' loop (data-pin). The top
+            padding clears the sticky bar (44px) plus the table screen's own outer padding; the clip, at the window's
             edges (the page pads its sides), keeps tiles sliding off from adding a page scrollbar.
             Phones (PHONE) scroll it instead: the tiles stack at their content's size. */}
-        <Recede by={statsScreen} timeline="--card-stats" ref={stage} scrolls className="sticky top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px] max-md:overflow-x-hidden max-md:overflow-y-auto">
+        <Recede by={statsScreen} timeline="--card-stats" ref={stage} scrolls className="sticky data-pin:top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px] max-md:overflow-x-hidden max-md:overflow-y-auto">
           <div className={`@container ${BLOCK} ${PAD} max-md:h-auto max-md:min-h-full max-md:pb-[var(--bar-h,0px)]`} style={BLOCK_VARS}>
             {/* Overview: three tiles, each a miniature of its screen, Trends on top (stacked on phones).
                 Trends' row is its chart's shape at the block's width plus the tile's padding and header
@@ -393,10 +398,14 @@ export default memo(function StatsSections({
           </motion.div>
         </Recede>
 
-        {/* About: a sheet over the overview (the page's own colour, edge to edge), scrolling inside itself when taller than the window. */}
-        <section aria-label="About" className="relative z-10 h-svh -mx-3 lg:-mx-4 bg-white">
-          <div className="panel-scroll h-full overflow-auto pt-[calc(44px+2svh)] pb-[calc(2svh+var(--bar-h,0px))]">
-            <div className="max-w-[1300px] mx-auto px-6 py-6"><About heading="h2" /></div>
+        {/* About: the screen under the overview, its cards in the overview's block (width, centre, margins), centred in the
+            window; taller than the window (a phone), it scrolls inside itself. Opaque in the page's colour, so a scrollbar
+            dragged on towards Trends never shows the stage pinning under it. */}
+        <section aria-label="About" className="relative z-10 h-svh -mx-3 lg:-mx-4 bg-(--page)">
+          <div className="panel-scroll h-full overflow-auto">
+            <div className={`min-h-full flex flex-col justify-center-safe px-3 lg:px-4 ${PAD}`}>
+              <div className="w-full md:max-w-(--block-w) mx-auto" style={BLOCK_VARS}><About heading="h2" /></div>
+            </div>
           </div>
         </section>
 
@@ -468,7 +477,6 @@ function SyncedProfiles({ tl, models, seated, mini = false }: { tl: Timeline | n
   return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} mini={mini} /></div>;
 }
 
-const PAGE = '#FAFAF9';
 const SLIDE_MS = 320; // a Profiles row's slide (StatsTable's SLIDE), and a frame to spare
 const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1 min-w-0'; // a card header's extras
 

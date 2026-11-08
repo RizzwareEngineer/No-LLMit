@@ -55,7 +55,7 @@ const COVERS = [
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
   [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope)/],
   [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads)/],
-  [/components\/About\.tsx|app\/about\/|lib\/systemPrompt\./, /^(about-button|main-scroll|no-stats-hash|scroll-consistency)/],
+  [/components\/About\.tsx|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|main-scroll|no-stats-hash|scroll-consistency)/],
 ];
 function changedChecks() { // a Set of ids, or null for every check
   const git = c => execSync(c, { cwd: new URL('../..', import.meta.url), encoding: 'utf8' }).split('\n').filter(Boolean);
@@ -1173,6 +1173,138 @@ group(() => check('about-button', '"About ↓" sits under the overview in the ba
     await p.close();
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// Owner, 2026-11-08: "the background color for the table page is different from the background color for the stats page
+// and the About page. Why is it like a whole new window that shows up?" One page colour behind the table screen, the
+// overview and About: the colour painted at the page's side margins (every box hit there composited over the canvas), at
+// rest on each screen and half-way between two (no seam where one screen meets the next).
+main(() => check('pages-one-background', 'One page background: the table screen, the stats overview and About show the same colour at their margins, at rest and half-way between them (no seam)', async () => {
+  const p = await sharedAt(1440, 900);
+  const r = await p.evaluate(() => {
+    const rgba = c => { const v = (c.match(/[\d.]+/g) || []).map(Number); return v.length < 3 ? [0, 0, 0, 0] : [v[0], v[1], v[2], v[3] ?? 1]; };
+    const alpha = e => { let o = 1; for (; e; e = e.parentElement) o *= +getComputedStyle(e).opacity; return o; };
+    const [html, body] = [document.documentElement, document.body].map(e => rgba(getComputedStyle(e).backgroundColor));
+    // The canvas takes the root's background, else the body's (which then paints nowhere else), else white.
+    const canvas = html[3] > 0 ? html : body[3] > 0 ? body : [255, 255, 255, 1];
+    const at = (x, y) => document.elementsFromPoint(x, y).reverse().reduce((col, e) => {
+      if (e === document.documentElement || (e === document.body && html[3] === 0)) return col;
+      const c = rgba(getComputedStyle(e).backgroundColor), a = c[3] * alpha(e);
+      return col.map((v, i) => v * (1 - a) + c[i] * a);
+    }, canvas.slice(0, 3)).map(Math.round).join(',');
+    const top = el => el.getBoundingClientRect().top + scrollY;
+    const t = top(document.querySelector('section[data-screen]')), s = top(document.getElementById('stats')), a = top(document.getElementById('about'));
+    const w = document.documentElement.clientWidth, out = {};
+    for (const [name, y] of [['table', t], ['table|overview', (t + s) / 2], ['overview', s], ['overview|About', (s + a) / 2], ['About', a]]) {
+      window.scrollTo({ top: y, behavior: 'instant' });
+      // Both side margins, top to bottom (the sticky bar and a connection bar aside).
+      const seen = new Set();
+      for (let py = 60; py < innerHeight - 50; py += 40) for (const px of [6, w - 6]) seen.add(at(px, py));
+      out[name] = [...seen];
+    }
+    window.scrollTo({ top: s, behavior: 'instant' });
+    return out;
+  });
+  const all = new Set(Object.values(r).flat());
+  return { pass: all.size === 1, detail: Object.entries(r).map(([k, v]) => `${k} ${v.map(c => `rgb(${c})`).join(' + ')}`).join(', ') };
+}));
+// The same words: "All the assets in the stats stay put. I thought they would move because it just feels like we're
+// overlaying a given page on top of the stats, rather than moving on to a new page." Paging table → overview → About and
+// back, both screens move with the page: in every frame each one's content keeps its place on its own screen (nothing
+// pinned, nothing sliding over), the outgoing content's top edge travels most of the window's height, and once the
+// gesture lands nothing of the outgoing screen is left on screen.
+late(() => check('pages-move', 'The main screens move like pages: table → overview → About and back (key and wheel), the outgoing screen\'s content scrolls away with the page while the next comes in, and none of it stays on screen when the gesture lands', async () => {
+  const bad = [], seen = [];
+  const p = await pageAt(1440, 900);
+  await p.mouse.move(30, 450); // the page's side margin, as in main-scroll
+  // Each main screen: its snap point and the top of its content (offsets are read against the snap point).
+  const MARK = { table: ['section[data-screen]', 'section[data-screen] > div'], stats: ['#stats', '#race-panel'], about: ['#about', 'section[aria-label=About] :is(h1, h2)'] };
+  const LEGS = [['table', 1, 'stats'], ['stats', 1, 'about'], ['about', -1, 'stats'], ['stats', -1, 'table']];
+  // A key and a wheel notch: one gesture each (whether a long swipe stays one gesture is main-scroll's and scroll-consistency's).
+  for (const kind of ['PageDown', 'wheel notch']) {
+    await p.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(900);
+    for (const [from, dir, to] of LEGS) {
+      await p.evaluate(M => {
+        const row = () => Object.fromEntries(Object.entries(M).map(([k, [snap, mark]]) => {
+          const t = document.querySelector(mark).getBoundingClientRect().top;
+          return [k, [t - document.querySelector(snap).getBoundingClientRect().top, t]];
+        }));
+        const m = (window.__pm = { f: [row()], on: true });
+        const f = () => { m.f.push(row()); if (m.on) requestAnimationFrame(f); };
+        requestAnimationFrame(f);
+      }, MARK);
+      const r = await step(p, kind, dir);
+      const out = await p.evaluate((from, to) => {
+        const m = window.__pm; m.on = false;
+        // The worst frame's offset from where the screen's content sits on its own screen.
+        const drift = k => Math.max(...m.f.map(row => Math.abs(row[k][0] - m.f[0][k][0])));
+        // Everything of the outgoing screen still on screen: its content, and the overview's "About ↓".
+        const SEL = { table: 'section[data-screen] > *', stats: '#race-panel, #stats-panel, #pairwise-panel', about: 'section[aria-label=About] :is(h1, h2, h3, p, a, button, footer, pre, .card-chrome)' };
+        const els = [...document.querySelectorAll(SEL[from])];
+        if (from === 'stats') els.push([...document.querySelectorAll('[data-stage] button')].find(b => b.textContent.trim() === 'About'));
+        const left = els.filter(e => { const b = e?.getBoundingClientRect(); return b && b.width > 0 && b.height > 0 && b.bottom > 1 && b.top < innerHeight - 1; })
+          .map(e => e.id || e.textContent.trim().slice(0, 16) || e.tagName.toLowerCase());
+        return { out: drift(from), in: drift(to), travel: Math.abs(m.f.at(-1)[from][1] - m.f[0][from][1]), left, frames: m.f.length, h: innerHeight };
+      }, from, to);
+      const name = `${kind} ${from} ${dir > 0 ? '↓' : '↑'} ${to}`;
+      seen.push(`${name}: out ${out.travel.toFixed(0)}px, drift ${out.out.toFixed(0)}/${out.in.toFixed(0)}px over ${out.frames} frames`);
+      if (r.id !== to) { bad.push(`${name}: landed on ${r.id ?? `y ${r.y}`}`); break; }
+      const why = [];
+      if (out.out > 2) why.push(`${from} drifts ${out.out.toFixed(0)}px on its screen (pinned or sliding)`);
+      if (out.in > 2) why.push(`${to} drifts ${out.in.toFixed(0)}px on its screen (pinned underneath or sliding over)`);
+      if (out.travel < 0.8 * out.h) why.push(`${from} moved ${out.travel.toFixed(0)}px`);
+      if (out.left.length) why.push(`still on screen: ${[...new Set(out.left)].slice(0, 4).join(', ')}`);
+      if (why.length) bad.push(`${name}: ${why.join(', ')}`);
+      await sleep(350);
+    }
+  }
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// Owner, 2026-11-08: "the About page in general just doesn't look like it belongs, so we need to change the UX/UI of the
+// About page to fit in with the rest." About is made of the stats cards (the same chrome: radius, ring and shadow, padding,
+// white), its text is on the stats type scale (card titles 20px bold, body 14px, labels 13px muted, links blue, the body's
+// sans; the system prompt's code aside), no heading carries an emoji, and it fits one window at the overview's width and
+// centre (not wall to wall) at 1440x900 and 1728x1117.
+main(() => check('about-fits', 'About is built from the stats cards (radius, ring/shadow, padding), on the stats type scale (titles 20px bold, body 14px, labels 13px muted, body sans), with no emoji in its headings; it fits one window at the overview\'s width and centre at 1440x900 and 1728x1117', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
+    const p = await sharedAt(w, h, 'about');
+    const r = await p.evaluate(() => {
+      const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)';
+      const about = document.querySelector('section[aria-label=About]'), race = document.getElementById('race-panel');
+      const why = new Set();
+      // The cards: the stats cards' chrome, computed exactly as an overview tile's.
+      const ref = getComputedStyle(race), KEYS = ['borderTopLeftRadius', 'boxShadow', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'backgroundColor'];
+      const cards = [...about.querySelectorAll('.card-chrome')].filter(c => c.getBoundingClientRect().width > 0);
+      if (cards.length < 4) why.add(`${cards.length} stats cards`);
+      for (const c of cards) { const s = getComputedStyle(c); for (const k of KEYS) if (s[k] !== ref[k]) why.add(`card ${k} ${s[k]}, not ${ref[k]}`); }
+      // Every visible piece of text by its role: a heading is a card title, else body (14px) or a label (13px, muted).
+      const body = getComputedStyle(document.body).fontFamily;
+      const texts = [...about.querySelectorAll('*')].filter(e => !e.closest('pre, code, svg, .sr-only') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+      for (const e of texts) {
+        const s = getComputedStyle(e), size = parseFloat(s.fontSize), name = `"${e.textContent.trim().slice(0, 20)}"`, link = !!e.closest('a');
+        if (s.fontFamily !== body) why.add(`${name} in ${s.fontFamily.split(',')[0]}`);
+        if (e.closest('h1, h2, h3, h4, h5, h6')) { if (size !== 20 || +s.fontWeight !== 700 || s.color !== TEXT) why.add(`heading ${name} ${size}px ${s.fontWeight} ${s.color}`); }
+        else if (size === 14) { if (s.color !== (link ? BLUE : TEXT)) why.add(`body ${name} ${s.color}`); }
+        else if (size === 13) { if (s.color !== (link ? BLUE : MUTED)) why.add(`label ${name} ${s.color}`); }
+        else why.add(`${name} ${size}px`);
+      }
+      const emoji = [...about.querySelectorAll('h1, h2, h3, h4, h5, h6')].map(e => e.textContent.trim()).filter(t => /\p{Extended_Pictographic}/u.test(t));
+      // One window: nothing to scroll, everything under the sticky bar and above the window's edge, at the overview's edges.
+      const scroller = about.querySelector('.panel-scroll') ?? about;
+      const boxes = (cards.length ? [...cards, ...about.querySelectorAll('footer')] : texts).map(e => e.getBoundingClientRect());
+      const L = Math.min(...boxes.map(b => b.left)), R = Math.max(...boxes.map(b => b.right)), T = Math.min(...boxes.map(b => b.top)), B = Math.max(...boxes.map(b => b.bottom));
+      const o = race.getBoundingClientRect();
+      return { why: [...why], emoji, over: scroller.scrollHeight - scroller.clientHeight, T, B, L, R, oL: o.left, oR: o.right, h: innerHeight, n: cards.length };
+    });
+    seen.push(`${w}x${h}: ${r.n} cards ${r.L.toFixed(0)}..${r.R.toFixed(0)} x ${r.T.toFixed(0)}..${r.B.toFixed(0)} (overview ${r.oL.toFixed(0)}..${r.oR.toFixed(0)})`);
+    const why = [...r.why];
+    if (r.emoji.length) why.push(`emoji in ${r.emoji.join(', ')}`);
+    if (r.over > 1 || r.T < 44 || r.B > r.h) why.push(`does not fit the window (${r.over > 1 ? `scrolls ${r.over}px, ` : ''}${r.T.toFixed(0)}..${r.B.toFixed(0)} of ${r.h})`);
+    if (Math.abs(r.L - r.oL) > 2 || Math.abs(r.R - r.oR) > 2) why.push(`${r.L.toFixed(0)}..${r.R.toFixed(0)} wide, not the overview's ${r.oL.toFixed(0)}..${r.oR.toFixed(0)}`);
+    if (why.length) bad.push(`${w}x${h}: ${why.slice(0, 8).join('; ')}`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
 }));
 // Opens a card from the overview the way a visitor does (a click on its tile), and waits for the glide.
 const median = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return Math.round(b[b.length >> 1]); };

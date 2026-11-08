@@ -1,7 +1,9 @@
 'use client';
 
-import { CaretRight } from '@phosphor-icons/react';
+import { ArrowUpRight, CaretRight } from '@phosphor-icons/react';
 import { useState } from 'react';
+import { CARD, CARD_SHADOW, HEADER, NEXT_STYLE, TITLE } from '@/components/Section';
+import { MUTED, TEXT } from '@/lib/stats';
 import { SYSTEM_PROMPT } from '@/lib/systemPrompt';
 
 const EXAMPLE_INPUT = `Hand #12. No Limit Texas Hold'em cash game, blinds 5/10, 3 players.
@@ -28,233 +30,150 @@ const EXAMPLE_OUTPUT = `ACTION: BET
 AMOUNT: 40
 REASON: Top pair with a strong kicker. Betting for value.`;
 
+const BLUE = 'rgb(35, 131, 226)';
+
+// A link out, in the site's link blue.
+function Out({ href, children }: { href: string; children: React.ReactNode }) {
+  return <a href={href} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: BLUE }}>{children}</a>;
+}
+
+// Secondary text: 13px muted, the stats cards' definition lines.
+function Label({ as: Tag = 'p', children }: { as?: 'p' | 'li'; children: React.ReactNode }) {
+  return <Tag className="text-[13px] leading-snug" style={{ color: MUTED }}>{children}</Tag>;
+}
+
+// The prompt and the example call, as code.
+function Code({ children }: { children: string }) {
+  return (
+    <pre className="p-3 rounded-lg text-[12px] leading-relaxed overflow-x-auto whitespace-pre-wrap" style={{ background: 'rgba(55, 53, 47, 0.04)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+      {children}
+    </pre>
+  );
+}
+
 function Toggle({ title, children }: { title: string; children: React.ReactNode }) {
-  const [isOpen, setIsOpen] = useState(false);
-  
+  const [open, setOpen] = useState(false);
   return (
     <div>
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 text-[14px] font-medium hover:bg-[rgba(55,53,47,0.04)] rounded px-1 -ml-1 py-0.5 transition-colors w-full text-left"
-        style={{ color: 'rgb(55, 53, 47)' }}
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex items-center gap-1 w-full rounded px-1 -ml-1 py-0.5 text-left font-medium hover:bg-[rgba(55,53,47,0.04)] transition-colors"
       >
-        <CaretRight 
-          size={14} 
-          weight="bold"
-          className={`transition-transform opacity-50 ${isOpen ? 'rotate-90' : ''}`}
-        />
+        <CaretRight size={14} weight="bold" aria-hidden className={`opacity-50 transition-transform ${open ? 'rotate-90' : ''}`} />
         {title}
       </button>
-      {isOpen && (
-        <div className="mt-2 ml-4">
-          {children}
-        </div>
-      )}
+      {open && <div className="mt-1 mb-2 ml-[18px] flex flex-col gap-2">{children}</div>}
     </div>
   );
 }
 
-// The About content: the /about page, and the home page's last screen (where the page's own h1 is the title, so it is an h2).
-export default function About({ heading: Heading = 'h1' }: { heading?: 'h1' | 'h2' }) {
+// One card: the stats cards' chrome and title, body text at 14px.
+function Card({ title, as: H = 'h2', className = '', children }: { title: string; as?: 'h1' | 'h2'; className?: string; children: React.ReactNode }) {
   return (
-    <>
-      
-      {/* ROW 1: Hero */}
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-3xl">🃏</span>
-          <Heading className="text-3xl font-bold" style={{ color: 'rgb(55, 53, 47)' }}>No-LLMit</Heading>
-        </div>
-        <p className="text-[15px] text-[rgb(55,53,47)] opacity-65 leading-relaxed">
-          Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game (or, soon, tournament)!
-        </p>
+    <div className={`${CARD} relative ${className}`} style={{ boxShadow: CARD_SHADOW }}>
+      <div className={HEADER}>
+        <H className={TITLE} style={{ color: TEXT }}>{title}</H>
       </div>
+      <div className="flex flex-col gap-1 text-[14px] leading-snug" style={{ color: TEXT }}>{children}</div>
+    </div>
+  );
+}
 
-      <div className="border-b border-[rgba(55,53,47,0.09)] mb-8" />
+// The About content: the /about page, and the home page's last screen (where the page's own h1 is the title, so the
+// first card's title is an h2). Its parent sets the width (the stats overview's block on the home page). Two columns
+// of about equal height, so every card hugs its text (no row stretching a short card), then Coming next across both.
+export default function About({ heading = 'h1' }: { heading?: 'h1' | 'h2' }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2 md:items-start">
+      <div className="flex flex-col gap-3">
+        <Card title="About No-LLMit" as={heading}>
+          <p>Watch SOTA LLMs play a No Limit Texas Hold&apos;em cash game against each other, live.</p>
+          <p>Each one explains its move as it plays.</p>
+          <Label>Playing against them, and tournaments, are coming soon.</Label>
+        </Card>
 
-      {/* ROW 2: Technical - What is inside each LLM call */}
-      <div className="mb-6">
-        <Toggle title="The system prompt (identical for every LLM)">
-          <p className="text-[12px] mb-2 text-[rgb(55,53,47)] opacity-70">
-            Every call starts with this exact system prompt. No LLM gets different instructions, a persona, or strategy hints.
-          </p>
-          <pre
-            className="p-3 rounded-lg text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap border border-[rgba(55,53,47,0.09)] bg-[rgba(55,53,47,0.02)]"
-            style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
-          >
-            {SYSTEM_PROMPT}
-          </pre>
-        </Toggle>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div>
-          <Toggle title="What's inside each LLM call">
-            <p className="text-[12px] mb-2 text-[rgb(55,53,47)] opacity-70">
-              Every time it is an LLM&apos;s turn, we make one fresh call containing the current hand in plain text: all players&apos; positions and starting stacks, every action so far on every street, the board, the LLM&apos;s own hole cards, the pot, the amount to call, and its legal actions. Every LLM gets the same system prompt.
-            </p>
-            <pre 
-              className="p-3 rounded-lg text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap border border-[rgba(55,53,47,0.09)] bg-[rgba(55,53,47,0.02)]" 
-              style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
-            >
-              {EXAMPLE_INPUT}
-            </pre>
-          </Toggle>
-        </div>
-        <div>
-          <Toggle title="What each LLM call outputs">
-            <p className="text-[12px] mb-2 text-[rgb(55,53,47)] opacity-70">
-              Each call returns three lines of text: the chosen action (FOLD, CHECK, CALL, BET, RAISE, or ALL_IN), the amount (if applicable), and a brief reason explaining the decision.
-            </p>
-            <pre 
-              className="p-3 rounded-lg text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap border border-[rgba(55,53,47,0.09)] bg-[rgba(55,53,47,0.02)]" 
-              style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
-            >
-              {EXAMPLE_OUTPUT}
-            </pre>
-          </Toggle>
-        </div>
-      </div>
-
-      <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)] bg-orange-50 text-[13px] text-orange-800 mb-8">
-        <strong>No memory between calls.</strong> Each call stands alone: an LLM does not remember previous hands, how its opponents have played, or even its own earlier decisions in the same hand. Everything it knows is in the text of that one call.
-      </div>
-
-      <div className="border-b border-[rgba(55,53,47,0.09)] mb-8" />
-
-      {/* ROW 3: Limitations, Why Donate, Upcoming Features */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* Limitations */}
-        <div>
-          <h2 className="text-[16px] font-semibold mb-3" style={{ color: 'rgb(55, 53, 47)' }}>
-            ⚠️ Limitations
-          </h2>
-          <p className="text-[13px] text-[rgb(55,53,47)] opacity-60 mb-3">
-            To keep costs down, the table runs on a fixed monthly budget:
-          </p>
-          <div className="space-y-2">
-            <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)]">
-              {/* <div className="text-[10px] font-medium opacity-40 mb-0.5"></div> */}
-              <div className="text-xl font-semibold">Open 9am to 9pm ET, daily</div>
-              <div className="text-[11px] opacity-50 mt-1">Outside those hours the table is closed and no LLMs are called. A hand takes ~15 API calls across all 9 LLMs.</div>
-            </div>
-            {/* <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)]">
-              <div className="text-[10px] font-medium opacity-40 mb-0.5">Tokens / Request</div>
-              <div className="text-xl font-semibold">~500 max</div>
-              <div className="text-[11px] opacity-50 mt-1">We use ~256 on average</div>
-            </div> */}
+        <Card title="Every LLM call">
+          <p>Each turn is one fresh call, with the hand so far in plain text.</p>
+          <p>Every LLM gets the same system prompt.</p>
+          <div className="my-1">
+            <Toggle title="The system prompt">
+              <Label>Every call starts with this exact prompt: no persona, no strategy hints.</Label>
+              <Code>{SYSTEM_PROMPT}</Code>
+            </Toggle>
+            <Toggle title="What goes into each call">
+              <Label>
+                Every player&apos;s position and starting stack, every action on every street, the board, the LLM&apos;s own hole
+                cards, the pot, the amount to call and its legal actions.
+              </Label>
+              <Code>{EXAMPLE_INPUT}</Code>
+            </Toggle>
+            <Toggle title="What each call returns">
+              <Label>Three lines: the action (FOLD, CHECK, CALL, BET, RAISE or ALL_IN), the amount if any, and a short reason.</Label>
+              <Code>{EXAMPLE_OUTPUT}</Code>
+            </Toggle>
           </div>
-          <p className="text-[13px] text-[rgb(55,53,47)] opacity-60 mt-4 mb-2">
-            This works out to:
-          </p>
-          <div className="p-3 rounded-lg border border-[rgba(55,53,47,0.09)] bg-orange-50">
-            {/* <div className="text-[10px] font-medium opacity-40 mb-0.5"></div> */}
-            <div className="text-xl font-semibold text-orange-700">~150 hands per day</div>
-            <div className="text-[11px] opacity-50 mt-1">The average 5-hour session of live cash game poker has ~125 hands. </div>
-          </div>
-        </div>
+          <p className="font-semibold">No memory between calls.</p>
+          <Label>An LLM never sees earlier hands, how its opponents played, or its own earlier decisions in the hand.</Label>
+        </Card>
+      </div>
 
-        {/* Why Donate */}
-        <div>
-          <h2 className="text-[16px] font-semibold mb-3" style={{ color: 'rgb(55, 53, 47)' }}>
-            💝 Why Donate?
-          </h2>
-          <p className="text-[13px] text-[rgb(55,53,47)] opacity-60 mb-3">
-            <strong>$5 would be a huge help</strong> to cover:
-          </p>
-          <ul className="space-y-1.5 text-[13px] mb-4">
-            <li className="flex items-center gap-2">
-              <span>🔃</span>
-              <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">OpenRouter</a>
-            </li>
-            <li className="flex items-center gap-2">
-              <span>🚂</span>
-              <a href="https://railway.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Railway</a>
-            </li>
-            <li className="flex items-center gap-2">
-              <span>🧠</span>
-              <a href="https://thinkingmachines.ai/tinker/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Tinker</a>
-            </li>
+      <div className="flex flex-col gap-3">
+        <Card title="Limitations">
+          <p className="font-semibold">Open 9am to 9pm ET, daily.</p>
+          <Label>Outside those hours the table is closed and no LLMs are called.</Label>
+          <p className="mt-2 font-semibold">About 150 hands per day.</p>
+          <Label>The table runs on a fixed monthly budget.</Label>
+          <Label>A hand takes about 15 API calls across all 9 LLMs.</Label>
+          <Label>A 5-hour live cash game session has about 125 hands.</Label>
+        </Card>
+
+        <Card title="Donate">
+          <p>$5 would be a huge help to cover:</p>
+          <ul className="flex flex-col gap-1">
+            <Label as="li"><Out href="https://openrouter.ai/">OpenRouter</Out>, the LLM calls</Label>
+            <Label as="li"><Out href="https://railway.com">Railway</Out>, the servers</Label>
+            <Label as="li"><Out href="https://thinkingmachines.ai/tinker/">Tinker</Out>, training LLMs to play like you</Label>
           </ul>
-          <a 
+          <a
             href="https://github.com/sponsors/RizzwareEngineer"
             target="_blank"
             rel="noopener noreferrer"
-            className="block w-full text-center px-3 py-2 rounded text-[13px] font-medium bg-pink-100 text-pink-800 hover:bg-pink-200 transition-colors"
+            className="mt-2 self-start flex items-center gap-1.5 rounded-full border px-4 py-1.5 font-medium bg-white hover:bg-[rgba(55,53,47,0.04)] shadow-sm"
+            style={{ borderColor: NEXT_STYLE.borderColor, color: BLUE }}
           >
-            ❤️ Donate here!
+            Donate on GitHub Sponsors <ArrowUpRight size={14} weight="bold" aria-hidden />
           </a>
-        </div>
-
-        {/* Upcoming Features */}
-        <div>
-          <h2 className="text-[16px] font-semibold mb-3" style={{ color: 'rgb(55, 53, 47)' }}>
-          🫷Upcoming Features
-          </h2>
-          <div className="space-y-4 text-[14px]">
-            <div>
-              <p className="font-semibold mb-1">🌐 Open source datasets</p>
-              <p className="opacity-60 text-[13px] leading-relaxed">
-                Including all actions and reasoning each LLM took given all parameters seasoned poker players account for (hole cards, position, stack sizes, opponents&apos; actions earlier in the hand, etc.)
-              </p>
-            </div>
-            <div>
-              <p className="font-semibold mb-1">🏋️ Train an LLM to play like you</p>
-              <p className="opacity-60 text-[13px] leading-relaxed">
-                Utilizing{' '}
-                <a 
-                  href="https://github.com/thinking-machines-lab/tinker-cookbook" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline"
-                >
-                  Tinker
-                </a>
-                {' '}by Thinking Machine&apos;s Lab and hands played by the user against other LLMs, we can enable players to train their own LLM to play like them without leaving the platform!
-              </p>
-            </div>
-            <div>
-              <p className="font-semibold mb-1">🤔 LLM Council</p>
-              <p className="opacity-60 text-[13px] leading-relaxed">
-                With Andrej Karpathy&apos;s{' '}
-                <a 
-                  href="https://github.com/karpathy/llm-council" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline"
-                >
-                  LLM Council
-                </a>
-                {' '}we can analyze each LLM&apos;s performance.
-              </p>
-            </div>
-          </div>
-        </div>
-
+        </Card>
       </div>
 
-      <div className="border-b border-[rgba(55,53,47,0.09)] mt-10 mb-6" />
+      <Card title="Coming next" className="md:col-span-2">
+        <ul className="grid gap-x-6 gap-y-3 md:grid-cols-3">
+          <li className="flex flex-col gap-1">
+            <p className="font-semibold">Open source datasets</p>
+            <Label>Every action and reason each LLM gave, with what seasoned players weigh: hole cards, position, stacks and earlier actions.</Label>
+          </li>
+          <li className="flex flex-col gap-1">
+            <p className="font-semibold">Train an LLM to play like you</p>
+            <Label>
+              Using <Out href="https://github.com/thinking-machines-lab/tinker-cookbook">Tinker</Out> by Thinking Machines Lab and
+              your hands against the LLMs, without leaving the site.
+            </Label>
+          </li>
+          <li className="flex flex-col gap-1">
+            <p className="font-semibold">LLM Council</p>
+            <Label>
+              Andrej Karpathy&apos;s <Out href="https://github.com/karpathy/llm-council">LLM Council</Out> will analyze how each LLM plays.
+            </Label>
+          </li>
+        </ul>
+      </Card>
 
-      {/* Footer */}
-      <footer className="text-center text-[12px] opacity-40">
-        <a 
-          href="https://github.com/RizzwareEngineer/No-LLMit" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="hover:underline"
-        >
-          Open source on GitHub
-        </a>
-        {' '}·{' '}
-        <a 
-          href="https://github.com/RizzwareEngineer" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="hover:underline"
-        >
-          @RizzwareEngineer
-        </a>
+      <footer className="md:col-span-2 pt-1 text-center text-[13px]" style={{ color: MUTED }}>
+        <Out href="https://github.com/RizzwareEngineer/No-LLMit">Open source on GitHub</Out>
+        {' · '}
+        <Out href="https://github.com/RizzwareEngineer">@RizzwareEngineer</Out>
       </footer>
-    </>
+    </div>
   );
 }
