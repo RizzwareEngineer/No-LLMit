@@ -41,11 +41,13 @@ const replayHand = async pg => {
   return h;
 };
 
-// A fresh page at a window size, on the overview once the stats have loaded.
+// The stats cards have their data (a loaded machine can take far longer than a fixed wait).
+const waitStats = p => p.waitForFunction(() => document.querySelector('#pairwise-card td[data-cell]') && document.querySelector('#stats-panel tbody tr') && document.querySelector('#race-panel svg'), { timeout: 90000 }).catch(() => {});
+// A fresh page at a window size, on the screen `id` once the stats have loaded.
 const pageAt = async (w, h, id = 'stats') => {
   const p = await browser.newPage(); await p.setViewport({ width: w, height: h });
   await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await p.waitForFunction(id => document.getElementById(id), { timeout: 60000 }, id).catch(() => {});
+  await waitStats(p);
   await sleep(3000); await goto(p, id); await sleep(2000);
   return p;
 };
@@ -235,7 +237,8 @@ await check('sync-in-step', 'While History replays, Profiles and Matchups stay w
 // While the replay steps Profiles through its snapshots, rows never sit on top of each other. Rows
 // now slide to a new place (each cell's content moves; Chrome ignores transforms on a table row), and
 // two rows that swap cross mid-slide by design: the rule is judged on rows at rest.
-const nameOffsets = () => [...document.querySelectorAll('#stats-card tbody tr')].map(r => { const s = r.querySelector('th span'); return s ? { o: s.getBoundingClientRect().top - r.getBoundingClientRect().top, b: s.getBoundingClientRect() } : null; }).filter(Boolean);
+// Each row's name (the content that moves) and its offset from the row's top; rows without one (dash rows) are left out.
+const nameOffsets = () => [...document.querySelectorAll('#stats-card tbody tr')].map(r => { const s = r.querySelector('th > span.inline-block'); return s ? { o: s.getBoundingClientRect().top - r.getBoundingClientRect().top, b: s.getBoundingClientRect() } : null; }).filter(Boolean);
 await check('profiles-rows-no-overlap', 'During the replay, no two Profiles rows overlap (rows at rest)', async () => {
   await goto(pg, 'race'); await sleep(800); // Skip and Replay live on the History card
   const playing = () => pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
@@ -272,11 +275,11 @@ await check('profiles-rows-slide', 'When the replay reorders Profiles, rows slid
       if (order !== null && names !== order) reorders++;
       order = names;
       if (rows.length) { const rest = Math.min(...rows.map(x => x.o)); if (rows.some(x => x.o - rest > 4)) mid++; }
-      if (performance.now() - t0 < 9000 && mid < 3) requestAnimationFrame(loop); else res({ mid, frames, reorders });
+      if (performance.now() - t0 < 9000 && (mid < 3 || !reorders)) requestAnimationFrame(loop); else res({ mid, frames, reorders });
     };
     requestAnimationFrame(loop);
   }), `(${nameOffsets})`);
-  return { pass: r.mid >= 3, detail: `${r.reorders} reorders, ${r.mid} frames with a row mid-slide (of ${r.frames})` };
+  return { pass: r.mid >= 3 && r.reorders > 0, detail: `${r.reorders} reorders, ${r.mid} frames with a row mid-slide (of ${r.frames})` };
 });
 
 // Owner, 2026-11-07: "I still see the cells jiggle a bit when a number changes". A changed Matchups
@@ -524,7 +527,7 @@ await check('stats-any-viewport', 'The overview keeps its proportions from 1280x
   const bad = [];
   for (const [w, h] of [[1280, 720], [1440, 900], [2560, 1440], [3840, 2160]]) {
     const p2 = await browser.newPage(); await p2.setViewport({ width: w, height: h });
-    await p2.goto(BASE, { waitUntil: 'domcontentloaded' }); await sleep(4000);
+    await p2.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p2); await sleep(1000);
     await goto(p2, 'stats'); await sleep(2000);
     const m = await p2.evaluate(() => {
       const rows = [...document.querySelectorAll('#stats-panel tbody tr, #stats-panel [role=row]')].map(r => r.getBoundingClientRect().height).filter(x => x > 0);
