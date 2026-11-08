@@ -60,8 +60,8 @@ function flash(el: HTMLElement, delay: number) {
 
 // The grid's names column and its row of column logos, on the tile (StatsSections sizes the tile with them).
 // The tile has no Total column (owner, 2026-11-08: "no need for a [Total] column for preview of matchups"); the card does.
-export const NAMES = 140; // row names, at most
-const TOTALS = 72; // the card's Total column (14px figures)
+export const NAMES = 140; // row names on a phone's tile, at most (from md: --names, the longest name in full)
+export const TOTALS = 72; // the card's Total column (14px figures)
 export const STRIP = 18; // the column logos' row (28 in the card: 24px logos)
 // The tile's figures: one size for every cell and total, whatever the window (the card's are 14px).
 export const TILE_PX = 11;
@@ -168,25 +168,28 @@ export default memo(function HeadToHead({
   // The verdict's leader (row) and the model it took the most from (column), marked in the headers.
   const top = pairwiseLeader(sorted);
   const HOT = 'rgba(35, 131, 226, 0.12)';
-  // Square cells: the matrix is n×n squares under one short row of column logos (the row names to its left
-  // say who each row is), and grows from the tile into the card as one piece (motion layout on its box,
-  // about one aspect: no stretch). Row names sit to its left and (the card only) the totals to its right, edge to
-  // edge, centred. On the tile the matrix is the largest that fits the tile (a size container); in the card
-  // it is --card-m wide (StatsSections) and the card hugs it. One font size per place: 14px in the card,
-  // like Profiles' cells; TILE_PX on the tile. A figure keeps PAD clear each side and is shortened (+1.1k)
-  // only when it does not fit that.
+  // The matrix is n×n cells, Mw wide and Mh tall, under one short row of column logos (the row names to its left
+  // say who each row is), and grows from the tile into the card as one piece (motion layout on its box, one
+  // shape: no stretch). Row names sit to its left and (the card only) the totals to its right, edge to edge.
+  // On the tile (a size container) the names take their longest's width and the matrix the rest, as tall as the
+  // tile: from md its cells are wider than tall, on a phone (whose tile is sized for it) square, the names taking
+  // what is left. In the card it is --card-m by --card-mh (StatsSections: the tile's shape across the block; a
+  // phone's is square, globals.css) and the card hugs it. One font size per place: 14px in the card, like
+  // Profiles' cells; TILE_PX on the tile. A figure keeps PAD clear each side and is shortened (+1.1k) only when it
+  // does not fit that.
   const n = sorted.length;
   const px = mini ? TILE_PX : 14;
   const strip = mini ? STRIP : 28;
   const totals = mini ? 0 : TOTALS;
-  const names = mini ? `clamp(0px, 100cqw - (100cqh - ${strip}px) - ${totals}px, ${NAMES}px)` : 'auto';
-  const M = mini ? `min(100cqh - ${strip}px, 100cqw - ${names} - ${totals}px)` : 'var(--card-m-phone, var(--card-m))'; // the matrix's width: n cells (globals.css sets a phone's)
-  const slot = { height: `calc(${M} / ${n})` }; // a side column's row
-  const rowH = { height: `calc((${M} - ${n + 2}px) / ${n})` }; // a matrix row: square with a cell inside the 1px spacing (n + 2 of them across, with the row headers)
+  const names = mini ? `clamp(0px, 100cqw - (100cqh - ${strip}px), var(--names, ${NAMES}px))` : 'auto';
+  const Mw = mini ? `calc(100cqw - ${names})` : 'var(--card-m-phone, var(--card-m))';
+  const Mh = mini ? `min(100cqh - ${strip}px, 100cqw - ${names})` : 'var(--card-m-phone, var(--card-mh))'; // never taller than wide
+  const slot = { height: `calc(${Mh} / ${n})` }; // a side column's row
+  const rowH = { height: `calc((${Mh} - ${n + 2}px) / ${n})` }; // a matrix row: a cell inside the 1px spacing (n + 2 of them down, with the logos' row)
   const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
   return (
     <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : ''}`}>
-      {/* On the tile, a size container: the square takes the largest size that fits it. No scroller of its own. */}
+      {/* On the tile, a size container: the matrix takes what its names leave. No scroller of its own. */}
       {/* Centred, but never past the left edge: a phone's card scrolls sideways to the matrix, its names sticky. */}
       <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : ''}`} style={{ containerType: mini ? 'size' : undefined, fontSize: px }} onMouseLeave={() => setTip(null)}>
         <div className={`shrink-0 flex flex-col overflow-hidden ${mini ? '' : 'max-md:sticky max-md:left-0 max-md:z-[1] max-md:bg-white'}`} style={{ width: names }}>
@@ -198,7 +201,7 @@ export default memo(function HeadToHead({
             </a>
           ))}
         </div>
-        <motion.div ref={square} layout layoutDependency={mini} transition={GLIDE} className="shrink-0" style={{ width: M, height: `calc(${M} + ${strip}px)` }}>
+        <motion.div ref={square} layout layoutDependency={mini} transition={GLIDE} className="shrink-0" style={{ width: Mw, height: `calc(${Mh} + ${strip}px)` }}>
           <table className="w-full h-full table-fixed border-separate border-spacing-px">
             <caption className="sr-only">Matchups: chips each row model won from each column model, sorted by net chips</caption>
                         {/* A zero-width first column holds each row's header for screen readers (the names column shows it). */}

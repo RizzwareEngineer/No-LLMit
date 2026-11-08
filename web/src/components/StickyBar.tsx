@@ -7,6 +7,7 @@ import LLMLogo from '@/components/LLMLogo';
 import type { DisplayState } from '@/hooks/useGameState';
 import { MUTED, TEXT } from '@/lib/stats';
 import { backToOverview, useScreen } from '@/components/Section';
+import SoundToggle from '@/components/SoundToggle';
 
 const ACTIONS: Record<string, string> = { FOLD: 'folds', CHECK: 'checks', CALL: 'calls', RAISE: 'raises to', BET: 'bets', ALL_IN: 'all-in' };
 
@@ -35,8 +36,9 @@ export default function StickyBar({ show, pot, handNumber, display }: { show: bo
           exit={{ y: '-100%', opacity: 0 }}
           transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
         >
-          {/* The page's and the stats cards' padding, so the bar's text lines up with the card content below. */}
-          <div className="px-3 lg:px-4"><div className="max-w-[1392px] mx-auto h-11 px-3 lg:px-4 flex items-center gap-3 text-[13px] whitespace-nowrap" style={{ color: TEXT }}>
+          {/* The page's padding, the stats column (--stage-w, page.tsx) and the cards' padding (16px from lg), so the
+              bar's text lines up with the card content below. */}
+          <div className="px-3 lg:px-4"><div className="max-w-(--stage-w) mx-auto h-11 px-3 lg:px-4 flex items-center gap-3 text-[13px] whitespace-nowrap" style={{ color: TEXT }}>
             <span className="font-bold hidden sm:inline">No-LLMit</span>
             {handNumber > 0 && <span className="tabular-nums hidden sm:inline" style={{ color: MUTED }}>#{handNumber}</span>}
             <span className="tabular-nums shrink-0">
@@ -50,10 +52,12 @@ export default function StickyBar({ show, pot, handNumber, display }: { show: bo
                 <span className="shrink-0" style={{ color: MUTED }}>{doing}</span>
               </div>
             )}
+            {/* The stats screens get the switch too: Trends plays a sound on every overtake. */}
+            <div className="ml-auto shrink-0"><SoundToggle /></div>
             {detail && (
               <button
                 onClick={backToOverview}
-                className="ml-auto shrink-0 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-[rgba(55,53,47,0.06)]"
+                className="shrink-0 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-[rgba(55,53,47,0.06)]"
                 style={{ color: 'rgb(35, 131, 226)' }}
               >
                 <SquaresFour size={13} weight="bold" aria-hidden />
@@ -63,7 +67,7 @@ export default function StickyBar({ show, pot, handNumber, display }: { show: bo
             )}
             <button
               onClick={() => window.scrollTo({ top: 0 })} // smooth via scroll-behavior in globals.css
-              className={`${detail ? '' : 'ml-auto '}shrink-0 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-[rgba(55,53,47,0.06)]`}
+              className="shrink-0 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-[rgba(55,53,47,0.06)]"
               style={{ color: 'rgb(35, 131, 226)' }}
             >
               <ArrowUp size={13} weight="bold" aria-hidden />

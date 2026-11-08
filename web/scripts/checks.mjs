@@ -51,11 +51,11 @@ const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { wh
 // A web file no rule names, or a change to this script outside a check's own block, selects every check.
 const COVERS = [
   [/components\/(PokerTable|Player|TableFelt|ChipStack|Card|CornerBorders|ActionPanel|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/sound\./, /^(seat-size|table-|no-currency|main-scroll|stats-font-unified|stats-type-scale)/],
-  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone)/],
+  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges)/],
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
-  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope)/],
-  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads)/],
-  [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|main-scroll|no-stats-hash|scroll-consistency)/],
+  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],
+  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges)/],
+  [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|page-edges|main-scroll|no-stats-hash|scroll-consistency)/],
 ];
 function changedChecks() { // a Set of ids, or null for every check
   const git = c => execSync(c, { cwd: new URL('../..', import.meta.url), encoding: 'utf8' }).split('\n').filter(Boolean);
@@ -272,7 +272,9 @@ main(() => check('history-dead-space', 'The opened Trends card has at most 15% d
 main(() => check('history-filters-still', 'The plot box does not move when a filter switches', async () => {
   const a = await chartBox(pg);
   if (!(await clickText(pg, 'Top 5'))) return { pass: false, detail: 'no Top 5 button' };
-  await sleep(900); const b = await chartBox(pg); await clickText(pg, 'All'); await sleep(600);
+  await sleep(900); const b = await chartBox(pg);
+  // Back to every model (Show's All: License and Hands have an All too), so the Trends checks after this see the default.
+  await pg.evaluate(() => [...document.querySelectorAll('[role=group][aria-label="Top models"] button')].find(e => e.textContent.trim() === 'All' && e.getBoundingClientRect().width > 0)?.click()); await sleep(600);
   const d = Math.max(Math.abs(a.w - b.w), Math.abs(a.h - b.h), Math.abs(a.x - b.x), Math.abs(a.y - b.y));
   return { pass: d <= 1, detail: `moved ${d.toFixed(1)}px` };
 }));
@@ -329,19 +331,57 @@ main(() => check('history-default-bb100', 'Trends opens on bb/100; Chips is one 
   });
   return { pass: r.on === 'bb/100' && r.other && r.title, detail: `Metric ${r.on ?? 'missing'}, Chips option ${r.other ? 'there' : 'missing'}, axis title ${r.title ? 'bb/100' : 'not bb/100'}` };
 }));
+// The caption under the legend is gone (owner 2026-11-08, via the orchestrator): it said "Lines start at 20 hands · hover
+// for every model · click a label for its 95% band", and the lines no longer start at 20 hands.
+main(() => check('history-no-caption', 'No caption under the Trends legend (it said "Lines start at 20 hands · hover for every model · click a label for its 95% band")', async () => {
+  const t = await pg.evaluate(() => [...document.querySelectorAll('span, p')].filter(e => e.childElementCount === 0 && e.getBoundingClientRect().width > 0 && /Lines start at|hover for every model|click a label for its|bb\/100 starts once/.test(e.textContent)).map(e => e.textContent.trim()));
+  return { pass: !t.length, detail: t.length ? `still shows "${t[0]}"` : 'no caption' };
+}));
+// Lines start at hand 0, not 20 (owner 2026-11-08, via the orchestrator). At rest (every hand): the first x tick is 0 at the
+// plot's left edge, the earliest line starts there, and every line starts at 0 (break-even with no hands played: a
+// model that joined later starts on the zero line where it joined, not at its rate after 20 hands).
+main(() => check('history-starts-at-zero', 'At rest the Trends x axis starts at hand 0, the first line starts there, and every line starts from 0 at its first hand (no 20-hand start)', async () => {
+  await clickText(pg, 'Skip'); await sleep(1500);
+  const r = await pg.evaluate(() => {
+    const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
+    const [top, h] = plot.dataset.plot.split(',').map(Number), [y0, y1] = plot.dataset.yRange.split(',').map(Number);
+    const zero = top + (y1 / (y1 - y0)) * h, x0 = +plot.querySelector('clipPath rect').getAttribute('x');
+    const ticks = [...plot.querySelectorAll('[data-x-tick]')].map(e => ({ t: e.textContent, x: +e.getAttribute('x') })).sort((a, b) => a.x - b.x);
+    const starts = [...plot.querySelectorAll('g[clip-path] > path[fill=none]:not([stroke-dasharray])')].map(p => { const [x, y] = (p.getAttribute('d') || 'M0,0').slice(1).split(/L/)[0].split(',').map(Number); return { who: p.getAttribute('stroke'), x, y }; });
+    return { tick: ticks[0], x0, zero, starts };
+  });
+  const off = r.starts.filter(s => Math.abs(s.y - r.zero) > 0.5), first = Math.min(...r.starts.map(s => s.x));
+  const ok = r.tick?.t === '0' && Math.abs(r.tick.x - r.x0) < 0.5 && r.starts.length > 1 && Math.abs(first - r.x0) < 0.5 && !off.length;
+  return { pass: ok, detail: `first x tick ${r.tick ? `"${r.tick.t}" ${(r.tick.x - r.x0).toFixed(1)}px from the plot's left` : 'none'}; ${r.starts.length} lines, the first starting ${(first - r.x0).toFixed(1)}px from it; ${off.length} not starting at 0${off.length ? ` (${off.slice(0, 3).map(s => `${s.who} ${(r.zero - s.y).toFixed(0)}px off`).join(', ')})` : ''}` };
+}));
 // One replay from the start, sampled every frame until it has ended and settled: how much of the
 // plot's height the visible tips span, and how far the y axis moves per frame.
-let camSamples = null;
+let camSamples = null, camAnims = null;
 const camRun = async () => {
   if (camSamples) return camSamples;
   await clickText(pg, 'Skip'); await sleep(300);
-  await pg.evaluate(s => { window.__replaySpeed = s; }, SPEED);
+  await pg.evaluate(s => {
+    window.__replaySpeed = s;
+    // Every pill shake, tip pop and splash as it starts (a 4x shake lasts 75 ms, a frame or four): who, which, when, and
+    // how far its keyframes reach (px across x for a shake, the scale for a pop).
+    window.__anims = [];
+    const orig = Element.prototype.animate;
+    Element.prototype.animate = function (kf, opts) {
+      const pill = this.matches?.('[data-pill]'), tip = this.dataset?.tip, splash = opts?.id === 'burst' && !this.previousElementSibling;
+      if (pill || tip != null || splash) {
+        const fs = parseFloat(getComputedStyle(this).fontSize), len = v => { const m = String(v ?? '').match(/(-?[\d.]+)(px|em)?/); return m ? Math.abs(+m[1]) * (m[2] === 'em' ? fs : 1) : 0; };
+        const amp = Math.max(0, ...(Array.isArray(kf) ? kf : []).map(k => /pop/.test(opts?.id) ? +(String(k.transform).match(/scale\(([\d.]+)/)?.[1] ?? 1) : len(k.translate ?? String(k.transform ?? '').match(/translateX\(([^)]+)\)/)?.[1])));
+        window.__anims.push({ at: performance.now(), id: opts?.id, amp, lead: splash && this.parentElement?.dataset.lead != null, name: splash ? this.parentElement?.dataset.burst : pill ? this.querySelector('[data-pill-name]')?.textContent : tip });
+      }
+      return orig.apply(this, arguments);
+    };
+  }, SPEED);
   const clicked = await clickText(pg, 'Replay');
   await pg.evaluate(() => { window.__replaySpeed = 1; }); // read once, by the click: later replays play at 1x
   if (!clicked) throw new Error('no Replay button');
   // Sample times are replay time (real ms x SPEED), so every window below is the same at any speed.
   await pg.evaluate(S => {
-    const t0 = performance.now(), out = (window.__cam = []);
+    const t0 = (window.__t0 = performance.now()), out = (window.__cam = []);
     const f = () => {
       const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
       if (plot) {
@@ -353,15 +393,38 @@ const camRun = async () => {
         out.push({
           t: (performance.now() - t0) * S, y0, y1, fit: plot.dataset.yFit, fill: tys.length > 1 ? (Math.max(...tys) - Math.min(...tys)) / h : null,
           out: tys.length ? Math.max(0, top - Math.min(...tys), Math.max(...tys) - top - h) : 0, labels: ticks.join(' '), nTicks: ticks.length,
+          // The worst vertical overlap (px) between two y labels that show at all (fading ones too), and which.
+          ylab: (() => {
+            const ls = [...plot.querySelectorAll('svg text[text-anchor=end]')].map(e => {
+              let o = 1; for (let n = e; n && n !== plot; n = n.parentElement) o *= +getComputedStyle(n).opacity;
+              const r = e.getBoundingClientRect(); return { t: e.textContent, o, top: r.top, bottom: r.bottom };
+            }).filter(l => l.o > 0.05 && l.bottom > l.top);
+            let worst = 0, pair = '';
+            for (let i = 0; i < ls.length; i++) for (let j = i + 1; j < ls.length; j++) {
+              const ov = Math.min(ls[i].bottom, ls[j].bottom) - Math.max(ls[i].top, ls[j].top);
+              if (ov > worst) [worst, pair] = [ov, `${ls[i].t}/${ls[j].t}`];
+            }
+            return { worst, pair, n: ls.length };
+          })(),
           order: pills.slice().sort((a, b) => +a.dataset.rank - +b.dataset.rank).map(name).join('|'),
           emph: pills.filter(e => e.hasAttribute('data-emph')).map(name), lineEmph: plot.querySelectorAll('path[data-emph]').length,
           markers: [...plot.querySelectorAll('[data-overtake-marker]')].map(e => e.dataset.overtakeMarker),
           swaps: pills.filter(e => e.getAnimations().some(a => a.id === 'pill-swap' && a.playState === 'running')).map(name),
-          jiggle: document.getAnimations().filter(a => /shake/.test(a.id)).length,
-          // Overtake splashes on screen: who, where (design units) and in what colour, beside the passer's pill.
+          playing: !!plot.querySelector('[data-race-clock]'), live: plot.dataset.live != null,
+          vis: pills.filter(e => +e.style.opacity > 0.5).map(name),
+          // Pills shaking now: which shake, and how far (px, any transform or translate) they sit off their place across x.
+          shakes: pills.flatMap(e => {
+            const a = e.getAnimations().find(a => /shake/.test(a.id) && a.playState === 'running');
+            if (!a) return [];
+            const cs = getComputedStyle(e), m = cs.transform.match(/matrix\(([^)]+)\)/);
+            return [{ name: name(e), id: a.id, dx: (parseFloat(cs.translate) || 0) + (m ? +m[1].split(',')[4] : 0) }];
+          }),
+          // Line tips popping now (scaled up and back).
+          pops: [...plot.querySelectorAll('[data-tip]')].filter(e => e.getAnimations().some(a => /pop/.test(a.id) && a.playState === 'running')).map(e => e.dataset.tip),
+          // Overtake splashes on screen: which one, who, where (design units) and in what colour, beside the passer's pill.
           bursts: [...plot.querySelectorAll('[data-burst]')].map(b => {
             const pill = pills.find(e => name(e) === b.dataset.burst), dot = b.querySelector('span');
-            return { name: b.dataset.burst, x: +b.dataset.x, y: +b.dataset.y, color: dot && getComputedStyle(dot).backgroundColor, tx: pill ? +pill.dataset.tx : null, ty: pill ? +pill.dataset.ty : null, pillColor: pill && getComputedStyle(pill).borderTopColor };
+            return { id: b.dataset.n ?? b.dataset.burst, lead: b.dataset.lead != null, dots: b.childElementCount, size: dot ? parseFloat(getComputedStyle(dot).width) : 0, name: b.dataset.burst, x: +b.dataset.x, y: +b.dataset.y, color: dot && getComputedStyle(dot).backgroundColor, tx: pill ? +pill.dataset.tx : null, ty: pill ? +pill.dataset.ty : null, pillColor: pill && getComputedStyle(pill).borderTopColor };
           }),
           // How far (design px) any line's recent stretch (the last quarter of its drawn window) or tip lies outside the plot band.
           clip: (() => {
@@ -384,6 +447,7 @@ const camRun = async () => {
     requestAnimationFrame(f);
   }, SPEED);
   await sleep(63_500 / SPEED);
+  camAnims = await pg.evaluate(S => window.__anims.map(a => ({ ...a, t: (a.at - window.__t0) * S })), SPEED);
   return (camSamples = await pg.evaluate(() => window.__cam));
 };
 const near = (ss, s) => ss.reduce((a, b) => (Math.abs(b.t - s * 1000) < Math.abs(a.t - s * 1000) ? b : a));
@@ -415,6 +479,14 @@ main(() => check('history-y-dynamic', 'The y axis follows the lines in view: it 
   const both = i => `${pct(fills[i])} (recent ${pct(spans[i])})`;
   return { pass: ok, detail: `fill 10s ${both(0)}, 30s ${both(1)}, 50s ${both(2)}, rest ${both(3)}; axis moved in ${((moved / (ss.length || 1)) * 100).toFixed(0)}% of frames (${wider} wider, ${narrower} narrower), worst ${(worst * 100).toFixed(1)}% per frame; tips outside the plot in ${outs.length} frames` };
 }));
+// Y labels never overlap (orchestrator 2026-11-08, from the pages-flow worker: Trends y-axis labels overlapped mid-
+// animation, "800/750"): when the gridlines' step changes, the old labels fade out as the new fade in; one on its way
+// out gives way at once to a label it would touch. Checked in every frame of the replay, fading labels included.
+main(() => check('history-y-labels-apart', 'No two Trends y-axis labels overlap in any frame of the replay, fading ones included', async () => {
+  const ss = (await camRun()).filter(s => s.ylab), bad = ss.filter(s => s.ylab.worst > 1);
+  const worst = ss.reduce((m, s) => (s.ylab.worst > m.ylab.worst ? s : m), ss[0]);
+  return { pass: ss.length > 100 && !bad.length, detail: `${bad.length} of ${ss.length} frames with labels overlapping${bad.length ? `; worst ${worst.ylab.worst.toFixed(1)}px (${worst.ylab.pair}) at ${(worst.t / 1000).toFixed(1)} s` : ''}` };
+}));
 // Gaps readable: 6–8 labelled gridlines at rest, and at least 6 through nearly all of the replay.
 main(() => check('history-y-gridlines', 'At least 6 labelled y gridlines (6–8 at rest, ≥6 in 90% of replay frames)', async () => {
   const ss = (await camRun()).filter(s => s.t > 1000);
@@ -433,10 +505,37 @@ main(() => check('history-pill-rank-value', 'Every Trends pill shows its rank (i
   const bad = r.filter((p, i) => p[0] !== String(i + 1) || !/^[+−]?\d[\d,]*(\.\d+)?$/.test(p[2] ?? ''));
   return { pass: r.length > 1 && !bad.length, detail: bad.length ? `bad: ${JSON.stringify(bad.slice(0, 3))}` : r.map(p => `${p[0]} ${p[1]} ${p[2]}`).join(', ') };
 }));
+// Replay time with the page's stalls taken out: a frame over 50 ms of real time (a loaded machine, another lane's work)
+// counts as 50 ms, and inside such a frame the clock stops after its first 50 ms. The overtake checks time the chart's
+// effects against the swap on this clock, so the chart is never charged for time the page could not run.
+const effOf = ss => {
+  const cap = 50 * SPEED, stall = [0];
+  for (let i = 1; i < ss.length; i++) stall.push(stall[i - 1] + Math.max(0, ss[i].t - ss[i - 1].t - cap));
+  return t => {
+    let lo = 0, hi = ss.length - 1;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (ss[m].t <= t) lo = m; else hi = m - 1; }
+    return ss[lo].t - stall[lo] + Math.min(t - ss[lo].t, cap);
+  };
+};
+// Every overtake the replay showed: a pill that moved above another between two frames (both there before and
+// after) while it played (and was live); t in replay ms, `before` the frame before (the swap came after it). `lead`: the passer became #1. `vis`: either pill shows. `left`: replay
+// ms until the replay ended (it clears what is still queued).
+const overtakesOf = ss => {
+  const end = ss.findLast(s => s.playing)?.t ?? 0, out = [];
+  for (let i = 1; i < ss.length; i++) {
+    // While it plays and no scene tween runs (the replay's first half second morphs from the resting chart: no overtakes).
+    if (ss[i].order === ss[i - 1].order || !ss[i].live || !ss[i - 1].live) continue;
+    const was = ss[i - 1].order.split('|'), is = ss[i].order.split('|'), pw = new Map(was.map((n, k) => [n, k]));
+    is.forEach((a, ka) => is.slice(ka + 1).forEach(b => {
+      if (pw.has(a) && pw.has(b) && pw.get(a) > pw.get(b)) out.push({ a, b, t: ss[i].t, before: ss[i - 1].t, lead: ka === 0 && was[0] !== a, vis: ss[i].vis.includes(a) || ss[i].vis.includes(b), left: end - ss[i].t });
+    }));
+  }
+  return out;
+};
 // An overtake is obvious: the two pills swap with a slide, the passer's pill and line light up while
-// the rest dim, and a marker shows the crossing. One event at a time; no shake (calm motion). The splash
-// is allowed again since 2026-11-08 (history-overtake-burst) and no longer counts here.
-main(() => check('history-overtake', 'A rank change in the replay swaps the pills (slide), highlights the passer (pill and line) and marks the crossing; one at a time, no shake', async () => {
+// the rest dim, and a marker shows the crossing; one highlight and ring at a time. Since 2026-11-08 the
+// splash (history-overtake-burst) and the shake (history-overtake-shake) are back and no longer count here.
+main(() => check('history-overtake', 'A rank change in the replay swaps the pills (slide), highlights the passer (pill and line) and marks the crossing; one highlight and ring at a time', async () => {
   const ss = await camRun();
   const starts = ss.filter((s, i) => s.markers.length && s.markers[0] !== ss[i - 1]?.markers[0]);
   const full = starts.filter(e => {
@@ -444,28 +543,72 @@ main(() => check('history-overtake', 'A rank change in the replay swaps the pill
     const w = ss.filter(s => s.t >= e.t - 50 && s.t <= e.t + 400);
     return w.some(s => s.emph.includes(a) && s.lineEmph === 1) && w.some(s => s.swaps.includes(a));
   });
-  const many = ss.filter(s => s.markers.length > 1 || s.emph.length > 1).length, jiggle = ss.filter(s => s.jiggle).length;
+  const many = ss.filter(s => s.markers.length > 1 || s.emph.length > 1).length;
   const changes = ss.filter((s, i) => i && s.order !== ss[i - 1].order).length;
-  return { pass: full.length >= 1 && !many && !jiggle, detail: `${starts.length} overtake events in ${((ss.at(-1)?.t ?? 0) / 1000).toFixed(0)} s (${changes} rank changes), ${full.length} with swap + highlight + marker; ${many} frames with two at once, ${jiggle} with shake` };
+  return { pass: full.length >= 1 && !many, detail: `${starts.length} overtake events in ${((ss.at(-1)?.t ?? 0) / 1000).toFixed(0)} s (${changes} rank changes), ${full.length} with swap + highlight + marker; ${many} frames with two at once` };
 }));
-// The Arena-style overtake splash is back (owner 2026-11-08: "what happened to the 'splashes/collisions' any
-// time a lead change occurs in history? i liked that from the lm arena"): a small burst in the passer's
-// colour at its tip, timed with the swap, the highlight and the ring; one on screen at a time.
-main(() => check('history-overtake-burst', 'An overtake in the replay splashes in the passer\'s colour at its tip, with the swap, highlight and crossing ring; never two splashes at once', async () => {
-  const ss = await camRun();
+// The Arena-style overtake splash on every place change (owner 2026-11-08: "every time a place change happens in
+// trends, why am I not seeing any shaking or anything? It doesn't look or feel the same as LMArena"): a burst in the
+// passer's colour at its tip for every overtake with a pill on screen, at once or queued (150 ms apart) within 1 s;
+// a tip that started splashing up to 200 ms before the swap (its dots still flying out) counts. At most 3 on screen. A lead
+// change (a new #1) splashes bigger (more and larger dots). Where the two collide (the opening scramble: ~18 place
+// changes in one second), the cap wins: an overtake may go without its own splash only while the layer is full
+// (3 on screen in at least half the frames of that second) or the page stalled (a frame over 50 ms), for 15% of
+// overtakes at most; no splash lasts over 1.2 s.
+main(() => check('history-overtake-burst', 'Every overtake in the replay with a pill on screen splashes in the passer\'s colour at its tip (at once or queued within 1 s; the cap of 3 on screen wins in a crowd, for ≤15%), with the swap, highlight and ring; a lead change splashes bigger', async () => {
+  const ss = await camRun(), eff = effOf(ss), ots = overtakesOf(ss).filter(o => o.vis && o.left >= 1000);
   const starts = ss.filter((s, i) => s.markers.length && s.markers[0] !== ss[i - 1]?.markers[0]);
-  const bstarts = ss.flatMap((s, i) => s.bursts.filter(b => !ss[i - 1]?.bursts.some(c => c.name === b.name)).map(b => ({ ...b, t: s.t })));
+  const bstarts = ss.flatMap((s, i) => s.bursts.filter(b => !ss[i - 1]?.bursts.some(c => c.id === b.id)).map(b => ({ ...b, t: s.t })));
+  const went = camAnims.filter(a => a.id === 'burst'); // every splash as it started (the frames can miss a short one)
+  const hit = o => went.some(b => b.name === o.a && eff(b.t) >= eff(o.before) - 210 && eff(b.t) - eff(o.t) <= 1000 && (!o.lead || b.lead));
+  const full = o => { const w = ss.filter(s => s.t >= o.t && s.t <= o.t + 1000); return w.length > 0 && w.filter(s => s.bursts.length >= 3).length >= w.length / 2; };
+  // A frame over 50 ms of real time around it (the queue's timers could not run, and it drops what waited a second): the
+  // machine's doing, not the chart's.
+  const stalled = o => ss.some((s, i) => i && s.t >= o.t - 100 && ss[i - 1].t <= o.t + 1000 && s.t - ss[i - 1].t > 50 * SPEED);
+  const unhit = ots.filter(o => !hit(o)), capped = unhit.filter(full), stalls = unhit.filter(o => !full(o) && stalled(o));
+  const missed = unhit.filter(o => !full(o) && !stalled(o)), excused = capped.length + stalls.length;
+  // A splash that lingered would keep the layer full and excuse everything: each must be gone within 1.2 s (a lead's 800 ms, and frames).
+  const seen = new Map(); for (const s of ss) for (const b of s.bursts) seen.set(b.id, [seen.get(b.id)?.[0] ?? eff(s.t), eff(s.t)]);
+  const longest = Math.max(0, ...[...seen.values()].map(([a, z]) => z - a));
+  const leads = ots.filter(o => o.lead);
   const good = starts.filter(e => {
     const [a] = e.markers[0].split('|');
     const w = ss.filter(s => s.t >= e.t - 50 && s.t <= e.t + 400);
     const cues = w.some(s => s.emph.includes(a) && s.lineEmph === 1) && w.some(s => s.swaps.includes(a));
-    const b = bstarts.find(b => b.name === a && Math.abs(b.t - e.t) <= 150);
-    return cues && b && b.tx != null && Math.hypot(b.x - b.tx, b.y - b.ty) <= 8 && b.color === b.pillColor;
+    return cues && bstarts.some(b => b.name === a && Math.abs(b.t - e.t) <= 250);
   });
-  const two = ss.filter(s => s.bursts.length > 1).length;
+  const crowd = Math.max(0, ...ss.map(s => s.bursts.length));
   const offs = bstarts.filter(b => b.tx == null || Math.hypot(b.x - b.tx, b.y - b.ty) > 8 || b.color !== b.pillColor);
-  const why = offs.map(b => `${b.name} at ${(b.t / 1000).toFixed(1)} s: ${b.tx == null ? 'no pill' : `${Math.hypot(b.x - b.tx, b.y - b.ty).toFixed(0)}px from its tip, ${b.color} vs ${b.pillColor}`}`).join(', ');
-  return { pass: good.length >= 1 && !two && !offs.length, detail: `${bstarts.length} splashes over ${starts.length} overtake events; ${good.length} at the passer's tip in its colour with swap + highlight + ring; ${offs.length} off the tip or off colour${why ? ` (${why})` : ''}; ${two} frames with two at once` };
+  const why = offs.slice(0, 3).map(b => `${b.name} at ${(b.t / 1000).toFixed(1)} s: ${b.tx == null ? 'no pill' : `${Math.hypot(b.x - b.tx, b.y - b.ty).toFixed(0)}px from its tip, ${b.color} vs ${b.pillColor}`}`).join(', ');
+  const big = bstarts.filter(b => b.lead), small = bstarts.filter(b => !b.lead);
+  const bigger = big.every(b => small.every(s => b.dots > s.dots && b.size > s.size));
+  const miss = missed.slice(0, 3).map(o => `${o.a} past ${o.b}${o.lead ? ' (lead)' : ''} at ${(o.t / 1000).toFixed(1)} s, its splashes at ${went.filter(b => b.name === o.a && Math.abs(b.t - o.t) < 2000).map(b => `${((eff(b.t) - eff(o.t)) / 1000).toFixed(2)}${b.lead ? '*' : ''}`).join('/') || 'none'} s`).join(', ');
+  return {
+    pass: ots.length >= 1 && !missed.length && excused <= ots.length * 0.15 && longest <= 1200 && good.length >= 1 && crowd <= 3 && !offs.length && bigger && (!leads.length || big.length >= 1),
+    detail: `${((ss.at(-1).t - eff(ss.at(-1).t)) / 1000).toFixed(1)} s of stalls taken out; ${ots.length} overtakes with a pill on screen (${leads.length} lead changes), ${went.length} splashes (${big.length} big, longest on screen ${longest.toFixed(0)} ms); ${ots.length - unhit.length} splashed within 1 s, ${capped.length} not while 3 were on screen (cap), ${stalls.length} not across a stalled frame, ${missed.length} missed${miss ? ` (${miss})` : ''}; ${good.length} of ${starts.length} ring events splash with swap + highlight; at most ${crowd} on screen; ${offs.length} off the tip or off colour${why ? ` (${why})` : ''}; lead splashes ${bigger ? 'bigger' : 'NOT bigger'} (${big[0]?.dots ?? '-'} vs ${small[0]?.dots ?? '-'} dots)`,
+  };
+}));
+// LMArena's shake (owner 2026-11-08, same complaint): on every overtake with a pill on screen both pills shake
+// across x (a few px, eased out) within 400 ms of the swap and the passer's tip pops (scales up and back); on a
+// lead change the new #1's pill shakes harder. Each shake and pop is logged as it starts (at 4x a shake lasts a
+// frame or four); the frames show the pills really move.
+main(() => check('history-overtake-shake', 'Every overtake in the replay with a pill on screen shakes both pills across x within 400 ms and pops the passer\'s tip; a lead change shakes the new #1 harder', async () => {
+  const ss = await camRun(), eff = effOf(ss), ots = overtakesOf(ss).filter(o => o.vis && o.left >= 400), an = camAnims;
+  // From a frame before the swap is seen (the frame that commits it may come first) to 400 ms after, stalls taken out.
+  const near = (o, n, f) => an.some(a => a.name === n && eff(a.t) - eff(o.t) >= -150 && eff(a.t) - eff(o.t) <= 400 && f(a));
+  const shook = (o, n, lead) => near(o, n, a => /shake/.test(a.id) && a.amp >= 1 && (!lead || a.id === 'pill-shake-lead'));
+  const why = o => [!shook(o, o.a, o.lead) && (o.lead ? 'no lead shake' : 'passer still'), !shook(o, o.b) && 'passed still', !near(o, o.a, a => /pop/.test(a.id) && a.amp >= 1.2) && 'no tip pop'].filter(Boolean);
+  const bad = ots.filter(o => why(o).length), leads = ots.filter(o => o.lead);
+  const amps = id => an.filter(a => a.id === id).map(a => a.amp);
+  const [norm, lead] = [amps('pill-shake'), amps('pill-shake-lead')];
+  const harder = !leads.length || (lead.length && Math.min(...lead) > Math.max(...norm) * 1.4);
+  const seen = id => Math.max(0, ...ss.flatMap(s => s.shakes.filter(k => k.id === id).map(k => Math.abs(k.dx))));
+  const moves = seen('pill-shake') >= 1 && (!leads.length || seen('pill-shake-lead') >= 1);
+  const list = bad.slice(0, 3).map(o => `${o.a} past ${o.b} at ${(o.t / 1000).toFixed(1)} s: ${why(o).join(', ')}`).join('; ');
+  return {
+    pass: ots.length >= 1 && !bad.length && harder && moves,
+    detail: `${((ss.at(-1).t - eff(ss.at(-1).t)) / 1000).toFixed(1)} s of stalls taken out; ${ots.length} overtakes with a pill on screen (${leads.length} lead changes); ${an.filter(a => /shake/.test(a.id)).length} shakes, ${an.filter(a => /pop/.test(a.id)).length} tip pops; ${bad.length} without both shakes and the pop${list ? ` (${list})` : ''}; shakes reach ${Math.max(0, ...norm).toFixed(1)}px, lead ${lead.length ? Math.min(...lead).toFixed(1) : '-'}px; seen in frames up to ${seen('pill-shake').toFixed(1)}px and ${seen('pill-shake-lead').toFixed(1)}px`,
+  };
 }));
 // The y axis never clips the lines' recent stretch (owner 2026-11-08: "the end graph at the end cuts off part
 // of the line for mistral"): at rest and through the replay, every line's last quarter and every tip lie
@@ -494,7 +637,9 @@ group(() => check('history-pill-column-clear', 'Nothing but pills and their lead
           const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
           const pills = [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5);
           if (!pills.length) return null;
-          const edge = Math.min(...pills.map(e => e.getBoundingClientRect().left));
+          // Each pill's resting place (an overtake's shake moves it across x for 300 ms; the column stays where it rests).
+          const rest = e => { const b = e.offsetParent, r = b.getBoundingClientRect(); return r.left + e.offsetLeft * (r.width / b.offsetWidth); };
+          const edge = Math.min(...pills.map(rest));
           const op = e => { let o = 1; for (let n = e; n && n !== plot; n = n.parentElement) o *= +getComputedStyle(n).opacity; return o; };
           const els = [...plot.querySelectorAll('svg line, svg path:not([data-leader]), svg circle, svg text, [data-burst] > span')];
           let worst = 0, who = '';
@@ -527,6 +672,104 @@ group(() => check('history-pill-column-clear', 'Nothing but pills and their lead
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+// The filter bar breathes (owner 2026-11-08: "The filters on trends: make them a bit more spacey ... it just feels a little
+// cluttered at the top"): 24px between groups on a row, every control (a tray or a chip) the same height, each name level
+// with its control's first row, and fewer rows than before: it was 5 rows of controls at 1440x900 (Family's tray wrapped)
+// and 4 at 1728x1117.
+group(() => check('history-filters-spacing', 'The Trends card\'s filter bar: 24px between groups, every control the same height, each name level with its control, at most 4 rows at 1440x900 and 3 at 1728x1117 (was 5 and 4)', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, most] of [[1440, 900, 4], [1728, 1117, 3]]) {
+    const p = await pageAt(w, h, 'race');
+    try {
+      await clickCenter(p, '#race-panel'); await sleep(1500);
+      const r = await p.evaluate(() => {
+        const bar = [...document.querySelectorAll('.flex-wrap')].find(e => e.textContent.startsWith('Metric') && e.getBoundingClientRect().width > 0);
+        if (!bar) return null;
+        const groups = [...bar.children].map(e => e.getBoundingClientRect());
+        const gaps = groups.slice(1).flatMap((g, i) => (Math.abs(g.top - groups[i].top) < 2 ? [g.left - groups[i].right] : []));
+        // The controls: boxes with a background of their own (trays and chips), not the buttons inside a tray.
+        const all = [...bar.querySelectorAll('*')], bg = e => !/^(rgba\(0, 0, 0, 0\)|transparent)$/.test(getComputedStyle(e).backgroundColor);
+        const ctrls = all.filter(e => bg(e) && !all.some(a => a !== e && a.contains(e) && bg(a)) && e.getBoundingClientRect().width > 0);
+        const heights = [...new Set(ctrls.map(e => e.getBoundingClientRect().height.toFixed(1)))];
+        const rows = [...new Set(ctrls.map(e => Math.round(e.getBoundingClientRect().top / 4)))].length;
+        // Each group's name against its first control.
+        const level = [...bar.children].flatMap(f => {
+          const name = f.querySelector(':scope > span'), c = ctrls.find(e => f.contains(e));
+          if (!name || !c) return [];
+          const a = name.getBoundingClientRect(), b = c.getBoundingClientRect();
+          return [{ name: name.textContent, off: (a.top + a.bottom) / 2 - (b.top + b.bottom) / 2 }];
+        });
+        return { gaps, heights, rows, level, n: ctrls.length };
+      });
+      if (!r) { bad.push(`${w}x${h}: no filter bar`); continue; }
+      const offGap = r.gaps.filter(g => Math.abs(g - 24) > 1), offLevel = r.level.filter(l => Math.abs(l.off) > 1);
+      if (offGap.length) bad.push(`${w}x${h}: gaps ${r.gaps.map(g => g.toFixed(0)).join(', ')}px`);
+      if (r.heights.length !== 1) bad.push(`${w}x${h}: control heights ${r.heights.join(', ')}px`);
+      if (r.rows > most) bad.push(`${w}x${h}: ${r.rows} rows (at most ${most})`);
+      if (offLevel.length) bad.push(`${w}x${h}: ${offLevel.map(l => `${l.name} ${l.off.toFixed(1)}px off its control`).join(', ')}`);
+      seen.push(`${w}x${h}: ${r.rows} rows, gaps ${[...new Set(r.gaps.map(g => g.toFixed(0)))].join('/')}px, ${r.n} controls all ${r.heights.join('/')}px`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+// A sound on every collision (owner 2026-11-08, via the orchestrator): a soft whoosh when one line passes another and a
+// brighter chime for a new #1, through the site's sound system. Nothing before the viewer has clicked or pressed a key,
+// nothing while muted; with sound on, one sound per frame of overtakes at most and never two at once. Sped-up test
+// replays are silent, so this one plays at 1x: three 6.5 s stretches of the opening, where the places change most.
+group(() => check('history-overtake-sound', 'Trends overtakes sound through the site\'s sound system: nothing before a click or key press, nothing while muted; with sound on, at most one sound per overtake frame and never two at once', async () => {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  try {
+    // Every Web Audio source the page starts: when it starts and ends (AudioContext time). Sound is stored as on.
+    await p.evaluateOnNewDocument(() => {
+      window.__snd = [];
+      // A buffer source (the whoosh) has a start of its own; an oscillator (the chime) inherits its node's.
+      for (const N of [AudioScheduledSourceNode.prototype, AudioBufferSourceNode.prototype].filter(n => Object.hasOwn(n, 'start'))) {
+        const start = N.start;
+        N.start = function (when) { const at = when || this.context.currentTime; this.__r = { when: at, until: at + (this.buffer?.duration ?? 0) }; window.__snd.push(this.__r); return start.apply(this, arguments); };
+      }
+      const stop = AudioScheduledSourceNode.prototype.stop;
+      AudioScheduledSourceNode.prototype.stop = function (when) { if (this.__r) this.__r.until = Math.max(this.__r.until, when || this.context.currentTime); return stop.apply(this, arguments); };
+      try { localStorage.setItem('nollmit:sound', 'on'); } catch {}
+    });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await waitStats(p); await sleep(3000); await goto(p, 'race'); await sleep(1500);
+    // No trusted input yet: open the card and replay with script clicks.
+    await p.evaluate(() => document.querySelector('#race-panel').click()); await sleep(1500);
+    // Replays the opening at 1x for 6.5 s: the sounds it started, and the frames whose order of pills on screen changed.
+    const stretch = async () => {
+      await clickText(p, 'Skip'); await sleep(400);
+      const n0 = await p.evaluate(() => window.__snd.length);
+      if (!(await clickText(p, 'Replay'))) throw new Error('no Replay button');
+      const events = await p.evaluate(() => new Promise(res => {
+        const t0 = performance.now(); let last = '', n = 0;
+        const f = () => {
+          const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
+          const order = [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5).sort((a, b) => +a.dataset.rank - +b.dataset.rank).map(e => e.querySelector('[data-pill-name]')?.textContent).join('|');
+          if (last && order !== last) n++;
+          last = order;
+          if (performance.now() - t0 < 6500) requestAnimationFrame(f); else res(n);
+        };
+        requestAnimationFrame(f);
+      }));
+      const snd = await p.evaluate(n0 => window.__snd.slice(n0), n0);
+      // One sound: sources starting within 100 ms of its first (the chime's two notes).
+      const sounds = [];
+      for (const r of snd.sort((a, b) => a.when - b.when)) {
+        const s = sounds.at(-1);
+        if (s && r.when - s.when < 0.1) s.until = Math.max(s.until, r.until); else sounds.push({ ...r });
+      }
+      const overlaps = sounds.slice(1).filter((s, i) => s.when < sounds[i].until - 0.005).length;
+      return { events, sounds: sounds.length, overlaps };
+    };
+    const before = await stretch();
+    await p.keyboard.press('Shift'); await sleep(300); // the first trusted key press unlocks audio
+    const on = await stretch();
+    await p.evaluate(() => document.querySelector('button[aria-label="Sounds"]').click()); await sleep(300); // mute
+    const muted = await stretch();
+    const ok = before.sounds === 0 && on.sounds >= 1 && on.sounds <= on.events && !on.overlaps && muted.sounds === 0 && on.events > 0;
+    return { pass: ok, detail: `before any key press: ${before.sounds} sounds over ${before.events} overtake frames; sound on: ${on.sounds} sounds over ${on.events} overtake frames, ${on.overlaps} overlapping; muted: ${muted.sounds} sounds over ${muted.events}` };
+  } finally { await p.close(); }
 }));
 // One type for the chart's furniture (owner: "the y axis and x axis of history is not same font").
 main(() => check('history-type', 'Trends type: x and y ticks alike, axis titles alike (13px muted body sans), pills 13px (names medium, values tabular)', async () => {
@@ -759,15 +1002,20 @@ main(() => check('matchups-no-fade', 'Opening Matchups grows the matrix without 
   }
   return { pass: min >= 0.95, detail: `lowest matrix opacity ${min.toFixed(2)}` };
 }));
-// Every matrix cell is a square, on the overview tile and in the card (the matrix grows uniformly, never stretched).
-main(() => check('matchups-square-cells', 'Matchups cells are squares on the tile and in the card', async () => {
-  const ratio = sel => pg.evaluate(sel => {
-    const c = [...document.querySelectorAll(`${sel} td[data-cell]`)].map(e => e.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4);
-    return c.length ? Math.max(...c.map(r => Math.max(r.width / r.height, r.height / r.width))) : 0;
+// Every matrix cell has one shape, and the matrix grows from the tile into the card without stretching: the card's
+// cells have the tile's shape. Was "squares on the tile and in the card" until 2026-11-08, when the overview took the
+// table stage's width (page-edges-match): square cells could not fill the wider Matchups tile, so they widen with the
+// column (full figures), never taller than wide.
+main(() => check('matchups-cell-shape', 'Matchups cells: one shape on the tile, never taller than wide; the card\'s cells the tile\'s shape (the matrix grows without stretching)', async () => {
+  const shape = sel => pg.evaluate(sel => {
+    const c = [...document.querySelectorAll(`${sel} td[data-cell]`)].map(e => e.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4).map(r => r.width / r.height);
+    return c.length ? { lo: Math.min(...c), hi: Math.max(...c) } : null;
   }, sel);
-  await goto(pg, 'stats'); await sleep(1500); const tile = await ratio('#pairwise-panel');
-  await goto(pg, 'pairwise'); await sleep(1500); const card = await ratio('#pairwise-card');
-  return { pass: tile > 0 && card > 0 && tile <= 1.05 && card <= 1.05, detail: `tile ${tile.toFixed(3)}:1, card ${card.toFixed(3)}:1` };
+  await goto(pg, 'stats'); await sleep(1500); const tile = await shape('#pairwise-panel');
+  await goto(pg, 'pairwise'); await sleep(1500); const card = await shape('#pairwise-card');
+  if (!tile || !card) return { pass: false, detail: 'no cells' };
+  const ok = tile.hi / tile.lo <= 1.02 && tile.lo >= 0.98 && Math.abs(card.lo / tile.lo - 1) <= 0.05 && card.hi / card.lo <= 1.02;
+  return { pass: ok, detail: `tile ${tile.lo.toFixed(2)}–${tile.hi.toFixed(2)}:1, card ${card.lo.toFixed(2)}–${card.hi.toFixed(2)}:1 (width:height)` };
 }));
 main(() => check('profiles-table-only', 'Opened Profiles shows the table only', async () => {
   await goto(pg, 'stats-table'); await sleep(1500);
@@ -869,10 +1117,12 @@ main(() => check('matchups-bigger', 'On the overview the Matchups tile is wider 
 // Owner, 2026-11-08: "matchups should be bigger so that the numbers are easier to read ... no need for a [Total]
 // column for preview of matchups ... use that new space for the matchups graph". Was 32px / 40px; with the Total
 // column and Profiles' spare width turned into height for the square: 33px / 42.5px (about 33.3 and 43.2; at 1440x900
-// Trends' row cannot give more without its chart's text dropping under 13px, history-type).
-group(() => check('matchups-cells-roomy', 'Matchups tile cells are at least 33px (1440x900) / 42.5px (1728x1117), one figure size, never edge to edge or blank', async () => {
+// Trends' row cannot give more without its chart's text dropping under 13px, history-type). Since the overview took the
+// table stage's width (2026-11-08, page-edges-match) the cells widen with the column instead (66px at 1440x900, 106px at
+// 1728x1117): every figure shows in full (never +1.1k), and the height Trends' dominance leaves is at least 32.5px / 37.5px.
+group(() => check('matchups-cells-roomy', 'Matchups tile cells show every figure in full, at least 32.5px (1440x900) / 37.5px (1728x1117) tall, one figure size, never edge to edge or blank', async () => {
   const bad = [], seen = [];
-  for (const [w, h, min] of [[1440, 900, 33], [1728, 1117, 42.5]]) {
+  for (const [w, h, min] of [[1440, 900, 32.5], [1728, 1117, 37.5]]) {
     const p = await pageAt(w, h);
     // Skip the replay: the final figures are the widest.
     await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(800); await goto(p, 'stats'); await sleep(1500);
@@ -887,13 +1137,15 @@ group(() => check('matchups-cells-roomy', 'Matchups tile cells are at least 33px
     });
     await p.close();
     const fig = r.cells.filter(c => c.text !== null);
-    const side = Math.min(...r.cells.map(c => Math.min(c.w, c.h)));
+    const side = Math.min(...r.cells.map(c => c.h)), wide = Math.min(...r.cells.map(c => c.w));
     const tight = fig.filter(c => c.text && (c.w - c.tw) / 2 < 2);
     const blank = fig.filter(c => !c.text);
+    const short = fig.filter(c => c.text && /k$/.test(c.text)); // shortened to +1.1k / +1k
     const sizes = new Set([...fig.map(c => c.size), ...r.totals]);
-    seen.push(`${w}x${h}: cells ${side.toFixed(1)}px, figures ${[...sizes].join('/')}, least clearance ${Math.min(...fig.filter(c => c.text).map(c => (c.w - c.tw) / 2)).toFixed(1)}px`);
+    seen.push(`${w}x${h}: cells ${wide.toFixed(1)}x${side.toFixed(1)}px, figures ${[...sizes].join('/')}, least clearance ${Math.min(...fig.filter(c => c.text).map(c => (c.w - c.tw) / 2)).toFixed(1)}px`);
     if (!r.cells.length) bad.push(`${w}x${h}: no cells`);
-    if (side < min) bad.push(`${w}x${h}: cells ${side.toFixed(1)}px (< ${min})`);
+    if (side < min) bad.push(`${w}x${h}: cells ${side.toFixed(1)}px tall (< ${min})`);
+    if (short.length) bad.push(`${w}x${h}: ${short.length} figures shortened (${short.slice(0, 3).map(c => c.text).join(', ')})`);
     if (sizes.size !== 1) bad.push(`${w}x${h}: figure sizes ${[...sizes].join(', ')}`);
     if (tight.length) bad.push(`${w}x${h}: ${tight.length} figures edge to edge (${tight.slice(0, 3).map(c => c.text).join(', ')})`);
     if (blank.length) bad.push(`${w}x${h}: ${blank.length} matchups without a figure`);
@@ -912,6 +1164,32 @@ main(() => check('matchups-tile-filled', 'The Matchups matrix and its names fill
   });
   return { pass: r.span >= 0.95 && r.nameLeft <= 0.12, detail: `matrix and names span ${(r.span * 100).toFixed(0)}% of the tile, longest name starts ${(r.nameLeft * 100).toFixed(0)}% in` };
 }));
+// Owner, 2026-11-08 (via the orchestrator): no model name cut short anywhere; the Matchups tile showed "Nemotron 3.5 S..."
+// at 1728x1117. Every Matchups name shows whole, on the tile and in the card, at the owner's window sizes: its text is
+// no wider than its box (a Range over the text, so a cut of a fraction of a pixel counts too).
+const EDGE_SIZES = [[1440, 900], [1512, 982], [1728, 1117], [1910, 1278]];
+group(() => check('matchups-names-full', 'No Matchups model name is cut short, on the tile or in the card, at 1440x900, 1512x982, 1728x1117 and 1910x1278', async () => {
+  const bad = [], seen = [];
+  const cut = (p, sel) => p.evaluate(sel => [...document.querySelectorAll(sel)].filter(e => e.getBoundingClientRect().width > 0).filter(e => {
+    const r = document.createRange(); r.selectNodeContents(e);
+    const b = e.getBoundingClientRect(), s = getComputedStyle(e), k = b.width / (e.offsetWidth || 1); // k: a transform's scale
+    return e.scrollWidth > e.clientWidth || r.getBoundingClientRect().width > b.width - (parseFloat(s.paddingLeft) + parseFloat(s.paddingRight)) * k + 0.25;
+  }).map(e => e.textContent.trim()), sel);
+  for (const [w, h] of EDGE_SIZES) {
+    const p = await pageAt(w, h);
+    try {
+      const n = await p.evaluate(() => document.querySelectorAll('#pairwise-panel a [translate=no]').length);
+      const tile = await cut(p, '#pairwise-panel a [translate=no]');
+      await goto(p, 'pairwise'); await sleep(1500);
+      const card = await cut(p, '#pairwise-card a [translate=no]');
+      seen.push(`${w}x${h}: ${n} names, ${tile.length + card.length} cut`);
+      if (!n) bad.push(`${w}x${h}: no names on the tile`);
+      if (tile.length) bad.push(`${w}x${h} tile: ${tile.join(', ')}`);
+      if (card.length) bad.push(`${w}x${h} card: ${card.join(', ')}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? `cut short: ${bad.join('; ')}` : seen.join(' | ') };
+}));
 main(() => check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar on a preview)', async () => {
   const bad = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel', '#race-panel'].flatMap(s => [...document.querySelectorAll(`${s} *`)].filter(e => ['auto', 'scroll'].includes(getComputedStyle(e).overflowY)).map(() => s)));
   return { pass: !bad.length, detail: bad.length ? `scrollable inside ${[...new Set(bad)].join(', ')}` : 'none' };
@@ -920,9 +1198,11 @@ main(() => check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar o
 // Owner, 2026-11-07: the overview was "too big"; "the history graph should be the 'biggest' one ...
 // the first thing that people look at"; not wall-to-wall. At 1440x900 and 1728x1117: Trends on top and
 // the largest tile (1.5x the area of each other tile; the tallest row until 2026-11-08, when the second row
-// grew to give Matchups bigger cells: now at most 1.1x Trends' row), the block at most 1400px wide
-// and 80% of the window, with page around it (64px at the sides, 24px below; 16px above since 2026-11-08,
-// when a short window gave its top margin to the "About ↓" band so Matchups' cells keep 32px).
+// grew to give Matchups bigger cells: now at most 1.1x Trends' row), with page around it (24px below; 16px above
+// since 2026-11-08, when a short window gave its top margin to the "About ↓" band so Matchups' cells keep 32px).
+// Beside it, since 2026-11-08 ("the same amount of white space that is to the left and right of the table ... for the
+// stats page"), the table screen's page: the block spans the table stage's edges (±2px). Until then: at most 1400px
+// and 80% of the window, 64px at the sides.
 // Then the opened Matchups card ("so much white space to the left"; "takes up too much of the screen"):
 // it hugs names, matrix and totals (no band over 8px between its edge and its content) and leaves
 // page around it (at most 70% of the window's width and 85% of its height).
@@ -932,29 +1212,67 @@ main(() => check('overview-history-leads', 'Trends is the dominant tile, first i
     const p = await sharedAt(w, h);
     const [race, prof, mu] = await Promise.all(['#race-panel', '#stats-panel', '#pairwise-panel'].map(s => rect(p, s)));
     const area = b => b.w * b.h;
-    const left = race.l, right = w - Math.max(race.r, mu.r), top = race.t - 44, bottom = h - Math.max(prof.b, mu.b), width = Math.max(race.r, mu.r) - race.l;
-    seen.push(`${w}x${h}: Trends ${race.w.toFixed(0)}x${race.h.toFixed(0)}, Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}, Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)}, block ${width.toFixed(0)}px, page ${left.toFixed(0)}/${right.toFixed(0)} beside, ${top.toFixed(0)}/${bottom.toFixed(0)} above/below`);
+    const stage = await rect(p, '.stage-zoom');
+    const left = Math.min(race.l, prof.l), right = Math.max(race.r, mu.r), top = race.t - 44, bottom = h - Math.max(prof.b, mu.b);
+    seen.push(`${w}x${h}: Trends ${race.w.toFixed(0)}x${race.h.toFixed(0)}, Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}, Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)}, block ${left.toFixed(0)}..${right.toFixed(0)} (table stage ${stage.l.toFixed(0)}..${stage.r.toFixed(0)}), ${top.toFixed(0)}/${bottom.toFixed(0)} above/below`);
     if (!(race.b <= Math.min(prof.t, mu.t))) bad.push(`${w}x${h}: Trends is not on top`);
     if (area(race) < 1.5 * Math.max(area(prof), area(mu))) bad.push(`${w}x${h}: Trends ${(area(race) / Math.max(area(prof), area(mu))).toFixed(2)}x the next tile's area`);
     if (race.h * 1.1 < Math.max(prof.h, mu.h) - 1) bad.push(`${w}x${h}: the second row is ${(Math.max(prof.h, mu.h) / race.h).toFixed(2)}x Trends' row (at most 1.1)`);
-    if (width > 1400 || width > 0.8 * w) bad.push(`${w}x${h}: block ${width.toFixed(0)}px wide`);
-    if (left < 64 || right < 64 || top < 16 || bottom < 24) bad.push(`${w}x${h}: page around the block ${left.toFixed(0)}/${right.toFixed(0)}/${top.toFixed(0)}/${bottom.toFixed(0)}px`);
+    if (Math.abs(left - stage.l) > 2 || Math.abs(right - stage.r) > 2) bad.push(`${w}x${h}: block ${left.toFixed(0)}..${right.toFixed(0)}, not the table stage's ${stage.l.toFixed(0)}..${stage.r.toFixed(0)}`);
+    if (top < 15.5 || bottom < 23.5) bad.push(`${w}x${h}: page above/below the block ${top.toFixed(1)}/${bottom.toFixed(1)}px`); // less subpixel rounding: a block that fills its room sits at 16px
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-main(() => check('matchups-card-hugs', 'The opened Matchups card hugs its names, matrix and totals, and leaves page around it', async () => {
+// Owner, 2026-11-08: "The same amount of white space that is to the left and right of the table and the profits and
+// losses page, I think that's how much white space there should be for the stats page and also how much white space there
+// should be for the About page." One column for every screen: the overview's tiles, each opened card (Trends, Profiles,
+// Matchups) and About's column span the table stage's left and right edges (±2px) at the owner's window sizes, and the
+// sticky bar's text starts where the cards' content does (a tile's title).
+group(() => check('page-edges-match', 'The overview, every opened card and About span the table stage\'s left and right edges (±2px) at 1440x900, 1512x982, 1728x1117 and 1910x1278; the sticky bar\'s text starts at the cards\' content edge', async () => {
+  const bad = [], seen = [];
+  const edges = (p, sel) => p.evaluate(sel => {
+    const bs = [...document.querySelectorAll(sel)].map(e => e.getBoundingClientRect()).filter(b => b.width > 0);
+    return bs.length ? [Math.min(...bs.map(b => b.left)), Math.max(...bs.map(b => b.right))] : null;
+  }, sel);
+  for (const [w, h] of EDGE_SIZES) {
+    const p = await pageAt(w, h);
+    try {
+      const stage = await edges(p, '.stage-zoom');
+      const got = { overview: await edges(p, '#race-panel, #stats-panel, #pairwise-panel') };
+      // The bar's first text (its "No-LLMit") against the Trends tile's title.
+      const bar = await p.evaluate(() => {
+        const el = [...document.querySelectorAll('div.fixed')].find(d => d.textContent.includes('Back to table'));
+        const t = el && [...el.querySelectorAll('span')].find(e => e.textContent.trim() && e.getBoundingClientRect().width > 0);
+        const title = document.querySelector('#race-panel h2');
+        return t && title ? t.getBoundingClientRect().left - title.getBoundingClientRect().left : null;
+      });
+      for (const [id, name, sel] of [['race', 'Trends card', '#race-panel'], ['stats-table', 'Profiles card', '#stats-card .card-chrome'], ['pairwise', 'Matchups card', '#pairwise-card .card-chrome'], ['about', 'About', 'section[aria-label=About] .panel-scroll > div > div']]) {
+        await goto(p, id); await sleep(1500);
+        got[name] = await edges(p, sel);
+      }
+      const off = Object.entries(got).filter(([, e]) => !e || Math.abs(e[0] - stage[0]) > 2 || Math.abs(e[1] - stage[1]) > 2);
+      seen.push(`${w}x${h}: stage ${stage.map(v => v.toFixed(0)).join('..')}, all within ${Math.max(...Object.values(got).filter(Boolean).flatMap(e => [Math.abs(e[0] - stage[0]), Math.abs(e[1] - stage[1])])).toFixed(1)}px; bar text ${bar === null ? 'missing' : `${bar.toFixed(1)}px`} from the titles`);
+      for (const [name, e] of off) bad.push(`${w}x${h} ${name}: ${e ? e.map(v => v.toFixed(0)).join('..') : 'missing'}, not the stage's ${stage.map(v => v.toFixed(0)).join('..')}`);
+      if (bar === null || Math.abs(bar) > 2) bad.push(`${w}x${h}: the sticky bar's text starts ${bar === null ? '(no bar)' : `${bar.toFixed(0)}px`} from the cards' content edge`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// Since 2026-11-08 the card spans the table stage's column like the overview (page-edges-match): its matrix widens to fill
+// it (the tile's cell shape), so it still hugs; until then it was at most 70% of the window's width, 64px from its side.
+main(() => check('matchups-card-hugs', 'The opened Matchups card spans the table stage\'s column, hugs its names, matrix and totals, and is not floor to ceiling', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await sharedAt(w, h, 'pairwise');
     const r = await p.evaluate(() => {
-      const card = document.querySelector('#pairwise-card .card-chrome'), c = card.getBoundingClientRect();
+      const card = document.querySelector('#pairwise-card .card-chrome'), c = card.getBoundingClientRect(), s = document.querySelector('.stage-zoom').getBoundingClientRect();
       const names = [...card.querySelectorAll('a span')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2);
       const right = [...card.querySelectorAll('div[data-cell], td[data-cell]')].map(e => e.getBoundingClientRect().right);
-      return { c: { l: c.left, t: c.top, w: c.width, h: c.height }, gapL: Math.min(...names.map(b => b.left)) - (c.left + 16), gapR: c.right - 16 - Math.max(...right) };
+      return { c: { l: c.left, r: c.right, w: c.width, h: c.height }, s: { l: s.left, r: s.right }, gapL: Math.min(...names.map(b => b.left)) - (c.left + 16), gapR: c.right - 16 - Math.max(...right) };
     });
-    seen.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)}, bands ${r.gapL.toFixed(0)}/${r.gapR.toFixed(0)}px`);
+    seen.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)} at ${r.c.l.toFixed(0)}..${r.c.r.toFixed(0)} (table stage ${r.s.l.toFixed(0)}..${r.s.r.toFixed(0)}), bands ${r.gapL.toFixed(0)}/${r.gapR.toFixed(0)}px`);
     if (r.gapL > 8 || r.gapR > 8) bad.push(`${w}x${h}: empty band beside the matrix (${r.gapL.toFixed(0)}px left, ${r.gapR.toFixed(0)}px right)`);
-    if (r.c.w > 0.7 * w || r.c.h > 0.85 * h || r.c.l < 64) bad.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)} at x ${r.c.l.toFixed(0)}`);
+    if (Math.abs(r.c.l - r.s.l) > 2 || Math.abs(r.c.r - r.s.r) > 2 || r.c.h > 0.85 * h) bad.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)} at ${r.c.l.toFixed(0)}..${r.c.r.toFixed(0)}, not the table stage's ${r.s.l.toFixed(0)}..${r.s.r.toFixed(0)} or over 85% of the height`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
@@ -1062,8 +1380,9 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
 }));
 
 // The overview must hold its proportions at any window size or browser zoom: rows and matrix
-// cells are sized by content, never stretched by the window's height.
-group(() => check('stats-any-viewport', 'The overview keeps its proportions from 1280x720 to 3840x2160 (any zoom)', async () => {
+// cells are sized by content, never stretched by the window's height (cells were square until 2026-11-08: now they
+// widen with the column, never taller than wide, at most 3:1), and it spans the table stage's column (page-edges-match).
+group(() => check('stats-any-viewport', 'The overview keeps its proportions from 1280x720 to 3840x2160 (any zoom), in the table stage\'s column', async () => {
   const bad = [];
   for (const [w, h] of [[1280, 720], [1440, 900], [2560, 1440], [3840, 2160]]) {
     const p2 = await newPage(); await p2.setViewport({ width: w, height: h });
@@ -1072,18 +1391,21 @@ group(() => check('stats-any-viewport', 'The overview keeps its proportions from
     const m = await p2.evaluate(() => {
       const rows = [...document.querySelectorAll('#stats-panel tbody tr, #stats-panel [role=row]')].map(r => r.getBoundingClientRect().height).filter(x => x > 0);
       const cells = [...document.querySelectorAll('#pairwise-panel td')].map(c => c.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4);
-      const ratio = cells.length ? Math.max(...cells.map(r => Math.max(r.width / r.height, r.height / r.width))) : 0;
+      const ratio = cells.length ? Math.max(...cells.map(r => r.width / r.height)) : 0, tall = cells.length ? Math.max(...cells.map(r => r.height / r.width)) : 0;
+      const tiles = ['#race-panel', '#stats-panel', '#pairwise-panel'].map(s => document.querySelector(s).getBoundingClientRect()), stage = document.querySelector('.stage-zoom').getBoundingClientRect();
+      const off = Math.max(Math.abs(Math.min(...tiles.map(b => b.left)) - stage.left), Math.abs(Math.max(...tiles.map(b => b.right)) - stage.right));
       const race = document.querySelector('#race-panel').getBoundingClientRect();
       const svg = [...document.querySelectorAll('#race-panel svg')].sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
       const fill = svg ? svg.getBoundingClientRect().width / race.width : 0;
       // Profiles' rows split the second row evenly (the tile's height less its 72px header), whatever the scale.
       const tile = document.querySelector('#stats-panel').getBoundingClientRect().height;
-      return { row: rows.length ? Math.max(...rows) : 0, even: (tile - 72) / 10, ratio, fill };
+      return { row: rows.length ? Math.max(...rows) : 0, even: (tile - 72) / 10, ratio, tall, fill, off };
     });
     await p2.close();
     const why = [];
     if (Math.abs(m.row - m.even) > 3) why.push(`Profiles rows ${m.row.toFixed(0)}px tall, not ${m.even.toFixed(0)}px`);
-    if (m.ratio > 1.15) why.push(`Matchups cells ${m.ratio.toFixed(2)}:1`);
+    if (m.tall > 1.05 || m.ratio > 3) why.push(`Matchups cells ${m.ratio.toFixed(2)}:1 (width:height)`);
+    if (m.off > 2) why.push(`overview ${m.off.toFixed(0)}px off the table stage's edges`);
     if (m.fill < 0.8) why.push(`Trends chart fills ${(m.fill * 100).toFixed(0)}% of its tile`);
     if (why.length) bad.push(`${w}x${h}: ${why.join(', ')}`);
   }
