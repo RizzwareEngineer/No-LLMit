@@ -15,7 +15,7 @@ import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
 import { useStats } from "@/lib/stats";
-import { isPaging, pageBy, resnap, scrollsInside } from "@/components/Section";
+import { NEXT_BUTTON, NEXT_STYLE, isPaging, pageBy, pageTo, resnap, scrollsInside } from "@/components/Section";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -192,14 +192,17 @@ export default function Home() {
     return () => { ro.disconnect(); window.removeEventListener('resize', fit); };
   }, []);
 
-  // ↑ ↓ ← → and PageUp/PageDown page between screens, unless a field, the drawer or a panel
-  // that can still scroll that way has the keys.
+  // ↑ ↓ ← →, PageUp/PageDown and Space page between screens, unless a field, the drawer or a panel
+  // that can still scroll that way has the keys. Down on the last screen goes back to the overview (pageBy).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const dir = PAGE_KEYS[e.key];
-      if (!dir || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      // Space and Shift+Space page like PageDown and PageUp (the browser's own Space scroll stopped wherever proximity snap left it).
+      const space = e.key === ' ';
+      const dir = space ? (e.shiftKey ? -1 : 1) : PAGE_KEYS[e.key];
+      if (!dir || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || (e.shiftKey && !space)) return;
       const t = e.target instanceof Element ? e.target : null;
       if (t?.closest('input, select, textarea, [contenteditable], dialog')) return;
+      if (space && t?.closest('button, a, summary, [role=button], [role=checkbox], [role=switch]')) return; // Space presses those
       const sideways = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
       if (sideways ? t?.closest('.panel-scroll') : scrollsInside(t, dir)) return;
       e.preventDefault();
@@ -219,11 +222,19 @@ export default function Home() {
     let riseAt = -1; // when the current ramp began, if it began from rest (a gap or a near-zero delta): a new touch
     let armedAt = 0; // when the lock or the panel guard was last armed
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.defaultPrevented || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      if (e.ctrlKey || e.defaultPrevented) return;
       const t = e.target instanceof Element ? e.target : null;
-      const dir = e.deltaY > 0 ? 1 : -1;
       if (t?.closest('dialog')) return;
       const now = e.timeStamp; // when the input happened, so main-thread jank never reads as a pause
+      // Chrome lets a page cancel a wheel gesture only from its first event: one left alone makes the rest of the
+      // gesture uncancelable, and the browser then scrolls it natively alongside pageBy (mid-way landings, skips).
+      // So a gesture's start that is not clearly sideways (no delta, a finger's diagonal jitter) is claimed too,
+      // as is anything sideways mid-gesture; a clear sideways swipe stays the browser's (back/forward, a wide table).
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) {
+        if (Math.abs(e.deltaX) < 3 || now < lockUntil) e.preventDefault();
+        return;
+      }
+      const dir = e.deltaY > 0 ? 1 : -1;
       // A reversal pages only when it is deliberate: one small opposite event in a noisy
       // momentum tail just extends the lock. The lock comes before the panel check: the tail of a
       // flick that paged onto a card must not scroll that card's panel, then page again at its end.
@@ -329,8 +340,10 @@ export default function Home() {
           <h1 className="text-[28px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
           <p className="text-[14px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
             Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
-            <Link 
-              href="/about" 
+            {/* The home page's last screen; /about stays its own page (a new tab, a shared link). */}
+            <Link
+              href="/about"
+              onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about'); } }}
               className="hover:underline"
               style={{ color: 'rgb(35, 131, 226)' }}
             >
@@ -434,11 +447,7 @@ export default function Home() {
           </div>
         </div>
 
-        <button
-          onClick={() => pageBy(1)}
-          className="mt-6 flex items-center gap-2 rounded-full border px-5 py-2 text-[15px] font-semibold bg-white hover:bg-[rgba(55,53,47,0.04)] shadow-sm"
-          style={{ color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.2)' }}
-        >
+        <button onClick={() => pageBy(1)} className={`mt-6 ${NEXT_BUTTON}`} style={NEXT_STYLE}>
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>
       </section>

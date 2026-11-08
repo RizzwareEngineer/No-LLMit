@@ -293,6 +293,14 @@ html:has([data-screen]) {
   html:has([data-screen]) { scroll-snap-type: y proximity; }
 }
 
+/* The stats block's page above it (--top) and the "About ↓" band below it (--below), StatsSections. A short window
+   gets a 16px top and the compact pill in a 42px band, so Matchups' tile cells keep 32px at 1440x900; from 960px
+   tall the pill is full size, identical to "Stats ↓", with at least 8px clear above and below. */
+.stats-room { --top: 16px; --below: 42px; }
+@media (min-height: 960px) {
+  .stats-room { --top: max(24px, 10svh - 66px); --below: max(57px, var(--top) + 34px); }
+}
+
 /* Stats panels scroll inside themselves with a scrollbar that stays visible. */
 .panel-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .panel-scroll::-webkit-scrollbar-thumb { background: rgba(55, 53, 47, 0.2); border-radius: 4px; }
@@ -320,10 +328,13 @@ html:has([data-screen]) {
   background: rgb(15, 15, 15);
   opacity: var(--dim, 0);
 }
-/* The card underneath shrinks and dims, then fades out as the next one lands: cards differ in size,
-   so one left showing would peek out around the new card. Only the opened card is ever visible. */
-@keyframes recede { 60% { opacity: 1; } to { transform: scale(0.94); --dim: 0.14; opacity: 0; } }
-@keyframes recede-hide { 60% { opacity: 1; } to { opacity: 0; } }
+/* The card underneath shrinks and dims, then fades out before the next one lands: cards differ in size,
+   so one left showing would peek out around the new card. Only the opened card is ever visible.
+   The fade spans the whole range, evenly, so scrolling back up brings the card back exactly as scrolling
+   down took it away (a fade in the range's last 40% ran in the paged scroll's slow tail going down but in
+   its fast start going up, where the card popped back in about three times faster). */
+@keyframes recede { to { transform: scale(0.94); --dim: 0.14; opacity: 0; } }
+@keyframes recede-hide { to { opacity: 0; } }
 /* What a card adds to its overview tile's content (Profiles' extra columns and controls) fades in once, on mount. */
 @keyframes add-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: no-preference) {

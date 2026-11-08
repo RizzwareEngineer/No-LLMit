@@ -23,6 +23,8 @@ const settle = () => {
 // Scroll one screen down (1) or up (-1); a screen taller than the window (the phone table)
 // moves one window at a time inside it. Smooth through scroll-behavior in globals.css, which
 // prefers-reduced-motion turns off. Announces the target screen so the zoom can start at once.
+// A screen marked data-back="up" or "down" goes back to the overview that way instead, as Back to overview
+// does (the stats cards' loop: up on History, down on Matchups); data-end ends the page going down (About).
 // Returns false at either end of the page, where there is nowhere to go.
 export function pageBy(dir: 1 | -1) {
   if (performance.now() < heldUntil) return true; // swallowed, not refused: the wheel lock still arms
@@ -30,6 +32,12 @@ export function pageBy(dir: 1 | -1) {
   const h = window.innerHeight;
   const list = screens();
   const tops = list.map(topOf);
+  const here = list[tops.findIndex(t => Math.abs(t - y) < 2)];
+  if (here?.dataset.back === (dir > 0 ? 'down' : 'up')) {
+    backToOverview();
+    return true;
+  }
+  if (dir > 0 && here?.hasAttribute('data-end')) return false;
   let top = dir > 0 ? tops.find(t => t > y + 1) : tops.findLast(t => t < y - 1);
   if (top === undefined) return false;
   top = dir > 0 ? Math.min(top, y + h) : Math.max(top, y - h);
@@ -37,6 +45,12 @@ export function pageBy(dir: 1 | -1) {
   // A fractional screen top (a table screen 709.14px tall) must still name its screen.
   scrollToTop(Math.min(top, document.documentElement.scrollHeight - h), list[tops.findIndex(t => Math.abs(t - at) < 2)]?.id ?? '');
   return true;
+}
+
+// A smooth scroll to the screen `id` (the header's About link).
+export function pageTo(id: string) {
+  const el = document.getElementById(id);
+  if (el) scrollToTop(topOf(el), id);
 }
 
 // While a tile glides to or from its card (StatsSections), paging waits: the page jumps to the
@@ -89,7 +103,9 @@ function scrollToTop(top: number, id: string) {
   pendingId = id || null;
   clearTimeout(clearTimer);
   clearTimer = setTimeout(settle, 1000); // browsers without scrollend
-  window.addEventListener('scrollend', settle, { once: true });
+  // Lands exactly on the screen: a screen above can change height mid-scroll (the live table), and a
+  // stalled or interrupted smooth scroll can stop short; either way the page would rest between two.
+  window.addEventListener('scrollend', () => resnap(), { once: true });
   window.dispatchEvent(new CustomEvent('screenchange', { detail: id }));
   window.scrollTo({ top });
 }
@@ -220,6 +236,10 @@ export function Added({ still = false, className, style, children }: { still?: b
 }
 
 export const SHADOW = 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px';
+
+// The pill that pages on to the next main screen: "Stats ↓" under the table, "About ↓" under the overview.
+export const NEXT_BUTTON = 'flex items-center gap-2 rounded-full border px-5 py-2 text-[15px] font-semibold bg-white hover:bg-[rgba(55,53,47,0.04)] shadow-sm';
+export const NEXT_STYLE = { color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.2)' };
 
 // One chrome for every stats card (overview tiles, the zoomed Race panel and the Stats and
 // Pairwise cards): same radius, ring, shadow and padding, so paging changes only the content.

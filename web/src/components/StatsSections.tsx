@@ -3,8 +3,9 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
-import { Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, GLIDE_MS, HEADER, HUG, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
+import About from '@/components/About';
+import { ArrowDown, Warning } from '@phosphor-icons/react';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
 import StatsTable from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
@@ -14,18 +15,22 @@ import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, u
 
 type Stats = ReturnType<typeof useStats>;
 
-// Screens 2-5, each an empty full-height snap point in the page flow. Over them sits one layer:
-// the overview stage (pinned from the overview on), whose History tile fills the stage on the History
-// screen, then the Profiles and Matchups cards, which slide up over it as stacked cards while the
-// card under them recedes. The URL never names a screen (only the model drawer's #model=).
+// Screens 2-6, each an empty full-height snap point in the page flow. Over them sits one layer:
+// the overview stage (pinned from the overview on), About (the main scroll's last screen, sliding up
+// over the overview), the History screen, where the History tile fills the stage, then the Profiles and
+// Matchups cards, which slide up over it as stacked cards while the card under them recedes.
+// Main scroll: table, overview, About. The cards are a loop entered from the overview's tiles: paging
+// moves History, Profiles, Matchups, and up on History or down on Matchups goes back to the overview
+// (data-back, read by pageBy). The URL never names a screen (only the model drawer's #model=).
 const SCREENS = [
   { id: 'stats', label: 'Overview' },
+  { id: 'about', label: 'About' },
   { id: 'race', label: 'History' },
   { id: 'stats-table', label: 'Profiles' },
   { id: 'pairwise', label: 'Matchups' },
 ] as const;
 type Screen = (typeof SCREENS)[number]['id'];
-type Tile = Exclude<Screen, 'stats'>;
+type Tile = Exclude<Screen, 'stats' | 'about'>;
 // Each detail screen's overview tile, and the element that takes focus on landing there.
 const TILES: Record<Tile, { panel: string; land: string }> = {
   race: { panel: 'race-panel', land: 'race-panel' },
@@ -33,7 +38,6 @@ const TILES: Record<Tile, { panel: string; land: string }> = {
   pairwise: { panel: 'pairwise-panel', land: 'pairwise-card' },
 };
 const isTile = (id: string): id is Tile => id in TILES;
-const order = (id: string) => SCREENS.findIndex(s => s.id === id); // -1: the table
 const jump = (id: string) => {
   const el = document.getElementById(id);
   if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' });
@@ -111,12 +115,12 @@ export default memo(function StatsSections({
     // inert as a click on it starts the scroll would cancel that scroll. Arriving under a card
     // puts Race back in the stage at once, so scrolling back up finds the History screen.
     const show = (id: string, arrived = true) => {
-      const i = order(id);
-      if (!busy) put(i >= 1 ? 'race' : null, arrived && i >= 2);
+      const card = id === 'stats-table' || id === 'pairwise';
+      if (!busy) put(isTile(id) ? 'race' : null, arrived && card);
       if (!arrived) return;
       setScreen(id);
-      stage.current?.toggleAttribute('inert', i >= 2);
-      statsCard.current?.toggleAttribute('inert', i >= 3);
+      stage.current?.toggleAttribute('inert', card || id === 'about');
+      statsCard.current?.toggleAttribute('inert', id === 'pairwise');
     };
     const io = new IntersectionObserver(
       entries => entries.forEach(e => {
@@ -261,7 +265,7 @@ export default memo(function StatsSections({
 
   return (
     <div
-      className="relative isolate w-full"
+      className="stats-room relative isolate w-full"
       style={{ timelineScope: '--card-stats, --card-pairwise' } as React.CSSProperties}
       // A click on the page around a detail screen's card (not on the card) goes back to the overview.
       onClick={e => !(e.target as Element).closest('.card-chrome') && backToOverview()}
@@ -274,6 +278,8 @@ export default memo(function StatsSections({
           id={s.id}
           ref={s.id === 'stats-table' ? statsScreen : s.id === 'pairwise' ? pairwiseScreen : undefined}
           data-screen
+          data-end={s.id === 'about' || undefined}
+          data-back={s.id === 'race' ? 'up' : s.id === 'pairwise' ? 'down' : undefined}
           aria-hidden
           className="h-svh snap-start snap-always"
           style={{ viewTimelineName: s.id === 'stats-table' ? '--card-stats' : s.id === 'pairwise' ? '--card-pairwise' : undefined }}
@@ -284,7 +290,7 @@ export default memo(function StatsSections({
             sticky bar (44px) plus the table screen's own outer padding; the clip, at the window's
             edges (the page pads its sides), keeps tiles sliding off from adding a page scrollbar. */}
         <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px]">
-          <div className={`@container ${BLOCK} ${EDGE}`} style={BLOCK_VARS}>
+          <div className={`@container ${BLOCK}`} style={BLOCK_VARS}>
             {/* Overview: three tiles, each a miniature of its screen, History on top (stacked on phones).
                 History's row is its chart's shape at the block's width plus the tile's padding and header
                 (72px); the second row is a little shorter (BLOCK_VARS), split into Profiles and Matchups. */}
@@ -322,7 +328,28 @@ export default memo(function StatsSections({
               </Panel>
             </div>
           </div>
+          {/* "About ↓", centred in the band under the block, on the overview only (it pages like a gesture). */}
+          <motion.div
+            inert={on !== null}
+            initial={false}
+            animate={{ opacity: on === null ? 1 : 0 }}
+            transition={GLIDE}
+            className="absolute inset-x-0 flex items-center justify-center"
+            style={{ bottom: 'var(--bar-h, 0px)', height: BELOW }}
+          >
+            {/* Compact (same style, smaller) on a window too short for the full size beside 32px Matchups cells. */}
+            <button onClick={() => pageBy(1)} className={`${NEXT_BUTTON} [@media(max-height:959px)]:py-0.5 [@media(max-height:959px)]:text-[14px]`} style={NEXT_STYLE}>
+              About <ArrowDown size={16} weight="bold" aria-hidden />
+            </button>
+          </motion.div>
         </Recede>
+
+        {/* About: a sheet over the overview (the page's own colour, edge to edge), scrolling inside itself when taller than the window. */}
+        <section aria-label="About" className="relative z-10 h-svh -mx-3 lg:-mx-4 bg-white">
+          <div className="panel-scroll h-full overflow-auto pt-[calc(44px+2svh)] pb-[calc(2svh+var(--bar-h,0px))]">
+            <div className="max-w-[1300px] mx-auto px-6 py-6"><About heading="h2" /></div>
+          </div>
+        </section>
 
         {/* The History screen's scroll range: the stage stays as it is. */}
         <div className="h-svh" aria-hidden />
@@ -402,11 +429,14 @@ const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1'; // a card header's 
 // columns, takes the rest of the row. Only viewport units, so every var resolves the same in nested containers.
 const MAX_W = 1320; // about three quarters of a 1728px window: the overview reads as cards on a page
 const SIDE = 64; // the least page beside the block
-const MARGIN = 'max(24px, 10svh - 66px)'; // the least page above and below it: 24px on a 900px window, 46px on 1117px
+// The page above the block and the "About ↓" band below it (.stats-room in globals.css): 16px and 42px on a short
+// window (the compact pill), else the margin (24px, 46px on 1117px) and the margin plus 34px (the full-size pill).
+const MARGIN = 'var(--top)';
+const BELOW = 'var(--below)';
 const LEAD = 4; // px: History's row over the second row
 const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
 const A = (H / W).toFixed(5);
-const ROOM = `(100svh - 44px - var(--bar-h, 0px) - 2 * ${MARGIN})`; // the block's height at most
+const ROOM = `(100svh - 44px - var(--bar-h, 0px) - ${MARGIN} - ${BELOW})`; // the block's height at most
 const BLOCK = 'h-full w-full md:max-w-(--block-w) mx-auto flex flex-col justify-center';
 const BLOCK_VARS = {
   '--block-w': `max(560px, min(${MAX_W}px, 100vw - ${2 * SIDE}px, ((${ROOM} - 12px + ${LEAD}px) / 2 - 72px) / ${A} + 32px))`,
@@ -417,11 +447,11 @@ const BLOCK_VARS = {
   '--block-h': 'calc(var(--row1) + 12px + var(--row2))',
   // The opened Matchups card's matrix width: a little over History's row, so the two cards have the same presence.
   '--card-m': 'min(var(--row1) + 40px, var(--block-h) - 260px)',
+  // Under the 44px sticky bar the margin, above the connection bar the About band; the block fills what is
+  // left (centred when the window's width holds it back), and every card takes the same box.
+  paddingTop: `calc(44px + ${MARGIN})`,
+  paddingBottom: `calc(${BELOW} + var(--bar-h, 0px))`,
 } as React.CSSProperties;
-
-// Under the 44px sticky bar and above the connection bar, at least 2% of the window above and
-// below the block; the block is centred in what is left, so it reads as cards on a page.
-const EDGE = 'pt-[calc(44px+2svh)] pb-[calc(2svh+var(--bar-h,0px))]';
 
 // Shrinks and dims its content as the screen `by` slides up over it, then hides it as that screen lands: a CSS scroll-driven
 // animation on the named view timeline of that screen where supported, motion's useScroll
@@ -444,7 +474,7 @@ function Recede({
   const { scrollYProgress } = useScroll({ target: by, offset: ['start end', 'start start'] });
   const scale = useTransform(scrollYProgress, [0, 1], [1, 0.94]);
   const dim = useTransform(scrollYProgress, [0, 1], [0, 0.14]); // the keyframes in globals.css
-  const hide = useTransform(scrollYProgress, [0, 0.6, 1], [1, 1, 0]);
+  const hide = useTransform(scrollYProgress, [0, 1], [1, 0]); // the keyframes' fade, over the whole range
   const fallback = !!by && !native && !reduce;
   // No box of its own: only the cards inside show, and --dim darkens each one (card-chrome).
   return (
@@ -484,7 +514,7 @@ function Card({
   return (
     <section ref={ref} id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className={`sticky top-0 h-svh outline-none ${z}`}>
       <Recede by={by} timeline={timeline} className="h-full">
-        <div className={`@container ${BLOCK} ${EDGE}`} style={BLOCK_VARS}>
+        <div className={`@container ${BLOCK}`} style={BLOCK_VARS}>
           {/* The overview's box, where its tile stands in for this card. */}
           <div className="relative h-full md:h-(--block-h)">
           <div className={`${CARD} absolute ${fit === 'hug' ? HUG : `inset-x-0 inset-y-0 my-auto max-h-full ${fit ? 'h-fit' : ''}`}`} style={{ boxShadow: CARD_SHADOW }}>

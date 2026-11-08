@@ -670,7 +670,8 @@ await check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar on a p
 // Owner, 2026-11-07: the overview was "too big"; "the history graph should be the 'biggest' one ...
 // the first thing that people look at"; not wall-to-wall. At 1440x900 and 1728x1117: History on top and
 // the largest tile (1.5x the area of each other tile, and the tallest row), the block at most 1400px wide
-// and 80% of the window, with page around it (64px at the sides, 24px above and below).
+// and 80% of the window, with page around it (64px at the sides, 24px below; 16px above since 2026-11-08,
+// when a short window gave its top margin to the "About ↓" band so Matchups' cells keep 32px).
 // Then the opened Matchups card ("so much white space to the left"; "takes up too much of the screen"):
 // it hugs names, matrix and totals (no band over 8px between its edge and its content) and leaves
 // page around it (at most 70% of the window's width and 85% of its height).
@@ -687,7 +688,7 @@ await check('overview-history-leads', 'History is the dominant tile, first in re
     if (area(race) < 1.5 * Math.max(area(prof), area(mu))) bad.push(`${w}x${h}: History ${(area(race) / Math.max(area(prof), area(mu))).toFixed(2)}x the next tile's area`);
     if (race.h <= Math.max(prof.h, mu.h)) bad.push(`${w}x${h}: History's row is not the tallest`);
     if (width > 1400 || width > 0.8 * w) bad.push(`${w}x${h}: block ${width.toFixed(0)}px wide`);
-    if (left < 64 || right < 64 || top < 24 || bottom < 24) bad.push(`${w}x${h}: page around the block ${left.toFixed(0)}/${right.toFixed(0)}/${top.toFixed(0)}/${bottom.toFixed(0)}px`);
+    if (left < 64 || right < 64 || top < 16 || bottom < 24) bad.push(`${w}x${h}: page around the block ${left.toFixed(0)}/${right.toFixed(0)}/${top.toFixed(0)}/${bottom.toFixed(0)}px`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 });
@@ -842,8 +843,179 @@ await check('stats-any-viewport', 'The overview keeps its proportions from 1280x
   return { pass: bad.length === 0, detail: bad.length ? bad.join(' | ') : 'all four sizes hold' };
 });
 
-// Owner, 2026-11-08: "why is there a url for stats? there shouldn't be right now"; the Matchups definition line is not needed.
-await check('no-stats-hash', 'The URL never names a stats screen (open/close every card, Escape, paging, an old #race link), while #model= still opens the drawer and Back closes it; tiles open from the keyboard', async () => {
+// --- Stats paging. Owner, 2026-11-08: "scrolling up and down profiles stats history is not consistent";
+// "when i get all the way down to matchups i should be able to scroll down again and then it takes me back
+// to overview"; "why is there a url for stats? there shouldn't be right now". ---
+const decay = (ramp, k) => { const d = [...ramp]; let v = ramp.at(-1); while (v > 1) { v *= k; d.push(Math.max(1, Math.round(v))); } return d; };
+const SWIPE = decay([2, 5, 10, 18, 28, 36, 40], 0.93); // a trackpad flick: ramp, then about a second of momentum
+const GENTLE = decay([1, 2, 3, 5, 7, 9, 10], 0.9); // a slow two-finger scroll, small deltas
+// Wheel events 16 ms apart without waiting for each to be handled: a trackpad's cadence (the renderer may coalesce).
+const fireWheel = async (p, ds, dir) => { const ps = []; for (const d of ds) { ps.push(p.mouse.wheel({ deltaY: d * dir })); await sleep(16); } await Promise.all(ps); };
+const shiftSpace = async p => { await p.keyboard.down('Shift'); await p.keyboard.press('Space'); await p.keyboard.up('Shift'); };
+const GESTURES = {
+  'trackpad swipe': (p, dir) => fireWheel(p, SWIPE, dir),
+  'gentle swipe': (p, dir) => fireWheel(p, GENTLE, dir),
+  'wheel notch': (p, dir) => p.mouse.wheel({ deltaY: 100 * dir }),
+  // Chrome's own touchpad path (began/changed/ended phases, one latched gesture).
+  'phased gesture': async (p, dir) => { const v = p.viewport(); p.__cdp ??= await p.target().createCDPSession(); await p.__cdp.send('Input.synthesizeScrollGesture', { x: v.width / 2, y: v.height / 2, yDistance: -300 * dir, gestureSourceType: 'mouse', speed: 1500 }); },
+  PageDown: (p, dir) => p.keyboard.press(dir > 0 ? 'PageDown' : 'PageUp'),
+  ArrowDown: (p, dir) => p.keyboard.press(dir > 0 ? 'ArrowDown' : 'ArrowUp'),
+  Space: (p, dir) => (dir > 0 ? p.keyboard.press('Space') : shiftSpace(p)),
+};
+// The card that recedes under each transition's incoming card (the stage under Profiles, Profiles under Matchups).
+const UNDER = { 'race>stats-table': '#race-panel', 'stats-table>pairwise': '#stats-card .card-chrome' };
+// Runs one gesture and waits for the page to rest: the screen it rests on (null: between two), how long from the
+// input's start until the page stopped, and, for a card transition, how long the card underneath took to fade
+// (opacity 0.9 to 0.1, either way).
+async function step(p, kind, dir, under) {
+  await p.evaluate(under => {
+    const vis = el => { let o = 1; for (let e = el; e && e !== document.documentElement; e = e.parentElement) o *= +getComputedStyle(e).opacity; return o; };
+    const m = (window.__mv = { t0: performance.now(), first: null, last: performance.now(), y: scrollY, hi: null, lo: null, done: false });
+    const el = under && document.querySelector(under), o0 = el ? vis(el) : 0;
+    const f = () => {
+      if (scrollY !== m.y) { m.y = scrollY; m.last = performance.now(); m.first ??= m.last; }
+      if (el) { const o = vis(el); if (o0 > 0.5 ? o < 0.9 && m.hi === null : o > 0.1 && m.lo === null) (o0 > 0.5 ? (m.hi = performance.now()) : (m.lo = performance.now())); if (o0 > 0.5 ? o < 0.1 && m.lo === null : o > 0.9 && m.hi === null) (o0 > 0.5 ? (m.lo = performance.now()) : (m.hi = performance.now())); }
+      if (!m.done) requestAnimationFrame(f);
+    };
+    requestAnimationFrame(f);
+  }, under ?? null);
+  await GESTURES[kind](p, dir);
+  // At rest: still for 450 ms and on a screen edge (a loaded machine can stall a scroll's frames), or 5 s at most.
+  for (let t = Date.now(); Date.now() - t < 5000; await sleep(60)) {
+    const r = await p.evaluate(() => ({ quiet: performance.now() - __mv.last, edge: [...document.querySelectorAll('[data-screen]')].some(e => Math.abs(e.getBoundingClientRect().top) < 2) }));
+    if (r.quiet >= 450 && r.edge) break;
+  }
+  return p.evaluate(() => {
+    const m = window.__mv; m.done = true;
+    const hit = [...document.querySelectorAll('[data-screen]')].find(e => Math.abs(e.getBoundingClientRect().top) < 2);
+    return { id: hit ? (hit.id || 'table') : null, y: Math.round(scrollY), ms: m.first === null ? 0 : Math.round(m.last - m.first), fade: m.hi !== null && m.lo !== null ? Math.round(Math.abs(m.lo - m.hi)) : null, hash: location.hash };
+  });
+}
+// Owner, 2026-11-08: "include the same down arrow for about as we do for stats". Under the overview, "About ↓"
+// in the Stats ↓ button's exact style, in the band under the tiles (not over them), landing on About like a gesture.
+await check('about-button', '"About ↓" sits under the overview in the band below the tiles, 8px clear: identical to "Stats ↓" at 1728x1117, the same pill compact at 1440x900; it lands on About', async () => {
+  const bad = [], seen = [];
+  const STYLE = ['fontSize', 'fontWeight', 'fontFamily', 'color', 'backgroundColor', 'borderTopColor', 'borderTopWidth', 'borderTopLeftRadius', 'paddingTop', 'paddingLeft', 'boxShadow', 'height'];
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
+    const p = await pageAt(w, h);
+    const r = await p.evaluate(STYLE => {
+      const find = t => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === t && b.getBoundingClientRect().width > 0 && b.getBoundingClientRect().top >= 0 && b.getBoundingClientRect().bottom <= innerHeight);
+      const about = find('About'), stats = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Stats');
+      if (!about || !stats) return { missing: !about ? 'About ↓' : 'Stats ↓' };
+      const st = e => { const c = getComputedStyle(e); return Object.fromEntries(STYLE.map(k => [k, c[k]])); };
+      // The compact pill (a short window) differs only in its height, padding and text size.
+      const compact = innerHeight < 960, SIZE = ['fontSize', 'paddingTop', 'height'];
+      const a = st(about), s = st(stats), diff = STYLE.filter(k => !(compact && SIZE.includes(k)) && a[k] !== s[k]).map(k => `${k} ${a[k]} vs ${s[k]}`);
+      if (compact && !(parseFloat(a.height) < parseFloat(s.height) && a.fontSize === '14px')) diff.push(`not the compact pill (${a.height}, ${a.fontSize})`);
+      const arrow = !!about.querySelector('svg');
+      const b = about.getBoundingClientRect(), tiles = Math.max(...['#race-panel', '#stats-panel', '#pairwise-panel'].map(q => document.querySelector(q).getBoundingClientRect().bottom));
+      return { diff, arrow, compact, h: b.height, clear: b.top - tiles, below: innerHeight - b.bottom, x: b.left + b.width / 2 - innerWidth / 2 };
+    }, STYLE);
+    if (r.missing) { bad.push(`${w}x${h}: no ${r.missing} button on screen`); await p.close(); continue; }
+    seen.push(`${w}x${h}: ${r.compact ? 'compact' : 'full-size'} ${r.h.toFixed(1)}px, ${r.clear.toFixed(0)}px under the tiles, ${r.below.toFixed(0)}px above the window's edge`);
+    if (r.diff.length) bad.push(`${w}x${h}: style differs: ${r.diff.join(', ')}`);
+    if (!r.arrow) bad.push(`${w}x${h}: no ↓ arrow`);
+    if (r.clear < 7.5 || r.below < 7.5 || Math.abs(r.x) > 2) // 8px, less subpixel rounding bad.push(`${w}x${h}: ${r.clear.toFixed(0)}px under the tiles, ${r.below.toFixed(0)}px above the edge, ${r.x.toFixed(0)}px off centre`);
+    await clickText(p, 'About'); await sleep(1500);
+    const on = await p.evaluate(() => Math.abs(document.getElementById('about').getBoundingClientRect().top) < 2 && !location.hash);
+    if (!on) bad.push(`${w}x${h}: the click did not land on About`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+});
+// Opens a card from the overview the way a visitor does (a click on its tile), and waits for the glide.
+const openTile = async (p, tile) => { await goto(p, 'stats'); await sleep(900); await clickCenter(p, tile); await sleep(1300); await p.mouse.move(p.viewport().width / 2, p.viewport().height / 2); };
+await check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, notch, phased) and key (PageDown/Up, arrows, Space) moves exactly one screen, both ways, landing on a screen edge, at 1440x900 and 1728x1117: overview ↔ About, and History ↔ Profiles ↔ Matchups once a tile opened them; down and up move at the same speed and fade the card underneath alike; a gesture\'s ambiguous first wheel event is claimed', async () => {
+  const bad = [], seen = [];
+  const KEYS = new Set(['PageDown', 'ArrowDown', 'Space']);
+  // [from, direction, to]: the main scroll's stats leg, then the cards' loop (entered by a click on History's tile).
+  const MAIN = [['stats', 1, 'about'], ['about', -1, 'stats']];
+  const LOOP = [['race', 1, 'stats-table'], ['stats-table', 1, 'pairwise'], ['pairwise', -1, 'stats-table'], ['stats-table', -1, 'race']];
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
+    const p = await pageAt(w, h);
+    // Chrome lets a page cancel a wheel gesture only from its first event: the page must claim a start that is not
+    // clearly sideways (no delta, diagonal jitter), and leave a clear sideways swipe (back/forward) to the browser.
+    const claim = await p.evaluate(() => [[0, 0], [1, 0], [2, 1], [20, 3]].map(([dx, dy]) => {
+      const e = new WheelEvent('wheel', { deltaX: dx, deltaY: dy, cancelable: true, bubbles: true });
+      document.querySelector('#race-panel').dispatchEvent(e); return e.defaultPrevented;
+    }));
+    if (claim.slice(0, 3).some(c => !c) || claim[3]) bad.push(`${w}x${h}: gesture starts (0,0) (1,0) (2,1) claimed ${claim.slice(0, 3).join('/')}, sideways (20,3) claimed ${claim[3]}`);
+    await p.mouse.move(w / 2, h / 2);
+    for (const kind of Object.keys(GESTURES)) {
+      const t = { 1: [], [-1]: [] }, fades = { 1: {}, [-1]: {} }, wrong = [];
+      for (const [legs, enter] of [[MAIN, () => goto(p, 'stats').then(() => sleep(900))], [LOOP, () => openTile(p, '#race-panel')]]) {
+        await enter();
+        for (const [from, dir, want] of legs) {
+          const pair = dir > 0 ? `${from}>${want}` : `${want}>${from}`;
+          const r = await step(p, kind, dir, KEYS.has(kind) ? UNDER[pair] : null);
+          if (r.id !== want) { wrong.push(`${dir > 0 ? '↓' : '↑'} ${from} → ${r.id ?? `mid-way (y ${r.y})`}`); break; }
+          t[dir].push(r.ms);
+          if (UNDER[pair] && KEYS.has(kind)) fades[dir][pair] = r.fade;
+          await sleep(350);
+        }
+      }
+      const avg = a => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : 0);
+      const down = avg(t[1]), up = avg(t[-1]);
+      const fd = KEYS.has(kind) ? ` fade↓/↑ ${Object.keys(UNDER).map(k => `${fades[1][k] ?? '–'}/${fades[-1][k] ?? '–'}`).join(' ')}` : '';
+      seen.push(`${w}x${h} ${kind}: ${wrong.length ? 'WRONG' : '6/6'} ↓${down}ms ↑${up}ms${fd}`);
+      if (wrong.length) bad.push(`${w}x${h} ${kind}: ${wrong.join(', ')}`);
+      // The same speed both ways: the scroll's own time, from its first frame to rest (input latency aside).
+      else if (Math.abs(down - up) > Math.max(150, 0.25 * Math.max(down, up))) bad.push(`${w}x${h} ${kind}: down ${down}ms vs up ${up}ms`);
+      // The card underneath fades out going down and back in going up over the same time (keys: a fixed input).
+      for (const k of Object.keys(UNDER)) {
+        const a = fades[1][k], b = fades[-1][k];
+        if (a == null || b == null) continue;
+        if (Math.abs(a - b) > Math.max(80, 0.4 * Math.max(a, b))) bad.push(`${w}x${h} ${kind}: ${k} fade ${a}ms down vs ${b}ms up`);
+      }
+    }
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? `${bad.slice(0, 8).join('; ')} || measured: ${seen.join(' | ')}` : seen.join(' | ') };
+});
+await check('main-scroll', 'The main scroll is table ↔ overview ↔ About, one gesture each (wheel or key); down on About stays on About', async () => {
+  const bad = [], seen = [];
+  const p = await pageAt(1440, 900);
+  await p.mouse.move(30, 450); // the page's side margin: the table screen's own panels scroll inside themselves
+  const PLAN = [['table', 1, 'stats'], ['stats', 1, 'about'], ['about', 1, 'about'], ['about', -1, 'stats'], ['stats', -1, 'table']];
+  for (const kind of ['trackpad swipe', 'wheel notch', 'phased gesture', 'PageDown', 'Space']) {
+    await p.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(900);
+    const got = [];
+    for (const [from, dir, want] of PLAN) {
+      const r = await step(p, kind, dir);
+      got.push(r.id ?? `y${r.y}`);
+      if (r.id !== want) { bad.push(`${kind}: ${dir > 0 ? '↓' : '↑'} ${from} → ${r.id ?? `mid-way (y ${r.y})`}`); break; }
+      await sleep(350);
+    }
+    seen.push(`${kind}: ${got.join(' → ')}`);
+  }
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+});
+await check('matchups-wraps', 'The cards loop back to the overview: down on Matchups and up on History (wheel or key) go back to it with the Back to overview glide, and stay there', async () => {
+  const bad = [], seen = [];
+  const p = await pageAt(1440, 900);
+  await p.mouse.move(720, 450);
+  for (const [kind, dir] of [['trackpad swipe', 1], ['wheel notch', 1], ['phased gesture', 1], ['PageDown', 1], ['ArrowDown', 1], ['Space', 1], ['trackpad swipe', -1], ['wheel notch', -1], ['PageDown', -1], ['Space', -1]]) {
+    // Down on Matchups, up on History: each card reached from its tile, as a visitor does.
+    const [tile, sel] = dir > 0 ? ['#pairwise-panel', '#pairwise-panel'] : ['#race-panel', '#race-panel'];
+    await openTile(p, tile);
+    // The tile's box per frame (4 s: a loaded machine draws few frames): the glide back shows it between its card place and its tile place.
+    await p.evaluate(sel => { const out = (window.__gl = []); const t0 = performance.now(); const f = () => { const b = document.querySelector(sel).getBoundingClientRect(); out.push([Math.round(b.left), Math.round(b.width), Math.round(b.height)]); if (performance.now() - t0 < 4000) requestAnimationFrame(f); }; requestAnimationFrame(f); }, sel);
+    const r = await step(p, kind, dir);
+    await sleep(900); // the gesture's tail must not page on from the overview
+    const still = await p.evaluate(() => Math.abs(document.getElementById('stats').getBoundingClientRect().top) < 2);
+    const frames = await p.evaluate(() => window.__gl);
+    // A glide passes through in-between sizes (card to tile); a jump shows two.
+    const sizes = new Set(frames.map(f => `${f[1]}x${f[2]}`)).size;
+    const name = `${dir > 0 ? '↓ Matchups' : '↑ History'} ${kind}`;
+    seen.push(`${name}: ${r.id ?? 'mid-way'}, ${sizes} tile sizes`);
+    if (r.id !== 'stats' || !still) bad.push(`${name}: landed on ${r.id ?? `y ${r.y}`}${r.id === 'stats' && !still ? ', then moved on' : ''}`);
+    else if (sizes < 4) bad.push(`${name}: no glide back (${sizes} tile sizes)`);
+  }
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
+});
+await check('no-stats-hash', 'The URL never names a screen (open/close every card, Escape, paging, the About link, an old #race link), while #model= still opens the drawer and Back closes it; tiles open from the keyboard; /about still works', async () => {
   const bad = [];
   const p = await pageAt(1440, 900);
   const hash = () => p.evaluate(() => location.hash);
@@ -861,8 +1033,14 @@ await check('no-stats-hash', 'The URL never names a stats screen (open/close eve
     await note(`Enter on ${card}`);
     await p.keyboard.press('Escape'); await sleep(1300); await note(`Escape from ${card}`);
   }
-  for (const k of ['PageDown', 'PageDown', 'PageDown', 'PageDown', 'PageUp']) { await p.keyboard.press(k); await sleep(900); }
+  for (const k of ['PageDown', 'PageDown', 'PageUp', 'PageUp']) { await p.keyboard.press(k); await sleep(900); }
   await note('paging');
+  // The header's About link scrolls to the About screen, hash-free.
+  await p.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(600);
+  await p.evaluate(() => [...document.querySelectorAll('a[href="/about"]')].find(a => a.getBoundingClientRect().width > 0)?.click()); await sleep(1500);
+  const onAbout = await p.evaluate(() => ({ at: Math.abs(document.getElementById('about').getBoundingClientRect().top) < 2, path: location.pathname }));
+  if (!onAbout.at || onAbout.path !== '/') bad.push(`About link: ${onAbout.path}, ${onAbout.at ? 'on' : 'not on'} the About screen`);
+  await note('About link');
   // The model drawer keeps its hash: a model link opens it, Back closes it.
   await goto(p, 'stats'); await sleep(900);
   const opened = await p.evaluate(() => { const a = [...document.querySelectorAll('a[href^="#model="]')].find(e => e.getBoundingClientRect().width > 0); a?.click(); return !!a; });
@@ -879,7 +1057,12 @@ await check('no-stats-hash', 'The URL never names a stats screen (open/close eve
   const old = await q.evaluate(() => ({ y: Math.round(scrollY), h: location.hash }));
   await q.close();
   if (old.y > 2 || old.h) bad.push(`/#race: page at y ${old.y}, hash ${old.h || 'empty'}`);
-  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : 'hash empty throughout; #model= opens and Back closes the drawer; /#race opens at the top' };
+  // /about stays its own page.
+  const a = await browser.newPage(); await a.setViewport({ width: 1440, height: 900 });
+  const res = await a.goto(`${BASE}/about`, { waitUntil: 'domcontentloaded', timeout: 120000 }); await sleep(1500);
+  const txt = await a.evaluate(() => document.body.innerText); await a.close();
+  if (res.status() !== 200 || !/Limitations/.test(txt)) bad.push(`/about: ${res.status()}${/Limitations/.test(txt) ? '' : ', no About content'}`);
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : 'hash empty throughout; #model= opens and Back closes the drawer; the About link scrolls to About; /#race opens at the top; /about works' };
 });
 await check('matchups-no-definition', 'The opened Matchups card has no definition line (no "Each cell" / "took the most from")', async () => {
   const p = await pageAt(1440, 900, 'pairwise');
@@ -888,7 +1071,6 @@ await check('matchups-no-definition', 'The opened Matchups card has no definitio
   const found = ['Each cell', 'took the most from'].filter(x => r.t.includes(x));
   return { pass: !found.length && !r.p, detail: found.length || r.p ? `found ${found.join(', ')} (${r.p} p)` : 'no definition line' };
 });
-
 
 await browser.close();
 const w = Math.max(...results.map(r => r.id.length));
