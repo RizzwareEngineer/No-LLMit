@@ -55,7 +55,7 @@ const COVERS = [
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
   [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope)/],
   [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads)/],
-  [/components\/About\.tsx|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|main-scroll|no-stats-hash|scroll-consistency)/],
+  [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|main-scroll|no-stats-hash|scroll-consistency)/],
 ];
 function changedChecks() { // a Set of ids, or null for every check
   const git = c => execSync(c, { cwd: new URL('../..', import.meta.url), encoding: 'utf8' }).split('\n').filter(Boolean);
@@ -1261,48 +1261,169 @@ late(() => check('pages-move', 'The main screens move like pages: table → over
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
 // Owner, 2026-11-08: "the About page in general just doesn't look like it belongs, so we need to change the UX/UI of the
-// About page to fit in with the rest." About is made of the stats cards (the same chrome: radius, ring and shadow, padding,
-// white), its text is on the stats type scale (card titles 20px bold, body 14px, labels 13px muted, links blue, the body's
-// sans; the system prompt's code aside), no heading carries an emoji, and it fits one window at the overview's width and
-// centre (not wall to wall) at 1440x900 and 1728x1117.
-main(() => check('about-fits', 'About is built from the stats cards (radius, ring/shadow, padding), on the stats type scale (titles 20px bold, body 14px, labels 13px muted, body sans), with no emoji in its headings; it fits one window at the overview\'s width and centre at 1440x900 and 1728x1117', async () => {
+// About page to fit in with the rest." Then: "this About page kind of sucks ... it's just too plain ... It's how we organize it",
+// so About has drafts (about-drafts-switcher), each held to the same rules here. Its text is on the stats type scale: the thesis
+// at the site title's 28px bold, card titles 20px bold, section labels 13px muted uppercase, figures 20px bold, body 14px, labels
+// 13px muted, links and buttons blue, a number may take the stats' gain or loss colour, all in the body's sans (the code aside).
+// Any card in it is a stats card (radius, ring and shadow, padding, white); cards are no longer required (a draft may set its
+// sections on hairlines instead). No heading carries an emoji, and every draft fits one window at the overview's width and
+// centre (not wall to wall) at 1440x900 and 1728x1117. The draft switcher is a temporary control and is left out.
+const ABOUT_DRAFTS = [['a', 'Draft A'], ['b', 'Draft B'], ['current', 'Current']];
+const pickDraft = (p, label) => p.evaluate(t => [...document.querySelectorAll('[data-draft-switcher] button')].find(b => b.textContent.trim() === t)?.click(), label);
+// React has taken over the page (its props are on the switcher): the server's HTML shows Draft A and ignores clicks until then.
+const aboutReady = p => p.waitForFunction(() => { const b = document.querySelector('[data-draft-switcher] button'); return !!b && Object.keys(b).some(k => k.startsWith('__react')); }, { timeout: 60000 }).catch(() => {});
+main(() => check('about-fits', 'Every About draft (A, B, Current) is on the stats type scale (thesis 28px bold, titles and figures 20px bold, section labels 13px muted uppercase, body 14px, labels 13px muted, body sans), any card in it is a stats card, no heading has an emoji, and it fits one window at the overview\'s width and centre at 1440x900 and 1728x1117', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await sharedAt(w, h, 'about');
-    const r = await p.evaluate(() => {
-      const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)';
-      const about = document.querySelector('section[aria-label=About]'), race = document.getElementById('race-panel');
-      const why = new Set();
-      // The cards: the stats cards' chrome, computed exactly as an overview tile's.
-      const ref = getComputedStyle(race), KEYS = ['borderTopLeftRadius', 'boxShadow', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'backgroundColor'];
-      const cards = [...about.querySelectorAll('.card-chrome')].filter(c => c.getBoundingClientRect().width > 0);
-      if (cards.length < 4) why.add(`${cards.length} stats cards`);
-      for (const c of cards) { const s = getComputedStyle(c); for (const k of KEYS) if (s[k] !== ref[k]) why.add(`card ${k} ${s[k]}, not ${ref[k]}`); }
-      // Every visible piece of text by its role: a heading is a card title, else body (14px) or a label (13px, muted).
-      const body = getComputedStyle(document.body).fontFamily;
-      const texts = [...about.querySelectorAll('*')].filter(e => !e.closest('pre, code, svg, .sr-only') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
-      for (const e of texts) {
-        const s = getComputedStyle(e), size = parseFloat(s.fontSize), name = `"${e.textContent.trim().slice(0, 20)}"`, link = !!e.closest('a');
-        if (s.fontFamily !== body) why.add(`${name} in ${s.fontFamily.split(',')[0]}`);
-        if (e.closest('h1, h2, h3, h4, h5, h6')) { if (size !== 20 || +s.fontWeight !== 700 || s.color !== TEXT) why.add(`heading ${name} ${size}px ${s.fontWeight} ${s.color}`); }
-        else if (size === 14) { if (s.color !== (link ? BLUE : TEXT)) why.add(`body ${name} ${s.color}`); }
-        else if (size === 13) { if (s.color !== (link ? BLUE : MUTED)) why.add(`label ${name} ${s.color}`); }
-        else why.add(`${name} ${size}px`);
+    for (const [draft, label] of ABOUT_DRAFTS) {
+      await pickDraft(p, label);
+      const on = await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 5000 }, draft).then(() => true, () => false);
+      if (!on) { bad.push(`${w}x${h}: the switcher did not show ${label}`); continue; }
+      await sleep(500);
+      const r = await p.evaluate(() => {
+        const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)', NET = ['rgb(15, 123, 108)', 'rgb(200, 50, 50)'];
+        const about = document.querySelector('section[aria-label=About]'), race = document.getElementById('race-panel');
+        const root = about.querySelector('[data-about-draft]'), view = root.firstElementChild;
+        const why = new Set();
+        // Cards: the stats cards' chrome, computed exactly as an overview tile's.
+        const ref = getComputedStyle(race), KEYS = ['borderTopLeftRadius', 'boxShadow', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'backgroundColor'];
+        const cards = [...view.querySelectorAll('.card-chrome')].filter(c => c.getBoundingClientRect().width > 0);
+        for (const c of cards) { const s = getComputedStyle(c); for (const k of KEYS) if (s[k] !== ref[k]) why.add(`card ${k} ${s[k]}, not ${ref[k]}`); }
+        // Every visible piece of text by its role.
+        const body = getComputedStyle(document.body).fontFamily;
+        const texts = [...view.querySelectorAll('*')].filter(e => !e.closest('pre, code, svg, .sr-only') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+        for (const e of texts) {
+          const s = getComputedStyle(e), size = parseFloat(s.fontSize), bold = +s.fontWeight >= 700, name = `"${e.textContent.trim().slice(0, 20)}"`;
+          const control = !!e.closest('a, button'), number = /^[+−-]?[\d,.]+$/.test(e.textContent.trim());
+          if (s.fontFamily !== body) why.add(`${name} in ${s.fontFamily.split(',')[0]}`);
+          const ok = e.closest('h1, h2, h3, h4, h5, h6')
+            ? ((size === 28 || size === 20) && bold && s.color === TEXT) || (size === 13 && s.color === MUTED && s.textTransform === 'uppercase')
+            : size === 20 ? bold && s.color === TEXT
+            : size === 14 ? s.color === TEXT || (control && s.color === BLUE) || (number && NET.includes(s.color))
+            : size === 13 ? s.color === MUTED || (control && s.color === BLUE)
+            : false;
+          if (!ok) why.add(`${e.closest('h1, h2, h3, h4, h5, h6') ? 'heading ' : ''}${name} ${size}px ${s.fontWeight} ${s.color}${s.textTransform === 'none' ? '' : ` ${s.textTransform}`}`);
+        }
+        const emoji = [...view.querySelectorAll('h1, h2, h3, h4, h5, h6')].map(e => e.textContent.trim()).filter(t => /\p{Extended_Pictographic}/u.test(t));
+        // One window: nothing to scroll, the draft and its switcher under the sticky bar and above the window's edge, at the
+        // overview's edges.
+        const scroller = about.querySelector('.panel-scroll') ?? about;
+        const b = view.getBoundingClientRect(), sw = root.querySelector('[data-draft-switcher]')?.getBoundingClientRect() ?? b, o = race.getBoundingClientRect();
+        return { why: [...why], emoji, over: scroller.scrollHeight - scroller.clientHeight, T: Math.min(b.top, sw.top), B: Math.max(b.bottom, sw.bottom), L: b.left, R: b.right, oL: o.left, oR: o.right, h: innerHeight, n: cards.length };
+      });
+      seen.push(`${w}x${h} ${label}: ${r.n} cards ${r.L.toFixed(0)}..${r.R.toFixed(0)} x ${r.T.toFixed(0)}..${r.B.toFixed(0)}`);
+      const why = [...r.why];
+      if (r.emoji.length) why.push(`emoji in ${r.emoji.join(', ')}`);
+      if (r.over > 1 || r.T < 44 || r.B > r.h) why.push(`does not fit the window (${r.over > 1 ? `scrolls ${r.over}px, ` : ''}${r.T.toFixed(0)}..${r.B.toFixed(0)} of ${r.h})`);
+      if (Math.abs(r.L - r.oL) > 2 || Math.abs(r.R - r.oR) > 2) why.push(`${r.L.toFixed(0)}..${r.R.toFixed(0)} wide, not the overview's ${r.oL.toFixed(0)}..${r.oR.toFixed(0)}`);
+      if (why.length) bad.push(`${w}x${h} ${label}: ${why.slice(0, 8).join('; ')}`);
+    }
+    await pickDraft(p, 'Draft A'); // the shared page as the other checks expect it
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+}));
+// Owner's rule (drafts on the site): drafts live on the real page, with real data and a switcher, never as chat mockups. About
+// shows Draft A by default; ?about=a|b|current picks a draft on the home page's About screen and on /about (anything else: A);
+// the switcher's buttons swap the drafts in place, the page staying on About, and keep the choice in the URL's query (never a
+// hash: the URL never names a screen).
+group(() => check('about-drafts-switcher', 'About shows Draft A by default; ?about=a|b|current picks Draft A, Draft B or Current (home page and /about); the switcher swaps them in place by click and keeps the choice in the query, never a hash', async () => {
+  const bad = [], seen = [];
+  const LABEL = Object.fromEntries(ABOUT_DRAFTS), MARK = { a: 'how a turn works', b: 'leaderboard', current: 'limitations' };
+  const read = p => p.evaluate(() => {
+    const root = document.querySelector('[data-about-draft]');
+    const on = [...document.querySelectorAll('[data-draft-switcher] button')].find(b => b.getAttribute('aria-pressed') === 'true');
+    return { draft: root?.dataset.aboutDraft, pressed: on?.textContent.trim(), text: (root?.innerText ?? '').toLowerCase(), search: location.search, hash: location.hash, top: document.getElementById('about')?.getBoundingClientRect().top };
+  });
+  const shows = (r, d) => r.draft === d && r.pressed === LABEL[d] && r.text.includes(MARK[d]);
+  const open = async path => {
+    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+    await p.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await aboutReady(p); await sleep(500); // hydration swaps the server's default (A) for the URL's draft
+    return p;
+  };
+  for (const [path, want] of [['/', 'a'], ['/?about=b', 'b'], ['/about?about=current', 'current'], ['/about?about=a', 'a'], ['/about?about=nonsense', 'a']]) {
+    const p = await open(path), r = await read(p);
+    await p.close();
+    seen.push(`${path} → ${r.draft ?? 'none'}`);
+    if (!shows(r, want)) bad.push(`${path}: shows ${r.draft ?? 'no draft'} (pressed ${r.pressed ?? 'none'}), not ${LABEL[want]}`);
+  }
+  // By click, on the home page's About screen.
+  const p = await open('/');
+  await goto(p, 'about'); await sleep(1500);
+  for (const d of ['b', 'current', 'a']) {
+    await pickDraft(p, LABEL[d]); await sleep(700);
+    const r = await read(p);
+    seen.push(`click ${LABEL[d]} → ${r.draft} ${r.search}`);
+    if (!shows(r, d)) bad.push(`click ${LABEL[d]}: shows ${r.draft} (pressed ${r.pressed})`);
+    if (r.search !== `?about=${d}` || r.hash) bad.push(`click ${LABEL[d]}: URL ${r.search}${r.hash}, not ?about=${d}`);
+    if (Math.abs(r.top) > 1) bad.push(`click ${LABEL[d]}: the page moved off About (About at ${Math.round(r.top)})`);
+  }
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
+}));
+// "All the content's there. It's how we organize it": every draft says everything the About said before the drafts (Current is
+// the reference: its run proves each fact's pattern), with every panel and answer opened in turn: the pitch, the call and its
+// system prompt, input and output (shown as code), no memory between calls, the hours, the budget's limits, what a donation
+// pays for and where to give, what's coming next, and the GitHub and handle links.
+const ABOUT_FACTS = [
+  ['the pitch', /Watch SOTA LLMs play a No Limit Texas Hold'em cash game against each other, live/],
+  ['explains its move', /Each one explains its move as it plays/],
+  ['coming soon', /Playing against them, and tournaments, are coming soon/],
+  ['one fresh call', /Each turn is one fresh call/],
+  ['plain text', /hand so far in plain text/],
+  ['same system prompt', /same system prompt/],
+  ['system prompt shown', /no persona, no strategy hints[\s\S]*You are an expert No Limit Texas Hold'em poker player[\s\S]*RESPONSE FORMAT/],
+  ['call input shown', /amount to call and its legal actions[\s\S]*Your hole cards: Ks Qh[\s\S]*Legal actions:/],
+  ['call output shown', /Three lines: the action \(FOLD, CHECK, CALL, BET, RAISE or ALL_IN\), the amount if any, and a short reason[\s\S]*ACTION: BET\s+AMOUNT: 40\s+REASON:/],
+  ['no memory', /No memory between calls/],
+  ['what it never sees', /never sees earlier hands, how its opponents played, or its own earlier decisions in the hand/],
+  ['hours', /Open 9am to 9pm ET, daily/],
+  ['closed outside hours', /Outside those hours the table is closed and no LLMs are called/],
+  ['~150 hands a day', /About 150 hands per day/],
+  ['fixed budget', /The table runs on a fixed monthly budget/],
+  ['~15 calls a hand', /A hand takes about 15 API calls across all 9 LLMs/],
+  ['a session', /A 5-hour live cash game session has about 125 hands/],
+  ['donate ask', /\$5 would be a huge help to cover/],
+  ['donate: OpenRouter', /OpenRouter, the LLM calls/],
+  ['donate: Railway', /Railway, the servers/],
+  ['donate: Tinker', /Tinker, training LLMs to play like you/],
+  ['next: datasets', /Open source datasets[\s\S]*Every action and reason each LLM gave, with what seasoned players weigh: hole cards, position, stacks and earlier actions/],
+  ['next: train', /Train an LLM to play like you[\s\S]*Tinker by Thinking Machines Lab and your hands against the LLMs, without leaving the site/],
+  ['next: council', /Andrej Karpathy's LLM Council will analyze how each LLM plays/],
+  ['GitHub', /Open source on GitHub/],
+  ['handle', /@RizzwareEngineer/],
+];
+const ABOUT_LINKS = ['https://openrouter.ai/', 'https://railway.com/', 'https://thinkingmachines.ai/tinker/', 'https://github.com/sponsors/RizzwareEngineer',
+  'https://github.com/thinking-machines-lab/tinker-cookbook', 'https://github.com/karpathy/llm-council', 'https://github.com/RizzwareEngineer/No-LLMit', 'https://github.com/RizzwareEngineer'];
+group(() => check('about-content-complete', 'Every fact and link of the About (Current) is in Draft A and Draft B, every panel and answer opened in turn: the pitch, each call (system prompt, input, output), no memory, hours, ~150 hands a day, ~15 calls a hand, budget, donate targets, coming next, GitHub and handle', async () => {
+  const bad = [], seen = [];
+  for (const [draft, label] of ABOUT_DRAFTS) {
+    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+    await p.goto(`${BASE}/about?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await aboutReady(p);
+    const on = await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 10000 }, draft).then(() => true, () => false);
+    if (!on) { bad.push(`${label}: not shown by /about?about=${draft}`); await p.close(); continue; }
+    await sleep(500);
+    // Opens every closed panel or answer once (one at a time where a draft allows only one), reading the text after each.
+    const got = await p.evaluate(async () => {
+      const root = document.querySelector('[data-about-draft]'), texts = [root.innerText], links = new Set(), done = new Set();
+      const look = () => { texts.push(root.innerText); root.querySelectorAll('a[href]').forEach(a => links.add(a.href)); };
+      look();
+      for (let i = 0; i < 40; i++) {
+        const b = [...root.querySelectorAll('button[aria-expanded=false]')].find(e => !done.has(e.textContent.trim()) && e.getBoundingClientRect().width > 0);
+        if (!b) break;
+        done.add(b.textContent.trim()); b.click();
+        await new Promise(r => setTimeout(r, 200));
+        look();
       }
-      const emoji = [...about.querySelectorAll('h1, h2, h3, h4, h5, h6')].map(e => e.textContent.trim()).filter(t => /\p{Extended_Pictographic}/u.test(t));
-      // One window: nothing to scroll, everything under the sticky bar and above the window's edge, at the overview's edges.
-      const scroller = about.querySelector('.panel-scroll') ?? about;
-      const boxes = (cards.length ? [...cards, ...about.querySelectorAll('footer')] : texts).map(e => e.getBoundingClientRect());
-      const L = Math.min(...boxes.map(b => b.left)), R = Math.max(...boxes.map(b => b.right)), T = Math.min(...boxes.map(b => b.top)), B = Math.max(...boxes.map(b => b.bottom));
-      const o = race.getBoundingClientRect();
-      return { why: [...why], emoji, over: scroller.scrollHeight - scroller.clientHeight, T, B, L, R, oL: o.left, oR: o.right, h: innerHeight, n: cards.length };
+      return { text: texts.join('\n'), links: [...links], opened: done.size };
     });
-    seen.push(`${w}x${h}: ${r.n} cards ${r.L.toFixed(0)}..${r.R.toFixed(0)} x ${r.T.toFixed(0)}..${r.B.toFixed(0)} (overview ${r.oL.toFixed(0)}..${r.oR.toFixed(0)})`);
-    const why = [...r.why];
-    if (r.emoji.length) why.push(`emoji in ${r.emoji.join(', ')}`);
-    if (r.over > 1 || r.T < 44 || r.B > r.h) why.push(`does not fit the window (${r.over > 1 ? `scrolls ${r.over}px, ` : ''}${r.T.toFixed(0)}..${r.B.toFixed(0)} of ${r.h})`);
-    if (Math.abs(r.L - r.oL) > 2 || Math.abs(r.R - r.oR) > 2) why.push(`${r.L.toFixed(0)}..${r.R.toFixed(0)} wide, not the overview's ${r.oL.toFixed(0)}..${r.oR.toFixed(0)}`);
-    if (why.length) bad.push(`${w}x${h}: ${why.slice(0, 8).join('; ')}`);
+    await p.close();
+    const missing = ABOUT_FACTS.filter(([, re]) => !re.test(got.text)).map(([name]) => name);
+    const noLink = ABOUT_LINKS.filter(l => !got.links.includes(l));
+    seen.push(`${label}: ${ABOUT_FACTS.length - missing.length}/${ABOUT_FACTS.length} facts, ${ABOUT_LINKS.length - noLink.length}/${ABOUT_LINKS.length} links, ${got.opened} panels opened`);
+    if (missing.length || noLink.length) bad.push(`${label}: ${missing.length ? `missing ${missing.join(', ')}` : ''}${missing.length && noLink.length ? '; ' : ''}${noLink.length ? `no link to ${noLink.join(', ')}` : ''}`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
 }));
@@ -1447,7 +1568,7 @@ group(() => check('no-stats-hash', 'The URL never names a screen (open/close eve
   const a = await newPage(); await a.setViewport({ width: 1440, height: 900 });
   const res = await a.goto(`${BASE}/about`, { waitUntil: 'domcontentloaded', timeout: 120000 }); await sleep(1500);
   const txt = await a.evaluate(() => document.body.innerText); await a.close();
-  if (res.status() !== 200 || !/Limitations/.test(txt)) bad.push(`/about: ${res.status()}${/Limitations/.test(txt) ? '' : ', no About content'}`);
+  if (res.status() !== 200 || !/Open source on GitHub/.test(txt)) bad.push(`/about: ${res.status()}${/Open source on GitHub/.test(txt) ? '' : ', no About content'}`);
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : 'hash empty throughout; #model= opens and Back closes the drawer; the About link scrolls to About; /#race opens at the top; /about works' };
 }));
 main(() => check('matchups-no-definition', 'The opened Matchups card has no definition line (no "Each cell" / "took the most from")', async () => {
