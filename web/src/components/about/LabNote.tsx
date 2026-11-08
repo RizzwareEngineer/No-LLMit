@@ -47,7 +47,7 @@ export default function LabNote({ heading }: { heading: 'h1' | 'h2' }) {
     <article className={`@container flex flex-col ${GAP} text-[14px] leading-snug`} style={{ color: TEXT }}>
       <section>
         <Rule as="p">The experiment</Rule>
-        <div className="grid gap-5 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] @3xl:gap-10 @3xl:items-center">
+        <div className="grid gap-5 @3xl:grid-cols-2 @3xl:gap-10 @3xl:items-center">
           <div className={`flex flex-col gap-3 ${PROSE}`}>
             <Thesis as={heading} />
             <div className="flex flex-col gap-1"><Intro /></div>

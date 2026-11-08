@@ -1276,6 +1276,10 @@ main(() => check('about-fits', 'Every About draft (A, B, Current) is on the stat
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await sharedAt(w, h, 'about');
+    // The rule is for the page as it normally is: while the connection bar shows (a page resumed from a freeze reconnects),
+    // every screen gives it 40px (--bar-h) and About may scroll inside itself. Wait for it to clear (30 s at most).
+    const clear = await p.waitForFunction(() => getComputedStyle(document.querySelector('[data-page]')).getPropertyValue('--bar-h').trim() === '0px', { timeout: 30000 }).then(() => true, () => false);
+    if (!clear) bad.push(`${w}x${h}: the connection bar never cleared (measured with it)`);
     for (const [draft, label] of ABOUT_DRAFTS) {
       await pickDraft(p, label);
       const on = await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 5000 }, draft).then(() => true, () => false);
