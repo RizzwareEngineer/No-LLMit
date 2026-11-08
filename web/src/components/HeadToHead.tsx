@@ -38,14 +38,14 @@ const COMPACT = [0, 1].map(d => Intl.NumberFormat('en', { notation: 'compact', m
 const short = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${COMPACT[Math.abs(n) < 1e4 ? 1 : 0].format(Math.abs(n)).toLowerCase()}`;
 
 // A figure sized by its own cell (an inline-size container): the full figure where it fits at a
-// readable size, else the short one shrunk to the width, and in a sliver too narrow for 9px text
+// readable size, else the short one shrunk to the width (10px at least), and in a sliver too narrow for it
 // none (the tint and the tooltip carry it). Never clipped. Screen readers get the full figure.
 // Memoized: while History replays only the cells whose figure changed render again.
 const Fit = memo(function Fit({ n }: { n: number }) {
   return (
     <div className="@container w-full" aria-hidden>
       <span className="hidden @min-[70px]:inline" style={{ fontSize: 'min(1em, 19cqi)' }}>{chips(n)}</span>
-      <span className="hidden @min-[30px]:inline @min-[70px]:hidden" style={{ fontSize: 'min(1em, 29cqi)' }}>{short(n)}</span>
+      <span className="hidden @min-[28px]:inline @min-[70px]:hidden" style={{ fontSize: 'max(10px, min(1em, 33cqi))' }}>{short(n)}</span>
     </div>
   );
 });
@@ -179,7 +179,7 @@ export default memo(function HeadToHead({
           </Added>
         )}
         <motion.div layout layoutDependency={mini} transition={GLIDE} className="shrink-0" style={{ width: S, height: S }}>
-          <table className="w-full h-full table-fixed tabular-nums border-separate border-spacing-px" style={{ fontSize: `clamp(9px, calc(${S} / ${k} * 0.3), 20px)` }}>
+          <table className="w-full h-full table-fixed tabular-nums border-separate border-spacing-px" style={{ fontSize: `clamp(10px, calc(${S} / ${k} * 0.32), 20px)` }}>
             <caption className="sr-only">Matchups: chips each row model won from each column model, sorted by net chips</caption>
             <colgroup>{Array.from({ length: k }, (_, i) => <col key={i} style={{ width: `${100 / k}%` }} />)}</colgroup>
             <thead>

@@ -327,7 +327,10 @@ html:has([data-screen]) {
   background: rgb(15, 15, 15);
   opacity: var(--dim, 0);
 }
-@keyframes recede { to { transform: scale(0.94); --dim: 0.14; } }
+/* The card underneath shrinks and dims, then fades out as the next one lands: cards differ in size,
+   so one left showing would peek out around the new card. Only the opened card is ever visible. */
+@keyframes recede { 60% { opacity: 1; } to { transform: scale(0.94); --dim: 0.14; opacity: 0; } }
+@keyframes recede-hide { 60% { opacity: 1; } to { opacity: 0; } }
 /* What a card adds to its overview tile's content (Profiles' extra columns and controls) fades in once, on mount. */
 @keyframes add-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: no-preference) {
@@ -338,6 +341,16 @@ html:has([data-screen]) {
   @supports (animation-timeline: view()) and (timeline-scope: --a) {
   .recede {
     animation: recede linear both;
+    animation-timeline: var(--recede-by);
+    animation-range: entry 0% entry 100%;
+  }
+  }
+}
+/* Under reduced motion the card underneath does not shrink, but still hides behind the new one. */
+@media (prefers-reduced-motion: reduce) {
+  @supports (animation-timeline: view()) and (timeline-scope: --a) {
+  .recede {
+    animation: recede-hide linear both;
     animation-timeline: var(--recede-by);
     animation-range: entry 0% entry 100%;
   }

@@ -465,24 +465,24 @@ const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1'; // a card header's 
 // The overview block and every card: the live table's 1252px wide at most, and on wider screens
 // only as wide as lets History's tile (its chart's shape) and the second row fit the window's height;
 // centred, with the page around it. Its height comes from that width (BLOCK_VARS), never the window.
-const ROW2 = 72 + 10 * MINI_ROW; // the second row: a tile's padding and header, and ten table rows
+const ROW2 = 72 + 10 * MINI_ROW; // the second row: a tile's padding and header, and ten table rows (or matrix cells)
 const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
 const BLOCK = 'h-full w-full max-w-[1252px] md:max-w-(--block-w) mx-auto flex flex-col justify-center';
 const BLOCK_VARS = {
-  '--block-w': `max(560px, min(1252px, calc((100svh - 44px - 7svh - var(--bar-h, 0px) - ${12 + 72 + ROW2}px) * ${W / H} + 32px)))`,
+  '--block-w': `max(560px, min(1252px, calc((100svh - 44px - 4svh - var(--bar-h, 0px) - ${12 + 72 + ROW2}px) * ${W / H} + 32px)))`,
   '--row1': `calc((100cqw - 32px) * ${H / W} + 72px)`,
   '--row2': `${ROW2}px`,
   '--col2': `${ROW2 - 72 + 32 + 48}px`, // Matchups: its square of ten cells, its padding and a little air
   '--block-h': `calc(var(--row1) + 12px + var(--row2))`,
 } as React.CSSProperties;
 
-// Under the 44px sticky bar and above the connection bar, at least 3% of the window above the
-// block and 4% below it; the block is centred in what is left, so it reads as cards on a page.
-const EDGE = 'pt-[calc(44px+3svh)] pb-[calc(4svh+var(--bar-h,0px))]';
+// Under the 44px sticky bar and above the connection bar, at least 2% of the window above and
+// below the block; the block is centred in what is left, so it reads as cards on a page.
+const EDGE = 'pt-[calc(44px+2svh)] pb-[calc(2svh+var(--bar-h,0px))]';
 
-// Shrinks and dims its content as the screen `by` slides up over it: a CSS scroll-driven
+// Shrinks and dims its content as the screen `by` slides up over it, then hides it as that screen lands: a CSS scroll-driven
 // animation on the named view timeline of that screen where supported, motion's useScroll
-// otherwise. Transform and opacity only; scrolling back reverses it; nothing under reduced motion.
+// otherwise. Transform and opacity only; scrolling back reverses it; only the hiding under reduced motion.
 function Recede({
   by,
   timeline,
@@ -501,13 +501,14 @@ function Recede({
   const { scrollYProgress } = useScroll({ target: by, offset: ['start end', 'start start'] });
   const scale = useTransform(scrollYProgress, [0, 1], [1, 0.94]);
   const dim = useTransform(scrollYProgress, [0, 1], [0, 0.14]); // the keyframes in globals.css
+  const hide = useTransform(scrollYProgress, [0, 0.6, 1], [1, 1, 0]);
   const fallback = !!by && !native && !reduce;
   // No box of its own: only the cards inside show, and --dim darkens each one (card-chrome).
   return (
     <motion.div
       ref={ref}
       className={`${className} ${by && native ? 'recede' : ''} origin-center`}
-      style={{ ['--recede-by' as string]: timeline, scale: fallback ? scale : undefined, ['--dim' as string]: fallback ? dim : undefined }}
+      style={{ ['--recede-by' as string]: timeline, scale: fallback ? scale : undefined, ['--dim' as string]: fallback ? dim : undefined, opacity: by && !native ? hide : undefined }}
     >
       {children}
     </motion.div>
