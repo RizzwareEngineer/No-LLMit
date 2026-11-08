@@ -240,7 +240,10 @@ export default function Home() {
       // flick that paged onto a card must not scroll that card's panel, then page again at its end.
       const abs = Math.abs(e.deltaY);
       if (abs > lastAbs) {
-        if (!rises) riseAt = now - lastT > 30 || lastAbs <= 2 ? now : -1;
+        // From rest: after a real pause, or from a near-zero delta. 120 ms, not less: when the main thread is busy
+        // Chrome coalesces a steady swipe's events, so gaps of 30-60 ms with growing deltas arrive mid-gesture,
+        // which read as a new touch and paged a second screen in one gesture.
+        if (!rises) riseAt = now - lastT > 120 || lastAbs <= 2 ? now : -1;
         rises++;
       } else rises = 0;
       lastAbs = abs;

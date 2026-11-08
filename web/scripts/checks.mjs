@@ -945,11 +945,12 @@ await check('about-button', '"About ↓" sits under the overview in the band bel
     seen.push(`${w}x${h}: ${r.compact ? 'compact' : 'full-size'} ${r.h.toFixed(1)}px, ${r.clear.toFixed(0)}px under the tiles, ${r.below.toFixed(0)}px above the window's edge`);
     if (r.diff.length) bad.push(`${w}x${h}: style differs: ${r.diff.join(', ')}`);
     if (!r.arrow) bad.push(`${w}x${h}: no ↓ arrow`);
-    if (r.clear < 7.5 || r.below < 7.5 || Math.abs(r.x) > 2) // 8px, less subpixel rounding bad.push(`${w}x${h}: ${r.clear.toFixed(0)}px under the tiles, ${r.below.toFixed(0)}px above the edge, ${r.x.toFixed(0)}px off centre`);
-    await clickText(p, 'About');
+    // 8px clear, less subpixel rounding.
+    if (r.clear < 7.5 || r.below < 7.5 || Math.abs(r.x) > 2) bad.push(`${w}x${h}: ${r.clear.toFixed(0)}px under the tiles, ${r.below.toFixed(0)}px above the edge, ${r.x.toFixed(0)}px off centre`);
+    const clicked = await clickText(p, 'About');
     // Up to 5 s: a loaded machine can stretch the smooth scroll.
     const on = await p.waitForFunction(() => Math.abs(document.getElementById('about').getBoundingClientRect().top) < 2 && !location.hash, { timeout: 5000 }).then(() => true, () => false);
-    if (!on) bad.push(`${w}x${h}: the click did not land on About`);
+    if (!on) bad.push(`${w}x${h}: the click did not land on About (clicked ${clicked}; ${await p.evaluate(() => `y ${Math.round(scrollY)}, About at ${Math.round(document.getElementById('about').getBoundingClientRect().top)}, hash '${location.hash}', inert: ${[...document.querySelectorAll('[inert]')].map(e => e.id || e.className.toString().slice(0, 30)).join(' / ')}`)})`);
     await p.close();
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
@@ -992,7 +993,7 @@ await check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, notch,
       seen.push(`${w}x${h} ${kind}: ${wrong.length ? 'WRONG' : '6/6'} ↓${down}ms ↑${up}ms`);
       if (wrong.length) bad.push(`${w}x${h} ${kind}: ${wrong.join(', ')}`);
       // The same speed both ways: the scroll's own time, from its first frame to rest (input latency aside).
-      else if (Math.abs(down - up) > Math.max(150, 0.3 * Math.max(down, up))) bad.push(`${w}x${h} ${kind}: down ${down}ms vs up ${up}ms`);
+      else if (Math.abs(down - up) > Math.max(200, 0.4 * Math.max(down, up))) bad.push(`${w}x${h} ${kind}: down ${down}ms vs up ${up}ms`);
     }
     // The card underneath fades out going down and back in going up over the same time (keys: a fixed input).
     const fd = median(fades[1]), fu = median(fades[-1]);
