@@ -1,7 +1,11 @@
 // Headless checks for the owner's locked UI rules. Each one can fail; a failure exits non-zero.
-// Run: node scripts/checks.mjs [--base http://localhost:3100] [--skip id,id] [--only id,id]
-// Needs a running dev server (web) and engine. Chrome is the system install (CHROME_PATH to override).
+// Run: node scripts/checks.mjs [--base http://localhost:3100] [--skip id,id] [--only id,id] [--changed] [--replay-speed 4]
+// Needs a running web server and engine; scripts/verify.sh provides both and the machine-wide lock.
+// Chrome is the system install (CHROME_PATH to override).
 import puppeteer from 'puppeteer-core';
+import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const BASE = arg('--base', 'http://localhost:3100');
@@ -10,11 +14,77 @@ const ONLY = new Set((arg('--only', '') || '').split(',').filter(Boolean));
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const results = [];
+// The checks that watch a whole replay play it this many times faster (test-only: window.__replaySpeed, read by
+// playReplay). Every replay-timed effect on the chart scales with it, and their samples are timed in replay time.
+const SPEED = +arg('--replay-speed', 4);
+// This script's lines and its checks' ids in order (for --changed, and to print results in order).
+const SRC = readFileSync(new URL(import.meta.url), 'utf8').split('\n');
+const CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/;
+const IDS = SRC.map(l => l.match(CHECK)?.[1]).filter(Boolean);
 const want = id => !SKIP.has(id) && (!ONLY.size || ONLY.has(id));
+let lastEnd = Date.now();
 async function check(id, rule, fn) {
   if (!want(id)) return;
-  try { const { pass, detail } = await fn(); results.push({ id, rule, pass, detail }); }
-  catch (e) { results.push({ id, rule, pass: false, detail: `error: ${e.message.split('\n')[0]}` }); }
+  const t0 = lane.getStore() ? Date.now() : lastEnd; // on the main page, with any shared setup since the previous check
+  let r;
+  try { const { pass, detail } = await fn(); r = { id, rule, pass, detail }; }
+  catch (e) { r = { id, rule, pass: false, detail: `error: ${e.message.split('\n')[0]}` }; }
+  results.push(r);
+  await parkShared();
+  r.ms = Date.now() - t0; if (!lane.getStore()) lastEnd = Date.now();
+}
+// The main page's steps (main) run in order on one page. Checks that bring their own pages run in lanes, each group
+// in a browser context of its own: a window of its own, so input and frames work in every lane at once (a background
+// tab gets neither); newPage() opens a page in the running group's context. The rest (group) run beside the main page
+// in LANES - 1 lanes. Checks that time scroll gestures (late) misread a busy machine, so they wait for the main page,
+// then take LANES - 1 lanes (scroll-consistency opens a second window of its own). All are only queued while this
+// file runs top to bottom, and start at its end.
+const LANES = +arg('--lanes', 3);
+const lane = new AsyncLocalStorage(), groups = [], lates = [], steps = [];
+const group = fn => groups.push(fn), late = fn => lates.push(fn), main = fn => steps.push(fn);
+const newPage = () => (lane.getStore() ?? browser).newPage();
+// Runs fn in a fresh browser context (its own window), beside whatever else is running.
+const alone = async fn => { const ctx = await browser.createBrowserContext(); try { return await lane.run(ctx, fn); } finally { await ctx.close().catch(() => {}); } };
+const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { while (fns.length) await alone(fns.shift()); }));
+
+// --changed: only the checks tied to the files changed against $BASE_REF (committed, uncommitted, untracked).
+// A web file no rule names, or a change to this script outside a check's own block, selects every check.
+const COVERS = [
+  [/components\/(PokerTable|Player|TableFelt|ChipStack|Card|CornerBorders|ActionPanel|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/sound\./, /^(seat-size|table-|no-currency|main-scroll|stats-font-unified|stats-type-scale)/],
+  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone)/],
+  [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
+  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope)/],
+  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads)/],
+  [/components\/About\.tsx|app\/about\/|lib\/systemPrompt\./, /^(about-button|main-scroll|no-stats-hash|scroll-consistency)/],
+];
+function changedChecks() { // a Set of ids, or null for every check
+  const git = c => execSync(c, { cwd: new URL('../..', import.meta.url), encoding: 'utf8' }).split('\n').filter(Boolean);
+  const ref = process.env.BASE_REF || 'preview/ui', me = 'web/scripts/checks.mjs';
+  const files = new Set(git(`git diff --name-only ${ref}...HEAD; git diff --name-only HEAD; git ls-files --others --exclude-standard --full-name`).filter(f => f.startsWith('web/')));
+  const src = SRC, all = IDS, ids = new Set();
+  for (const f of files) {
+    if (f === me) {
+      // Each changed line of this script belongs to the check whose block holds it, or to all of them.
+      const lines = git(`git diff -U0 $(git merge-base ${ref} HEAD) -- ${me}`).flatMap(l => { const m = l.match(/^@@ .* \+(\d+)(?:,(\d+))? @@/); return m ? Array.from({ length: Math.max(1, +(m[2] ?? 1)) }, (_, i) => +m[1] + i - 1) : []; });
+      for (const n of lines) {
+        let i = n; while (i >= 0 && !CHECK.test(src[i]) && !(i < n && END.test(src[i]))) i--;
+        const id = i >= 0 && src[i].match(CHECK)?.[1];
+        if (!id) return null;
+        ids.add(id);
+      }
+      continue;
+    }
+    const rules = COVERS.filter(([file]) => file.test(f));
+    if (!rules.length) return null;
+    for (const [, id] of rules) all.filter(x => id.test(x)).forEach(x => ids.add(x));
+  }
+  return ids;
+}
+if (process.argv.includes('--changed')) {
+  const ids = changedChecks();
+  if (ids && !ids.size) { console.log('--changed: no UI check covers the changed files'); process.exit(0); }
+  if (ids) ids.forEach(id => ONLY.add(id));
+  console.log(`--changed: ${ids ? [...ids].join(', ') : 'every check'}`);
 }
 
 const goto = (pg, id) => pg.evaluate(id => { const el = document.getElementById(id); window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' }); }, id);
@@ -46,124 +116,148 @@ const replayHand = async pg => {
 // The stats cards have their data (a loaded machine can take far longer than a fixed wait).
 const waitStats = p => p.waitForFunction(() => document.querySelector('#pairwise-card td[data-cell]') && document.querySelector('#stats-panel tbody tr') && document.querySelector('#race-panel svg'), { timeout: 90000 }).catch(() => {});
 // A fresh page at a window size, on the screen `id` once the stats have loaded.
-const pageAt = async (w, h, id = 'stats') => {
-  const p = await browser.newPage(); await p.setViewport({ width: w, height: h });
+const pageAt = async (w, h, id = 'stats', ctx = lane.getStore() ?? browser) => {
+  const p = await ctx.newPage(); await p.setViewport({ width: w, height: h });
   await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await waitStats(p);
   await sleep(3000); await goto(p, id); await sleep(2000);
   return p;
 };
+// One page per window size for the checks that only read it (each scrolls to its screen): a fresh page costs a load
+// and 5 s of settling. Checks that click, page, replay or navigate keep a fresh page of their own.
+// A parked page is frozen (no script, no frames), so it never takes CPU from the check that is running. Shared pages
+// live in a context of their own: a page left open in the main page's window would leave the main page a background
+// tab, with no frames.
+const shared = () => ((lane.getStore() ?? browser).__shared ??= new Map());
+const life = (p, state) => p.__life.send('Page.setWebLifecycleState', { state });
+const sharedAt = async (w, h, id = 'stats') => {
+  const p = shared().get(`${w}x${h}`), owner = lane.getStore() ?? browser;
+  if (!p) {
+    const q = await pageAt(w, h, id, owner === browser ? (browser.__sharedCtx ??= await browser.createBrowserContext()) : owner);
+    q.__life = await q.createCDPSession(); shared().set(`${w}x${h}`, q); return q;
+  }
+  await life(p, 'active'); await goto(p, id); await sleep(2000);
+  return p;
+};
+const parkShared = () => Promise.all([...shared().values()].map(p => life(p, 'frozen').catch(() => {})));
 const rect = (p, sel) => p.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; }, sel);
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--mute-audio'] });
 // Never leave a headless Chrome behind: close it on a crash or Ctrl-C too.
 const bail = async e => { if (e) console.error(e); try { await browser.close(); } catch {} process.exit(1); };
 process.on('uncaughtException', bail); process.on('unhandledRejection', bail); process.on('SIGINT', () => bail()); process.on('SIGTERM', () => bail());
-const pg = await browser.newPage();
-await pg.setViewport({ width: 1440, height: 900 });
-await pg.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-// A loaded machine can take longer than a fixed wait to deal the table: wait for it, then settle.
-await pg.waitForFunction(() => document.querySelector('td.w-\\[200px\\]'), { timeout: 60000 }).catch(() => {});
-await sleep(5000);
+const pg = await newPage();
+main(async () => {
+  await pg.setViewport({ width: 1440, height: 900 });
+  await pg.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  // A loaded machine can take longer than a fixed wait to deal the table: wait for it, then settle.
+  await pg.waitForFunction(() => document.querySelector('td.w-\\[200px\\]'), { timeout: 60000 }).catch(() => {});
+  await sleep(5000);
+});
 
 // --- Table screen (locked) ---
-await check('seat-size', 'Seat cells stay 200x128', async () => {
+main(() => check('seat-size', 'Seat cells stay 200x128', async () => {
   // offsetWidth/offsetHeight: the unscaled CSS size (the stage's fit-to-screen zoom is uniform on top).
   const r = await pg.evaluate(() => { const b = document.querySelector('td.w-\\[200px\\]'); return [b.offsetWidth, b.offsetHeight]; });
   return { pass: Math.abs(r[0] - 200) <= 1 && Math.abs(r[1] - 128) <= 2, detail: r.join('x') };
-});
-await check('table-width', 'The table stays 1000px wide', async () => {
+}));
+main(() => check('table-width', 'The table stays 1000px wide', async () => {
   const w = await pg.evaluate(() => document.querySelector('table').offsetWidth);
   return { pass: Math.abs(w - 1000) <= 1, detail: `${w}px` };
-});
-await check('no-currency', 'No ¤ sign anywhere on the table screen', async () => {
+}));
+main(() => check('no-currency', 'No ¤ sign anywhere on the table screen', async () => {
   const n = await pg.evaluate(() => (document.body.innerText.match(/¤/g) || []).length);
   return { pass: n === 0, detail: `${n} found` };
-});
+}));
 
 // --- Table screen fit-to-screen and browser zoom (industry practice: respect browser zoom, reflow
 // or scroll, never clip; a fixed-proportion canvas fits the window between a floor and a cap) ---
 const FIT_FLOOR = 0.75, FIT_CAP = 1.25;
 // [width, height, devicePixelRatio]: browser zoom N% of W x H is a W/N x H/N viewport at ratio N.
 const FIT_SIZES = [[1280, 720, 1], [1440, 900, 1], [1728, 1117, 1], [2560, 1440, 1], [720, 450, 2], [864, 558, 2]];
-const fits = [];
-for (const [w, h, d] of FIT_SIZES) {
-  if (!want('table-fit') && !want('table-reachable') && !want('table-no-hscroll')) break;
-  const p2 = await browser.newPage(); await p2.setViewport({ width: w, height: h, deviceScaleFactor: d });
-  await p2.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  // Wait for the live, hydrated table: the grid with its fitted zoom, or on phones the seat list
-  // (its Hand # in the status row). A dev server on a loaded machine can take a minute or more.
-  const loaded = await p2.waitForFunction(() => (document.querySelector('table') && document.querySelector('.stage-zoom')?.style.zoom) || (innerWidth < 768 && /Hand #\d/.test(document.body.innerText)), { timeout: 150000 }).then(() => true, () => false);
-  await sleep(2500);
-  const m = await p2.evaluate(() => {
-    const sec = document.querySelector('section[data-screen]'), stage = document.querySelector('.stage-zoom');
-    const sr = sec.getBoundingClientRect(), sy = scrollY;
-    const docH = document.documentElement.scrollHeight;
-    // A clipped screen (overflow hidden/clip) reaches only its own width; a scrolling one, its scroll width.
-    const reachW = ['auto', 'scroll'].includes(getComputedStyle(sec).overflowX) ? sec.scrollWidth : sec.clientWidth;
-    // The pieces of the screen: header rows, the stage's boxes, the Stats button.
-    const els = [...sec.children, ...stage.querySelectorAll('table, #table > *, .stage-zoom > *')].filter(e => e.getBoundingClientRect().width > 0);
-    const bad = [];
-    for (const e of els) {
-      const r = e.getBoundingClientRect();
-      const name = e.id || e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '');
-      // Reachable: inside the screen's scroll width sideways, inside the page's scroll height downwards.
-      if (r.left < sr.left - 1 || r.right > sr.left + reachW + 1) bad.push(`${name} x ${Math.round(r.left)}..${Math.round(r.right)}`);
-      if (r.top + sy < -1 || r.bottom + sy > docH + 1) bad.push(`${name} y ${Math.round(r.top + sy)}..${Math.round(r.bottom + sy)}`);
-    }
-    const zoom = parseFloat(getComputedStyle(stage).zoom) || 1;
-    return { zoom, phone: innerWidth < 768, bad, pageScroll: document.documentElement.scrollWidth - innerWidth, screenScroll: sec.scrollWidth - sec.clientWidth,
-      tallBy: Math.round(sec.getBoundingClientRect().height - document.documentElement.clientHeight), slackW: (sec.clientWidth - stage.getBoundingClientRect().width) / sec.clientWidth,
-      slackH: (document.documentElement.clientHeight - (sec.lastElementChild.getBoundingClientRect().bottom + parseFloat(getComputedStyle(sec).paddingBottom))) / document.documentElement.clientHeight };
-  });
-  await p2.close();
-  fits.push({ size: `${w}x${h}${d > 1 ? `@${d}x` : ''}`, ...m, loaded });
-}
-await check('table-fit', `The table screen takes one uniform scale in [${FIT_FLOOR}, ${FIT_CAP}], fitting the window (phones: list layout at 1)`, async () => {
-  const bad = [];
-  for (const f of fits) {
-    if (!f.loaded) { bad.push(`${f.size}: the table never loaded`); continue; }
-    if (f.phone) { if (f.zoom !== 1) bad.push(`${f.size}: phone layout at ${f.zoom}`); continue; }
-    if (f.zoom < FIT_FLOOR - 1e-3 || f.zoom > FIT_CAP + 1e-3) bad.push(`${f.size}: scale ${f.zoom}`);
-    const floor = f.zoom <= FIT_FLOOR + 1e-3, cap = f.zoom >= FIT_CAP - 1e-3;
-    // Above the floor the whole screen fits the window; between floor and cap one side is tight (it is the largest that fits).
-    if (!floor && f.tallBy > 1) bad.push(`${f.size}: screen ${f.tallBy}px taller than the window at ${f.zoom}`);
-    if (!floor && !cap && Math.min(f.slackW, f.slackH) > 0.02) bad.push(`${f.size}: ${f.zoom} leaves ${(Math.min(f.slackW, f.slackH) * 100).toFixed(1)}% spare`);
+group(async () => {
+  const fits = [];
+  for (const [w, h, d] of FIT_SIZES) {
+    if (!want('table-fit') && !want('table-reachable') && !want('table-no-hscroll')) break;
+    const p2 = await newPage(); await p2.setViewport({ width: w, height: h, deviceScaleFactor: d });
+    await p2.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    // Wait for the live, hydrated table: the grid with its fitted zoom, or on phones the seat list
+    // (its Hand # in the status row). A dev server on a loaded machine can take a minute or more.
+    const loaded = await p2.waitForFunction(() => (document.querySelector('table') && document.querySelector('.stage-zoom')?.style.zoom) || (innerWidth < 768 && /Hand #\d/.test(document.body.innerText)), { timeout: 150000 }).then(() => true, () => false);
+    await sleep(2500);
+    const m = await p2.evaluate(() => {
+      const sec = document.querySelector('section[data-screen]'), stage = document.querySelector('.stage-zoom');
+      const sr = sec.getBoundingClientRect(), sy = scrollY;
+      const docH = document.documentElement.scrollHeight;
+      // A clipped screen (overflow hidden/clip) reaches only its own width; a scrolling one, its scroll width.
+      const reachW = ['auto', 'scroll'].includes(getComputedStyle(sec).overflowX) ? sec.scrollWidth : sec.clientWidth;
+      // The pieces of the screen: header rows, the stage's boxes, the Stats button.
+      const els = [...sec.children, ...stage.querySelectorAll('table, #table > *, .stage-zoom > *')].filter(e => e.getBoundingClientRect().width > 0);
+      const bad = [];
+      for (const e of els) {
+        const r = e.getBoundingClientRect();
+        const name = e.id || e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '');
+        // Reachable: inside the screen's scroll width sideways, inside the page's scroll height downwards.
+        if (r.left < sr.left - 1 || r.right > sr.left + reachW + 1) bad.push(`${name} x ${Math.round(r.left)}..${Math.round(r.right)}`);
+        if (r.top + sy < -1 || r.bottom + sy > docH + 1) bad.push(`${name} y ${Math.round(r.top + sy)}..${Math.round(r.bottom + sy)}`);
+      }
+      const zoom = parseFloat(getComputedStyle(stage).zoom) || 1;
+      return { zoom, phone: innerWidth < 768, bad, pageScroll: document.documentElement.scrollWidth - innerWidth, screenScroll: sec.scrollWidth - sec.clientWidth,
+        tallBy: Math.round(sec.getBoundingClientRect().height - document.documentElement.clientHeight), slackW: (sec.clientWidth - stage.getBoundingClientRect().width) / sec.clientWidth,
+        slackH: (document.documentElement.clientHeight - (sec.lastElementChild.getBoundingClientRect().bottom + parseFloat(getComputedStyle(sec).paddingBottom))) / document.documentElement.clientHeight };
+    });
+    await p2.close();
+    fits.push({ size: `${w}x${h}${d > 1 ? `@${d}x` : ''}`, ...m, loaded });
   }
-  return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : fits.map(f => `${f.size} ${f.phone ? 'list' : f.zoom}`).join(', ') };
-});
-await check('table-reachable', 'Nothing on the table screen is clipped or off-screen-unreachable at any size or browser zoom', async () => {
-  const bad = fits.filter(f => f.bad.length).map(f => `${f.size}: ${f.bad.slice(0, 3).join(', ')}`);
-  return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : `${fits.length} sizes, all reachable` };
-});
-await check('table-no-hscroll', 'No sideways scroll on the page; the table screen scrolls sideways only at the floor', async () => {
-  const bad = fits.filter(f => f.pageScroll > 0 || (f.screenScroll > 0 && (f.phone || f.zoom > FIT_FLOOR + 1e-3))).map(f => `${f.size}: page +${f.pageScroll}px, screen +${f.screenScroll}px at ${f.zoom}`);
-  return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : fits.map(f => `${f.size}${f.screenScroll > 0 ? ' (scrolls at floor)' : ''}`).join(', ') };
+  await check('table-fit', `The table screen takes one uniform scale in [${FIT_FLOOR}, ${FIT_CAP}], fitting the window (phones: list layout at 1)`, async () => {
+    const bad = [];
+    for (const f of fits) {
+      if (!f.loaded) { bad.push(`${f.size}: the table never loaded`); continue; }
+      if (f.phone) { if (f.zoom !== 1) bad.push(`${f.size}: phone layout at ${f.zoom}`); continue; }
+      if (f.zoom < FIT_FLOOR - 1e-3 || f.zoom > FIT_CAP + 1e-3) bad.push(`${f.size}: scale ${f.zoom}`);
+      const floor = f.zoom <= FIT_FLOOR + 1e-3, cap = f.zoom >= FIT_CAP - 1e-3;
+      // Above the floor the whole screen fits the window; between floor and cap one side is tight (it is the largest that fits).
+      if (!floor && f.tallBy > 1) bad.push(`${f.size}: screen ${f.tallBy}px taller than the window at ${f.zoom}`);
+      if (!floor && !cap && Math.min(f.slackW, f.slackH) > 0.02) bad.push(`${f.size}: ${f.zoom} leaves ${(Math.min(f.slackW, f.slackH) * 100).toFixed(1)}% spare`);
+    }
+    return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : fits.map(f => `${f.size} ${f.phone ? 'list' : f.zoom}`).join(', ') };
+  });
+  await check('table-reachable', 'Nothing on the table screen is clipped or off-screen-unreachable at any size or browser zoom', async () => {
+    const bad = fits.filter(f => f.bad.length).map(f => `${f.size}: ${f.bad.slice(0, 3).join(', ')}`);
+    return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : `${fits.length} sizes, all reachable` };
+  });
+  await check('table-no-hscroll', 'No sideways scroll on the page; the table screen scrolls sideways only at the floor', async () => {
+    const bad = fits.filter(f => f.pageScroll > 0 || (f.screenScroll > 0 && (f.phone || f.zoom > FIT_FLOOR + 1e-3))).map(f => `${f.size}: page +${f.pageScroll}px, screen +${f.screenScroll}px at ${f.zoom}`);
+    return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : fits.map(f => `${f.size}${f.screenScroll > 0 ? ' (scrolls at floor)' : ''}`).join(', ') };
+  });
 });
 
 // --- Trends (overview tile, then the card) ---
-await goto(pg, 'stats'); await sleep(2500);
+main(async () => { await goto(pg, 'stats'); await sleep(2500); });
 // The unit is the default metric's: bb/100 again since 2026-11-08 (owner: "the default should be bb100 not chips").
-await check('history-unit-once', '"bb/100" shows once on the Trends tile', async () => {
+main(() => check('history-unit-once', '"bb/100" shows once on the Trends tile', async () => {
   const n = await pg.evaluate(() => [...document.querySelectorAll('#race-panel *')].filter(e => e.childElementCount === 0 && e.textContent.trim() === 'bb/100' && e.getBoundingClientRect().width > 0).length);
   return { pass: n === 1, detail: `${n} times` };
+}));
+let tile, tileCard, card;
+main(async () => {
+  tile = await chartBox(pg);
+  tileCard = await pg.evaluate(() => { const b = document.querySelector('#race-panel').getBoundingClientRect(); return { w: b.width, h: b.height }; });
+  await clickCenter(pg, '#race-panel'); await sleep(1500);
+  card = await chartBox(pg);
 });
-const tile = await chartBox(pg);
-const tileCard = await pg.evaluate(() => { const b = document.querySelector('#race-panel').getBoundingClientRect(); return { w: b.width, h: b.height }; });
-await clickCenter(pg, '#race-panel'); await sleep(1500);
-const card = await chartBox(pg);
-await check('history-card-size', 'Opening Trends moves the tile to the middle and adds the filters; it does not balloon', async () => {
+main(() => check('history-card-size', 'Opening Trends moves the tile to the middle and adds the filters; it does not balloon', async () => {
   const c = await pg.evaluate(() => { const svg = [...document.querySelectorAll('svg')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 300 && r.top < innerHeight && r.bottom > 0; }).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0]; const b = svg.closest('.card-chrome').getBoundingClientRect(); const bar = [...svg.closest('.card-chrome').querySelectorAll('.flex-wrap')].find(e => e.textContent.startsWith('Metric')); return { w: b.width, h: b.height, bar: bar ? bar.getBoundingClientRect().height + 8 : 0 }; });
   // The card may add exactly its filter bar (however many rows it wraps to) and the legend (68px), plus 12px.
   const room = c.bar + 68 + 12;
   const ok = Math.abs(c.w - tileCard.w) / tileCard.w <= 0.05 && c.h - tileCard.h <= room;
   return { pass: ok, detail: `tile ${Math.round(tileCard.w)}x${Math.round(tileCard.h)} → card ${Math.round(c.w)}x${Math.round(c.h)} (allowed: same width ±5%, +${Math.round(room)}px: the filter bar and legend)` };
-});
-await check('history-no-stretch', 'The Trends chart keeps its shape from tile to card', async () => {
+}));
+main(() => check('history-no-stretch', 'The Trends chart keeps its shape from tile to card', async () => {
   const a = tile.w / tile.h, b = card.w / card.h;
   return { pass: Math.abs(a - b) / a < 0.02, detail: `tile ${a.toFixed(3)} vs card ${b.toFixed(3)}` };
-});
-await check('history-dead-space', 'The opened Trends card has at most 15% dead space', async () => {
+}));
+main(() => check('history-dead-space', 'The opened Trends card has at most 15% dead space', async () => {
   const ws = await pg.evaluate(() => {
     const svg = [...document.querySelectorAll('svg')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 300 && r.top < innerHeight && r.bottom > 0; }).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
     const cardEl = svg.closest('.card-chrome'); const c = cardEl.getBoundingClientRect();
@@ -174,17 +268,17 @@ await check('history-dead-space', 'The opened Trends card has at most 15% dead s
     return 1 - ((r - l) * (bt - t)) / ((c.width - 2 * pad) * (c.height - 2 * pad));
   });
   return { pass: ws <= 0.15, detail: `${(ws * 100).toFixed(1)}%` };
-});
-await check('history-filters-still', 'The plot box does not move when a filter switches', async () => {
+}));
+main(() => check('history-filters-still', 'The plot box does not move when a filter switches', async () => {
   const a = await chartBox(pg);
   if (!(await clickText(pg, 'Top 5'))) return { pass: false, detail: 'no Top 5 button' };
   await sleep(900); const b = await chartBox(pg); await clickText(pg, 'All'); await sleep(600);
   const d = Math.max(Math.abs(a.w - b.w), Math.abs(a.h - b.h), Math.abs(a.x - b.x), Math.abs(a.y - b.y));
   return { pass: d <= 1, detail: `moved ${d.toFixed(1)}px` };
-});
+}));
 // Arena-style labels: pills ride the line tips (each pill carries data-tip-x, its tip's page x),
 // and no column is reserved at the right; the camera keeps the leading tips still while history slides.
-await check('history-pills-at-tips', 'Model labels are pills at the line tips, not a reserved column', async () => {
+main(() => check('history-pills-at-tips', 'Model labels are pills at the line tips, not a reserved column', async () => {
   const r = await pg.evaluate(() => {
     const pills = [...document.querySelectorAll('[data-pill]')].filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.top < innerHeight && b.bottom > 0; });
     if (!pills.length) return { n: 0 };
@@ -192,24 +286,24 @@ await check('history-pills-at-tips', 'Model labels are pills at the line tips, n
     return { n: pills.length, worst: Math.max(...gaps.map(Math.abs)) };
   });
   return { pass: r.n > 0 && r.worst <= 28, detail: r.n ? `${r.n} pills, farthest ${r.worst.toFixed(0)}px from its tip` : 'no [data-pill] labels' };
-});
-await check('history-camera-follows', 'While replaying, the leading tips stay put and history slides past', async () => {
+}));
+main(() => check('history-camera-follows', 'While replaying, the leading tips stay put and history slides past', async () => {
   const lead = () => pg.evaluate(() => { const xs = [...document.querySelectorAll('[data-pill]')].map(e => +e.dataset.tipX).filter(Number.isFinite); return xs.length ? Math.max(...xs) : null; });
   const firstTick = () => pg.evaluate(() => { const t = [...document.querySelectorAll('[data-x-tick]')].filter(e => e.getBoundingClientRect().width > 0).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0]; return t ? [t.textContent, t.getBoundingClientRect().left] : null; });
   const a = await lead(), ta = await firstTick(); await sleep(1500); const b = await lead(), tb = await firstTick();
   if (a == null || b == null || !ta || !tb) return { pass: false, detail: 'needs [data-pill] with data-tip-x and [data-x-tick] hooks' };
   const slid = ta[0] !== tb[0] || Math.abs(ta[1] - tb[1]) > 4;
   return { pass: Math.abs(a - b) <= 6 && slid, detail: `lead tip ${a.toFixed(0)} → ${b.toFixed(0)}, first tick ${ta[0]}@${ta[1].toFixed(0)} → ${tb[0]}@${tb[1].toFixed(0)}` };
-});
+}));
 // Like Arena: every line's tip is "now", so the tips share one x; and the plot is never mostly
 // empty, because the window starts at the first hand until the lines reach the camera's edge.
-await check('history-tips-aligned', 'All line tips sit at the same x (one shared clock, like Arena)', async () => {
+main(() => check('history-tips-aligned', 'All line tips sit at the same x (one shared clock, like Arena)', async () => {
   const xs = await pg.evaluate(() => [...document.querySelectorAll('[data-pill]')].filter(e => getComputedStyle(e).opacity > 0.5).map(e => +e.dataset.tipX).filter(Number.isFinite));
   if (xs.length < 2) return { pass: false, detail: `${xs.length} pills` };
   const spread = Math.max(...xs) - Math.min(...xs);
   return { pass: spread <= 6, detail: `${xs.length} tips spread over ${spread.toFixed(0)}px` };
-});
-await check('history-no-empty-left', 'The lines start at the plot\'s left edge (no empty band before them)', async () => {
+}));
+main(() => check('history-no-empty-left', 'The lines start at the plot\'s left edge (no empty band before them)', async () => {
   const r = await pg.evaluate(() => {
     const svg = [...document.querySelectorAll('svg')].filter(e => { const b = e.getBoundingClientRect(); return b.width > 300 && b.top < innerHeight && b.bottom > 0; }).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
     const xs = [...svg.querySelectorAll('[data-x-tick]')].map(t => t.getBoundingClientRect().left);
@@ -219,13 +313,13 @@ await check('history-no-empty-left', 'The lines start at the plot\'s left edge (
     return { gap: (leftmostLine - box.left) / box.width, width: (right - leftmostLine) / box.width };
   });
   return { pass: r.gap <= 0.12 && r.width >= 0.5, detail: `lines start ${(r.gap * 100).toFixed(0)}% in and span ${(r.width * 100).toFixed(0)}% of the plot` };
-});
+}));
 // --- Trends overtakes (owner 2026-11-08): "the default should be bb100 not chips"; "its not as
 // obvious when a given place change happens ... do we keep the y axis static the same way lmarena
 // does?"; "the 'distance' between each llm is not that big and apparent"; "the y axis and x axis of
 // history is not same font". bb/100 by default, a steady y axis, finer gridlines, pills with rank and
 // value, and an overtake shown by a pill swap, a highlight and a crossing marker. The card is open here. ---
-await check('history-default-bb100', 'Trends opens on bb/100; Chips is one click away', async () => {
+main(() => check('history-default-bb100', 'Trends opens on bb/100; Chips is one click away', async () => {
   const r = await pg.evaluate(() => {
     const g = [...document.querySelectorAll('[role=group][aria-label=Metric]')].find(e => e.getBoundingClientRect().width > 0);
     const on = g && [...g.querySelectorAll('button')].find(b => b.getAttribute('aria-pressed') === 'true')?.textContent.trim();
@@ -234,15 +328,19 @@ await check('history-default-bb100', 'Trends opens on bb/100; Chips is one click
     return { on, other, title };
   });
   return { pass: r.on === 'bb/100' && r.other && r.title, detail: `Metric ${r.on ?? 'missing'}, Chips option ${r.other ? 'there' : 'missing'}, axis title ${r.title ? 'bb/100' : 'not bb/100'}` };
-});
+}));
 // One replay from the start, sampled every frame until it has ended and settled: how much of the
 // plot's height the visible tips span, and how far the y axis moves per frame.
 let camSamples = null;
 const camRun = async () => {
   if (camSamples) return camSamples;
   await clickText(pg, 'Skip'); await sleep(300);
-  if (!(await clickText(pg, 'Replay'))) throw new Error('no Replay button');
-  await pg.evaluate(() => {
+  await pg.evaluate(s => { window.__replaySpeed = s; }, SPEED);
+  const clicked = await clickText(pg, 'Replay');
+  await pg.evaluate(() => { window.__replaySpeed = 1; }); // read once, by the click: later replays play at 1x
+  if (!clicked) throw new Error('no Replay button');
+  // Sample times are replay time (real ms x SPEED), so every window below is the same at any speed.
+  await pg.evaluate(S => {
     const t0 = performance.now(), out = (window.__cam = []);
     const f = () => {
       const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
@@ -253,7 +351,7 @@ const camRun = async () => {
         const ticks = [...plot.querySelectorAll('[data-y-tick]')].map(e => e.textContent);
         const name = e => e.querySelector('[data-pill-name]')?.textContent;
         out.push({
-          t: performance.now() - t0, y0, y1, fit: plot.dataset.yFit, fill: tys.length > 1 ? (Math.max(...tys) - Math.min(...tys)) / h : null,
+          t: (performance.now() - t0) * S, y0, y1, fit: plot.dataset.yFit, fill: tys.length > 1 ? (Math.max(...tys) - Math.min(...tys)) / h : null,
           out: tys.length ? Math.max(0, top - Math.min(...tys), Math.max(...tys) - top - h) : 0, labels: ticks.join(' '), nTicks: ticks.length,
           order: pills.slice().sort((a, b) => +a.dataset.rank - +b.dataset.rank).map(name).join('|'),
           emph: pills.filter(e => e.hasAttribute('data-emph')).map(name), lineEmph: plot.querySelectorAll('path[data-emph]').length,
@@ -281,11 +379,11 @@ const camRun = async () => {
           })(),
         });
       }
-      if (performance.now() - t0 < 63_000) requestAnimationFrame(f);
+      if (performance.now() - t0 < 63_000 / S) requestAnimationFrame(f);
     };
     requestAnimationFrame(f);
-  });
-  await sleep(63_500);
+  }, SPEED);
+  await sleep(63_500 / SPEED);
   return (camSamples = await pg.evaluate(() => window.__cam));
 };
 const near = (ss, s) => ss.reduce((a, b) => (Math.abs(b.t - s * 1000) < Math.abs(a.t - s * 1000) ? b : a));
@@ -296,7 +394,7 @@ const near = (ss, s) => ss.reduce((a, b) => (Math.abs(b.t - s * 1000) < Math.abs
 // Since 2026-11-08 the lines' recent stretch is never clipped (history-no-recent-clip), so where a line ran
 // beyond the tips lately (the leader's peak above its tip at rest) the zoom is judged on that stretch instead:
 // the tips span ≥60% of the plot, or the recent stretches and tips span ≥80% (the axis hugs them, air aside).
-await check('history-y-dynamic', 'The y axis follows the lines in view: it moves in the replay (widens and narrows), the visible tips span ≥60% of the plot (or the recent stretches ≥80%) at 10 s, 30 s, 50 s and at rest, tips never leave the plot, and it eases (≤4% of its range per 60 Hz frame)', async () => {
+main(() => check('history-y-dynamic', 'The y axis follows the lines in view: it moves in the replay (widens and narrows), the visible tips span ≥60% of the plot (or the recent stretches ≥80%) at 10 s, 30 s, 50 s and at rest, tips never leave the plot, and it eases (≤4% of its range per 60 Hz frame)', async () => {
   const all = await camRun(), ss = all.filter(s => s.t > 1000);
   const at = [10, 30, 50].map(s => near(ss, s)), rest = all.at(-1);
   let moved = 0, wider = 0, narrower = 0, worst = 0;
@@ -316,17 +414,17 @@ await check('history-y-dynamic', 'The y axis follows the lines in view: it moves
   const pct = f => (f == null ? 'no tips' : `${(f * 100).toFixed(0)}%`);
   const both = i => `${pct(fills[i])} (recent ${pct(spans[i])})`;
   return { pass: ok, detail: `fill 10s ${both(0)}, 30s ${both(1)}, 50s ${both(2)}, rest ${both(3)}; axis moved in ${((moved / (ss.length || 1)) * 100).toFixed(0)}% of frames (${wider} wider, ${narrower} narrower), worst ${(worst * 100).toFixed(1)}% per frame; tips outside the plot in ${outs.length} frames` };
-});
+}));
 // Gaps readable: 6–8 labelled gridlines at rest, and at least 6 through nearly all of the replay.
-await check('history-y-gridlines', 'At least 6 labelled y gridlines (6–8 at rest, ≥6 in 90% of replay frames)', async () => {
+main(() => check('history-y-gridlines', 'At least 6 labelled y gridlines (6–8 at rest, ≥6 in 90% of replay frames)', async () => {
   const ss = (await camRun()).filter(s => s.t > 1000);
   const ok6 = ss.filter(s => s.nTicks >= 6).length / (ss.length || 1);
   await clickText(pg, 'Skip'); await sleep(1500);
   const rest = await pg.evaluate(() => [...[...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0).querySelectorAll('[data-y-tick]')].map(e => e.textContent));
   return { pass: rest.length >= 6 && rest.length <= 8 && ok6 >= 0.9, detail: `at rest ${rest.length} [${rest.join(' ')}]; ≥6 in ${(ok6 * 100).toFixed(0)}% of replay frames` };
-});
+}));
 // Every pill says its rank (1, 2, … top to bottom) and its value, so the gap to its neighbour is explicit.
-await check('history-pill-rank-value', 'Every Trends pill shows its rank (in order, top to bottom) and its current value', async () => {
+main(() => check('history-pill-rank-value', 'Every Trends pill shows its rank (in order, top to bottom) and its current value', async () => {
   const r = await pg.evaluate(() => {
     const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
     const pills = [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5).sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
@@ -334,11 +432,11 @@ await check('history-pill-rank-value', 'Every Trends pill shows its rank (in ord
   });
   const bad = r.filter((p, i) => p[0] !== String(i + 1) || !/^[+−]?\d[\d,]*(\.\d+)?$/.test(p[2] ?? ''));
   return { pass: r.length > 1 && !bad.length, detail: bad.length ? `bad: ${JSON.stringify(bad.slice(0, 3))}` : r.map(p => `${p[0]} ${p[1]} ${p[2]}`).join(', ') };
-});
+}));
 // An overtake is obvious: the two pills swap with a slide, the passer's pill and line light up while
 // the rest dim, and a marker shows the crossing. One event at a time; no shake (calm motion). The splash
 // is allowed again since 2026-11-08 (history-overtake-burst) and no longer counts here.
-await check('history-overtake', 'A rank change in the replay swaps the pills (slide), highlights the passer (pill and line) and marks the crossing; one at a time, no shake', async () => {
+main(() => check('history-overtake', 'A rank change in the replay swaps the pills (slide), highlights the passer (pill and line) and marks the crossing; one at a time, no shake', async () => {
   const ss = await camRun();
   const starts = ss.filter((s, i) => s.markers.length && s.markers[0] !== ss[i - 1]?.markers[0]);
   const full = starts.filter(e => {
@@ -349,11 +447,11 @@ await check('history-overtake', 'A rank change in the replay swaps the pills (sl
   const many = ss.filter(s => s.markers.length > 1 || s.emph.length > 1).length, jiggle = ss.filter(s => s.jiggle).length;
   const changes = ss.filter((s, i) => i && s.order !== ss[i - 1].order).length;
   return { pass: full.length >= 1 && !many && !jiggle, detail: `${starts.length} overtake events in ${((ss.at(-1)?.t ?? 0) / 1000).toFixed(0)} s (${changes} rank changes), ${full.length} with swap + highlight + marker; ${many} frames with two at once, ${jiggle} with shake` };
-});
+}));
 // The Arena-style overtake splash is back (owner 2026-11-08: "what happened to the 'splashes/collisions' any
 // time a lead change occurs in history? i liked that from the lm arena"): a small burst in the passer's
 // colour at its tip, timed with the swap, the highlight and the ring; one on screen at a time.
-await check('history-overtake-burst', 'An overtake in the replay splashes in the passer\'s colour at its tip, with the swap, highlight and crossing ring; never two splashes at once', async () => {
+main(() => check('history-overtake-burst', 'An overtake in the replay splashes in the passer\'s colour at its tip, with the swap, highlight and crossing ring; never two splashes at once', async () => {
   const ss = await camRun();
   const starts = ss.filter((s, i) => s.markers.length && s.markers[0] !== ss[i - 1]?.markers[0]);
   const bstarts = ss.flatMap((s, i) => s.bursts.filter(b => !ss[i - 1]?.bursts.some(c => c.name === b.name)).map(b => ({ ...b, t: s.t })));
@@ -368,23 +466,23 @@ await check('history-overtake-burst', 'An overtake in the replay splashes in the
   const offs = bstarts.filter(b => b.tx == null || Math.hypot(b.x - b.tx, b.y - b.ty) > 8 || b.color !== b.pillColor);
   const why = offs.map(b => `${b.name} at ${(b.t / 1000).toFixed(1)} s: ${b.tx == null ? 'no pill' : `${Math.hypot(b.x - b.tx, b.y - b.ty).toFixed(0)}px from its tip, ${b.color} vs ${b.pillColor}`}`).join(', ');
   return { pass: good.length >= 1 && !two && !offs.length, detail: `${bstarts.length} splashes over ${starts.length} overtake events; ${good.length} at the passer's tip in its colour with swap + highlight + ring; ${offs.length} off the tip or off colour${why ? ` (${why})` : ''}; ${two} frames with two at once` };
-});
+}));
 // The y axis never clips the lines' recent stretch (owner 2026-11-08: "the end graph at the end cuts off part
 // of the line for mistral"): at rest and through the replay, every line's last quarter and every tip lie
 // inside the plot band (2px for the clip's own margin); only older history may be clamped at the edge.
-await check('history-no-recent-clip', 'No line\'s recent stretch (last quarter of the window) or tip lies outside the plot, at rest and at 10, 20, 30, 40 and 50 s of the replay', async () => {
+main(() => check('history-no-recent-clip', 'No line\'s recent stretch (last quarter of the window) or tip lies outside the plot, at rest and at 10, 20, 30, 40 and 50 s of the replay', async () => {
   const all = await camRun(), ss = all.filter(s => s.t > 1000);
   const at = [...[10, 20, 30, 40, 50].map(s => ({ when: `${s}s`, s: near(ss, s) })), { when: 'rest', s: all.at(-1) }];
   const bad = at.filter(a => !a.s.clip.lines || a.s.clip.worst > 2);
   const frames = ss.filter(s => s.clip.worst > 2).length, worst = ss.reduce((m, s) => (s.clip.worst > m.clip.worst ? s : m), ss[0]);
   return { pass: !bad.length, detail: `${bad.length ? bad.map(a => `${a.when}: ${a.s.clip.worst.toFixed(0)}px out (${a.s.clip.who})`).join('; ') : 'rest and 10–50 s clear'}; ${frames} of ${ss.length} replay frames over 2px, worst ${worst.clip.worst.toFixed(1)}px at ${(worst.t / 1000).toFixed(1)} s` };
-});
+}));
 // The pill column is for pills only (owner 2026-11-08: "why is the x axis and graph lines going beyond the left
 // side of each model name in the trend graph ... the right side of trends where all the model names are should be
 // cleared for model names only"): gridlines, axes, ticks, lines, markers and splashes stop at the plot's right edge,
 // left of the pills. Measured on the opened card at rest and every frame from 8 s to 40 s of the replay (after the
 // first seconds, when the tips are still growing toward the column), at 1440x900 and 1728x1117.
-await check('history-pill-column-clear', 'Nothing but pills and their leaders right of the leftmost pill: no gridline, axis, tick, line, marker or splash, at rest and through the replay, at 1440x900 and 1728x1117', async () => {
+group(() => check('history-pill-column-clear', 'Nothing but pills and their leaders right of the leftmost pill: no gridline, axis, tick, line, marker or splash, at rest and through the replay, at 1440x900 and 1728x1117', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await pageAt(w, h, 'race');
@@ -410,16 +508,17 @@ await check('history-pill-column-clear', 'Nothing but pills and their leaders ri
       });
       await clickText(p, 'Skip'); await sleep(1500);
       const rest = await p.evaluate(() => window.__over());
+      await p.evaluate(s => { window.__replaySpeed = s; }, SPEED);
       if (!(await clickText(p, 'Replay'))) { bad.push(`${w}x${h}: no Replay`); continue; }
-      const run = await p.evaluate(() => new Promise(res => {
+      const run = await p.evaluate(S => new Promise(res => {
         const t0 = performance.now(); let worst = { worst: 0, who: '', t: 0 }, n = 0;
         const f = () => {
-          const t = performance.now() - t0;
+          const t = (performance.now() - t0) * S; // replay time
           if (t > 8000) { const o = window.__over(); if (o) { n++; if (o.worst > worst.worst) worst = { ...o, t }; } }
           if (t < 40000) requestAnimationFrame(f); else res({ ...worst, n });
         };
         requestAnimationFrame(f);
-      }));
+      }), SPEED);
       if (!rest) bad.push(`${w}x${h}: no pills at rest`);
       else if (rest.worst > 0.5) bad.push(`${w}x${h} at rest: ${rest.who} ${rest.worst.toFixed(0)}px into the pill column`);
       if (!run.n) bad.push(`${w}x${h}: no replay frames sampled`);
@@ -428,9 +527,9 @@ await check('history-pill-column-clear', 'Nothing but pills and their leaders ri
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
-});
+}));
 // One type for the chart's furniture (owner: "the y axis and x axis of history is not same font").
-await check('history-type', 'Trends type: x and y ticks alike, axis titles alike (13px muted body sans), pills 13px (names medium, values tabular)', async () => {
+main(() => check('history-type', 'Trends type: x and y ticks alike, axis titles alike (13px muted body sans), pills 13px (names medium, values tabular)', async () => {
   const r = await pg.evaluate(() => {
     const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
     const svg = plot.querySelector('svg'), k = plot.getBoundingClientRect().width / svg.viewBox.baseVal.width;
@@ -453,10 +552,10 @@ await check('history-type', 'Trends type: x and y ticks alike, axis titles alike
   for (const v of r.values) if (v.family !== 'body' || v.px !== 13 || !v.tab) { bad.push(`pill value ${JSON.stringify(v)}`); break; }
   const s = o => o ? `${o.family} ${o.px}px ${o.weight} ${o.color ?? ''}${o.tab ? ' tabular' : ''}` : 'none';
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `ticks ${s(r.y[0])}; titles ${s(r.titles[0])}; pill names ${s(r.names[0])}; values ${s(r.values[0])}` };
-});
+}));
 // Since 2026-11-08 ticks and pills are 13px (history-type, the orchestrator's type audit); the hover
 // readout keeps the Profiles cells' 14px.
-await check('history-number-style', 'Trends numbers (ticks, pills, readout) use the body sans, tabular; the readout at the Profiles cells\' 14px, ticks and pills at 13px', async () => {
+main(() => check('history-number-style', 'Trends numbers (ticks, pills, readout) use the body sans, tabular; the readout at the Profiles cells\' 14px, ticks and pills at 13px', async () => {
   const c = await pg.evaluate(() => { const p = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0).getBoundingClientRect(); return [p.left + p.width * 0.45, p.top + p.height * 0.5]; });
   await pg.mouse.move(c[0], c[1]); await sleep(300);
   const r = await pg.evaluate(() => {
@@ -479,11 +578,11 @@ await check('history-number-style', 'Trends numbers (ticks, pills, readout) use 
   });
   await pg.mouse.move(5, 5);
   return { pass: !r.length, detail: r.length ? r.join('; ') : 'ticks, pills and readout: body sans, tabular; readout 14px, ticks and pills 13px on screen' };
-});
+}));
 
 // The overview tile gets its own Replay once the lines have stopped (owner 2026-11-08): hidden while
 // the replay plays, it fades in after the replay ends or is skipped, restarts it, and never opens the card.
-await check('history-overview-replay', 'The Trends tile shows Replay only once the replay has ended or been skipped; it is keyboard-focusable, restarts the replay and leaves the card closed', async () => {
+group(() => check('history-overview-replay', 'The Trends tile shows Replay only once the replay has ended or been skipped; it is keyboard-focusable, restarts the replay and leaves the card closed', async () => {
   const p = await pageAt(1440, 900, 'race');
   try {
     const btn = () => p.evaluate(() => { const b = document.querySelector('#race-panel [data-tile-replay]'); if (!b) return null; const r = b.getBoundingClientRect(); return { w: r.width, o: +getComputedStyle(b).opacity, x: r.left + r.width / 2, y: r.top + r.height / 2, tab: b.tabIndex, hidden: !!b.closest('[aria-hidden=true]') }; });
@@ -507,19 +606,19 @@ await check('history-overview-replay', 'The Trends tile shows Replay only once t
     const ok = !shownWhilePlaying && after.o > 0.95 && focusable && restarted && !opened && !(gone && gone.w > 0 && gone.o > 0.05);
     return { pass: ok, detail: `while playing ${shownWhilePlaying ? 'shown' : 'hidden'}; after Skip opacity ${after.o.toFixed(2)}, ${focusable ? 'focusable' : 'not focusable'}; click: ${restarted ? `replay restarted (hand ${hand1})` : 'replay did not restart'}, card ${opened ? 'opened' : 'stayed closed'}, button ${gone && gone.w > 0 && gone.o > 0.05 ? 'still shown' : 'hidden'}` };
   } finally { await p.close(); }
-});
+}));
 
-await check('replay-no-reset', 'The replay never restarts on open, back or scroll', async () => {
+main(() => check('replay-no-reset', 'The replay never restarts on open, back or scroll', async () => {
   const playing = await pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
   if (!playing && !(await clickText(pg, 'Replay'))) return { pass: false, detail: 'neither Skip nor Replay shown' };
   await sleep(2000); const h1 = await replayHand(pg);
   await clickPrefix(pg, 'Back to overview'); await sleep(1500); const h2 = await replayHand(pg);
   await goto(pg, 'race'); await sleep(1500); const h3 = await replayHand(pg);
   return { pass: h1 != null && h2 != null && h3 != null && h1 <= h2 && h2 <= h3 && h3 > h1, detail: `${h1} → ${h2} → ${h3}` };
-});
+}));
 
 // --- Time sync (the replay is running from the check above) ---
-await check('sync-in-step', 'While Trends replays, Profiles and Matchups stay within one step of its hand', async () => {
+main(() => check('sync-in-step', 'While Trends replays, Profiles and Matchups stay within one step of its hand', async () => {
   await goto(pg, 'stats'); await sleep(1200);
   const h = await hands(pg);
   const race = h['race-panel'], prof = h['stats-panel'], mu = h['pairwise-panel'];
@@ -527,14 +626,14 @@ await check('sync-in-step', 'While Trends replays, Profiles and Matchups stay wi
   const step = prof.step || 25;
   const ok = race.hand - prof.hand >= 0 && race.hand - prof.hand <= step && Math.abs(race.hand - mu.hand) <= 1;
   return { pass: ok, detail: `history ${race.hand}, profiles ${prof.hand} (step ${step}), matchups ${mu.hand}` };
-});
+}));
 
 // While the replay steps Profiles through its snapshots, rows never sit on top of each other. Rows
 // now slide to a new place (each cell's content moves; Chrome ignores transforms on a table row), and
 // two rows that swap cross mid-slide by design: the rule is judged on rows at rest.
 // Each row's name (the content that moves) and its offset from the row's top; rows without one (dash rows) are left out.
 const nameOffsets = () => [...document.querySelectorAll('#stats-card tbody tr')].map(r => { const s = r.querySelector('th > span.inline-block'); return s ? { o: s.getBoundingClientRect().top - r.getBoundingClientRect().top, b: s.getBoundingClientRect() } : null; }).filter(Boolean);
-await check('profiles-rows-no-overlap', 'During the replay, no two Profiles rows overlap (rows at rest)', async () => {
+main(() => check('profiles-rows-no-overlap', 'During the replay, no two Profiles rows overlap (rows at rest)', async () => {
   await goto(pg, 'race'); await sleep(800); // Skip and Replay live on the Trends card
   const playing = () => pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
   if (!(await playing()) && !(await clickText(pg, 'Replay'))) return { pass: false, detail: 'neither Skip nor Replay shown' };
@@ -554,11 +653,11 @@ await check('profiles-rows-no-overlap', 'During the replay, no two Profiles rows
     await sleep(250);
   }
   return { pass: samples > 0 && worst <= 2, detail: samples ? `worst overlap ${worst.toFixed(1)}px over ${samples} samples at rest` : 'no rows at rest found' };
-});
+}));
 
 // Owner, 2026-11-07: "the animation that you use to switch rows in profits and losses, I want that same
 // animation for profiles". While the replay reorders Profiles, a row's content is seen mid-slide.
-await check('profiles-rows-slide', 'When the replay reorders Profiles, rows slide to their new place (not snap)', async () => {
+main(() => check('profiles-rows-slide', 'When the replay reorders Profiles, rows slide to their new place (not snap)', async () => {
   await goto(pg, 'stats-table'); await sleep(300);
   const r = await pg.evaluate(src => new Promise(res => {
     const read = (0, eval)(src);
@@ -575,11 +674,11 @@ await check('profiles-rows-slide', 'When the replay reorders Profiles, rows slid
     requestAnimationFrame(loop);
   }), `(${nameOffsets})`);
   return { pass: r.mid >= 3 && r.reorders > 0, detail: `${r.reorders} reorders, ${r.mid} frames with a row mid-slide (of ${r.frames})` };
-});
+}));
 
 // Owner, 2026-11-07: "I still see the cells jiggle a bit when a number changes". A changed Matchups
 // cell only changes colour and figure: every cell stays exactly in its grid slot, at its size.
-await check('matchups-cells-still', 'Matchups cells never move or scale when a value changes', async () => {
+main(() => check('matchups-cells-still', 'Matchups cells never move or scale when a value changes', async () => {
   await goto(pg, 'stats'); await sleep(800);
   const r = await pg.evaluate(() => new Promise(res => {
     const sel = '#pairwise-panel [data-cell]';
@@ -602,13 +701,13 @@ await check('matchups-cells-still', 'Matchups cells never move or scale when a v
     requestAnimationFrame(loop);
   }));
   return { pass: r.changed > 0 && r.off === 0 && r.worst <= 0.5, detail: r.changed ? `${r.changed} value changes; ${r.off} cell frames off their grid slot, worst size change ${r.worst.toFixed(1)}px` : 'no value changed in 4s (is the replay running?)' };
-});
+}));
 
 // Owner, 2026-11-07: "Trends ... pretty smooth. For profiles, it's not as smooth" (the tile's text
 // shrank to ~45% on the first frame of the glide and grew back, as the card's table replaced it scaled
 // down), and the card took over from the gliding tile with a jump in size. While a tile glides to its
 // card, Profiles' figures stay at their size, and the card takes over exactly where the tile ends.
-await check('glide-smooth', 'Opening Profiles and Matchups: no jump at the hand-over, Profiles text never shrinks', async () => {
+main(() => check('glide-smooth', 'Opening Profiles and Matchups: no jump at the hand-over, Profiles text never shrinks', async () => {
   const bad = [], seen = [];
   for (const [tile, card, id] of [['#stats-panel', '#stats-card', 'stats-table'], ['#pairwise-panel', '#pairwise-card', 'pairwise']]) {
     await goto(pg, 'stats'); await sleep(1500);
@@ -641,10 +740,10 @@ await check('glide-smooth', 'Opening Profiles and Matchups: no jump at the hand-
     await clickPrefix(pg, 'Back to overview'); await sleep(1200);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
-});
+}));
 
 // --- Matchups and Profiles opened ---
-await check('matchups-no-fade', 'Opening Matchups grows the matrix without fading it', async () => {
+main(() => check('matchups-no-fade', 'Opening Matchups grows the matrix without fading it', async () => {
   await goto(pg, 'stats'); await sleep(1500);
   const box = await pg.evaluate(() => { const b = document.querySelector('#pairwise-panel').getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; });
   await pg.mouse.click(box[0], box[1]);
@@ -659,9 +758,9 @@ await check('matchups-no-fade', 'Opening Matchups grows the matrix without fadin
     min = Math.min(min, o);
   }
   return { pass: min >= 0.95, detail: `lowest matrix opacity ${min.toFixed(2)}` };
-});
+}));
 // Every matrix cell is a square, on the overview tile and in the card (the matrix grows uniformly, never stretched).
-await check('matchups-square-cells', 'Matchups cells are squares on the tile and in the card', async () => {
+main(() => check('matchups-square-cells', 'Matchups cells are squares on the tile and in the card', async () => {
   const ratio = sel => pg.evaluate(sel => {
     const c = [...document.querySelectorAll(`${sel} td[data-cell]`)].map(e => e.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4);
     return c.length ? Math.max(...c.map(r => Math.max(r.width / r.height, r.height / r.width))) : 0;
@@ -669,16 +768,16 @@ await check('matchups-square-cells', 'Matchups cells are squares on the tile and
   await goto(pg, 'stats'); await sleep(1500); const tile = await ratio('#pairwise-panel');
   await goto(pg, 'pairwise'); await sleep(1500); const card = await ratio('#pairwise-card');
   return { pass: tile > 0 && card > 0 && tile <= 1.05 && card <= 1.05, detail: `tile ${tile.toFixed(3)}:1, card ${card.toFixed(3)}:1` };
-});
-await check('profiles-table-only', 'Opened Profiles shows the table only', async () => {
+}));
+main(() => check('profiles-table-only', 'Opened Profiles shows the table only', async () => {
   await goto(pg, 'stats-table'); await sleep(1500);
   const t = await pg.evaluate(() => { const s = document.getElementById('stats-table'); const b = s.getBoundingClientRect(); return `${s.innerText}\n${[...document.querySelectorAll('.card-chrome')].filter(c => { const r = c.getBoundingClientRect(); return r.top >= -2 && r.top < innerHeight / 2 && r.width > 900; }).map(c => c.innerText).join('\n')}`; });
   const bad = ['with its 95% interval', '±'].filter(s => t.includes(s));
   return { pass: bad.length === 0, detail: bad.length ? `found ${bad.join(', ')}` : 'ok' };
-});
+}));
 
 // A detail screen shows its own card alone: no other card peeking out behind or beside it.
-await check('detail-alone', 'An opened card is the only card visible (no card peeking out behind it)', async () => {
+main(() => check('detail-alone', 'An opened card is the only card visible (no card peeking out behind it)', async () => {
   const bad = [];
   for (const id of ['race', 'stats-table', 'pairwise']) {
     await goto(pg, id); await sleep(1500);
@@ -691,38 +790,34 @@ await check('detail-alone', 'An opened card is the only card visible (no card pe
     if (n > 1) bad.push(`${id}: ${n} cards visible`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(', ') : 'each opened card is alone' };
-});
+}));
 // The Matchups tile is a readable preview: its cells show numbers.
-await check('matchups-tile-numbers', 'The Matchups tile shows a number in its cells', async () => {
+main(() => check('matchups-tile-numbers', 'The Matchups tile shows a number in its cells', async () => {
   await goto(pg, 'stats'); await sleep(1500);
   const r = await pg.evaluate(() => { const cells = [...document.querySelectorAll('#pairwise-panel td')].filter(c => c.getBoundingClientRect().width > 4); const withNum = cells.filter(c => /[0-9]/.test(c.textContent)); const fs = withNum.length ? parseFloat(getComputedStyle(withNum[0]).fontSize) : 0; return { cells: cells.length, withNum: withNum.length, fs }; });
   return { pass: r.withNum >= r.cells * 0.5 && r.fs >= 10, detail: `${r.withNum}/${r.cells} cells with numbers, ${r.fs}px text` };
-});
+}));
 
 // Owner's rules from 2026-11-07: Profiles leads with Hands (no bb/100, no rank spread); no scope line,
 // session picker or Bars view on the cards; Matchups gets the wider tile; tiles never scroll.
-await check('profiles-columns', 'Profiles columns are Model, Hands, VPIP, PFR, AF (tile), then the trend (card)', async () => {
+main(() => check('profiles-columns', 'Profiles columns are Model, Hands, VPIP, PFR, AF (tile), then the trend (card)', async () => {
   const heads = sel => pg.evaluate(sel => [...document.querySelectorAll(`${sel} thead th`)].map(e => e.textContent.trim()).filter(Boolean), sel);
   await goto(pg, 'stats'); await sleep(1500); const tile = (await heads('#stats-panel')).join(',');
   // A card header also holds its tooltip's text: judge it by how it starts.
   await goto(pg, 'stats-table'); await sleep(1500); const card = (await heads('#stats-card')).map(h => ['Model', 'Hands', 'VPIP', 'PFR', 'AF', 'Last 50 hands', 'bb/100', 'Rank spread'].find(l => h.startsWith(l)) ?? h.slice(0, 12)).join(',');
   return { pass: tile === 'Model,Hands,VPIP,PFR,AF' && card === 'Model,Hands,VPIP,PFR,AF,Last 50 hands', detail: `tile ${tile} | card ${card}` };
-});
+}));
 // The Profiles tile names its models (truncated if need be) at every overview size, not logos alone.
-await check('profiles-tile-names', 'The Profiles tile shows model names at 1440x900 and 1728x1117', async () => {
+main(() => check('profiles-tile-names', 'The Profiles tile shows model names at 1440x900 and 1728x1117', async () => {
   const bad = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
-    const p2 = await browser.newPage(); await p2.setViewport({ width: w, height: h });
-    await p2.goto(BASE, { waitUntil: 'domcontentloaded' });
-    await p2.waitForFunction(() => document.querySelectorAll('#stats-panel tbody tr').length > 3, { timeout: 120000 });
-    await goto(p2, 'stats'); await sleep(1500);
+    const p2 = await sharedAt(w, h);
     const n = await p2.evaluate(() => [...document.querySelectorAll('#stats-panel tbody th span[translate=no]')].filter(e => e.getBoundingClientRect().width > 30).length);
-    await p2.close();
     if (n < 5) bad.push(`${w}x${h}: ${n} names visible`);
   }
   return { pass: !bad.length, detail: bad.join(', ') || 'names visible at both sizes' };
-});
-await check('cards-no-scope', 'No hands/all time/blinds line, Session picker or Bars view on Profiles and Matchups', async () => {
+}));
+main(() => check('cards-no-scope', 'No hands/all time/blinds line, Session picker or Bars view on Profiles and Matchups', async () => {
   const bad = [];
   for (const [id, card] of [['stats-table', '#stats-card'], ['pairwise', '#pairwise-card']]) {
     await goto(pg, id); await sleep(1500);
@@ -732,23 +827,23 @@ await check('cards-no-scope', 'No hands/all time/blinds line, Session picker or 
     if (r.bars) bad.push(`${id}: Bars view`);
   }
   return { pass: !bad.length, detail: bad.join(', ') || 'none' };
-});
+}));
 // Was "Matchups is wider than Profiles", then "at least comparable" (70% of Profiles' area). Owner, 2026-11-08:
 // "matchups should be the bigger square compared to profiles. right now the numbers are too dense". At the
 // three common laptop windows the Matchups tile is wider and larger than Profiles (Trends still leads:
 // overview-history-leads). Reports Trends's share of the overview's tile area.
-await check('matchups-bigger', 'On the overview the Matchups tile is wider and larger than Profiles at 1440x900, 1512x982 and 1728x1117', async () => {
+main(() => check('matchups-bigger', 'On the overview the Matchups tile is wider and larger than Profiles at 1440x900, 1512x982 and 1728x1117', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117]]) {
-    const p = await pageAt(w, h);
+    const once = w === 1512, p = once ? await pageAt(w, h) : await sharedAt(w, h); // no other check uses 1512x982
     const [race, prof, mu] = await Promise.all(['#race-panel', '#stats-panel', '#pairwise-panel'].map(s => rect(p, s)));
-    await p.close();
+    if (once) await p.close();
     const area = b => b.w * b.h;
     seen.push(`${w}x${h}: Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)} vs Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)} (${(area(mu) / area(prof)).toFixed(2)}x), Trends ${(area(race) / (area(race) + area(prof) + area(mu)) * 100).toFixed(0)}% of the area`);
     if (!(mu.w > prof.w && area(mu) > area(prof))) bad.push(`${w}x${h}: Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)} is not bigger than Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
-});
+}));
 // The same instruction: the tile's figures are not dense. Each cell is at least MIN px a side (td box),
 // every figure sits at the tile's one size with at least 2px clear on each side (shortened to +1.1k when
 // it would not), and no cell with a matchup is left without its figure.
@@ -756,7 +851,7 @@ await check('matchups-bigger', 'On the overview the Matchups tile is wider and l
 // column for preview of matchups ... use that new space for the matchups graph". Was 32px / 40px; with the Total
 // column and Profiles' spare width turned into height for the square: 33px / 42.5px (about 33.3 and 43.2; at 1440x900
 // Trends' row cannot give more without its chart's text dropping under 13px, history-type).
-await check('matchups-cells-roomy', 'Matchups tile cells are at least 33px (1440x900) / 42.5px (1728x1117), one figure size, never edge to edge or blank', async () => {
+group(() => check('matchups-cells-roomy', 'Matchups tile cells are at least 33px (1440x900) / 42.5px (1728x1117), one figure size, never edge to edge or blank', async () => {
   const bad = [], seen = [];
   for (const [w, h, min] of [[1440, 900, 33], [1728, 1117, 42.5]]) {
     const p = await pageAt(w, h);
@@ -785,9 +880,9 @@ await check('matchups-cells-roomy', 'Matchups tile cells are at least 33px (1440
     if (blank.length) bad.push(`${w}x${h}: ${blank.length} matchups without a figure`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
-});
+}));
 // The Matchups tile is its names, its square and its totals, edge to edge: no empty band beside them.
-await check('matchups-tile-filled', 'The Matchups matrix and its names fill the tile (no empty space beside them)', async () => {
+main(() => check('matchups-tile-filled', 'The Matchups matrix and its names fill the tile (no empty space beside them)', async () => {
   await goto(pg, 'stats'); await sleep(1200);
   const r = await pg.evaluate(() => {
     const t = document.querySelector('#pairwise-panel').getBoundingClientRect();
@@ -797,11 +892,11 @@ await check('matchups-tile-filled', 'The Matchups matrix and its names fill the 
     return { span: (rt - l) / (t.width - 32), nameLeft: names.length ? (Math.min(...names.map(b => b.left)) - t.left - 16) / (t.width - 32) : 1 };
   });
   return { pass: r.span >= 0.95 && r.nameLeft <= 0.12, detail: `matrix and names span ${(r.span * 100).toFixed(0)}% of the tile, longest name starts ${(r.nameLeft * 100).toFixed(0)}% in` };
-});
-await check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar on a preview)', async () => {
+}));
+main(() => check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar on a preview)', async () => {
   const bad = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel', '#race-panel'].flatMap(s => [...document.querySelectorAll(`${s} *`)].filter(e => ['auto', 'scroll'].includes(getComputedStyle(e).overflowY)).map(() => s)));
   return { pass: !bad.length, detail: bad.length ? `scrollable inside ${[...new Set(bad)].join(', ')}` : 'none' };
-});
+}));
 
 // Owner, 2026-11-07: the overview was "too big"; "the history graph should be the 'biggest' one ...
 // the first thing that people look at"; not wall-to-wall. At 1440x900 and 1728x1117: Trends on top and
@@ -812,12 +907,11 @@ await check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar on a p
 // Then the opened Matchups card ("so much white space to the left"; "takes up too much of the screen"):
 // it hugs names, matrix and totals (no band over 8px between its edge and its content) and leaves
 // page around it (at most 70% of the window's width and 85% of its height).
-await check('overview-history-leads', 'Trends is the dominant tile, first in reading order; the overview keeps page around it', async () => {
+main(() => check('overview-history-leads', 'Trends is the dominant tile, first in reading order; the overview keeps page around it', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
-    const p = await pageAt(w, h);
+    const p = await sharedAt(w, h);
     const [race, prof, mu] = await Promise.all(['#race-panel', '#stats-panel', '#pairwise-panel'].map(s => rect(p, s)));
-    await p.close();
     const area = b => b.w * b.h;
     const left = race.l, right = w - Math.max(race.r, mu.r), top = race.t - 44, bottom = h - Math.max(prof.b, mu.b), width = Math.max(race.r, mu.r) - race.l;
     seen.push(`${w}x${h}: Trends ${race.w.toFixed(0)}x${race.h.toFixed(0)}, Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}, Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)}, block ${width.toFixed(0)}px, page ${left.toFixed(0)}/${right.toFixed(0)} beside, ${top.toFixed(0)}/${bottom.toFixed(0)} above/below`);
@@ -828,29 +922,28 @@ await check('overview-history-leads', 'Trends is the dominant tile, first in rea
     if (left < 64 || right < 64 || top < 16 || bottom < 24) bad.push(`${w}x${h}: page around the block ${left.toFixed(0)}/${right.toFixed(0)}/${top.toFixed(0)}/${bottom.toFixed(0)}px`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
-});
-await check('matchups-card-hugs', 'The opened Matchups card hugs its names, matrix and totals, and leaves page around it', async () => {
+}));
+main(() => check('matchups-card-hugs', 'The opened Matchups card hugs its names, matrix and totals, and leaves page around it', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
-    const p = await pageAt(w, h, 'pairwise');
+    const p = await sharedAt(w, h, 'pairwise');
     const r = await p.evaluate(() => {
       const card = document.querySelector('#pairwise-card .card-chrome'), c = card.getBoundingClientRect();
       const names = [...card.querySelectorAll('a span')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2);
       const right = [...card.querySelectorAll('div[data-cell], td[data-cell]')].map(e => e.getBoundingClientRect().right);
       return { c: { l: c.left, t: c.top, w: c.width, h: c.height }, gapL: Math.min(...names.map(b => b.left)) - (c.left + 16), gapR: c.right - 16 - Math.max(...right) };
     });
-    await p.close();
     seen.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)}, bands ${r.gapL.toFixed(0)}/${r.gapR.toFixed(0)}px`);
     if (r.gapL > 8 || r.gapR > 8) bad.push(`${w}x${h}: empty band beside the matrix (${r.gapL.toFixed(0)}px left, ${r.gapR.toFixed(0)}px right)`);
     if (r.c.w > 0.7 * w || r.c.h > 0.85 * h || r.c.l < 64) bad.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)} at x ${r.c.l.toFixed(0)}`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
-});
+}));
 // Owner, 2026-11-07: "the font for the numbers in matchups doesn't feel like it matches ... unify all
 // of the fonts". The reference is Profiles' cells (body sans, 14px, tabular figures): in the cards,
 // Matchups' cells, its Total column and the Leader figure match it; the Matchups tile uses one size for
 // every cell (no per-cell scaling); Profits & Losses uses the same family and tabular figures.
-await check('stats-font-unified', 'One number font across the stats cards (family, tabular figures, size by role)', async () => {
+main(() => check('stats-font-unified', 'One number font across the stats cards (family, tabular figures, size by role)', async () => {
   // Every visible element under `sel` that holds a figure's text itself (screen-reader copies aside).
   const font = sel => pg.evaluate(sel => [...document.querySelectorAll(sel)].flatMap(e => [e, ...e.querySelectorAll('*')])
     .filter(e => !e.closest('.sr-only') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && /\d/.test(n.textContent)))
@@ -876,13 +969,13 @@ await check('stats-font-unified', 'One number font across the stats cards (famil
   if (new Set(tile).size !== 1 || fam(tile[0]) !== fam(ref)) bad.push(`Matchups tile: ${[...new Set(tile)].join(', ')}`);
   if (!pl.length || pl.some(f => fam(f) !== fam(ref))) bad.push(`Profits & Losses: ${[...new Set(pl)].join(', ') || 'none found'}`);
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `cards ${ref}; tile ${tile[0]}; P&L ${pl[0]}` };
-});
+}));
 
 // Owner, 2026-11-08: "we need to do an audit on the fonts and sizes and all". One family (the body's sans),
 // tabular figures, and one small scale by role on every stats tile and card (Trends's chart internals are
 // checked by history-number-style): titles 20px bold; model names and data figures 14px; controls 14px
 // medium; column headers and secondary text 13px (muted); the Matchups tile's figures one size (11px).
-await check('stats-type-scale', 'Every text role on the stats tiles and cards uses the agreed family, size, weight and colour', async () => {
+main(() => check('stats-type-scale', 'Every text role on the stats tiles and cards uses the agreed family, size, weight and colour', async () => {
   const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)';
   // [role, selector, size px, weights, colours (null: any), figures must be tabular]
   const roles = {
@@ -947,14 +1040,14 @@ await check('stats-type-scale', 'Every text role on the stats tiles and cards us
     seen.push(`${screen || 'table'} ${out.reduce((a, o) => a + o.n, 0)} elements`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${seen.join(', ')}: all on the scale` };
-});
+}));
 
 // The overview must hold its proportions at any window size or browser zoom: rows and matrix
 // cells are sized by content, never stretched by the window's height.
-await check('stats-any-viewport', 'The overview keeps its proportions from 1280x720 to 3840x2160 (any zoom)', async () => {
+group(() => check('stats-any-viewport', 'The overview keeps its proportions from 1280x720 to 3840x2160 (any zoom)', async () => {
   const bad = [];
   for (const [w, h] of [[1280, 720], [1440, 900], [2560, 1440], [3840, 2160]]) {
-    const p2 = await browser.newPage(); await p2.setViewport({ width: w, height: h });
+    const p2 = await newPage(); await p2.setViewport({ width: w, height: h });
     await p2.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p2); await sleep(1000);
     await goto(p2, 'stats'); await sleep(2000);
     const m = await p2.evaluate(() => {
@@ -976,7 +1069,7 @@ await check('stats-any-viewport', 'The overview keeps its proportions from 1280x
     if (why.length) bad.push(`${w}x${h}: ${why.join(', ')}`);
   }
   return { pass: bad.length === 0, detail: bad.length ? bad.join(' | ') : 'all four sizes hold' };
-});
+}));
 
 // --- Stats paging. Owner, 2026-11-08: "scrolling up and down profiles stats history is not consistent";
 // "when i get all the way down to matchups i should be able to scroll down again and then it takes me back
@@ -1030,7 +1123,7 @@ async function step(p, kind, dir, under) {
 }
 // Owner, 2026-11-08: "include the same down arrow for about as we do for stats". Under the overview, "About ↓"
 // in the Stats ↓ button's exact style, in the band under the tiles (not over them), landing on About like a gesture.
-await check('about-button', '"About ↓" sits under the overview in the band below the tiles, 8px clear: identical to "Stats ↓" at 1728x1117, the same pill compact at 1440x900; it lands on About', async () => {
+group(() => check('about-button', '"About ↓" sits under the overview in the band below the tiles, 8px clear: identical to "Stats ↓" at 1728x1117, the same pill compact at 1440x900; it lands on About', async () => {
   const bad = [], seen = [];
   const STYLE = ['fontSize', 'fontWeight', 'fontFamily', 'color', 'backgroundColor', 'borderTopColor', 'borderTopWidth', 'borderTopLeftRadius', 'paddingTop', 'paddingLeft', 'boxShadow', 'height'];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
@@ -1061,17 +1154,19 @@ await check('about-button', '"About ↓" sits under the overview in the band bel
     await p.close();
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
-});
+}));
 // Opens a card from the overview the way a visitor does (a click on its tile), and waits for the glide.
 const median = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return Math.round(b[b.length >> 1]); };
 const openTile = async (p, tile) => { await goto(p, 'stats'); await sleep(900); await clickCenter(p, tile); await sleep(1300); await p.mouse.move(p.viewport().width / 2, p.viewport().height / 2); };
-await check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, notch, phased) and key (PageDown/Up, arrows, Space) moves exactly one screen, both ways, landing on a screen edge, at 1440x900 and 1728x1117: overview ↔ About, and Trends ↔ Profiles ↔ Matchups once a tile opened them; down and up move at the same speed and fade the card underneath alike; a gesture\'s ambiguous first wheel event is claimed', async () => {
+late(() => check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, notch, phased) and key (PageDown/Up, arrows, Space) moves exactly one screen, both ways, landing on a screen edge, at 1440x900 and 1728x1117: overview ↔ About, and Trends ↔ Profiles ↔ Matchups once a tile opened them; down and up move at the same speed and fade the card underneath alike; a gesture\'s ambiguous first wheel event is claimed', async () => {
   const bad = [], seen = [];
   const KEYS = new Set(['PageDown', 'ArrowDown', 'Space']);
   // [from, direction, to]: the main scroll's stats leg, then the cards' loop (entered by a click on Trends's tile).
   const MAIN = [['stats', 1, 'about'], ['about', -1, 'stats']];
   const LOOP = [['race', 1, 'stats-table'], ['stats-table', 1, 'pairwise'], ['pairwise', -1, 'stats-table'], ['stats-table', -1, 'race']];
-  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
+  // The two sizes run side by side, each in a window of its own.
+  const runs = await Promise.all([[1440, 900], [1728, 1117]].map(([w, h], i) => (i ? alone : f => f())(async () => {
+    const bad = [], seen = [];
     const p = await pageAt(w, h);
     // Chrome lets a page cancel a wheel gesture only from its first event: the page must claim a start that is not
     // clearly sideways (no delta, diagonal jitter), and leave a clear sideways swipe (back/forward) to the browser.
@@ -1107,10 +1202,12 @@ await check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, notch,
     seen.push(`${w}x${h} fade under the incoming card ↓${fd}ms ↑${fu}ms`);
     if (!fades[1].length || !fades[-1].length || Math.abs(fd - fu) > Math.max(80, 0.4 * Math.max(fd, fu))) bad.push(`${w}x${h}: the card underneath fades ${fd}ms going down vs ${fu}ms going up`);
     await p.close();
-  }
+    return { bad, seen };
+  })));
+  for (const r of runs) { bad.push(...r.bad); seen.push(...r.seen); }
   return { pass: !bad.length, detail: bad.length ? `${bad.slice(0, 8).join('; ')} || measured: ${seen.join(' | ')}` : seen.join(' | ') };
-});
-await check('main-scroll', 'The main scroll is table ↔ overview ↔ About, one gesture each (wheel or key); down on About stays on About', async () => {
+}));
+late(() => check('main-scroll', 'The main scroll is table ↔ overview ↔ About, one gesture each (wheel or key); down on About stays on About', async () => {
   const bad = [], seen = [];
   const p = await pageAt(1440, 900);
   await p.mouse.move(30, 450); // the page's side margin: the table screen's own panels scroll inside themselves
@@ -1128,8 +1225,8 @@ await check('main-scroll', 'The main scroll is table ↔ overview ↔ About, one
   }
   await p.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
-});
-await check('matchups-wraps', 'The cards loop back to the overview: down on Matchups and up on Trends (wheel or key) go back to it with the Back to overview glide, and stay there', async () => {
+}));
+late(() => check('matchups-wraps', 'The cards loop back to the overview: down on Matchups and up on Trends (wheel or key) go back to it with the Back to overview glide, and stay there', async () => {
   const bad = [], seen = [];
   const p = await pageAt(1440, 900);
   await p.mouse.move(720, 450);
@@ -1152,8 +1249,8 @@ await check('matchups-wraps', 'The cards loop back to the overview: down on Matc
   }
   await p.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
-});
-await check('no-stats-hash', 'The URL never names a screen (open/close every card, Escape, paging, the About link, an old #race link), while #model= still opens the drawer and Back closes it; tiles open from the keyboard; /about still works', async () => {
+}));
+group(() => check('no-stats-hash', 'The URL never names a screen (open/close every card, Escape, paging, the About link, an old #race link), while #model= still opens the drawer and Back closes it; tiles open from the keyboard; /about still works', async () => {
   const bad = [];
   const p = await pageAt(1440, 900);
   const hash = () => p.evaluate(() => location.hash);
@@ -1190,29 +1287,28 @@ await check('no-stats-hash', 'The URL never names a screen (open/close every car
   if (d2.h || d2.open) bad.push(`Back from the drawer: hash ${d2.h || 'empty'}, drawer ${d2.open ? 'still open' : 'closed'}`);
   await p.close();
   // An old link to a stats screen opens the page at its top, with the hash gone.
-  const q = await browser.newPage(); await q.setViewport({ width: 1440, height: 900 });
+  const q = await newPage(); await q.setViewport({ width: 1440, height: 900 });
   await q.goto(`${BASE}/#race`, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(q); await sleep(3000);
   const old = await q.evaluate(() => ({ y: Math.round(scrollY), h: location.hash }));
   await q.close();
   if (old.y > 2 || old.h) bad.push(`/#race: page at y ${old.y}, hash ${old.h || 'empty'}`);
   // /about stays its own page.
-  const a = await browser.newPage(); await a.setViewport({ width: 1440, height: 900 });
+  const a = await newPage(); await a.setViewport({ width: 1440, height: 900 });
   const res = await a.goto(`${BASE}/about`, { waitUntil: 'domcontentloaded', timeout: 120000 }); await sleep(1500);
   const txt = await a.evaluate(() => document.body.innerText); await a.close();
   if (res.status() !== 200 || !/Limitations/.test(txt)) bad.push(`/about: ${res.status()}${/Limitations/.test(txt) ? '' : ', no About content'}`);
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : 'hash empty throughout; #model= opens and Back closes the drawer; the About link scrolls to About; /#race opens at the top; /about works' };
-});
-await check('matchups-no-definition', 'The opened Matchups card has no definition line (no "Each cell" / "took the most from")', async () => {
-  const p = await pageAt(1440, 900, 'pairwise');
+}));
+main(() => check('matchups-no-definition', 'The opened Matchups card has no definition line (no "Each cell" / "took the most from")', async () => {
+  const p = await sharedAt(1440, 900, 'pairwise');
   const r = await p.evaluate(() => { const c = document.querySelector('#pairwise-card'); return { t: c.innerText, p: c.querySelectorAll('p').length }; });
-  await p.close();
   const found = ['Each cell', 'took the most from'].filter(x => r.t.includes(x));
   return { pass: !found.length && !r.p, detail: found.length || r.p ? `found ${found.join(', ')} (${r.p} p)` : 'no definition line' };
-});
+}));
 
 // --- Batch 2 (owner, 2026-11-08) ---
 // "History" is "Trends" everywhere a visitor sees it: tile, card, sticky bar, Back links and labels.
-await check('trends-name', 'No visible "History" on the stats screens or the sticky bar (text or labels); the tile and the opened card are titled Trends', async () => {
+group(() => check('trends-name', 'No visible "History" on the stats screens or the sticky bar (text or labels); the tile and the opened card are titled Trends', async () => {
   const bad = [];
   const p = await pageAt(1440, 900);
   const look = () => p.evaluate(() => {
@@ -1229,10 +1325,10 @@ await check('trends-name', 'No visible "History" on the stats screens or the sti
   bad.push(...a.text.map(t => `overview: "${t}"`), ...b.text.map(t => `Trends card: "${t}"`), ...[...new Set([...a.labels, ...b.labels])].map(l => `label "${l}"`));
   if (a.title !== 'Trends' || b.title !== 'Trends') bad.push(`titles: tile "${a.title}", card "${b.title}"`);
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : 'Trends on the tile and the card; no History anywhere' };
-});
+}));
 // The Leader line names its scope from the shared replay clock: "at hand N" while Trends replays, "all time"
 // once it has finished or been skipped; every card says the same in the same frame.
-await check('leader-scope', 'The Leader says "at hand N" while the replay plays and "all time" after Skip, the same words on every card', async () => {
+group(() => check('leader-scope', 'The Leader says "at hand N" while the replay plays and "all time" after Skip, the same words on every card', async () => {
   const bad = [], seen = [];
   const p = await pageAt(1440, 900, 'race');
   const read = () => p.evaluate(() => [...document.querySelectorAll('span')].filter(e => /^Leader/.test(e.textContent) && e.querySelector('span')).map(e => e.textContent.replace(/^Leader.*?chips /, '')));
@@ -1257,22 +1353,22 @@ await check('leader-scope', 'The Leader says "at hand N" while the replay plays 
   }
   await p.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
-});
+}));
 // Owner, 2026-11-08: "no need for a [Total] column for preview of matchups". The opened card keeps it.
-await check('matchups-tile-no-total', 'The Matchups tile has no Total column; the opened card does', async () => {
+main(() => check('matchups-tile-no-total', 'The Matchups tile has no Total column; the opened card does', async () => {
   await goto(pg, 'stats'); await sleep(1200);
   const tile = await pg.evaluate(() => ({ head: [...document.querySelectorAll('#pairwise-panel *')].some(e => e.childElementCount === 0 && e.textContent.trim() === 'Total'), cells: document.querySelectorAll('#pairwise-panel div[data-cell]').length }));
   await goto(pg, 'pairwise'); await sleep(1200);
   const card = await pg.evaluate(() => ({ head: [...document.querySelectorAll('#pairwise-card *')].some(e => e.childElementCount === 0 && e.textContent.trim() === 'Total' && e.getBoundingClientRect().width > 0), cells: document.querySelectorAll('#pairwise-card div[data-cell]').length, rows: document.querySelectorAll('#pairwise-card tbody tr').length }));
   const ok = !tile.head && !tile.cells && card.head && card.cells === card.rows && card.rows > 0;
   return { pass: ok, detail: `tile: ${tile.head ? 'Total header' : 'no Total header'}, ${tile.cells} totals; card: ${card.head ? 'Total header' : 'no Total header'}, ${card.cells} totals for ${card.rows} rows` };
-});
+}));
 // Phones and 200% browser zoom (CSS width under 768px). Owner's report: the opened Trends card collapsed to a
 // strip, Matchups rows to 2-17px and overlapping, Profiles showed logos only with overlapping rows, the Matchups
 // card cut off names and its last column, the overview cut off its last row. The Trends plot is at least 200px
 // tall where the chart's 2.6:1 shape allows it at the card's full width (a 390px phone: about 129px; a taller
 // plot there needs a phone shape in CumulativeChart).
-await check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'s plot fills its width (200px+ tall where the shape allows) and the card hugs it, table and matrix rows at least 24px and never overlapping, model names in Profiles and Matchups, nothing clipped without a way to scroll to it', async () => {
+group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'s plot fills its width (200px+ tall where the shape allows) and the card hugs it, table and matrix rows at least 24px and never overlapping, model names in Profiles and Matchups, nothing clipped without a way to scroll to it', async () => {
   const bad = [], seen = [];
   // Rows of `sel`: each at least 24px, none overlapping the next; names (`names`) visible: 5+ at least 30px wide;
   // every element of `reach` inside every clipping ancestor, and never before a scroller's start.
@@ -1305,7 +1401,7 @@ await check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'s plot
   };
   for (const [w, h, d] of [[390, 844, 2], [720, 450, 2]]) {
     const size = `${w}x${h}${d > 1 ? `@${d}x` : ''}`;
-    const p = await browser.newPage(); await p.setViewport({ width: w, height: h, deviceScaleFactor: d });
+    const p = await newPage(); await p.setViewport({ width: w, height: h, deviceScaleFactor: d });
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p); await sleep(3000);
     await goto(p, 'stats'); await sleep(1500);
     judge(`${size} Profiles tile`, await inspect(p, '#stats-panel tbody tr', '#stats-panel tbody th [translate=no]', '#stats-panel tbody th, #stats-panel tbody td, #stats-panel h2'));
@@ -1329,11 +1425,18 @@ await check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'s plot
     await p.close();
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
-});
+}));
 
+const beside = drain(groups, Math.max(1, LANES - 1));
+for (const step of steps) await step();
+await Promise.all([pg, ...shared().values()].map(p => p.close()));
+await browser.__sharedCtx?.close();
+await Promise.all([beside, drain(lates, Math.max(1, LANES - 1))]);
 await browser.close();
+results.sort((a, b) => IDS.indexOf(a.id) - IDS.indexOf(b.id));
 const w = Math.max(...results.map(r => r.id.length));
-for (const r of results) console.log(`${r.pass ? 'PASS' : 'FAIL'}  ${r.id.padEnd(w)}  ${r.detail}   (${r.rule})`);
+for (const r of results) console.log(`${r.pass ? 'PASS' : 'FAIL'}  ${r.id.padEnd(w)}  ${(r.ms / 1000).toFixed(1).padStart(5)}s  ${r.detail}   (${r.rule})`);
+console.log(`\nslowest: ${results.slice().sort((a, b) => b.ms - a.ms).slice(0, 5).map(r => `${r.id} ${(r.ms / 1000).toFixed(0)}s`).join(', ')}`);
 const failed = results.filter(r => !r.pass).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
 process.exit(failed ? 1 : 0);

@@ -2,12 +2,21 @@
 
 ## The gate
 `scripts/verify.sh` runs: go vet and tests, pytest, tsc, eslint on changed web files, then
-`web/scripts/checks.mjs` (headless Chrome against a running dev server and engine). Work merges
-into the preview branch only when it prints `VERIFY: PASS`.
+`web/scripts/checks.mjs` (headless Chrome, engine on :8080). By default the UI checks run against a
+production build of the worktree (`next build` into `web/.next-verify`, reused while `web/` is
+unchanged; `next start` on a free port from 3300, stopped at the end). `--base http://localhost:3100`
+points them at a running server instead. Work merges into the preview branch only when a full run
+prints `VERIFY: PASS`.
 
 `checks.mjs` holds the owner's locked rules as checks that can fail. Every correction the owner
 makes becomes a new check here, so it cannot regress. Run one check with `--only id`, skip with
-`--skip id`, point at an agent's own dev server with `--base http://localhost:PORT`.
+`--skip id`. Checks that watch a whole Trends replay play it 4x faster (`--replay-speed`, test-only),
+with their timings in replay time. The main page's checks run in order while checks with pages of their
+own run beside them in separate windows (`--lanes 3`); the scroll-gesture checks wait for the main page.
+Each result shows its seconds; the slowest five are listed.
+
+Only one UI phase (build, server, headless Chrome) runs at a time on the machine: verify.sh waits on
+`/tmp/nollmit-checks.lock` (it prints the wait; a dead holder's lock is cleared).
 
 ## The split
 One worker per area of the code, with a scope line naming the files it may edit, so parallel
@@ -15,9 +24,10 @@ workers never edit the same file. A shared contract (for example the History cha
 aspect) is fixed before they start.
 
 ## The loop
-Each worker builds, runs the gate (its checks plus the locked ones), fixes, and repeats until it
-passes. A check still failing after 3 attempts goes back to the orchestrator: the plan is wrong,
-not the code.
+Each worker builds, runs `scripts/verify.sh --changed` (only the checks tied to the files it changed
+against preview/ui; a change to a check's own block runs that check), fixes, and repeats. The full
+`scripts/verify.sh` runs once before merge. A check still failing after 3 attempts goes back to the
+orchestrator: the plan is wrong, not the code.
 
 ## Merge lanes
 - Front-end changes on the preview branch: merge once the gate passes.
@@ -32,8 +42,9 @@ not the code.
 Screenshots of each finished item (taste cannot be checked by code), and the merge to main.
 
 ## Cleanup
-A worker's last step is `scripts/stop-server.sh <its port>`: its dev server and the npm/next wrapper
-stop. The check script closes its headless Chrome even when it crashes or is interrupted. The
+verify.sh stops its own production server and frees the lock on exit, Ctrl-C included. A worker that
+started a dev server ends with `scripts/stop-server.sh <its port>` (dev or production server and its
+npm/next wrapper). The check script closes its headless Chrome even when it crashes or is interrupted. The
 orchestrator runs `scripts/stop-server.sh` with no ports in every progress update: it lists any Next
 server not on :3100 and any headless Chrome older than 30 minutes, and anything that belongs to no
 running worker is stopped.

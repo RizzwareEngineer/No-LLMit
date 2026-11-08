@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Stops whatever a worker left running: the dev server listening on each given port (and its
-# npm/next parent), plus headless Chromes launched from that worker's folder.
+# Stops whatever a worker left running: the dev or production server listening on each given port (and
+# its npm/next parent), plus headless Chromes launched from that worker's folder.
 #   scripts/stop-server.sh 3241 [3251 ...]
 # With no ports it lists orphans instead: next servers on any port but 3100, and headless Chromes
 # older than 30 minutes. It never touches a Chrome that isn't headless.
@@ -20,7 +20,7 @@ for port in "$@"; do
   for pid in $(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null); do
     parent=$(ps -o ppid= -p "$pid" | tr -d ' ')
     kill "$pid" 2>/dev/null && echo "stopped :$port (pid $pid)"
-    # The npm/next dev wrapper that spawned it, if it is still around.
-    [ -n "$parent" ] && ps -o command= -p "$parent" | grep -q "next dev" && kill "$parent" 2>/dev/null
+    # The npm/next dev or start wrapper that spawned it, if it is still around.
+    [ -n "$parent" ] && ps -o command= -p "$parent" | grep -qE "next (dev|start)" && kill "$parent" 2>/dev/null
   done
 done
