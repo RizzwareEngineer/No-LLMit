@@ -74,8 +74,9 @@ for (const [w, h, d] of FIT_SIZES) {
   if (!want('table-fit') && !want('table-reachable') && !want('table-no-hscroll')) break;
   const p2 = await browser.newPage(); await p2.setViewport({ width: w, height: h, deviceScaleFactor: d });
   await p2.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  // Wait for the live table: the grid, or on phones the seat list (its Hand # in the status row).
-  await p2.waitForFunction(() => document.querySelector('table') || (innerWidth < 768 && /Hand #\d/.test(document.body.innerText)), { timeout: 60000 }).catch(() => {});
+  // Wait for the live, hydrated table: the grid with its fitted zoom, or on phones the seat list
+  // (its Hand # in the status row). A dev server on a loaded machine can take a minute or more.
+  const loaded = await p2.waitForFunction(() => (document.querySelector('table') && document.querySelector('.stage-zoom')?.style.zoom) || (innerWidth < 768 && /Hand #\d/.test(document.body.innerText)), { timeout: 150000 }).then(() => true, () => false);
   await sleep(2500);
   const m = await p2.evaluate(() => {
     const sec = document.querySelector('section[data-screen]'), stage = document.querySelector('.stage-zoom');
@@ -99,11 +100,12 @@ for (const [w, h, d] of FIT_SIZES) {
       slackH: (document.documentElement.clientHeight - (sec.lastElementChild.getBoundingClientRect().bottom + parseFloat(getComputedStyle(sec).paddingBottom))) / document.documentElement.clientHeight };
   });
   await p2.close();
-  fits.push({ size: `${w}x${h}${d > 1 ? `@${d}x` : ''}`, ...m });
+  fits.push({ size: `${w}x${h}${d > 1 ? `@${d}x` : ''}`, ...m, loaded });
 }
 await check('table-fit', `The table screen takes one uniform scale in [${FIT_FLOOR}, ${FIT_CAP}], fitting the window (phones: list layout at 1)`, async () => {
   const bad = [];
   for (const f of fits) {
+    if (!f.loaded) { bad.push(`${f.size}: the table never loaded`); continue; }
     if (f.phone) { if (f.zoom !== 1) bad.push(`${f.size}: phone layout at ${f.zoom}`); continue; }
     if (f.zoom < FIT_FLOOR - 1e-3 || f.zoom > FIT_CAP + 1e-3) bad.push(`${f.size}: scale ${f.zoom}`);
     const floor = f.zoom <= FIT_FLOOR + 1e-3, cap = f.zoom >= FIT_CAP - 1e-3;
