@@ -7,7 +7,7 @@ import { Warning } from '@phosphor-icons/react';
 import Panel, { Added, CARD, CARD_SHADOW, GLIDE_MS, HEADER, HUG, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
 import StatsTable from '@/components/StatsTable';
-import HeadToHead, { pairwiseLeader } from '@/components/HeadToHead';
+import HeadToHead, { NAMES, STRIP, TOTALS, pairwiseLeader } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, seatedModels, useStats } from '@/lib/stats';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
@@ -242,7 +242,7 @@ export default memo(function StatsSections({
 
   const message = <StatsMessage error={current ? error : null} loading={current && loading} />;
   const stale = ready && (error || loading) && (
-    <p className="mb-2 text-[14px]" style={{ color: MUTED }} role="status">
+    <p className="mb-2 text-[13px]" style={{ color: MUTED }} role="status">
       {error ? 'Could not refresh the stats; showing the last good numbers.' : 'Stats are refreshing…'}
     </p>
   );
@@ -335,7 +335,7 @@ export default memo(function StatsSections({
           <div className={`@container ${BLOCK} ${EDGE}`} style={BLOCK_VARS}>
             {/* Overview: three tiles, each a miniature of its screen, History on top (stacked on phones).
                 History's row is its chart's shape at the block's width plus the tile's padding and header
-                (72px); the second row is a share of it (BLOCK_VARS), split into Profiles and Matchups. */}
+                (72px); the second row is a little shorter (BLOCK_VARS), split into Profiles and Matchups. */}
             <div className="relative h-full md:h-(--block-h) grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-[minmax(0,1fr)_var(--col2)] md:grid-rows-[var(--row1)_var(--row2)]">
               <Panel id="race-panel" title="History" href="#race" away={{ y: -1 }} className="row-start-1 md:col-span-2" aside={lead} fit={raceFit} {...tile('race')}>
                 {stale}
@@ -446,29 +446,27 @@ const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1'; // a card header's 
 // The overview block and every card, centred with the page around them. The block is as wide as lets
 // History's row (its chart's shape plus the tile's 72px of padding and header) and the second row fit
 // the window with a margin above and below (MARGIN), at most MAX_W and never within SIDE of the window's
-// sides. History leads: the second row is History's row / LEAD, but never under ten 28.8px matrix cells
-// (ROW2_MIN, less on a short window). Matchups' tile is its names, its square and its totals, edge to edge;
-// Profiles takes the rest of the row. Only viewport units, so every var resolves the same in nested containers.
+// sides. History leads by area (it spans the block) and stays the tallest row, LEAD taller than the second;
+// the second row is nearly as tall, so Matchups' cells have room (about 34px at 1440x900, 43px at
+// 1728x1117). Matchups' tile is its names, its matrix and its totals, edge to edge; Profiles, five compact
+// columns, takes the rest of the row. Only viewport units, so every var resolves the same in nested containers.
 const MAX_W = 1320; // about three quarters of a 1728px window: the overview reads as cards on a page
 const SIDE = 64; // the least page beside the block
-const MARGIN = 'max(24px, 5svh)'; // the least page above and below it (56px on a 1117px window)
-const LEAD = 1.45; // History's row is 1.45x the second row: the tallest tile, read first
-const ROW2_MIN = 'min(360px, 40svh)'; // ten 28.8px matrix cells (with the tile's 72px), where the window allows: room for −173
-const NAMES = 140; // the Matchups tile's row-name column
-const TOTALS = 72; // Matchups' Total column, on the tile and in the card
+const MARGIN = 'max(24px, 10svh - 66px)'; // the least page above and below it: 24px on a 900px window, 46px on 1117px
+const LEAD = 4; // px: History's row over the second row
 const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
 const A = (H / W).toFixed(5);
 const ROOM = `(100svh - 44px - var(--bar-h, 0px) - 2 * ${MARGIN})`; // the block's height at most
 const BLOCK = 'h-full w-full md:max-w-(--block-w) mx-auto flex flex-col justify-center';
 const BLOCK_VARS = {
-  '--block-w': `max(560px, min(${MAX_W}px, 100vw - ${2 * SIDE}px, (${ROOM} - 12px - ${ROW2_MIN} - 72px) / ${A} + 32px, ((${ROOM} - 12px) / ${(1 + 1 / LEAD).toFixed(5)} - 72px) / ${A} + 32px))`,
+  '--block-w': `max(560px, min(${MAX_W}px, 100vw - ${2 * SIDE}px, ((${ROOM} - 12px + ${LEAD}px) / 2 - 72px) / ${A} + 32px))`,
   '--row1': `calc((var(--block-w) - 32px) * ${A} + 72px)`,
-  '--row2': `max(${ROW2_MIN}, var(--row1) / ${LEAD})`,
+  '--row2': `calc(var(--row1) - ${LEAD}px)`,
   '--mini-row': 'calc((var(--row2) - 72px) / 10)',
-  '--col2': `calc(var(--row2) - 72px + 32px + ${NAMES + TOTALS}px)`, // Matchups: names, its square, totals, padding
+  '--col2': `calc(var(--row2) - 72px - ${STRIP}px + 32px + ${NAMES + TOTALS}px)`, // Matchups: names, its matrix, totals, padding
   '--block-h': 'calc(var(--row1) + 12px + var(--row2))',
-  // The opened Matchups card's square: about History's row, so the two cards have the same presence.
-  '--card-s': 'min(var(--row1) + 80px, var(--block-h) - 220px)',
+  // The opened Matchups card's matrix width: a little over History's row, so the two cards have the same presence.
+  '--card-m': 'min(var(--row1) + 40px, var(--block-h) - 260px)',
 } as React.CSSProperties;
 
 // Under the 44px sticky bar and above the connection bar, at least 2% of the window above and
@@ -555,6 +553,6 @@ function Card({
 
 // One muted line under a card title saying what the card counts.
 function Definition({ children }: { children: React.ReactNode }) {
-  // Contained: it wraps to the card's width and never widens a card that hugs its content.
-  return <p className="mb-2 text-[14px] leading-snug [contain:inline-size]" style={{ color: MUTED }}>{children}</p>;
+  // Secondary text, 13px muted. Contained: it wraps to the card's width and never widens a card that hugs its content.
+  return <p className="mb-2 text-[13px] leading-snug [contain:inline-size]" style={{ color: MUTED }}>{children}</p>;
 }

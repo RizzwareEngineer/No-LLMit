@@ -58,7 +58,14 @@ function flash(el: HTMLElement, delay: number) {
   playing.set(el, el.animate([{ backgroundColor: from }, { backgroundColor: to || 'rgba(0, 0, 0, 0)' }], { duration: 400, delay, easing: 'ease-out' }));
 }
 
-const TOTALS = 72; // the Total column (StatsSections sizes the tile with it)
+// The grid's side columns and its row of column logos, on the tile (StatsSections sizes the tile with them).
+export const NAMES = 140; // row names, at most
+export const TOTALS = 56; // the Total column (72 in the card: 14px figures)
+export const STRIP = 18; // the column logos' row (28 in the card: 24px logos)
+// The tile's figures: one size for every cell and total, whatever the window (the card's are 14px).
+export const TILE_PX = 11;
+// A figure keeps this much of its cell clear on each side: never edge to edge.
+const PAD = 2.5;
 
 // Chips won from each opponent in pots they both played. With `focus`, one model's opponents
 // as a list (the drawer); without it, the full grid of row model against column model, rows
@@ -106,7 +113,7 @@ export default memo(function HeadToHead({
   useEffect(() => {
     const el = square.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setCell(el.offsetWidth / (models.length + 1)));
+    const ro = new ResizeObserver(() => setCell(el.offsetWidth / models.length));
     ro.observe(el);
     return () => ro.disconnect();
   }, [models.length]);
@@ -160,39 +167,43 @@ export default memo(function HeadToHead({
   // The verdict's leader (row) and the model it took the most from (column), marked in the headers.
   const top = pairwiseLeader(sorted);
   const HOT = 'rgba(35, 131, 226, 0.12)';
-  // Square cells: the header row and the label column are one cell each, so the matrix is k×k squares
-  // and grows from the tile into the card as one piece (motion layout on its box, one aspect: no
-  // stretch). Row names sit to its left and the totals to its right, the three edge to edge, centred.
-  // On the tile the square is the largest that fits the tile (a size container); in the card it is
-  // --card-s (StatsSections) and the card hugs it. One font size per place: 14px in the card, like
-  // Profiles' cells; 11px on the tile, whose 28px cells must hold a figure like −173. A figure is
-  // shortened only when it does not fit its cell.
-  const k = sorted.length + 1;
-  const px = mini ? 11 : 14;
-  const names = mini ? `clamp(0px, 100cqw - 100cqh - ${TOTALS}px, 140px)` : 'auto';
-  const S = mini ? `min(100cqh, 100cqw - ${names} - ${TOTALS}px)` : 'var(--card-s)';
-  const slot = { height: `calc(${S} / ${k})` }; // a side column's row
-  const rowH = { height: `calc((${S} - ${k + 1}px) / ${k})` }; // a matrix row, inside the 1px border spacing
-  const room = cell - 1; // the cell inside its 1px spacing
+  // Square cells: the matrix is n×n squares under one short row of column logos (the row names to its left
+  // say who each row is), and grows from the tile into the card as one piece (motion layout on its box,
+  // about one aspect: no stretch). Row names sit to its left and the totals to its right, the three edge to
+  // edge, centred. On the tile the matrix is the largest that fits the tile (a size container); in the card
+  // it is --card-m wide (StatsSections) and the card hugs it. One font size per place: 14px in the card,
+  // like Profiles' cells; TILE_PX on the tile. A figure keeps PAD clear each side and is shortened (+1.1k)
+  // only when it does not fit that.
+  const n = sorted.length;
+  const px = mini ? TILE_PX : 14;
+  const strip = mini ? STRIP : 28;
+  const totals = mini ? TOTALS : 72;
+  const names = mini ? `clamp(0px, 100cqw - (100cqh - ${strip}px) - ${totals}px, ${NAMES}px)` : 'auto';
+  const M = mini ? `min(100cqh - ${strip}px, 100cqw - ${names} - ${totals}px)` : 'var(--card-m)'; // the matrix's width: n cells
+  const slot = { height: `calc(${M} / ${n})` }; // a side column's row
+  const rowH = { height: `calc((${M} - ${n + 2}px) / ${n})` }; // a matrix row: square with a cell inside the 1px spacing (n + 2 of them across, with the row headers)
+  const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
   return (
     <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : ''}`}>
       {/* On the tile, a size container: the square takes the largest size that fits it. No scroller of its own. */}
       <div className={`flex justify-center tabular-nums ${mini ? 'flex-1 min-h-0' : ''}`} style={{ containerType: mini ? 'size' : undefined, fontSize: px }} onMouseLeave={() => setTip(null)}>
         <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: names }}>
-          <span className="block" style={slot} />
+          <span className="block shrink-0" style={{ height: strip }} />
+          {/* Model names as in Profiles (14px bold); the verdict's leader on the highlight. */}
           {sorted.map(row => (
-            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-2 whitespace-nowrap ${mini ? 'text-[13px]' : 'hover:underline'} ${row.name === top?.leader ? 'font-bold' : 'font-medium'}`}>
-              <span translate="no" className="truncate">{row.name}</span>
+            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold ${mini ? '' : 'hover:underline'}`}>
+              <span translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === top?.leader ? HOT : undefined }}>{row.name}</span>
             </a>
           ))}
         </div>
-        <motion.div ref={square} layout layoutDependency={mini} transition={GLIDE} className="shrink-0" style={{ width: S, height: S }}>
+        <motion.div ref={square} layout layoutDependency={mini} transition={GLIDE} className="shrink-0" style={{ width: M, height: `calc(${M} + ${strip}px)` }}>
           <table className="w-full h-full table-fixed border-separate border-spacing-px">
             <caption className="sr-only">Matchups: chips each row model won from each column model, sorted by net chips</caption>
-            <colgroup>{Array.from({ length: k }, (_, i) => <col key={i} style={{ width: `${100 / k}%` }} />)}</colgroup>
+                        {/* A zero-width first column holds each row's header for screen readers (the names column shows it). */}
+            <colgroup><col style={{ width: 0 }} />{Array.from({ length: n }, (_, i) => <col key={i} style={{ width: `${100 / n}%` }} />)}</colgroup>
             <thead>
-              <tr style={rowH}>
-                <th aria-hidden />
+              <tr style={{ height: strip - 1 }}>
+                <th aria-hidden className="p-0" />
                 {sorted.map(m => (
                   <th key={m.name} scope="col" className="p-0 font-medium rounded-sm" title={m.name} style={{ background: m.name === top?.from?.name ? HOT : undefined }}>
                     <span className="flex justify-center"><LLMLogo model={m.name} size={zoomed ? 24 : 16} /></span>
@@ -204,10 +215,7 @@ export default memo(function HeadToHead({
             <tbody>
               {sorted.map(row => (
                 <tr key={row.name} style={rowH}>
-                  <th scope="row" className="p-0 rounded-sm" title={row.name} style={{ background: row.name === top?.leader ? HOT : undefined }}>
-                    <span className="flex justify-center"><LLMLogo model={row.name} size={zoomed ? 24 : 16} /></span>
-                    <span className="sr-only">{row.name}</span>
-                  </th>
+                  <th scope="row" className="p-0 overflow-hidden"><span className="sr-only">{row.name}</span></th>
                   {sorted.map(col => {
                     const v = row.vs?.[col.name];
                     if (row.name === col.name || !v) {
@@ -232,15 +240,16 @@ export default memo(function HeadToHead({
           </table>
         </motion.div>
         {/* The row's cells added up: the same figure as the leader's, bold in its colour. */}
-        <div className="shrink-0 flex flex-col font-bold" style={{ width: TOTALS }}>
-          <span style={slot} className="flex items-end pl-2 pb-1 font-medium" title="The row's cells added up">Total</span>
+        <div className="shrink-0 flex flex-col font-bold" style={{ width: totals }}>
+          {/* A column header: 13px muted, like Profiles'. */}
+          <span style={{ height: strip, color: MUTED }} className="shrink-0 flex items-end pl-2 text-[13px] leading-none font-medium" title="The row's cells added up">Total</span>
           {sorted.map(row => {
             const total = netOf.get(row.name)!;
             const none = row.hands === 0; // no hands yet at the replay's hand
             return (
               <div key={row.name} data-cell={`${row.name}|`} style={{ ...slot, color: none ? MUTED : netColor(total) }} className="flex items-center pl-2 whitespace-nowrap">
                 {none ? DASH : <>
-                  <span aria-hidden>{fitFigure(total, TOTALS - 8, px)}</span>
+                  <span aria-hidden>{fitFigure(total, totals - 8, px)}</span>
                   <span className="sr-only">{row.name} total {chips(total)}</span>
                 </>}
               </div>
@@ -252,7 +261,7 @@ export default memo(function HeadToHead({
       {tip && tipV && (
         <div
           role="tooltip"
-          className="absolute z-10 pointer-events-none w-[260px] rounded bg-white px-2.5 py-2 text-[14px] leading-snug tabular-nums"
+          className="absolute z-10 pointer-events-none w-[260px] rounded bg-white px-2.5 py-2 text-[13px] leading-snug tabular-nums"
           style={{ left: tip.x, top: tip.y, transform: `translate(-50%, ${tip.below ? '0' : '-100%'})`, color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}
         >
           <div>

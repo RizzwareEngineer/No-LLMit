@@ -203,7 +203,7 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
   const grid = (groups: typeof GROUPS, grouped: boolean, caption: string, last = true) => (
     <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={last && !mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} picked={picked} onPick={isolate} caption={caption} mini={mini} />
   );
-  const toggle = 'text-[14px] hover:underline';
+  const toggle = 'text-[14px] font-medium hover:underline'; // controls: 14px medium, like Open ↓ and the segmented buttons
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -317,7 +317,7 @@ function Grid({
   };
   // Every column of All stats shares the width, so its cells pad less.
   // Sticky: the header stays put while the card scrolls the rows under it.
-  const head = `sticky top-0 z-10 bg-white ${mini ? 'px-1 @sm:px-3 py-0 text-[13px]' : grouped ? 'p-1 text-[14px]' : 'px-1.5 py-1.5 md:px-3 text-[14px]'}`;
+  const head = `sticky top-0 z-10 bg-white text-[13px] ${mini ? 'px-1 @sm:px-3 py-0' : grouped ? 'p-1' : 'px-1.5 py-1.5 md:px-3'}`; // column headers: 13px muted, tile and card
   // The card's default view has five columns and room to spare, so its rows breathe; All stats packs them.
   const rowH = mini ? 'h-(--mini-row) text-[14px]' : grouped ? 'h-6' : 'h-10';
   // Columns the card adds to the tile's fade in as it opens.
@@ -369,7 +369,7 @@ function Grid({
           <tr>
             <td />
             {groups.map(g => (
-              <th key={g.label} scope="colgroup" colSpan={g.columns.length} className="px-2 pt-1 pb-0.5 text-left font-bold text-[14px] border-b border-notion" style={{ color: TEXT }}>
+              <th key={g.label} scope="colgroup" colSpan={g.columns.length} className="px-2 pt-1 pb-0.5 text-left font-bold text-[13px] border-b border-notion" style={{ color: TEXT }}>
                 {g.label}
               </th>
             ))}
@@ -406,7 +406,7 @@ function Grid({
       {waiting.length > 0 && (
         <tbody style={{ color: MUTED }}>
           <tr className="border-t border-notion" title={NOT_SEATED_HINT}>
-            <td colSpan={columns.length + 1} className={`${cell} pt-2`}>
+            <td colSpan={columns.length + 1} className={`${cell} pt-2 text-[13px]`}>
               <span className="font-medium">{NOT_SEATED}</span>
               <span className="sr-only">: {NOT_SEATED_HINT}</span>
               <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
