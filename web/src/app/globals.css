@@ -2,10 +2,17 @@
 
 :root {
   color-scheme: light;
+  /* The page: one off-white behind every screen of the home page and /about, so the table's panels and the stats and
+     About cards (all white, ringed) read as cards on it. */
+  --page: #FAFAF9;
 }
 
 html {
   scrollbar-gutter: stable; /* the open drawer locks scrolling without the page jumping sideways */
+}
+/* The canvas too (side margins, a classic scrollbar's gutter, overscroll): over the root layout's inline white. */
+html:has([data-page]) {
+  background: var(--page) !important;
 }
 
 @media (prefers-reduced-motion: no-preference) {

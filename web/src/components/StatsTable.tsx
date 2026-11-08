@@ -111,9 +111,6 @@ const COLUMNS = GROUPS.flatMap(g => g.columns);
 const byKey = (k: string) => COLUMNS.find(c => c.key === k)!;
 const CORE = [{ label: 'Core', columns: [byKey('hands'), byKey('vpip'), byKey('pfr'), byKey('af'), TREND] }];
 const MINI = [{ label: 'Core', columns: CORE[0].columns.filter(c => c !== TREND) }];
-// The tile's number columns at their content's width (room for 10,000 hands), so the Model column takes the
-// rest and there is no gap before Hands (owner, 2026-11-08). Padding px-1, px-2 from a 384px table.
-const MINI_W: Record<string, string> = { hands: 'w-[52px] @sm:w-[62px]', vpip: 'w-[40px] @sm:w-[50px]', pfr: 'w-[40px] @sm:w-[50px]', af: 'w-[32px] @sm:w-[42px]' };
 // Profiles' tile around its longest name, at its widest: the logo and its gap (24), the name's padding (16),
 // the number columns (204) and the tile's padding (32). StatsSections sizes the tile with it.
 export const MINI_CHROME = 24 + 16 + 204 + 32;
@@ -253,7 +250,7 @@ export function Bb100({ m }: { m: ModelStats }) {
 // The overview tile keeps names down to a 288px table (truncated), so a short window still says who's who; the
 // card keeps them on a phone too (its table scrolls sideways there), logos only in All stats' narrow grids.
 function Name({ href, name, mini = false, grouped = false, children }: { href?: string; name: string; mini?: boolean; grouped?: boolean; children?: React.ReactNode }) {
-  const inner = <><LLMLogo model={name} size={16} /><span translate="no" className={`truncate ${mini ? '@max-2xs:sr-only' : grouped ? '@max-md:sr-only' : ''}`}>{name}</span>{children}</>;
+  const inner = <><LLMLogo model={name} size={16} /><span translate="no" className={`truncate ${mini ? '@max-2xs:sr-only max-w-[calc(100cqw-9.5rem)]' : grouped ? '@max-md:sr-only' : ''}`}>{name}</span>{children}</>;
   return href
     ? <a href={href} className="flex items-center gap-2 min-w-0 hover:underline" style={{ color: TEXT }} title={name}>{inner}</a>
     : <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>{inner}</span>;
@@ -348,10 +345,10 @@ function Grid({
       onKeyDown={mini ? undefined : e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), onPick(m.name))}
       style={{ opacity: picked.size && !picked.has(m.name) ? 0.35 : 1, background: picked.has(m.name) ? 'rgba(35, 131, 226, 0.08)' : undefined }}
     >
-      <th scope="row" className={`${cell} ${pin} ${pin && '@max-md:z-[1]'} text-left font-bold`}>
+      <th scope="row" className={`${cell} ${pin} ${pin && '@max-md:z-[1]'} ${mini ? 'w-px whitespace-nowrap' : ''} text-left font-bold`}>
         <Glides at={at} move={move}>
           <Name href={mini ? undefined : modelHref(m.name)} name={m.name} mini={mini} grouped={grouped}>
-            {m.hands < MIN_HANDS && (
+            {m.hands < MIN_HANDS && !mini && (
               <Warning size={14} weight="bold" className="shrink-0 @max-md:hidden" style={{ color: 'rgb(140, 95, 20)' }} aria-label={`Fewer than ${MIN_HANDS} hands`} />
             )}
           </Name>
@@ -368,12 +365,13 @@ function Grid({
   return (
     // Fixed layout: the table takes its panel's width and the cells truncate, so nothing scrolls sideways (but a
     // phone's card, at least 480px wide so every column keeps its figures).
-    <table className={`w-full table-fixed tabular-nums text-[14px] ${!mini && !grouped ? '@max-md:min-w-[480px]' : ''}`}>
+    <table className={`w-full ${mini ? 'table-auto' : 'table-fixed'} tabular-nums text-[14px] ${!mini && !grouped ? '@max-md:min-w-[480px]' : ''}`}>
       <caption className="sr-only">{caption} Column headers sort the table; the info buttons explain each stat.</caption>
       <colgroup>
         {/* Narrow panels show logos only; wider ones give names the room they need. */}
         <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : mini ? '' : 'w-[140px] @md:w-[32%] @4xl:w-[24%]'} />
-        {columns.map(c => <col key={c.key} className={mini ? MINI_W[c.key] : c === BB100 ? 'w-[80px]' : c === TREND ? 'w-[112px]' : ''} />)}
+        {/* On the tile the number columns share whatever the Model column (sized to its names) leaves: even spacing, no gap before Hands. */}
+        {columns.map(c => <col key={c.key} className={mini ? '' : c === BB100 ? 'w-[80px]' : c === TREND ? 'w-[112px]' : ''} />)}
       </colgroup>
       <thead>
         {grouped && (
@@ -396,10 +394,10 @@ function Grid({
         {rows.map((m, i) => row(m, i))}
         {noHands.map(name => (
           <tr key={name} className={rowH}>
-            <th scope="row" className={`${cell} ${pin} ${pin && '@max-md:z-[1]'} text-left font-bold`}>
+            <th scope="row" className={`${cell} ${pin} ${pin && '@max-md:z-[1]'} ${mini ? 'w-px whitespace-nowrap' : ''} text-left font-bold`}>
               <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>
                 <LLMLogo model={name} size={16} />
-                <span translate="no" className={`truncate ${mini ? '@max-2xs:sr-only' : grouped ? '@max-md:sr-only' : ''}`}>{name}</span>
+                <span translate="no" className={`truncate ${mini ? '@max-2xs:sr-only max-w-[calc(100cqw-9.5rem)]' : grouped ? '@max-md:sr-only' : ''}`}>{name}</span>
               </span>
             </th>
             {columns.map(c => <td key={c.key} className={`${cell} ${added(c)} text-right`} style={{ color: MUTED }}>{DASH}</td>)}

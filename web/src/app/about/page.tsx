@@ -4,23 +4,20 @@ import Link from 'next/link';
 import { ArrowLeft } from '@phosphor-icons/react';
 import About from '@/components/About';
 
+// The About cards on the page's background (data-page), about as wide as the home page's About screen.
 export default function AboutPage() {
   return (
-    <div className="min-h-screen bg-white">
-      {/* Navigation */}
-      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-sm border-b border-[rgba(55,53,47,0.09)]">
-        <div className="max-w-[1300px] mx-auto px-6 py-3">
-          <Link 
-            href="/" 
-            className="flex items-center gap-2 text-sm text-[rgb(55,53,47)] opacity-65 hover:opacity-100 transition-opacity"
-          >
-            <ArrowLeft size={16} />
-            Back to game
+    <div data-page className="min-h-screen">
+      <nav className="sticky top-0 z-50 bg-white/85 backdrop-blur-md border-b border-[rgba(55,53,47,0.09)]">
+        <div className="max-w-[1000px] mx-auto px-3 lg:px-4 h-11 flex items-center">
+          <Link href="/" className="flex items-center gap-1 rounded px-2 py-1 -ml-2 text-[13px] font-medium hover:bg-[rgba(55,53,47,0.06)]" style={{ color: 'rgb(35, 131, 226)' }}>
+            <ArrowLeft size={13} weight="bold" aria-hidden />
+            Back to table
           </Link>
         </div>
       </nav>
 
-      <main className="max-w-[1300px] mx-auto px-6 py-10">
+      <main className="max-w-[1000px] mx-auto px-3 lg:px-4 py-6 md:py-10">
         <About />
       </main>
     </div>
