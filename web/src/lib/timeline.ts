@@ -8,7 +8,7 @@ import type { ModelStats } from '@/lib/stats';
 // follow it. It runs a minute from the first hand to the last, from when History first scrolls into
 // view; Skip ends it, Replay restarts it. `progress` is 0..1 of the way (1: not started or done, the
 // cards show now). Its own frame loop, so every card reads the same value in the same frame.
-const PLAY_MS = 60_000;
+export const PLAY_MS = 60_000;
 let start: number | null = null;
 let progress = 1;
 let frame = 0;

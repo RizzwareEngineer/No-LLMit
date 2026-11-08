@@ -138,9 +138,9 @@ await check('table-no-hscroll', 'No sideways scroll on the page; the table scree
 
 // --- History (overview tile, then the card) ---
 await goto(pg, 'stats'); await sleep(2500);
-// The unit is the default metric's, Chips won since 2026-11-07 (was bb/100).
-await check('history-unit-once', '"Chips won" shows once on the History tile', async () => {
-  const n = await pg.evaluate(() => [...document.querySelectorAll('#race-panel *')].filter(e => e.childElementCount === 0 && e.textContent.trim() === 'Chips won' && e.getBoundingClientRect().width > 0).length);
+// The unit is the default metric's: bb/100 again since 2026-11-08 (owner: "the default should be bb100 not chips").
+await check('history-unit-once', '"bb/100" shows once on the History tile', async () => {
+  const n = await pg.evaluate(() => [...document.querySelectorAll('#race-panel *')].filter(e => e.childElementCount === 0 && e.textContent.trim() === 'bb/100' && e.getBoundingClientRect().width > 0).length);
   return { pass: n === 1, detail: `${n} times` };
 });
 const tile = await chartBox(pg);
@@ -215,18 +215,20 @@ await check('history-no-empty-left', 'The lines start at the plot\'s left edge (
   });
   return { pass: r.gap <= 0.12 && r.width >= 0.5, detail: `lines start ${(r.gap * 100).toFixed(0)}% in and span ${(r.width * 100).toFixed(0)}% of the plot` };
 });
-// --- History camera (owner 2026-11-07): "the models are just so close to each other that it's hard
-// to tell"; "I don't see ... a 'camera' to track the LLMs". Chips by default, and a vertical camera:
-// the y axis fits the lines in the x window and eases there. The card is open here. ---
-await check('history-default-chips', 'History opens on Chips won; bb/100 is one click away', async () => {
+// --- History overtakes (owner 2026-11-08): "the default should be bb100 not chips"; "its not as
+// obvious when a given place change happens ... do we keep the y axis static the same way lmarena
+// does?"; "the 'distance' between each llm is not that big and apparent"; "the y axis and x axis of
+// history is not same font". bb/100 by default, a steady y axis, finer gridlines, pills with rank and
+// value, and an overtake shown by a pill swap, a highlight and a crossing marker. The card is open here. ---
+await check('history-default-bb100', 'History opens on bb/100; Chips is one click away', async () => {
   const r = await pg.evaluate(() => {
     const g = [...document.querySelectorAll('[role=group][aria-label=Metric]')].find(e => e.getBoundingClientRect().width > 0);
     const on = g && [...g.querySelectorAll('button')].find(b => b.getAttribute('aria-pressed') === 'true')?.textContent.trim();
-    const other = g && [...g.querySelectorAll('button')].some(b => b.textContent.trim() === 'bb/100');
-    const title = [...document.querySelectorAll('svg text')].some(t => t.textContent.trim() === 'Chips won' && t.getBoundingClientRect().width > 0);
+    const other = g && [...g.querySelectorAll('button')].some(b => b.textContent.trim() === 'Chips');
+    const title = [...document.querySelectorAll('svg text')].some(t => t.textContent.trim() === 'bb/100' && t.getBoundingClientRect().width > 0);
     return { on, other, title };
   });
-  return { pass: r.on === 'Chips' && r.other && r.title, detail: `Metric ${r.on ?? 'missing'}, bb/100 option ${r.other ? 'there' : 'missing'}, axis title ${r.title ? 'Chips won' : 'not Chips won'}` };
+  return { pass: r.on === 'bb/100' && r.other && r.title, detail: `Metric ${r.on ?? 'missing'}, Chips option ${r.other ? 'there' : 'missing'}, axis title ${r.title ? 'bb/100' : 'not bb/100'}` };
 });
 // One replay from the start, sampled every frame: how much of the plot's height the visible tips
 // span, and how far the y axis moves per frame. Read at 5 s, 20 s and 40 s.
@@ -241,9 +243,19 @@ const camRun = async () => {
       const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
       if (plot) {
         const [top, h] = plot.dataset.plot.split(',').map(Number), [y0, y1] = plot.dataset.yRange.split(',').map(Number);
-        const tys = [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5).map(e => +e.dataset.ty);
-        const labels = [...plot.querySelectorAll('[data-y-tick]')].filter(e => +e.getAttribute('opacity') > 0.5).map(e => e.textContent).join(' ');
-        out.push({ t: performance.now() - t0, y0, y1, fill: tys.length > 1 ? (Math.max(...tys) - Math.min(...tys)) / h : null, out: tys.length ? Math.max(0, top - Math.min(...tys), Math.max(...tys) - top - h) : 0, labels });
+        const pills = [...plot.querySelectorAll('[data-pill]')];
+        const tys = pills.filter(e => +e.style.opacity > 0.5).map(e => +e.dataset.ty);
+        const ticks = [...plot.querySelectorAll('[data-y-tick]')].map(e => e.textContent);
+        const name = e => e.querySelector('[data-pill-name]')?.textContent;
+        out.push({
+          t: performance.now() - t0, y0, y1, fit: plot.dataset.yFit, fill: tys.length > 1 ? (Math.max(...tys) - Math.min(...tys)) / h : null,
+          out: tys.length ? Math.max(0, top - Math.min(...tys), Math.max(...tys) - top - h) : 0, labels: ticks.join(' '), nTicks: ticks.length,
+          order: pills.slice().sort((a, b) => +a.dataset.rank - +b.dataset.rank).map(name).join('|'),
+          emph: pills.filter(e => e.hasAttribute('data-emph')).map(name), lineEmph: plot.querySelectorAll('path[data-emph]').length,
+          markers: [...plot.querySelectorAll('[data-overtake-marker]')].map(e => e.dataset.overtakeMarker),
+          swaps: pills.filter(e => e.getAnimations().some(a => a.id === 'pill-swap' && a.playState === 'running')).map(name),
+          jiggle: document.getAnimations().filter(a => /shake|burst/.test(a.id)).length,
+        });
       }
       if (performance.now() - t0 < 41_000) requestAnimationFrame(f);
     };
@@ -253,27 +265,92 @@ const camRun = async () => {
   return (camSamples = await pg.evaluate(() => window.__cam));
 };
 const near = (ss, s) => ss.reduce((a, b) => (Math.abs(b.t - s * 1000) < Math.abs(a.t - s * 1000) ? b : a));
-await check('history-y-fill', 'During the replay the visible tips span at least half the plot height (5 s, 20 s, 40 s) and never leave it', async () => {
+// The steady axis (2026-11-08) no longer refits every frame, so the pack may fill less of the plot
+// than under the old camera (was half); a third still keeps close lines apart, and tips stay in view.
+await check('history-y-fill', 'During the replay the visible tips span at least a third of the plot height (5 s, 20 s, 40 s) and never leave it', async () => {
   const ss = await camRun();
   const at = [5, 20, 40].map(s => near(ss, s));
   const outs = ss.filter(s => s.t > 1000 && s.out > 2);
-  const ok = at.every(a => a.fill != null && a.fill >= 0.5) && !outs.length;
+  const ok = at.every(a => a.fill != null && a.fill >= 1 / 3) && !outs.length;
   return { pass: ok, detail: at.map((a, i) => `${[5, 20, 40][i]}s ${a.fill == null ? 'no tips' : `${(a.fill * 100).toFixed(0)}%`}`).join(', ') + `; tips outside the plot in ${outs.length} of ${ss.length} frames${outs.length ? ` (up to ${Math.max(...outs.map(s => s.out)).toFixed(0)}px)` : ''}` };
 });
-await check('history-y-smooth', 'The y axis follows the race (labels change early to late) and never moves more than 4% of its range per 60 Hz frame', async () => {
+// Arena-style steady axis: fitted once to the replay's lines, it widens rarely (the pack outgrew it)
+// and never shrinks while the replay plays; each widening eases (at most 4% of the range per frame).
+const Y_CHANGES = 3;
+await check('history-y-steady', `The y axis changes at most ${Y_CHANGES} times in a replay, never shrinks, and eases (≤4% of its range per 60 Hz frame)`, async () => {
   const ss = (await camRun()).filter(s => s.t > 1000);
-  let worst = 0;
-  // Per 60 Hz frame: a slow frame (a loaded machine), or the one after it, may carry more motion without being a jump.
+  const fits = ss.map(s => s.fit).filter((f, i, a) => f && f !== a[i - 1]);
+  let shrink = 0, worst = 0;
   for (let i = 2; i < ss.length; i++) {
-    const r = ss[i].y1 - ss[i].y0, k = 16.7 / Math.max(16.7, ss[i].t - ss[i - 1].t, ss[i - 1].t - ss[i - 2].t);
+    const r = ss[i].y1 - ss[i].y0, eps = r * 1e-6;
+    if (ss[i].y0 > ss[i - 1].y0 + eps || ss[i].y1 < ss[i - 1].y1 - eps) shrink++;
+    // Per 60 Hz frame: a slow frame (a loaded machine), or the one after it, may carry more motion without being a jump.
+    const k = 16.7 / Math.max(16.7, ss[i].t - ss[i - 1].t, ss[i - 1].t - ss[i - 2].t);
     worst = Math.max(worst, (Math.abs(ss[i].y0 - ss[i - 1].y0) / r) * k, (Math.abs(ss[i].y1 - ss[i - 1].y1) / r) * k);
   }
-  const [a, b] = [near(ss, 5), near(ss, 40)];
-  const dts = ss.slice(1).map((s, i) => s.t - ss[i].t).sort((x, y) => x - y);
-  const p95 = dts[Math.floor(dts.length * 0.95)] ?? 0, mean = dts.reduce((x, y) => x + y, 0) / (dts.length || 1);
-  return { pass: ss.length > 100 && a.labels !== b.labels && worst <= 0.04, detail: `labels 5s [${a.labels}] → 40s [${b.labels}], worst ${(worst * 100).toFixed(1)}% of the range per 60 Hz frame; frames ${mean.toFixed(1)}ms mean, ${p95.toFixed(1)}ms p95` };
+  const show = f => f.split(',').map(v => Math.round(+v)).join('..');
+  return { pass: ss.length > 100 && fits.length - 1 <= Y_CHANGES && !shrink && worst <= 0.04, detail: `${fits.length - 1} changes (${fits.map(show).join(' → ')}), shrank in ${shrink} frames, worst ${(worst * 100).toFixed(1)}% per frame` };
 });
-await check('history-number-style', 'History numbers (ticks, pills, readout) use the body sans, tabular, at the Profiles cells\' 14px', async () => {
+// Gaps readable: 6–8 labelled gridlines at rest, and at least 6 through nearly all of the replay.
+await check('history-y-gridlines', 'At least 6 labelled y gridlines (6–8 at rest, ≥6 in 90% of replay frames)', async () => {
+  const ss = (await camRun()).filter(s => s.t > 1000);
+  const ok6 = ss.filter(s => s.nTicks >= 6).length / (ss.length || 1);
+  await clickText(pg, 'Skip'); await sleep(1500);
+  const rest = await pg.evaluate(() => [...[...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0).querySelectorAll('[data-y-tick]')].map(e => e.textContent));
+  return { pass: rest.length >= 6 && rest.length <= 8 && ok6 >= 0.9, detail: `at rest ${rest.length} [${rest.join(' ')}]; ≥6 in ${(ok6 * 100).toFixed(0)}% of replay frames` };
+});
+// Every pill says its rank (1, 2, … top to bottom) and its value, so the gap to its neighbour is explicit.
+await check('history-pill-rank-value', 'Every History pill shows its rank (in order, top to bottom) and its current value', async () => {
+  const r = await pg.evaluate(() => {
+    const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
+    const pills = [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5).sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    return pills.map(e => [e.querySelector('[data-pill-rank]')?.textContent, e.querySelector('[data-pill-name]')?.textContent, e.querySelector('[data-pill-value]')?.textContent]);
+  });
+  const bad = r.filter((p, i) => p[0] !== String(i + 1) || !/^[+−]?\d[\d,]*(\.\d+)?$/.test(p[2] ?? ''));
+  return { pass: r.length > 1 && !bad.length, detail: bad.length ? `bad: ${JSON.stringify(bad.slice(0, 3))}` : r.map(p => `${p[0]} ${p[1]} ${p[2]}`).join(', ') };
+});
+// An overtake is obvious: the two pills swap with a slide, the passer's pill and line light up while
+// the rest dim, and a marker shows the crossing. One event at a time; no shake or burst (calm motion).
+await check('history-overtake', 'A rank change in the replay swaps the pills (slide), highlights the passer (pill and line) and marks the crossing; one at a time, no shake', async () => {
+  const ss = await camRun();
+  const starts = ss.filter((s, i) => s.markers.length && s.markers[0] !== ss[i - 1]?.markers[0]);
+  const full = starts.filter(e => {
+    const [a] = e.markers[0].split('|');
+    const w = ss.filter(s => s.t >= e.t - 50 && s.t <= e.t + 400);
+    return w.some(s => s.emph.includes(a) && s.lineEmph === 1) && w.some(s => s.swaps.includes(a));
+  });
+  const many = ss.filter(s => s.markers.length > 1 || s.emph.length > 1).length, jiggle = ss.filter(s => s.jiggle).length;
+  const changes = ss.filter((s, i) => i && s.order !== ss[i - 1].order).length;
+  return { pass: full.length >= 1 && !many && !jiggle, detail: `${starts.length} overtake events in ${((ss.at(-1)?.t ?? 0) / 1000).toFixed(0)} s (${changes} rank changes), ${full.length} with swap + highlight + marker; ${many} frames with two at once, ${jiggle} with shake/burst` };
+});
+// One type for the chart's furniture (owner: "the y axis and x axis of history is not same font").
+await check('history-type', 'History type: x and y ticks alike, axis titles alike (13px muted body sans), pills 13px (names medium, values tabular)', async () => {
+  const r = await pg.evaluate(() => {
+    const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
+    const svg = plot.querySelector('svg'), k = plot.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+    const body = getComputedStyle(document.body).fontFamily;
+    const st = e => { const c = getComputedStyle(e); return { family: c.fontFamily === body ? 'body' : c.fontFamily.slice(0, 24), px: Math.round(parseFloat(c.fontSize) * k * 4) / 4, weight: c.fontWeight, color: e instanceof SVGElement ? c.fill : c.color, tab: c.fontVariantNumeric.includes('tabular-nums') }; };
+    const all = sel => [...plot.querySelectorAll(sel)].map(st);
+    return { y: all('[data-y-tick]'), x: all('[data-x-tick]'), titles: all('[data-axis-title]'), names: all('[data-pill-name]'), values: all('[data-pill-value]') };
+  });
+  const bad = [];
+  const one = (role, xs, want) => {
+    if (!xs.length) return bad.push(`${role}: none`);
+    const keys = [...new Set(xs.map(s => JSON.stringify(s)))];
+    if (keys.length > 1) bad.push(`${role}: ${keys.length} styles`);
+    for (const [k, v] of Object.entries(want)) if (xs[0][k] !== v) bad.push(`${role} ${k} ${xs[0][k]} (want ${v})`);
+  };
+  const MUTED = 'rgba(55, 53, 47, 0.65)';
+  one('ticks', [...r.y, ...r.x], { family: 'body', px: 13, color: MUTED, tab: true });
+  one('axis titles', r.titles, { family: 'body', px: 13, color: MUTED });
+  one('pill names', r.names, { family: 'body', px: 13, weight: '500' });
+  for (const v of r.values) if (v.family !== 'body' || v.px !== 13 || !v.tab) { bad.push(`pill value ${JSON.stringify(v)}`); break; }
+  const s = o => o ? `${o.family} ${o.px}px ${o.weight} ${o.color ?? ''}${o.tab ? ' tabular' : ''}` : 'none';
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `ticks ${s(r.y[0])}; titles ${s(r.titles[0])}; pill names ${s(r.names[0])}; values ${s(r.values[0])}` };
+});
+// Since 2026-11-08 ticks and pills are 13px (history-type, the orchestrator's type audit); the hover
+// readout keeps the Profiles cells' 14px.
+await check('history-number-style', 'History numbers (ticks, pills, readout) use the body sans, tabular; the readout at the Profiles cells\' 14px, ticks and pills at 13px', async () => {
   const c = await pg.evaluate(() => { const p = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0).getBoundingClientRect(); return [p.left + p.width * 0.45, p.top + p.height * 0.5]; });
   await pg.mouse.move(c[0], c[1]); await sleep(300);
   const r = await pg.evaluate(() => {
@@ -289,13 +366,13 @@ await check('history-number-style', 'History numbers (ticks, pills, readout) use
         const cs = getComputedStyle(e), px = parseFloat(cs.fontSize) * k;
         if (cs.fontFamily !== getComputedStyle(ref).fontFamily) bad.add(`font ${cs.fontFamily.slice(0, 20)}`);
         if (!cs.fontVariantNumeric.includes('tabular-nums')) bad.add('not tabular');
-        if (Math.abs(px - 14) > 0.75) bad.add(`${px.toFixed(1)}px`);
+        if (Math.abs(px - (role === 'readout' ? 14 : 13)) > 0.75) bad.add(`${px.toFixed(1)}px`);
       }
       return bad.size ? `${role}: ${[...bad].join(', ')}` : '';
     }).filter(Boolean);
   });
   await pg.mouse.move(5, 5);
-  return { pass: !r.length, detail: r.length ? r.join('; ') : 'ticks, pills and readout: body sans, tabular, 14px on screen' };
+  return { pass: !r.length, detail: r.length ? r.join('; ') : 'ticks, pills and readout: body sans, tabular; readout 14px, ticks and pills 13px on screen' };
 });
 
 await check('replay-no-reset', 'The replay never restarts on open, back or scroll', async () => {
