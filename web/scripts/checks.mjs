@@ -78,6 +78,8 @@ for (const [w, h, d] of FIT_SIZES) {
     const sec = document.querySelector('section[data-screen]'), stage = document.querySelector('.stage-zoom');
     const sr = sec.getBoundingClientRect(), sy = scrollY;
     const docH = document.documentElement.scrollHeight;
+    // A clipped screen (overflow hidden/clip) reaches only its own width; a scrolling one, its scroll width.
+    const reachW = ['auto', 'scroll'].includes(getComputedStyle(sec).overflowX) ? sec.scrollWidth : sec.clientWidth;
     // The pieces of the screen: header rows, the stage's boxes, the Stats button.
     const els = [...sec.children, ...stage.querySelectorAll('table, #table > *, .stage-zoom > *')].filter(e => e.getBoundingClientRect().width > 0);
     const bad = [];
@@ -85,7 +87,7 @@ for (const [w, h, d] of FIT_SIZES) {
       const r = e.getBoundingClientRect();
       const name = e.id || e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '');
       // Reachable: inside the screen's scroll width sideways, inside the page's scroll height downwards.
-      if (r.left < sr.left - 1 || r.right > sr.left + sec.scrollWidth + 1) bad.push(`${name} x ${Math.round(r.left)}..${Math.round(r.right)}`);
+      if (r.left < sr.left - 1 || r.right > sr.left + reachW + 1) bad.push(`${name} x ${Math.round(r.left)}..${Math.round(r.right)}`);
       if (r.top + sy < -1 || r.bottom + sy > docH + 1) bad.push(`${name} y ${Math.round(r.top + sy)}..${Math.round(r.bottom + sy)}`);
     }
     const zoom = parseFloat(getComputedStyle(stage).zoom) || 1;
