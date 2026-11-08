@@ -51,10 +51,10 @@ const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { wh
 // A web file no rule names, or a change to this script outside a check's own block, selects every check.
 const COVERS = [
   [/components\/(PokerTable|Player|TableFelt|ChipStack|Card|CornerBorders|ActionPanel|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/sound\./, /^(seat-size|table-|no-currency|main-scroll|stats-font-unified|stats-type-scale)/],
-  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone)/],
+  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges)/],
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
-  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope)/],
-  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads)/],
+  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],
+  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges)/],
   [/components\/About\.tsx|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|main-scroll|no-stats-hash|scroll-consistency)/],
 ];
 function changedChecks() { // a Set of ids, or null for every check
@@ -1002,15 +1002,20 @@ main(() => check('matchups-no-fade', 'Opening Matchups grows the matrix without 
   }
   return { pass: min >= 0.95, detail: `lowest matrix opacity ${min.toFixed(2)}` };
 }));
-// Every matrix cell is a square, on the overview tile and in the card (the matrix grows uniformly, never stretched).
-main(() => check('matchups-square-cells', 'Matchups cells are squares on the tile and in the card', async () => {
-  const ratio = sel => pg.evaluate(sel => {
-    const c = [...document.querySelectorAll(`${sel} td[data-cell]`)].map(e => e.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4);
-    return c.length ? Math.max(...c.map(r => Math.max(r.width / r.height, r.height / r.width))) : 0;
+// Every matrix cell has one shape, and the matrix grows from the tile into the card without stretching: the card's
+// cells have the tile's shape. Was "squares on the tile and in the card" until 2026-11-08, when the overview took the
+// table stage's width (page-edges-match): square cells could not fill the wider Matchups tile, so they widen with the
+// column (full figures), never taller than wide.
+main(() => check('matchups-cell-shape', 'Matchups cells: one shape on the tile, never taller than wide; the card\'s cells the tile\'s shape (the matrix grows without stretching)', async () => {
+  const shape = sel => pg.evaluate(sel => {
+    const c = [...document.querySelectorAll(`${sel} td[data-cell]`)].map(e => e.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4).map(r => r.width / r.height);
+    return c.length ? { lo: Math.min(...c), hi: Math.max(...c) } : null;
   }, sel);
-  await goto(pg, 'stats'); await sleep(1500); const tile = await ratio('#pairwise-panel');
-  await goto(pg, 'pairwise'); await sleep(1500); const card = await ratio('#pairwise-card');
-  return { pass: tile > 0 && card > 0 && tile <= 1.05 && card <= 1.05, detail: `tile ${tile.toFixed(3)}:1, card ${card.toFixed(3)}:1` };
+  await goto(pg, 'stats'); await sleep(1500); const tile = await shape('#pairwise-panel');
+  await goto(pg, 'pairwise'); await sleep(1500); const card = await shape('#pairwise-card');
+  if (!tile || !card) return { pass: false, detail: 'no cells' };
+  const ok = tile.hi / tile.lo <= 1.02 && tile.lo >= 0.98 && Math.abs(card.lo / tile.lo - 1) <= 0.05 && card.hi / card.lo <= 1.02;
+  return { pass: ok, detail: `tile ${tile.lo.toFixed(2)}–${tile.hi.toFixed(2)}:1, card ${card.lo.toFixed(2)}–${card.hi.toFixed(2)}:1 (width:height)` };
 }));
 main(() => check('profiles-table-only', 'Opened Profiles shows the table only', async () => {
   await goto(pg, 'stats-table'); await sleep(1500);
@@ -1112,10 +1117,12 @@ main(() => check('matchups-bigger', 'On the overview the Matchups tile is wider 
 // Owner, 2026-11-08: "matchups should be bigger so that the numbers are easier to read ... no need for a [Total]
 // column for preview of matchups ... use that new space for the matchups graph". Was 32px / 40px; with the Total
 // column and Profiles' spare width turned into height for the square: 33px / 42.5px (about 33.3 and 43.2; at 1440x900
-// Trends' row cannot give more without its chart's text dropping under 13px, history-type).
-group(() => check('matchups-cells-roomy', 'Matchups tile cells are at least 33px (1440x900) / 42.5px (1728x1117), one figure size, never edge to edge or blank', async () => {
+// Trends' row cannot give more without its chart's text dropping under 13px, history-type). Since the overview took the
+// table stage's width (2026-11-08, page-edges-match) the cells widen with the column instead (66px at 1440x900, 106px at
+// 1728x1117): every figure shows in full (never +1.1k), and the height Trends' dominance leaves is at least 32.5px / 37.5px.
+group(() => check('matchups-cells-roomy', 'Matchups tile cells show every figure in full, at least 32.5px (1440x900) / 37.5px (1728x1117) tall, one figure size, never edge to edge or blank', async () => {
   const bad = [], seen = [];
-  for (const [w, h, min] of [[1440, 900, 33], [1728, 1117, 42.5]]) {
+  for (const [w, h, min] of [[1440, 900, 32.5], [1728, 1117, 37.5]]) {
     const p = await pageAt(w, h);
     // Skip the replay: the final figures are the widest.
     await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(800); await goto(p, 'stats'); await sleep(1500);
@@ -1130,13 +1137,15 @@ group(() => check('matchups-cells-roomy', 'Matchups tile cells are at least 33px
     });
     await p.close();
     const fig = r.cells.filter(c => c.text !== null);
-    const side = Math.min(...r.cells.map(c => Math.min(c.w, c.h)));
+    const side = Math.min(...r.cells.map(c => c.h)), wide = Math.min(...r.cells.map(c => c.w));
     const tight = fig.filter(c => c.text && (c.w - c.tw) / 2 < 2);
     const blank = fig.filter(c => !c.text);
+    const short = fig.filter(c => c.text && /k$/.test(c.text)); // shortened to +1.1k / +1k
     const sizes = new Set([...fig.map(c => c.size), ...r.totals]);
-    seen.push(`${w}x${h}: cells ${side.toFixed(1)}px, figures ${[...sizes].join('/')}, least clearance ${Math.min(...fig.filter(c => c.text).map(c => (c.w - c.tw) / 2)).toFixed(1)}px`);
+    seen.push(`${w}x${h}: cells ${wide.toFixed(1)}x${side.toFixed(1)}px, figures ${[...sizes].join('/')}, least clearance ${Math.min(...fig.filter(c => c.text).map(c => (c.w - c.tw) / 2)).toFixed(1)}px`);
     if (!r.cells.length) bad.push(`${w}x${h}: no cells`);
-    if (side < min) bad.push(`${w}x${h}: cells ${side.toFixed(1)}px (< ${min})`);
+    if (side < min) bad.push(`${w}x${h}: cells ${side.toFixed(1)}px tall (< ${min})`);
+    if (short.length) bad.push(`${w}x${h}: ${short.length} figures shortened (${short.slice(0, 3).map(c => c.text).join(', ')})`);
     if (sizes.size !== 1) bad.push(`${w}x${h}: figure sizes ${[...sizes].join(', ')}`);
     if (tight.length) bad.push(`${w}x${h}: ${tight.length} figures edge to edge (${tight.slice(0, 3).map(c => c.text).join(', ')})`);
     if (blank.length) bad.push(`${w}x${h}: ${blank.length} matchups without a figure`);
@@ -1155,6 +1164,32 @@ main(() => check('matchups-tile-filled', 'The Matchups matrix and its names fill
   });
   return { pass: r.span >= 0.95 && r.nameLeft <= 0.12, detail: `matrix and names span ${(r.span * 100).toFixed(0)}% of the tile, longest name starts ${(r.nameLeft * 100).toFixed(0)}% in` };
 }));
+// Owner, 2026-11-08 (via the orchestrator): no model name cut short anywhere; the Matchups tile showed "Nemotron 3.5 S..."
+// at 1728x1117. Every Matchups name shows whole, on the tile and in the card, at the owner's window sizes: its text is
+// no wider than its box (a Range over the text, so a cut of a fraction of a pixel counts too).
+const EDGE_SIZES = [[1440, 900], [1512, 982], [1728, 1117], [1910, 1278]];
+group(() => check('matchups-names-full', 'No Matchups model name is cut short, on the tile or in the card, at 1440x900, 1512x982, 1728x1117 and 1910x1278', async () => {
+  const bad = [], seen = [];
+  const cut = (p, sel) => p.evaluate(sel => [...document.querySelectorAll(sel)].filter(e => e.getBoundingClientRect().width > 0).filter(e => {
+    const r = document.createRange(); r.selectNodeContents(e);
+    const b = e.getBoundingClientRect(), s = getComputedStyle(e), k = b.width / (e.offsetWidth || 1); // k: a transform's scale
+    return e.scrollWidth > e.clientWidth || r.getBoundingClientRect().width > b.width - (parseFloat(s.paddingLeft) + parseFloat(s.paddingRight)) * k + 0.25;
+  }).map(e => e.textContent.trim()), sel);
+  for (const [w, h] of EDGE_SIZES) {
+    const p = await pageAt(w, h);
+    try {
+      const n = await p.evaluate(() => document.querySelectorAll('#pairwise-panel a [translate=no]').length);
+      const tile = await cut(p, '#pairwise-panel a [translate=no]');
+      await goto(p, 'pairwise'); await sleep(1500);
+      const card = await cut(p, '#pairwise-card a [translate=no]');
+      seen.push(`${w}x${h}: ${n} names, ${tile.length + card.length} cut`);
+      if (!n) bad.push(`${w}x${h}: no names on the tile`);
+      if (tile.length) bad.push(`${w}x${h} tile: ${tile.join(', ')}`);
+      if (card.length) bad.push(`${w}x${h} card: ${card.join(', ')}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? `cut short: ${bad.join('; ')}` : seen.join(' | ') };
+}));
 main(() => check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar on a preview)', async () => {
   const bad = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel', '#race-panel'].flatMap(s => [...document.querySelectorAll(`${s} *`)].filter(e => ['auto', 'scroll'].includes(getComputedStyle(e).overflowY)).map(() => s)));
   return { pass: !bad.length, detail: bad.length ? `scrollable inside ${[...new Set(bad)].join(', ')}` : 'none' };
@@ -1163,9 +1198,11 @@ main(() => check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar o
 // Owner, 2026-11-07: the overview was "too big"; "the history graph should be the 'biggest' one ...
 // the first thing that people look at"; not wall-to-wall. At 1440x900 and 1728x1117: Trends on top and
 // the largest tile (1.5x the area of each other tile; the tallest row until 2026-11-08, when the second row
-// grew to give Matchups bigger cells: now at most 1.1x Trends' row), the block at most 1400px wide
-// and 80% of the window, with page around it (64px at the sides, 24px below; 16px above since 2026-11-08,
-// when a short window gave its top margin to the "About ↓" band so Matchups' cells keep 32px).
+// grew to give Matchups bigger cells: now at most 1.1x Trends' row), with page around it (24px below; 16px above
+// since 2026-11-08, when a short window gave its top margin to the "About ↓" band so Matchups' cells keep 32px).
+// Beside it, since 2026-11-08 ("the same amount of white space that is to the left and right of the table ... for the
+// stats page"), the table screen's page: the block spans the table stage's edges (±2px). Until then: at most 1400px
+// and 80% of the window, 64px at the sides.
 // Then the opened Matchups card ("so much white space to the left"; "takes up too much of the screen"):
 // it hugs names, matrix and totals (no band over 8px between its edge and its content) and leaves
 // page around it (at most 70% of the window's width and 85% of its height).
@@ -1175,29 +1212,67 @@ main(() => check('overview-history-leads', 'Trends is the dominant tile, first i
     const p = await sharedAt(w, h);
     const [race, prof, mu] = await Promise.all(['#race-panel', '#stats-panel', '#pairwise-panel'].map(s => rect(p, s)));
     const area = b => b.w * b.h;
-    const left = race.l, right = w - Math.max(race.r, mu.r), top = race.t - 44, bottom = h - Math.max(prof.b, mu.b), width = Math.max(race.r, mu.r) - race.l;
-    seen.push(`${w}x${h}: Trends ${race.w.toFixed(0)}x${race.h.toFixed(0)}, Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}, Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)}, block ${width.toFixed(0)}px, page ${left.toFixed(0)}/${right.toFixed(0)} beside, ${top.toFixed(0)}/${bottom.toFixed(0)} above/below`);
+    const stage = await rect(p, '.stage-zoom');
+    const left = Math.min(race.l, prof.l), right = Math.max(race.r, mu.r), top = race.t - 44, bottom = h - Math.max(prof.b, mu.b);
+    seen.push(`${w}x${h}: Trends ${race.w.toFixed(0)}x${race.h.toFixed(0)}, Profiles ${prof.w.toFixed(0)}x${prof.h.toFixed(0)}, Matchups ${mu.w.toFixed(0)}x${mu.h.toFixed(0)}, block ${left.toFixed(0)}..${right.toFixed(0)} (table stage ${stage.l.toFixed(0)}..${stage.r.toFixed(0)}), ${top.toFixed(0)}/${bottom.toFixed(0)} above/below`);
     if (!(race.b <= Math.min(prof.t, mu.t))) bad.push(`${w}x${h}: Trends is not on top`);
     if (area(race) < 1.5 * Math.max(area(prof), area(mu))) bad.push(`${w}x${h}: Trends ${(area(race) / Math.max(area(prof), area(mu))).toFixed(2)}x the next tile's area`);
     if (race.h * 1.1 < Math.max(prof.h, mu.h) - 1) bad.push(`${w}x${h}: the second row is ${(Math.max(prof.h, mu.h) / race.h).toFixed(2)}x Trends' row (at most 1.1)`);
-    if (width > 1400 || width > 0.8 * w) bad.push(`${w}x${h}: block ${width.toFixed(0)}px wide`);
-    if (left < 64 || right < 64 || top < 16 || bottom < 24) bad.push(`${w}x${h}: page around the block ${left.toFixed(0)}/${right.toFixed(0)}/${top.toFixed(0)}/${bottom.toFixed(0)}px`);
+    if (Math.abs(left - stage.l) > 2 || Math.abs(right - stage.r) > 2) bad.push(`${w}x${h}: block ${left.toFixed(0)}..${right.toFixed(0)}, not the table stage's ${stage.l.toFixed(0)}..${stage.r.toFixed(0)}`);
+    if (top < 15.5 || bottom < 23.5) bad.push(`${w}x${h}: page above/below the block ${top.toFixed(1)}/${bottom.toFixed(1)}px`); // less subpixel rounding: a block that fills its room sits at 16px
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-main(() => check('matchups-card-hugs', 'The opened Matchups card hugs its names, matrix and totals, and leaves page around it', async () => {
+// Owner, 2026-11-08: "The same amount of white space that is to the left and right of the table and the profits and
+// losses page, I think that's how much white space there should be for the stats page and also how much white space there
+// should be for the About page." One column for every screen: the overview's tiles, each opened card (Trends, Profiles,
+// Matchups) and About's column span the table stage's left and right edges (±2px) at the owner's window sizes, and the
+// sticky bar's text starts where the cards' content does (a tile's title).
+group(() => check('page-edges-match', 'The overview, every opened card and About span the table stage\'s left and right edges (±2px) at 1440x900, 1512x982, 1728x1117 and 1910x1278; the sticky bar\'s text starts at the cards\' content edge', async () => {
+  const bad = [], seen = [];
+  const edges = (p, sel) => p.evaluate(sel => {
+    const bs = [...document.querySelectorAll(sel)].map(e => e.getBoundingClientRect()).filter(b => b.width > 0);
+    return bs.length ? [Math.min(...bs.map(b => b.left)), Math.max(...bs.map(b => b.right))] : null;
+  }, sel);
+  for (const [w, h] of EDGE_SIZES) {
+    const p = await pageAt(w, h);
+    try {
+      const stage = await edges(p, '.stage-zoom');
+      const got = { overview: await edges(p, '#race-panel, #stats-panel, #pairwise-panel') };
+      // The bar's first text (its "No-LLMit") against the Trends tile's title.
+      const bar = await p.evaluate(() => {
+        const el = [...document.querySelectorAll('div.fixed')].find(d => d.textContent.includes('Back to table'));
+        const t = el && [...el.querySelectorAll('span')].find(e => e.textContent.trim() && e.getBoundingClientRect().width > 0);
+        const title = document.querySelector('#race-panel h2');
+        return t && title ? t.getBoundingClientRect().left - title.getBoundingClientRect().left : null;
+      });
+      for (const [id, name, sel] of [['race', 'Trends card', '#race-panel'], ['stats-table', 'Profiles card', '#stats-card .card-chrome'], ['pairwise', 'Matchups card', '#pairwise-card .card-chrome'], ['about', 'About', 'section[aria-label=About] .panel-scroll > div > div']]) {
+        await goto(p, id); await sleep(1500);
+        got[name] = await edges(p, sel);
+      }
+      const off = Object.entries(got).filter(([, e]) => !e || Math.abs(e[0] - stage[0]) > 2 || Math.abs(e[1] - stage[1]) > 2);
+      seen.push(`${w}x${h}: stage ${stage.map(v => v.toFixed(0)).join('..')}, all within ${Math.max(...Object.values(got).filter(Boolean).flatMap(e => [Math.abs(e[0] - stage[0]), Math.abs(e[1] - stage[1])])).toFixed(1)}px; bar text ${bar === null ? 'missing' : `${bar.toFixed(1)}px`} from the titles`);
+      for (const [name, e] of off) bad.push(`${w}x${h} ${name}: ${e ? e.map(v => v.toFixed(0)).join('..') : 'missing'}, not the stage's ${stage.map(v => v.toFixed(0)).join('..')}`);
+      if (bar === null || Math.abs(bar) > 2) bad.push(`${w}x${h}: the sticky bar's text starts ${bar === null ? '(no bar)' : `${bar.toFixed(0)}px`} from the cards' content edge`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// Since 2026-11-08 the card spans the table stage's column like the overview (page-edges-match): its matrix widens to fill
+// it (the tile's cell shape), so it still hugs; until then it was at most 70% of the window's width, 64px from its side.
+main(() => check('matchups-card-hugs', 'The opened Matchups card spans the table stage\'s column, hugs its names, matrix and totals, and is not floor to ceiling', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await sharedAt(w, h, 'pairwise');
     const r = await p.evaluate(() => {
-      const card = document.querySelector('#pairwise-card .card-chrome'), c = card.getBoundingClientRect();
+      const card = document.querySelector('#pairwise-card .card-chrome'), c = card.getBoundingClientRect(), s = document.querySelector('.stage-zoom').getBoundingClientRect();
       const names = [...card.querySelectorAll('a span')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2);
       const right = [...card.querySelectorAll('div[data-cell], td[data-cell]')].map(e => e.getBoundingClientRect().right);
-      return { c: { l: c.left, t: c.top, w: c.width, h: c.height }, gapL: Math.min(...names.map(b => b.left)) - (c.left + 16), gapR: c.right - 16 - Math.max(...right) };
+      return { c: { l: c.left, r: c.right, w: c.width, h: c.height }, s: { l: s.left, r: s.right }, gapL: Math.min(...names.map(b => b.left)) - (c.left + 16), gapR: c.right - 16 - Math.max(...right) };
     });
-    seen.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)}, bands ${r.gapL.toFixed(0)}/${r.gapR.toFixed(0)}px`);
+    seen.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)} at ${r.c.l.toFixed(0)}..${r.c.r.toFixed(0)} (table stage ${r.s.l.toFixed(0)}..${r.s.r.toFixed(0)}), bands ${r.gapL.toFixed(0)}/${r.gapR.toFixed(0)}px`);
     if (r.gapL > 8 || r.gapR > 8) bad.push(`${w}x${h}: empty band beside the matrix (${r.gapL.toFixed(0)}px left, ${r.gapR.toFixed(0)}px right)`);
-    if (r.c.w > 0.7 * w || r.c.h > 0.85 * h || r.c.l < 64) bad.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)} at x ${r.c.l.toFixed(0)}`);
+    if (Math.abs(r.c.l - r.s.l) > 2 || Math.abs(r.c.r - r.s.r) > 2 || r.c.h > 0.85 * h) bad.push(`${w}x${h}: card ${r.c.w.toFixed(0)}x${r.c.h.toFixed(0)} at ${r.c.l.toFixed(0)}..${r.c.r.toFixed(0)}, not the table stage's ${r.s.l.toFixed(0)}..${r.s.r.toFixed(0)} or over 85% of the height`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
@@ -1305,8 +1380,9 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
 }));
 
 // The overview must hold its proportions at any window size or browser zoom: rows and matrix
-// cells are sized by content, never stretched by the window's height.
-group(() => check('stats-any-viewport', 'The overview keeps its proportions from 1280x720 to 3840x2160 (any zoom)', async () => {
+// cells are sized by content, never stretched by the window's height (cells were square until 2026-11-08: now they
+// widen with the column, never taller than wide, at most 3:1), and it spans the table stage's column (page-edges-match).
+group(() => check('stats-any-viewport', 'The overview keeps its proportions from 1280x720 to 3840x2160 (any zoom), in the table stage\'s column', async () => {
   const bad = [];
   for (const [w, h] of [[1280, 720], [1440, 900], [2560, 1440], [3840, 2160]]) {
     const p2 = await newPage(); await p2.setViewport({ width: w, height: h });
@@ -1315,18 +1391,21 @@ group(() => check('stats-any-viewport', 'The overview keeps its proportions from
     const m = await p2.evaluate(() => {
       const rows = [...document.querySelectorAll('#stats-panel tbody tr, #stats-panel [role=row]')].map(r => r.getBoundingClientRect().height).filter(x => x > 0);
       const cells = [...document.querySelectorAll('#pairwise-panel td')].map(c => c.getBoundingClientRect()).filter(r => r.width > 4 && r.height > 4);
-      const ratio = cells.length ? Math.max(...cells.map(r => Math.max(r.width / r.height, r.height / r.width))) : 0;
+      const ratio = cells.length ? Math.max(...cells.map(r => r.width / r.height)) : 0, tall = cells.length ? Math.max(...cells.map(r => r.height / r.width)) : 0;
+      const tiles = ['#race-panel', '#stats-panel', '#pairwise-panel'].map(s => document.querySelector(s).getBoundingClientRect()), stage = document.querySelector('.stage-zoom').getBoundingClientRect();
+      const off = Math.max(Math.abs(Math.min(...tiles.map(b => b.left)) - stage.left), Math.abs(Math.max(...tiles.map(b => b.right)) - stage.right));
       const race = document.querySelector('#race-panel').getBoundingClientRect();
       const svg = [...document.querySelectorAll('#race-panel svg')].sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
       const fill = svg ? svg.getBoundingClientRect().width / race.width : 0;
       // Profiles' rows split the second row evenly (the tile's height less its 72px header), whatever the scale.
       const tile = document.querySelector('#stats-panel').getBoundingClientRect().height;
-      return { row: rows.length ? Math.max(...rows) : 0, even: (tile - 72) / 10, ratio, fill };
+      return { row: rows.length ? Math.max(...rows) : 0, even: (tile - 72) / 10, ratio, tall, fill, off };
     });
     await p2.close();
     const why = [];
     if (Math.abs(m.row - m.even) > 3) why.push(`Profiles rows ${m.row.toFixed(0)}px tall, not ${m.even.toFixed(0)}px`);
-    if (m.ratio > 1.15) why.push(`Matchups cells ${m.ratio.toFixed(2)}:1`);
+    if (m.tall > 1.05 || m.ratio > 3) why.push(`Matchups cells ${m.ratio.toFixed(2)}:1 (width:height)`);
+    if (m.off > 2) why.push(`overview ${m.off.toFixed(0)}px off the table stage's edges`);
     if (m.fill < 0.8) why.push(`Trends chart fills ${(m.fill * 100).toFixed(0)}% of its tile`);
     if (why.length) bad.push(`${w}x${h}: ${why.join(', ')}`);
   }

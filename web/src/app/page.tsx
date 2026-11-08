@@ -172,20 +172,25 @@ export default function Home() {
   // table screen fits the window, up to 125% (the size the owner chose) and down to 75%; below
   // that the screen scrolls instead of shrinking further. Browser zoom shrinks the CSS viewport,
   // so it lowers this scale and is never fought. Phones (< 768px) reflow to the list layout at 1.
+  // The stage's width as drawn (at most the screen's, where it scrolls at the floor) is --stage-w on the root: the
+  // stats overview, its cards, About and the sticky bar take that column (StatsSections), so every screen has its margins.
   const stageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const stage = stageRef.current, screen = stage?.closest('section');
     if (!stage || !screen) return;
     const fit = () => {
-      if (window.innerWidth < 768) { stage.style.zoom = ''; return; }
-      const cs = getComputedStyle(screen);
-      const kids = [...screen.children];
-      // Everything on the screen but the stage: header, gaps, Stats button and padding.
-      const chrome = kids[kids.length - 1].getBoundingClientRect().bottom - kids[0].getBoundingClientRect().top
-        - stage.getBoundingClientRect().height + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-      // offsetWidth/offsetHeight are the stage's unzoomed size.
-      const s = Math.min(screen.clientWidth / stage.offsetWidth, (document.documentElement.clientHeight - chrome) / stage.offsetHeight);
-      stage.style.zoom = String(Math.floor(Math.min(1.25, Math.max(0.75, s)) * 1000) / 1000);
+      if (window.innerWidth < 768) stage.style.zoom = '';
+      else {
+        const cs = getComputedStyle(screen);
+        const kids = [...screen.children];
+        // Everything on the screen but the stage: header, gaps, Stats button and padding.
+        const chrome = kids[kids.length - 1].getBoundingClientRect().bottom - kids[0].getBoundingClientRect().top
+          - stage.getBoundingClientRect().height + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+        // offsetWidth/offsetHeight are the stage's unzoomed size.
+        const s = Math.min(screen.clientWidth / stage.offsetWidth, (document.documentElement.clientHeight - chrome) / stage.offsetHeight);
+        stage.style.zoom = String(Math.floor(Math.min(1.25, Math.max(0.75, s)) * 1000) / 1000);
+      }
+      document.documentElement.style.setProperty('--stage-w', `${Math.min(stage.getBoundingClientRect().width, screen.clientWidth)}px`);
     };
     fit();
     const ro = new ResizeObserver(fit);

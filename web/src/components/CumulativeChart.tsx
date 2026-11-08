@@ -17,10 +17,10 @@ const EASE = [0.22, 1, 0.36, 1] as const; // ease-out, as the tile glide
 const GLIDE = { duration: GLIDE_MS / 1000, ease: EASE } as const;
 // A filter change moves the axes and the lines to the new range together over this long.
 const TWEEN_S = 0.5;
-// The Race is laid out once at this size (the Race card's width at 1440×900, about 3.6:1) and scaled as
-// a whole into its box. The overview's History tile has the same shape (StatsSections sizes its row),
-// so the tile and the card show one picture, filling their width, and nothing ever stretches.
-export const W = 1220, H = 470; // History's shape, 2.6:1: tall enough to tell close lines apart
+// The Race is laid out at this size, or wider in a wider box (the plot takes the width), and scaled as
+// a whole into its box. The overview's Trends tile and the card have the same width and plot height
+// (StatsSections sizes them), so they show one picture, filling their width, and nothing ever stretches.
+export const W = 1220, H = 470; // History's shape, 2.6:1 at least: tall enough to tell close lines apart
 // The race clock's Skip/Replay button (the card's, and the tile's Replay).
 const CLOCK_BTN = 'rounded border px-2 py-px font-medium hover:bg-[rgba(55,53,47,0.06)]';
 const CLOCK_BTN_STYLE = { borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT, background: 'white' };
@@ -557,14 +557,15 @@ export default function CumulativeChart({
   }
   const [Y0, Y1] = useCamera(want[0], want[1], !!reduce);
 
-  // The design size the chart is laid out at, and the one scale that fits it in its box. Outside
-  // the Race (the model drawer) it simply fills its box.
-  const [lw, lh] = race ? [W, H] : [Math.max(box.w, 200), box.h];
+  // The one scale that fits the design size in its box, and the design size the chart is laid out at: H tall, and
+  // W wide or, in a box wider than that shape, the box's width at that scale (the plot takes the extra width).
+  // Outside the Race (the model drawer) it simply fills its box.
   // The legend's rows are set aside, so a filter that changes its length never rescales the plot.
   const s = race ? Math.min(box.w / W, (box.h - (interactive ? LEGEND_H : 0)) / H) : 1;
+  const [lw, lh] = race ? [s > 0 ? Math.max(W, box.w / s) : W, H] : [Math.max(box.w, 200), box.h];
   // Text keeps the site's on-screen sizes (numbers at 14px, as the Profiles cells) however the chart
   // is scaled: design units are screen px times u.
-  const u = race ? Math.min(1.5, Math.max(1, 1 / s)) : 1;
+  const u = race ? Math.min(1.5, 1 / s) : 1;
   const fs = 14 * u; // the hover readout, as the Profiles cells
   const ts = 13 * u; // everything else in the chart: ticks, axis titles, pills, the clock
   const [pillH, pillRoom] = [PILL_H * u, PILL_ROOM * u];

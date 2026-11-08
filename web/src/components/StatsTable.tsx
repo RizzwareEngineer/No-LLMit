@@ -50,18 +50,20 @@ function Glides({ at, move, children }: { at: string | boolean; move: Transition
 }
 
 // The model's recent running bb/100 in its colour, on the y-scale [lo, hi] every row shares; a dot at now.
+// 96px wide, or its column's width in a wide card (see WIDE): it stretches sideways, its stroke and dot as drawn.
 function Spark({ m, lo, hi }: { m: ModelStats; lo: number; hi: number }) {
   const { line } = recent(m);
   if (line.length < 2) return <span style={{ color: MUTED }} title={`Draws from hand ${RATE_FROM}`}>{DASH}</span>;
   const [W, H, P] = [96, 20, 3];
   const [h0, h1] = [line[0][0], line.at(-1)![0]];
-  const pts = line.map(([h, v]) => [P + ((h - h0) / (h1 - h0 || 1)) * (W - 2 * P), P + (1 - (v - lo) / (hi - lo || 1)) * (H - 2 * P)]);
+  const pts = line.map(([h, v]) => [((h - h0) / (h1 - h0 || 1)) * W, P + (1 - (v - lo) / (hi - lo || 1)) * (H - 2 * P)]);
   const end = pts.at(-1)!;
   const c = modelColor(m.name);
   return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="inline-block align-middle" role="img" aria-label={`${m.name}: running bb/100 over its last 50 hands, now ${signedBrief(line.at(-1)![1])}`}>
-      <polyline points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke={c} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={end[0]} cy={end[1]} r={2.5} fill={c} />
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="inline-block align-middle overflow-visible @4xl:w-full" role="img" aria-label={`${m.name}: running bb/100 over its last 50 hands, now ${signedBrief(line.at(-1)![1])}`}>
+      <polyline points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke={c} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      {/* The dot: a round cap on a zero-length stroke, so stretching never makes it an oval. */}
+      <path d={`M${end[0]},${end[1]}h0`} stroke={c} strokeWidth={5} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
@@ -114,6 +116,9 @@ const MINI = [{ label: 'Core', columns: CORE[0].columns.filter(c => c !== TREND)
 // Profiles' tile around its longest name, at its widest: the logo and its gap (24), the name's padding (16),
 // the number columns (204) and the tile's padding (32). StatsSections sizes the tile with it.
 export const MINI_CHROME = 24 + 16 + 204 + 32;
+// WIDE: the card's default view in a wide card (a desktop's, its table 56rem and up, the @4xl: classes): the Model
+// column hugs the names, the figures keep compact columns beside them, and the trend takes the rest of the width
+// (no hole before Hands).
 
 // A column header with its definition on hover or focus. Without `onSort` it is a plain label
 // (a fixed-order table); `sort` then only marks the column the rows are ordered by.
@@ -345,7 +350,7 @@ function Grid({
       onKeyDown={mini ? undefined : e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), onPick(m.name))}
       style={{ opacity: picked.size && !picked.has(m.name) ? 0.35 : 1, background: picked.has(m.name) ? 'rgba(35, 131, 226, 0.08)' : undefined }}
     >
-      <th scope="row" className={`${cell} ${pin} ${pin && '@max-md:z-[1]'} ${mini ? 'w-px whitespace-nowrap' : ''} text-left font-bold`}>
+      <th scope="row" className={`${cell} ${pin} ${pin && '@max-md:z-[1]'} ${mini ? 'w-px whitespace-nowrap' : grouped ? '' : '@4xl:whitespace-nowrap'} text-left font-bold`}>
         <Glides at={at} move={move}>
           <Name href={mini ? undefined : modelHref(m.name)} name={m.name} mini={mini} grouped={grouped}>
             {m.hands < MIN_HANDS && !mini && (
@@ -355,7 +360,7 @@ function Grid({
         </Glides>
       </th>
       {columns.map(c => (
-        <td key={c.key} className={`${cell} ${added(c)} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
+        <td key={c.key} className={`${cell} ${added(c)} ${c === TREND && !grouped ? '@4xl:*:w-full' : ''} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
           <Glides at={at} move={move}>{c === BB100 ? <Bb100 m={m} /> : c === TREND ? <Spark m={m} lo={lo} hi={hi} /> : <>{i !== null && mark(c, m)}{c.render(m)}</>}</Glides>
         </td>
       ))}
@@ -364,14 +369,16 @@ function Grid({
   };
   return (
     // Fixed layout: the table takes its panel's width and the cells truncate, so nothing scrolls sideways (but a
-    // phone's card, at least 480px wide so every column keeps its figures).
-    <table className={`w-full ${mini ? 'table-auto' : 'table-fixed'} tabular-nums text-[14px] ${!mini && !grouped ? '@max-md:min-w-[480px]' : ''}`}>
+    // phone's card, at least 480px wide so every column keeps its figures). The tile, and the card's default view
+    // when WIDE, size the Model column to its names instead.
+    <table className={`w-full ${mini ? 'table-auto' : grouped ? 'table-fixed' : 'table-fixed @4xl:table-auto'} tabular-nums text-[14px] ${!mini && !grouped ? '@max-md:min-w-[480px]' : ''}`}>
       <caption className="sr-only">{caption} Column headers sort the table; the info buttons explain each stat.</caption>
       <colgroup>
         {/* Narrow panels show logos only; wider ones give names the room they need. */}
-        <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : mini ? '' : 'w-[140px] @md:w-[32%] @4xl:w-[24%]'} />
-        {/* On the tile the number columns share whatever the Model column (sized to its names) leaves: even spacing, no gap before Hands. */}
-        {columns.map(c => <col key={c.key} className={mini ? '' : c === BB100 ? 'w-[80px]' : c === TREND ? 'w-[112px]' : ''} />)}
+        <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : mini ? '' : 'w-[140px] @md:w-[32%] @4xl:w-px'} />
+        {/* On the tile the number columns share whatever the Model column (sized to its names) leaves: even spacing, no gap before Hands.
+            A wide card's figures keep 104px columns, room for a header and its buttons on one line, and the trend takes the rest. */}
+        {columns.map(c => <col key={c.key} className={mini ? '' : c === BB100 ? 'w-[80px]' : c === TREND ? (grouped ? 'w-[112px]' : 'w-[112px] @4xl:w-auto') : grouped ? '' : '@4xl:w-26'} />)}
       </colgroup>
       <thead>
         {grouped && (
@@ -394,7 +401,7 @@ function Grid({
         {rows.map((m, i) => row(m, i))}
         {noHands.map(name => (
           <tr key={name} className={rowH}>
-            <th scope="row" className={`${cell} ${pin} ${pin && '@max-md:z-[1]'} ${mini ? 'w-px whitespace-nowrap' : ''} text-left font-bold`}>
+            <th scope="row" className={`${cell} ${pin} ${pin && '@max-md:z-[1]'} ${mini ? 'w-px whitespace-nowrap' : grouped ? '' : '@4xl:whitespace-nowrap'} text-left font-bold`}>
               <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>
                 <LLMLogo model={name} size={16} />
                 <span translate="no" className={`truncate ${mini ? '@max-2xs:sr-only max-w-[calc(100cqw-9.5rem)]' : grouped ? '@max-md:sr-only' : ''}`}>{name}</span>

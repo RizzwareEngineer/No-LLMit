@@ -8,7 +8,7 @@ import { ArrowDown, Warning } from '@phosphor-icons/react';
 import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
 import StatsTable, { MINI_CHROME } from '@/components/StatsTable';
-import HeadToHead, { NAMES, STRIP } from '@/components/HeadToHead';
+import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, seatedModels, useStats } from '@/lib/stats';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
@@ -117,12 +117,17 @@ export default memo(function StatsSections({
   }, [zoomedNow, ready]);
 
   // Profiles' tile at its content's width (BLOCK_VARS): its longest name (full, even when truncated) plus the
-  // rest of its row (MINI_CHROME). Names change with the roster only, so the overview never shifts mid-replay.
+  // rest of its row (MINI_CHROME). Matchups' names column: its longest name, whole, the 4px after it (the link's
+  // pr-1) and 1px for scrollWidth's rounding. Names change with the roster only, so the overview never shifts mid-replay.
   const room = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const measure = () => {
-      const names = [...document.querySelectorAll<HTMLElement>('#stats-panel tbody th [translate=no]')];
-      if (names.length) room.current?.style.setProperty('--prof-w', `${Math.ceil(Math.max(...names.map(e => e.scrollWidth))) + MINI_CHROME}px`);
+      const widest = (sel: string, plus: number, v: string) => {
+        const names = [...document.querySelectorAll<HTMLElement>(sel)];
+        if (names.length) room.current?.style.setProperty(v, `${Math.max(...names.map(e => e.scrollWidth)) + plus}px`);
+      };
+      widest('#stats-panel tbody th [translate=no]', MINI_CHROME, '--prof-w');
+      widest('#pairwise-panel a [translate=no]', 5, '--mu-names');
     };
     measure();
     document.fonts?.ready.then(measure);
@@ -336,12 +341,11 @@ export default memo(function StatsSections({
             Phones (PHONE) scroll it instead: the tiles stack at their content's size. */}
         <Recede by={statsScreen} timeline="--card-stats" ref={stage} scrolls className="sticky data-pin:top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px] max-md:overflow-x-hidden max-md:overflow-y-auto">
           <div className={`@container ${BLOCK} ${PAD} max-md:h-auto max-md:min-h-full max-md:pb-[var(--bar-h,0px)]`} style={BLOCK_VARS}>
-            {/* Overview: three tiles, each a miniature of its screen, Trends on top (stacked on phones).
-                Trends' row is its chart's shape at the block's width plus the tile's padding and header
-                (72px); the second row is solved for Profiles' and Matchups' widths (BLOCK_VARS). On a phone, a
+            {/* Overview: three tiles, each a miniature of its screen, Trends on top (stacked on phones). Profiles
+                at its content's width, Matchups across the rest; the rows share the height (BLOCK_VARS). On a phone, a
                 focused tile's card takes the window's box (Trends: its own height), as the cards do. */}
             <div
-              className={`relative grid gap-3 grid-cols-1 md:h-(--block-h) md:grid-cols-[minmax(0,1fr)_var(--col2)] md:grid-rows-[var(--row1)_var(--row2)] ${on ? 'max-md:h-(--focus-h) max-md:overflow-hidden' : ''}`}
+              className={`relative grid gap-3 grid-cols-1 md:h-(--block-h) md:grid-cols-[var(--p)_minmax(0,1fr)] md:grid-rows-[var(--row1)_var(--row2)] ${on ? 'max-md:h-(--focus-h) max-md:overflow-hidden' : ''}`}
               style={{
                 '--race-tile': raceTile && `${raceTile}px`,
                 '--focus-h': on === 'race' && raceFit ? `${raceFit}px` : PHONE_BOX,
@@ -480,30 +484,26 @@ function SyncedProfiles({ tl, models, seated, mini = false }: { tl: Timeline | n
 const SLIDE_MS = 320; // a Profiles row's slide (StatsTable's SLIDE), and a frame to spare
 const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1 min-w-0'; // a card header's extras
 
-// The overview block and every card, centred with the page around them (from md; phones stack the tiles at
-// their content's size and scroll, see PHONE). The block is as wide as lets Trends' row (its chart's shape plus
-// the tile's 72px of padding and header) and the second row fit the window with a margin above and below
-// (MARGIN), at most MAX_W and never within SIDE of the window's sides.
-// The second row is Profiles at its content's width (--prof-w, measured: the longest name and four compact
-// columns; never wider than it was before Matchups dropped its Total column, so its names keep their room on a
-// short window) and Matchups, its names and its square matrix edge to edge. Matchups' matrix is as tall as its
-// row, so the row heights are solved for the widths: Trends' row gives up the height that lets the second row
-// fill the block exactly, Matchups' cells growing with every pixel Profiles and the Total column gave up. Trends
-// stays the dominant tile: it spans the block, on top, and the second row is at most DOM times its height (about
-// 1.6x Matchups' area at 1728x1117), never so short that its chart's text shrinks (R1_MIN). Cells: about 33px at
-// 1440x900, 43px at 1728x1117. The opened Matchups card keeps its matrix from before (--card-m, from R1_0); the
-// Trends and Profiles cards are the block's width, so they narrow with it.
-// Only viewport units, so every var resolves the same in nested containers.
-const MAX_W = 1320; // about three quarters of a 1728px window: the overview reads as cards on a page
-const SIDE = 64; // the least page beside the block
+// The overview block and every card take the table stage's column (--stage-w, from page.tsx's fit()), so the table
+// screen, the overview and About have the same page beside them at every window size (from md; phones stack the
+// tiles at their content's size and scroll, see PHONE). The block is as tall as the window leaves it (ROOM) or less.
+// The second row is Profiles at its content's width (--prof-w, measured: the longest name and four compact columns,
+// so no gap before Hands) and Matchups across the rest: its names (--mu-names, measured: the longest in full) and its
+// matrix, as tall as the row, its cells widening with the column (wider than tall: full figures; never taller than
+// wide). The rows share the height: Trends spans the block on top and stays the dominant tile (at least AREA times
+// Matchups' area, the second row at most DOM times its row), never so short that its chart's text shrinks (R1_MIN)
+// and never taller than its chart at its design shape across the block (--r1-max). Its chart takes the extra width
+// (CumulativeChart widens its layout to its box). The opened Matchups card spans the block too: names, a matrix of
+// the tile's shape (it grows into the card without stretching) and totals, as tall as that makes it.
+// Lengths divide through tan(atan2(a, b)) = a / b (calc() cannot divide by a length).
 // The page above the block and the "About ↓" band below it (.stats-room in globals.css): 16px and 42px on a short
 // window (the compact pill), else the margin (24px, 46px on 1117px) and the margin plus 34px (the full-size pill).
 const MARGIN = 'var(--top)';
 const BELOW = 'var(--below)';
-const LEAD = 4; // px: Trends' row over the second row before the rows were solved (the cards' sizes, W0 and R1_0)
 const DOM = 1.1; // the second row is at most this times Trends' row
-// Trends' row at least this tall (or as before, if less): CumulativeChart keeps its text at 13px on screen down to
-// a 1/1.5 scale of its W x H layout, so its plot is never narrower than W / 1.5 (history-type).
+const AREA = 1.51; // Trends' tile at least this times Matchups' area (1.5, overview-history-leads, and 1% to spare)
+// Trends' row at least this tall (or half the room, on a short window): CumulativeChart keeps its text at 13px on
+// screen down to a 1/1.5 scale of its H-tall layout (history-type).
 const R1_MIN = Math.ceil(H / 1.5 + 72);
 const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
 const A = (H / W).toFixed(5);
@@ -512,21 +512,20 @@ const BLOCK = 'h-full w-full md:max-w-(--block-w) mx-auto flex flex-col justify-
 // Matchups' tile around its matrix, top to bottom: padding and header (72), then the column logos' row.
 const MU_V = 72 + STRIP;
 const BLOCK_VARS = {
-  // Before (equal rows, Matchups with a Total column): the cards' box, and Profiles' width then (P0).
-  '--w0': `max(560px, min(${MAX_W}px, 100vw - ${2 * SIDE}px, ((${ROOM} - 12px + ${LEAD}px) / 2 - 72px) / ${A} + 32px))`,
-  '--r1-0': `calc((var(--w0) - 32px) * ${A} + 72px)`,
-  '--p': `min(var(--prof-w, 9999px), var(--w0) - var(--r1-0) - ${NAMES + 10 - LEAD}px)`,
-  // The second row's height when the window's height holds the block: Trends' row plus 12px plus this fill ROOM,
-  // and Profiles plus 12px plus Matchups (names, matrix as tall as the row, padding) fill Trends' width.
-  '--r2h': `min((${ROOM} - 84px - ${A} * (var(--p) + ${NAMES - MU_V + 12}px)) / ${(1 + +A).toFixed(5)}, ${DOM} * (${ROOM} - 12px) / ${1 + DOM}, ${ROOM} - 12px - min(var(--r1-0), ${R1_MIN}px))`,
-  '--block-w': `max(560px, min(${MAX_W}px, 100vw - ${2 * SIDE}px, (${ROOM} - 12px - var(--r2h) - 72px) / ${A} + 32px))`,
-  '--row1': `calc((var(--block-w) - 32px) * ${A} + 72px)`,
-  '--row2': `min(var(--r2h), var(--block-w) - var(--p) - ${NAMES + 32 - MU_V + 12}px, ${DOM} * var(--row1))`,
+  '--block-w': 'var(--stage-w, 1264px)',
+  '--p': `var(--prof-w, ${NAMES + MINI_CHROME}px)`,
+  '--names': `var(--mu-names, ${NAMES}px)`,
+  '--col2': 'calc(var(--block-w) - var(--p) - 12px)', // Matchups' tile
+  '--mw': 'calc(var(--col2) - 32px - var(--names))', // its matrix's width
+  '--rows': `calc(${ROOM} - 12px)`, // both rows together, at most
+  '--r1-max': `calc((var(--block-w) - 32px) * ${A} + 72px)`, // Trends' chart at its W x H shape across the block
+  '--row2': `min(${DOM} * var(--rows) / ${1 + DOM}, var(--rows) - min(${R1_MIN}px, var(--rows) / 2), var(--rows) * tan(atan2(var(--block-w), var(--block-w) + ${AREA} * var(--col2))), var(--r1-max) * min(${DOM}, tan(atan2(var(--block-w), ${AREA} * var(--col2)))), var(--mw) + ${MU_V}px)`,
+  '--row1': 'min(var(--rows) - var(--row2), var(--r1-max))',
   '--mini-row': 'calc((var(--row2) - 72px) / 10)',
-  '--col2': `calc(var(--row2) + ${NAMES + 32 - MU_V}px)`, // Matchups: names, its matrix, padding
   '--block-h': 'calc(var(--row1) + 12px + var(--row2))',
-  // The opened Matchups card's matrix width: a little over Trends' row (as it was), so the two cards have the same presence.
-  '--card-m': `min(var(--r1-0) + 40px, 2 * var(--r1-0) - ${260 + LEAD - 12}px)`,
+  // The opened Matchups card: names, the matrix and its totals across the block; the matrix in the tile's shape.
+  '--card-m': `calc(var(--block-w) - 32px - var(--names) - ${TOTALS}px)`,
+  '--card-mh': `calc(var(--card-m) * tan(atan2(var(--row2) - ${MU_V}px, var(--mw))))`,
 } as React.CSSProperties;
 // Phones (under md, 768px: a phone, or a laptop at 200% zoom) stack the tiles at their content's size: Trends
 // at its chart's shape (raceTile), Profiles at its rows, Matchups at a square that leaves its names 140px; the
