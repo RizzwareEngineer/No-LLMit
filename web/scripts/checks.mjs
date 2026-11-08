@@ -772,7 +772,6 @@ await check('stats-type-scale', 'Every text role on the stats tiles and cards us
     pairwise: [
       ['card title', '#pairwise-card h2', 20, [700], [TEXT]],
       ['Leader line', '#pairwise-card h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
-      ['definition', '#pairwise-card p', 13, [400], [MUTED]],
       ['Matchups names', '#pairwise-card a [translate=no]', 14, [700], [TEXT]],
       ['Matchups Total header', '#pairwise-card [title="The row\'s cells added up"]', 13, [500], [MUTED]],
       ['Matchups figures', '#pairwise-card td[data-cell] [aria-hidden]', 14, [400], null, true],
@@ -842,6 +841,54 @@ await check('stats-any-viewport', 'The overview keeps its proportions from 1280x
   }
   return { pass: bad.length === 0, detail: bad.length ? bad.join(' | ') : 'all four sizes hold' };
 });
+
+// Owner, 2026-11-08: "why is there a url for stats? there shouldn't be right now"; the Matchups definition line is not needed.
+await check('no-stats-hash', 'The URL never names a stats screen (open/close every card, Escape, paging, an old #race link), while #model= still opens the drawer and Back closes it; tiles open from the keyboard', async () => {
+  const bad = [];
+  const p = await pageAt(1440, 900);
+  const hash = () => p.evaluate(() => location.hash);
+  const note = async what => { const h = await hash(); if (h) bad.push(`${what}: ${h}`); };
+  const links = await p.evaluate(() => [...document.querySelectorAll('a[href^="#"]:not([href^="#model="])')].map(a => a.getAttribute('href')));
+  if (links.length) bad.push(`hash links ${[...new Set(links)].join(' ')}`);
+  for (const [tile, card] of [['#race-panel', 'race'], ['#stats-panel', 'stats-table'], ['#pairwise-panel', 'pairwise']]) {
+    await goto(p, 'stats'); await sleep(900);
+    await clickCenter(p, tile); await sleep(1300); await note(`open ${card}`);
+    await clickPrefix(p, 'Back to overview'); await sleep(1300); await note(`back from ${card}`);
+    // Keyboard: the tile is a tab stop and Enter opens it.
+    await p.focus(tile); await p.keyboard.press('Enter'); await sleep(1300);
+    const on = await p.evaluate(id => Math.abs(document.getElementById(id).getBoundingClientRect().top) < 2, card);
+    if (!on) bad.push(`Enter on ${tile} did not open ${card}`);
+    await note(`Enter on ${card}`);
+    await p.keyboard.press('Escape'); await sleep(1300); await note(`Escape from ${card}`);
+  }
+  for (const k of ['PageDown', 'PageDown', 'PageDown', 'PageDown', 'PageUp']) { await p.keyboard.press(k); await sleep(900); }
+  await note('paging');
+  // The model drawer keeps its hash: a model link opens it, Back closes it.
+  await goto(p, 'stats'); await sleep(900);
+  const opened = await p.evaluate(() => { const a = [...document.querySelectorAll('a[href^="#model="]')].find(e => e.getBoundingClientRect().width > 0); a?.click(); return !!a; });
+  await sleep(1000);
+  const d1 = await p.evaluate(() => ({ h: location.hash, open: !!document.querySelector('dialog[open]') }));
+  await p.goBack(); await sleep(1000);
+  const d2 = await p.evaluate(() => ({ h: location.hash, open: !!document.querySelector('dialog[open]') }));
+  if (!opened || !d1.h.startsWith('#model=') || !d1.open) bad.push(`model link: ${opened ? `hash ${d1.h || 'empty'}, drawer ${d1.open ? 'open' : 'closed'}` : 'none found'}`);
+  if (d2.h || d2.open) bad.push(`Back from the drawer: hash ${d2.h || 'empty'}, drawer ${d2.open ? 'still open' : 'closed'}`);
+  await p.close();
+  // An old link to a stats screen opens the page at its top, with the hash gone.
+  const q = await browser.newPage(); await q.setViewport({ width: 1440, height: 900 });
+  await q.goto(`${BASE}/#race`, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(q); await sleep(3000);
+  const old = await q.evaluate(() => ({ y: Math.round(scrollY), h: location.hash }));
+  await q.close();
+  if (old.y > 2 || old.h) bad.push(`/#race: page at y ${old.y}, hash ${old.h || 'empty'}`);
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : 'hash empty throughout; #model= opens and Back closes the drawer; /#race opens at the top' };
+});
+await check('matchups-no-definition', 'The opened Matchups card has no definition line (no "Each cell" / "took the most from")', async () => {
+  const p = await pageAt(1440, 900, 'pairwise');
+  const r = await p.evaluate(() => { const c = document.querySelector('#pairwise-card'); return { t: c.innerText, p: c.querySelectorAll('p').length }; });
+  await p.close();
+  const found = ['Each cell', 'took the most from'].filter(x => r.t.includes(x));
+  return { pass: !found.length && !r.p, detail: found.length || r.p ? `found ${found.join(', ')} (${r.p} p)` : 'no definition line' };
+});
+
 
 await browser.close();
 const w = Math.max(...results.map(r => r.id.length));

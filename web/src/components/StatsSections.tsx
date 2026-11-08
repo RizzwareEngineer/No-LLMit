@@ -7,7 +7,7 @@ import { Warning } from '@phosphor-icons/react';
 import Panel, { Added, CARD, CARD_SHADOW, GLIDE_MS, HEADER, HUG, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
 import StatsTable from '@/components/StatsTable';
-import HeadToHead, { NAMES, STRIP, TOTALS, pairwiseLeader } from '@/components/HeadToHead';
+import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, seatedModels, useStats } from '@/lib/stats';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
@@ -17,7 +17,7 @@ type Stats = ReturnType<typeof useStats>;
 // Screens 2-5, each an empty full-height snap point in the page flow. Over them sits one layer:
 // the overview stage (pinned from the overview on), whose History tile fills the stage on the History
 // screen, then the Profiles and Matchups cards, which slide up over it as stacked cards while the
-// card under them recedes. Old #h2h and #head-to-head links land on the pairwise screen.
+// card under them recedes. The URL never names a screen (only the model drawer's #model=).
 const SCREENS = [
   { id: 'stats', label: 'Overview' },
   { id: 'race', label: 'History' },
@@ -33,10 +33,7 @@ const TILES: Record<Tile, { panel: string; land: string }> = {
   pairwise: { panel: 'pairwise-panel', land: 'pairwise-card' },
 };
 const isTile = (id: string): id is Tile => id in TILES;
-const ALIASES: Record<string, Screen> = { 'head-to-head': 'pairwise', h2h: 'pairwise' };
-const INPUTS = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
-const asScreen = (id: string): Screen => ALIASES[id] ?? SCREENS.find(s => s.id === id)?.id ?? 'stats';
-const order = (id: string) => (id === '' ? -1 : SCREENS.findIndex(s => s.id === asScreen(id))); // '' is the table
+const order = (id: string) => SCREENS.findIndex(s => s.id === id); // -1: the table
 const jump = (id: string) => {
   const el = document.getElementById(id);
   if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' });
@@ -149,7 +146,6 @@ export default memo(function StatsSections({
       busy = true;
       hold(glide());
       put(tile);
-      history.replaceState(null, '', `#${tile}`); // shareable; fires no hashchange, so the #model= drawer is untouched
       setTimeout(() => {
         busy = false;
         jump(tile);
@@ -165,7 +161,6 @@ export default memo(function StatsSections({
       // Two frames: the snapped stage is painted under the card before the card leaves.
       requestAnimationFrame(() => requestAnimationFrame(() => {
         busy = false;
-        history.replaceState(null, '', '#stats');
         const el = stage.current;
         el?.removeAttribute('inert');
         // A view timeline can lag the jump by a frame, showing the stage still receded: no recede
@@ -209,37 +204,6 @@ export default memo(function StatsSections({
     };
   }, []);
 
-  // A link to /#stats (or a panel) lands before the sections have data: jump to the screen's
-  // exact top once they arrive, once per page load.
-  const jumped = useRef(false);
-  useEffect(() => {
-    if (!ready || jumped.current) return;
-    jumped.current = true;
-    const id = window.location.hash.slice(1);
-    if (id !== 'stats' && !(id in ALIASES) && !SCREENS.some(s => s.id === id)) return;
-    const el = document.getElementById(asScreen(id));
-    if (!el) return;
-    // Screen 1 can still change height as the table fills in (and scroll anchoring may move the
-    // page with it); keep the landing on the screen's edge for a few seconds, until the visitor
-    // scrolls or presses a key. A scroll that leaves the screen's edge without one of those inputs
-    // (the rest of the browser's smooth fragment scroll, anchoring) lands it again.
-    const land = () => window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' });
-    const ro = new ResizeObserver(land);
-    const onScroll = () => Math.abs(el.getBoundingClientRect().top) > 2 && land();
-    const stop = () => {
-      ro.disconnect();
-      clearTimeout(timer);
-      INPUTS.forEach(t => window.removeEventListener(t, stop));
-      window.removeEventListener('scroll', onScroll);
-    };
-    const timer = setTimeout(stop, 4000);
-    INPUTS.forEach(t => window.addEventListener(t, stop, { passive: true }));
-    window.addEventListener('scroll', onScroll, { passive: true });
-    ro.observe(document.querySelector('[data-screen]')!);
-    land();
-    return stop;
-  }, [ready]);
-
   const message = <StatsMessage error={current ? error : null} loading={current && loading} />;
   const stale = ready && (error || loading) && (
     <p className="mb-2 text-[13px]" style={{ color: MUTED }} role="status">
@@ -276,26 +240,14 @@ export default memo(function StatsSections({
       <SyncedProfiles tl={tl} models={models} seated={seated} mini={!card} />
     </>
   );
-  const pairwiseBody = (card: boolean, fade = false) => !ready ? message : (
-    <>
-      {card && (
-        <Added still={!fade}>
-          <Definition>
-            Each cell: chips the row model took from the column model (green) or lost to it (red) in the hands both played; rows and columns in rank order.
-            <AtHand tl={tl} models={field}>
-              {ms => { const top = pairwiseLeader(ms); return top?.from && <> {top.leader} took the most from {top.from.name}: {chips(top.from.net)} chips.</>; }}
-            </AtHand>
-          </Definition>
-        </Added>
+  const pairwiseBody = (card: boolean) => !ready ? message : (
+    <AtHand tl={tl} models={field}>
+      {(ms, hand) => (
+        <div {...syncAttrs(tl, hand)} className="contents">
+          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} />
+        </div>
       )}
-      <AtHand tl={tl} models={field}>
-        {(ms, hand) => (
-          <div {...syncAttrs(tl, hand)} className="contents">
-            <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} />
-          </div>
-        )}
-      </AtHand>
-    </>
+    </AtHand>
   );
   const { on, snap, lift } = tiles;
   const zoomed = on === 'race';
@@ -337,7 +289,7 @@ export default memo(function StatsSections({
                 History's row is its chart's shape at the block's width plus the tile's padding and header
                 (72px); the second row is a little shorter (BLOCK_VARS), split into Profiles and Matchups. */}
             <div className="relative h-full md:h-(--block-h) grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-[minmax(0,1fr)_var(--col2)] md:grid-rows-[var(--row1)_var(--row2)]">
-              <Panel id="race-panel" title="History" href="#race" away={{ y: -1 }} className="row-start-1 md:col-span-2" aside={lead} fit={raceFit} {...tile('race')}>
+              <Panel id="race-panel" title="History" away={{ y: -1 }} className="row-start-1 md:col-span-2" aside={lead} fit={raceFit} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
@@ -348,7 +300,6 @@ export default memo(function StatsSections({
               <Panel
                 id="stats-panel"
                 title={<>Profiles {sample && <SampleBadge />}</>}
-                href="#stats-table"
                 away={{ x: -1 }}
                 className="row-start-2 md:col-start-1"
                 extra={on === 'stats-table' && <div className={ASIDE}>{lead}</div>}
@@ -361,14 +312,13 @@ export default memo(function StatsSections({
               <Panel
                 id="pairwise-panel"
                 title="Matchups"
-                href="#pairwise"
                 away={{ x: 1 }}
                 className="row-start-3 md:row-start-2 md:col-start-2"
                 extra={on === 'pairwise' && <div className={ASIDE}>{lead}</div>}
                 fit="hug"
                 {...tile('pairwise')}
               >
-                {pairwiseBody(on === 'pairwise', !snap)}
+                {pairwiseBody(on === 'pairwise')}
               </Panel>
             </div>
           </div>

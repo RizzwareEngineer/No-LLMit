@@ -146,11 +146,17 @@ export default function Home() {
   const seatStats = useMemo(() => (all.data && !all.sample ? Object.fromEntries(all.data.models.map(m => [m.name, m])) : undefined), [all.data, all.sample]);
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
+  // The URL names no stats screen: an old #stats, #race or #pairwise link opens the page at its top.
+  useEffect(() => {
+    if (!window.location.hash || isModelHash(window.location.hash)) return;
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, []);
   const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
 
   const tableRef = useRef<HTMLDivElement>(null);
   // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
-  // starts out of view, as it does after a deep link to #stats.
+  // starts out of view (a reload below the table).
   const [tableInView, setTableInView] = useState(true);
   useEffect(() => {
     // The top 44px sit under the bar itself, so they do not count as visible.
