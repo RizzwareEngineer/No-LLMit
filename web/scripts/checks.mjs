@@ -56,6 +56,9 @@ const pageAt = async (w, h, id = 'stats') => {
 const rect = (p, sel) => p.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; }, sel);
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--mute-audio'] });
+// Never leave a headless Chrome behind: close it on a crash or Ctrl-C too.
+const bail = async e => { if (e) console.error(e); try { await browser.close(); } catch {} process.exit(1); };
+process.on('uncaughtException', bail); process.on('unhandledRejection', bail); process.on('SIGINT', () => bail()); process.on('SIGTERM', () => bail());
 const pg = await browser.newPage();
 await pg.setViewport({ width: 1440, height: 900 });
 await pg.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
@@ -232,8 +235,8 @@ await check('history-default-bb100', 'History opens on bb/100; Chips is one clic
   });
   return { pass: r.on === 'bb/100' && r.other && r.title, detail: `Metric ${r.on ?? 'missing'}, Chips option ${r.other ? 'there' : 'missing'}, axis title ${r.title ? 'bb/100' : 'not bb/100'}` };
 });
-// One replay from the start, sampled every frame: how much of the plot's height the visible tips
-// span, and how far the y axis moves per frame. Read at 5 s, 20 s and 40 s.
+// One replay from the start, sampled every frame until it has ended and settled: how much of the
+// plot's height the visible tips span, and how far the y axis moves per frame.
 let camSamples = null;
 const camRun = async () => {
   if (camSamples) return camSamples;
@@ -259,39 +262,36 @@ const camRun = async () => {
           jiggle: document.getAnimations().filter(a => /shake|burst/.test(a.id)).length,
         });
       }
-      if (performance.now() - t0 < 41_000) requestAnimationFrame(f);
+      if (performance.now() - t0 < 63_000) requestAnimationFrame(f);
     };
     requestAnimationFrame(f);
   });
-  await sleep(41_500);
+  await sleep(63_500);
   return (camSamples = await pg.evaluate(() => window.__cam));
 };
 const near = (ss, s) => ss.reduce((a, b) => (Math.abs(b.t - s * 1000) < Math.abs(a.t - s * 1000) ? b : a));
-// The steady axis (2026-11-08) no longer refits every frame, so the pack may fill less of the plot
-// than under the old camera (was half); a third still keeps close lines apart, and tips stay in view.
-await check('history-y-fill', 'During the replay the visible tips span at least a third of the plot height (5 s, 20 s, 40 s) and never leave it', async () => {
-  const ss = await camRun();
-  const at = [5, 20, 40].map(s => near(ss, s));
-  const outs = ss.filter(s => s.t > 1000 && s.out > 2);
-  const ok = at.every(a => a.fill != null && a.fill >= 1 / 3) && !outs.length;
-  return { pass: ok, detail: at.map((a, i) => `${[5, 20, 40][i]}s ${a.fill == null ? 'no tips' : `${(a.fill * 100).toFixed(0)}%`}`).join(', ') + `; tips outside the plot in ${outs.length} of ${ss.length} frames${outs.length ? ` (up to ${Math.max(...outs.map(s => s.out)).toFixed(0)}px)` : ''}` };
-});
-// Arena-style steady axis: fitted once to the replay's lines, it widens rarely (the pack outgrew it)
-// and never shrinks while the replay plays; each widening eases (at most 4% of the range per frame).
-const Y_CHANGES = 3;
-await check('history-y-steady', `The y axis changes at most ${Y_CHANGES} times in a replay, never shrinks, and eases (≤4% of its range per 60 Hz frame)`, async () => {
-  const ss = (await camRun()).filter(s => s.t > 1000);
-  const fits = ss.map(s => s.fit).filter((f, i, a) => f && f !== a[i - 1]);
-  let shrink = 0, worst = 0;
+// A dynamic y axis (owner 2026-11-08: "its so hard to tell the true diff between each model so maybe a
+// dynamic y axis will make those diffs much more apparent", pointing at Exa's chart). It replaces the
+// steady axis (history-y-steady) and the one-third fill floor (history-y-fill): the axis follows the
+// lines in view, narrowing as well as widening, so the pack fills the plot; it eases, never jumps.
+await check('history-y-dynamic', 'The y axis follows the lines in view: it moves in the replay (widens and narrows), the visible tips span ≥60% of the plot at 10 s, 30 s, 50 s and at rest, tips never leave the plot, and it eases (≤4% of its range per 60 Hz frame)', async () => {
+  const all = await camRun(), ss = all.filter(s => s.t > 1000);
+  const at = [10, 30, 50].map(s => near(ss, s)), rest = all.at(-1);
+  let moved = 0, wider = 0, narrower = 0, worst = 0;
   for (let i = 2; i < ss.length; i++) {
-    const r = ss[i].y1 - ss[i].y0, eps = r * 1e-6;
-    if (ss[i].y0 > ss[i - 1].y0 + eps || ss[i].y1 < ss[i - 1].y1 - eps) shrink++;
+    const r = ss[i].y1 - ss[i].y0, r0 = ss[i - 1].y1 - ss[i - 1].y0, eps = r * 1e-4;
+    if (Math.abs(ss[i].y0 - ss[i - 1].y0) > eps || Math.abs(ss[i].y1 - ss[i - 1].y1) > eps) moved++;
+    if (r > r0 + eps) wider++;
+    if (r < r0 - eps) narrower++;
     // Per 60 Hz frame: a slow frame (a loaded machine), or the one after it, may carry more motion without being a jump.
     const k = 16.7 / Math.max(16.7, ss[i].t - ss[i - 1].t, ss[i - 1].t - ss[i - 2].t);
     worst = Math.max(worst, (Math.abs(ss[i].y0 - ss[i - 1].y0) / r) * k, (Math.abs(ss[i].y1 - ss[i - 1].y1) / r) * k);
   }
-  const show = f => f.split(',').map(v => Math.round(+v)).join('..');
-  return { pass: ss.length > 100 && fits.length - 1 <= Y_CHANGES && !shrink && worst <= 0.04, detail: `${fits.length - 1} changes (${fits.map(show).join(' → ')}), shrank in ${shrink} frames, worst ${(worst * 100).toFixed(1)}% per frame` };
+  const outs = ss.filter(s => s.out > 2);
+  const fills = [...at, rest].map(a => a.fill);
+  const ok = ss.length > 100 && moved / ss.length >= 0.25 && wider > 0 && narrower > 0 && fills.every(f => f != null && f >= 0.6) && !outs.length && worst <= 0.04;
+  const pct = f => (f == null ? 'no tips' : `${(f * 100).toFixed(0)}%`);
+  return { pass: ok, detail: `fill 10s ${pct(fills[0])}, 30s ${pct(fills[1])}, 50s ${pct(fills[2])}, rest ${pct(fills[3])}; axis moved in ${((moved / (ss.length || 1)) * 100).toFixed(0)}% of frames (${wider} wider, ${narrower} narrower), worst ${(worst * 100).toFixed(1)}% per frame; tips outside the plot in ${outs.length} frames` };
 });
 // Gaps readable: 6–8 labelled gridlines at rest, and at least 6 through nearly all of the replay.
 await check('history-y-gridlines', 'At least 6 labelled y gridlines (6–8 at rest, ≥6 in 90% of replay frames)', async () => {
@@ -375,6 +375,34 @@ await check('history-number-style', 'History numbers (ticks, pills, readout) use
   });
   await pg.mouse.move(5, 5);
   return { pass: !r.length, detail: r.length ? r.join('; ') : 'ticks, pills and readout: body sans, tabular; readout 14px, ticks and pills 13px on screen' };
+});
+
+// The overview tile gets its own Replay once the lines have stopped (owner 2026-11-08): hidden while
+// the replay plays, it fades in after the replay ends or is skipped, restarts it, and never opens the card.
+await check('history-overview-replay', 'The Trends tile shows Replay only once the replay has ended or been skipped; it is keyboard-focusable, restarts the replay and leaves the card closed', async () => {
+  const p = await pageAt(1440, 900, 'race');
+  try {
+    const btn = () => p.evaluate(() => { const b = document.querySelector('#race-panel [data-tile-replay]'); if (!b) return null; const r = b.getBoundingClientRect(); return { w: r.width, o: +getComputedStyle(b).opacity, x: r.left + r.width / 2, y: r.top + r.height / 2, tab: b.tabIndex, hidden: !!b.closest('[aria-hidden=true]') }; });
+    const cardOpen = () => p.evaluate(() => [...document.querySelectorAll('[role=group][aria-label=Metric]')].some(e => e.getBoundingClientRect().width > 0));
+    const clock = () => p.evaluate(() => { const c = document.querySelector('#race-panel [data-race-clock]'); return c && c.getBoundingClientRect().width > 0 ? +c.querySelector('b').textContent.replace(/,/g, '') : null; });
+    await p.waitForFunction(() => document.querySelector('#race-panel [data-race-clock]'), { timeout: 15000 }).catch(() => {});
+    const playing = [];
+    for (let i = 0; i < 3; i++) { playing.push(await btn()); await sleep(400); }
+    const shownWhilePlaying = playing.some(b => b && b.w > 0 && b.o > 0.05);
+    // Skip from the card, then back to the overview.
+    await clickCenter(p, '#race-panel'); await sleep(1500);
+    const skipped = await clickText(p, 'Skip'); await sleep(300);
+    await clickPrefix(p, 'Back to overview'); await sleep(2500);
+    const after = await btn();
+    if (!after || after.w === 0) return { pass: false, detail: `${shownWhilePlaying ? 'shown while playing; ' : ''}no tile Replay after ${skipped ? 'Skip' : 'the replay'} ([data-tile-replay])` };
+    const focusable = after.tab >= 0 && !after.hidden && await p.evaluate(() => { const b = document.querySelector('#race-panel [data-tile-replay]'); b.focus(); return document.activeElement === b; });
+    const hand0 = await clock();
+    await p.mouse.click(after.x, after.y); await sleep(1200);
+    const hand1 = await clock(), opened = await cardOpen(), gone = await btn();
+    const restarted = hand0 == null && hand1 != null;
+    const ok = !shownWhilePlaying && after.o > 0.95 && focusable && restarted && !opened && !(gone && gone.w > 0 && gone.o > 0.05);
+    return { pass: ok, detail: `while playing ${shownWhilePlaying ? 'shown' : 'hidden'}; after Skip opacity ${after.o.toFixed(2)}, ${focusable ? 'focusable' : 'not focusable'}; click: ${restarted ? `replay restarted (hand ${hand1})` : 'replay did not restart'}, card ${opened ? 'opened' : 'stayed closed'}, button ${gone && gone.w > 0 && gone.o > 0.05 ? 'still shown' : 'hidden'}` };
+  } finally { await p.close(); }
 });
 
 await check('replay-no-reset', 'The replay never restarts on open, back or scroll', async () => {
