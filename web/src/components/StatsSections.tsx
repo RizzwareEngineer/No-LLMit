@@ -6,7 +6,7 @@ import LLMLogo from '@/components/LLMLogo';
 import { Warning } from '@phosphor-icons/react';
 import Panel, { Added, CARD, CARD_SHADOW, GLIDE_MS, HEADER, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
-import StatsTable, { MINI_ROW } from '@/components/StatsTable';
+import StatsTable from '@/components/StatsTable';
 import HeadToHead, { pairwiseLeader } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, seatedModels, useStats } from '@/lib/stats';
@@ -338,7 +338,7 @@ export default memo(function StatsSections({
                 is its chart's shape at the block's width plus the tile's padding and header (72px), the
                 second row holds ten fixed-height table rows (and Matchups' square of ten cells), and the
                 block's width is what lets the two fit the window, at most 1252px, centred. */}
-            <div className="relative h-full md:h-(--block-h) grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-[minmax(0,2fr)_minmax(var(--col2),3fr)] md:grid-rows-[var(--row1)_var(--row2)]">
+            <div className="relative h-full md:h-(--block-h) grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-[minmax(0,1fr)_var(--col2)] md:grid-rows-[var(--row1)_var(--row2)]">
               <Panel id="race-panel" title="History" href="#race" away={{ y: -1 }} className="row-start-1 md:col-span-2" aside={lead} fit={raceFit} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
@@ -438,14 +438,22 @@ const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1'; // a card header's 
 // The overview block and every card: the live table's 1252px wide at most, and on wider screens
 // only as wide as lets History's tile (its chart's shape) and the second row fit the window's height;
 // centred, with the page around it. Its height comes from that width (BLOCK_VARS), never the window.
-const ROW2 = 72 + 10 * MINI_ROW; // the second row: a tile's padding and header, and ten table rows (or matrix cells)
+// The overview scales with the window: its width is the largest that fits the window's height
+// (History's row at its chart's shape, plus the second row at a fixed share of the width), at most
+// 1600px, so the cards fill the screen at any size without stretching. The second row is ROW2 of the
+// width: Matchups' square of ten cells (plus its padding and header) fills its tile next to the row
+// names, and Profiles' ten rows split the same height. Only viewport units, so every var resolves the
+// same in nested containers.
+const ROW2 = 0.42;
 const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
+const NAMES = 140; // the Matchups tile's row-name column
 const BLOCK = 'h-full w-full max-w-[1252px] md:max-w-(--block-w) mx-auto flex flex-col justify-center';
 const BLOCK_VARS = {
-  '--block-w': `max(560px, min(1252px, calc((100svh - 44px - 4svh - var(--bar-h, 0px) - ${12 + 72 + ROW2}px) * ${W / H} + 32px)))`,
-  '--row1': `calc((100cqw - 32px) * ${H / W} + 72px)`,
-  '--row2': `${ROW2}px`,
-  '--col2': `${ROW2 - 72 + 32 + 48}px`, // Matchups at least: its square of ten cells, its padding and a little air; it takes 3/5 of the row, Profiles 2/5
+  '--block-w': `max(560px, min(1600px, 100vw - 48px, calc((96svh - 44px - var(--bar-h, 0px) - ${(84 - 32 * H / W).toFixed(2)}px) / ${(H / W + ROW2).toFixed(4)})))`,
+  '--row1': `calc((var(--block-w) - 32px) * ${H / W} + 72px)`,
+  '--row2': `calc(var(--block-w) * ${ROW2})`,
+  '--mini-row': `calc((var(--block-w) * ${ROW2} - 72px) / 10)`,
+  '--col2': `calc(var(--block-w) * ${ROW2} - 72px + 32px + ${NAMES}px)`, // Matchups: names, its square, its padding
   '--block-h': `calc(var(--row1) + 12px + var(--row2))`,
 } as React.CSSProperties;
 

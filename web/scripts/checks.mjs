@@ -72,9 +72,11 @@ const tileCard = await pg.evaluate(() => { const b = document.querySelector('#ra
 await clickCenter(pg, '#race-panel'); await sleep(1500);
 const card = await chartBox(pg);
 await check('history-card-size', 'Opening History moves the tile to the middle and adds the filters; it does not balloon', async () => {
-  const c = await pg.evaluate(() => { const svg = [...document.querySelectorAll('svg')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 300 && r.top < innerHeight && r.bottom > 0; }).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0]; const b = svg.closest('.card-chrome').getBoundingClientRect(); return { w: b.width, h: b.height }; });
-  const ok = Math.abs(c.w - tileCard.w) / tileCard.w <= 0.05 && c.h - tileCard.h <= 140;
-  return { pass: ok, detail: `tile ${Math.round(tileCard.w)}x${Math.round(tileCard.h)} → card ${Math.round(c.w)}x${Math.round(c.h)} (allowed: same width ±5%, +140px height for the filters)` };
+  const c = await pg.evaluate(() => { const svg = [...document.querySelectorAll('svg')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 300 && r.top < innerHeight && r.bottom > 0; }).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0]; const b = svg.closest('.card-chrome').getBoundingClientRect(); const bar = [...svg.closest('.card-chrome').querySelectorAll('.flex-wrap')].find(e => e.textContent.startsWith('Metric')); return { w: b.width, h: b.height, bar: bar ? bar.getBoundingClientRect().height + 8 : 0 }; });
+  // The card may add exactly its filter bar (however many rows it wraps to) and the legend (68px), plus 12px.
+  const room = c.bar + 68 + 12;
+  const ok = Math.abs(c.w - tileCard.w) / tileCard.w <= 0.05 && c.h - tileCard.h <= room;
+  return { pass: ok, detail: `tile ${Math.round(tileCard.w)}x${Math.round(tileCard.h)} → card ${Math.round(c.w)}x${Math.round(c.h)} (allowed: same width ±5%, +${Math.round(room)}px: the filter bar and legend)` };
 });
 await check('history-no-stretch', 'The History chart keeps its shape from tile to card', async () => {
   const a = tile.w / tile.h, b = card.w / card.h;
@@ -258,6 +260,18 @@ await check('matchups-wider', 'On the overview the Matchups tile is wider than t
   const [p, m] = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel'].map(s => Math.round(document.querySelector(s).getBoundingClientRect().width)));
   return { pass: m > p, detail: `Profiles ${p}px, Matchups ${m}px` };
 });
+// The Matchups tile is its names and its square, edge to edge: no empty band beside them.
+await check('matchups-tile-filled', 'The Matchups matrix and its names fill the tile (no empty space beside them)', async () => {
+  await goto(pg, 'stats'); await sleep(1200);
+  const r = await pg.evaluate(() => {
+    const t = document.querySelector('#pairwise-panel').getBoundingClientRect();
+    const cells = [...document.querySelectorAll('#pairwise-panel td, #pairwise-panel a, #pairwise-panel th')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2 && b.height > 2);
+    const l = Math.min(...cells.map(b => b.left)), rt = Math.max(...cells.map(b => b.right));
+    const names = [...document.querySelectorAll('#pairwise-panel a span')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2);
+    return { span: (rt - l) / (t.width - 32), nameLeft: names.length ? (Math.min(...names.map(b => b.left)) - t.left - 16) / (t.width - 32) : 1 };
+  });
+  return { pass: r.span >= 0.95 && r.nameLeft <= 0.12, detail: `matrix and names span ${(r.span * 100).toFixed(0)}% of the tile, longest name starts ${(r.nameLeft * 100).toFixed(0)}% in` };
+});
 await check('tiles-no-scroll', 'Overview tiles never scroll (no scrollbar on a preview)', async () => {
   const bad = await pg.evaluate(() => ['#stats-panel', '#pairwise-panel', '#race-panel'].flatMap(s => [...document.querySelectorAll(`${s} *`)].filter(e => ['auto', 'scroll'].includes(getComputedStyle(e).overflowY)).map(() => s)));
   return { pass: !bad.length, detail: bad.length ? `scrollable inside ${[...new Set(bad)].join(', ')}` : 'none' };
@@ -278,11 +292,13 @@ await check('stats-any-viewport', 'The overview keeps its proportions from 1280x
       const race = document.querySelector('#race-panel').getBoundingClientRect();
       const svg = [...document.querySelectorAll('#race-panel svg')].sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
       const fill = svg ? svg.getBoundingClientRect().width / race.width : 0;
-      return { row: rows.length ? Math.max(...rows) : 0, ratio, fill };
+      // Profiles' rows split the second row evenly (the tile's height less its 72px header), whatever the scale.
+      const tile = document.querySelector('#stats-panel').getBoundingClientRect().height;
+      return { row: rows.length ? Math.max(...rows) : 0, even: (tile - 72) / 10, ratio, fill };
     });
     await p2.close();
     const why = [];
-    if (m.row > 44) why.push(`Profiles rows ${m.row.toFixed(0)}px tall`);
+    if (Math.abs(m.row - m.even) > 3) why.push(`Profiles rows ${m.row.toFixed(0)}px tall, not ${m.even.toFixed(0)}px`);
     if (m.ratio > 1.15) why.push(`Matchups cells ${m.ratio.toFixed(2)}:1`);
     if (m.fill < 0.8) why.push(`History chart fills ${(m.fill * 100).toFixed(0)}% of its tile`);
     if (why.length) bad.push(`${w}x${h}: ${why.join(', ')}`);

@@ -106,8 +106,6 @@ const COLUMNS = GROUPS.flatMap(g => g.columns);
 const byKey = (k: string) => COLUMNS.find(c => c.key === k)!;
 const CORE = [{ label: 'Core', columns: [byKey('hands'), byKey('vpip'), byKey('pfr'), byKey('af'), TREND] }];
 const MINI = [{ label: 'Core', columns: CORE[0].columns.filter(c => c !== TREND) }];
-// Rows on the overview tile: a fixed height, so the tile's size never comes from the window.
-export const MINI_ROW = 32; // as tall as a Matchups tile cell, which needs room for a +1.2k figure
 
 // A column header with its definition on hover or focus. Without `onSort` it is a plain label
 // (a fixed-order table); `sort` then only marks the column the rows are ordered by.
@@ -300,7 +298,7 @@ function Grid({
   // Sticky: the header stays put while the card scrolls the rows under it.
   const head = `sticky top-0 z-10 bg-white ${mini ? 'px-1.5 md:px-3 py-0 text-[13px]' : grouped ? 'p-1 text-[14px]' : 'px-1.5 py-1.5 md:px-3 text-[14px]'}`;
   // The card's default view has five columns and room to spare, so its rows breathe; All stats packs them.
-  const rowH = mini ? 'h-[32px] text-[14px]' : grouped ? 'h-6' : 'h-10';
+  const rowH = mini ? 'h-(--mini-row) text-[14px]' : grouped ? 'h-6' : 'h-10';
   // Columns the card adds to the tile's fade in as it opens.
   const added = (c: Column) => (!mini && c === TREND ? 'add-in' : '');
   const cell = grouped ? 'px-1' : 'px-1.5 md:px-3';

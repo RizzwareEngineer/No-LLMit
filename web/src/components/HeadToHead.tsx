@@ -160,7 +160,7 @@ export default memo(function HeadToHead({
   // stretch). Row names sit to its left wherever the width allows; the card adds the totals to its
   // right. Names, square and totals are centred as one group.
   const k = sorted.length + 1;
-  const names = mini ? 'clamp(0px, 100cqw - 100cqh - 12px, 150px)' : 'clamp(64px, 16cqw, 180px)';
+  const names = mini ? 'clamp(0px, 100cqw - 100cqh, 140px)' : 'clamp(64px, 16cqw, 180px)';
   const totals = mini ? '0px' : '88px';
   const S = `min(100cqh, 100cqw - ${names} - ${totals})`;
   const slot = { height: `calc(${S} / ${k})` }; // a side column's row
