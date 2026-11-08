@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowRight } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { MUTED, ModelStats, TEXT, chips, netColor } from '@/lib/stats';
@@ -148,6 +148,7 @@ function ridges(field: ModelStats[]) {
 function RaceArt() {
   const { ref, field, failed } = useField();
   const reduce = useReducedMotion();
+  const art = useMemo(() => ridges(field), [field]);
   const leader = field[0];
   return (
     <figure ref={ref} className="flex flex-col gap-2 min-w-0">
@@ -164,7 +165,7 @@ function RaceArt() {
               <motion.rect x={0} y={0} height={H} initial={{ width: reduce ? W : 0 }} animate={{ width: W }} transition={{ duration: 1.6, ease: [0.22, 1, 0.36, 1] }} />
             </clipPath>
             <g clipPath="url(#about-race-reveal)">
-              {ridges(field).map(r => (
+              {art.map(r => (
                 <g key={r.name}>
                   <path d={r.area} style={{ fill: `color-mix(in srgb, ${r.color} 12%, white)` }} />
                   <path d={r.line} fill="none" stroke={r.color} strokeWidth={1.5} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
