@@ -317,12 +317,13 @@ function Grid({
   };
   // Every column of All stats shares the width, so its cells pad less.
   // Sticky: the header stays put while the card scrolls the rows under it.
-  const head = `sticky top-0 z-10 bg-white ${mini ? 'px-1.5 md:px-3 py-0 text-[13px]' : grouped ? 'p-1 text-[14px]' : 'px-1.5 py-1.5 md:px-3 text-[14px]'}`;
+  const head = `sticky top-0 z-10 bg-white ${mini ? 'px-1 @sm:px-3 py-0 text-[13px]' : grouped ? 'p-1 text-[14px]' : 'px-1.5 py-1.5 md:px-3 text-[14px]'}`;
   // The card's default view has five columns and room to spare, so its rows breathe; All stats packs them.
   const rowH = mini ? 'h-(--mini-row) text-[14px]' : grouped ? 'h-6' : 'h-10';
   // Columns the card adds to the tile's fade in as it opens.
   const added = (c: Column) => (!mini && c === TREND ? 'add-in' : '');
-  const cell = grouped ? 'px-1' : 'px-1.5 md:px-3';
+  // The tile pads by its own width (a narrow tile keeps every header whole); the card by the window's.
+  const cell = grouped ? 'px-1' : mini ? 'px-1 @sm:px-3' : 'px-1.5 md:px-3';
   const row = (m: ModelStats, i: number | null) => {
     // What moves the row's content: the glide, a re-sort, or the row changing place.
     const at = `${mini}|${sort.key}|${sort.desc}|${i}`;
