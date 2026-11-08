@@ -1271,18 +1271,19 @@ late(() => check('pages-move', 'The main screens move like pages: table → over
 const ABOUT_DRAFTS = [['a', 'Draft A'], ['b', 'Draft B'], ['current', 'Current']];
 const pickDraft = (p, label) => p.evaluate(t => [...document.querySelectorAll('[data-draft-switcher] button')].find(b => b.textContent.trim() === t)?.click(), label);
 // React has taken over the page (its props are on the switcher): the server's HTML shows Draft A and ignores clicks until then.
-const aboutReady = p => p.waitForFunction(() => { const b = document.querySelector('[data-draft-switcher] button'); return !!b && Object.keys(b).some(k => k.startsWith('__react')); }, { timeout: 60000 }).catch(() => {});
+const aboutReady = p => p.waitForFunction(() => { const b = document.querySelector('[data-draft-switcher] button'); return !!b && Object.keys(b).some(k => k.startsWith('__react')); }, { timeout: 60000, polling: 100 }).catch(() => {});
 main(() => check('about-fits', 'Every About draft (A, B, Current) is on the stats type scale (thesis 28px bold, titles and figures 20px bold, section labels 13px muted uppercase, body 14px, labels 13px muted, body sans), any card in it is a stats card, no heading has an emoji, and it fits one window at the overview\'s width and centre at 1440x900 and 1728x1117', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await sharedAt(w, h, 'about');
-    // The rule is for the page as it normally is: while the connection bar shows (a page resumed from a freeze reconnects),
-    // every screen gives it 40px (--bar-h) and About may scroll inside itself. Wait for it to clear (30 s at most).
-    const clear = await p.waitForFunction(() => getComputedStyle(document.querySelector('[data-page]')).getPropertyValue('--bar-h').trim() === '0px', { timeout: 30000 }).then(() => true, () => false);
+    // The rule is for the page as it normally is: while the connection bar shows (a page resumed from a freeze reconnects,
+    // about 2 s), every screen gives it 40px (--bar-h) and About may scroll inside itself. Wait for it to clear (30 s at
+    // most), polling on a timer: a shared page can be its window's background tab, which draws no frames.
+    const clear = await p.waitForFunction(() => getComputedStyle(document.querySelector('[data-page]')).getPropertyValue('--bar-h').trim() === '0px', { timeout: 30000, polling: 200 }).then(() => true, () => false);
     if (!clear) bad.push(`${w}x${h}: the connection bar never cleared (measured with it)`);
     for (const [draft, label] of ABOUT_DRAFTS) {
       await pickDraft(p, label);
-      const on = await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 5000 }, draft).then(() => true, () => false);
+      const on = await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 5000, polling: 100 }, draft).then(() => true, () => false);
       if (!on) { bad.push(`${w}x${h}: the switcher did not show ${label}`); continue; }
       await sleep(500);
       const r = await p.evaluate(() => {
