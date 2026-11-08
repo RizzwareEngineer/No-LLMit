@@ -63,8 +63,9 @@ await check('no-currency', 'No ¤ sign anywhere on the table screen', async () =
 
 // --- History (overview tile, then the card) ---
 await goto(pg, 'stats'); await sleep(2500);
-await check('history-unit-once', '"bb/100" shows once on the History tile', async () => {
-  const n = await pg.evaluate(() => [...document.querySelectorAll('#race-panel *')].filter(e => e.childElementCount === 0 && e.textContent.trim() === 'bb/100' && e.getBoundingClientRect().width > 0).length);
+// The unit is the default metric's, Chips won since 2026-11-07 (was bb/100).
+await check('history-unit-once', '"Chips won" shows once on the History tile', async () => {
+  const n = await pg.evaluate(() => [...document.querySelectorAll('#race-panel *')].filter(e => e.childElementCount === 0 && e.textContent.trim() === 'Chips won' && e.getBoundingClientRect().width > 0).length);
   return { pass: n === 1, detail: `${n} times` };
 });
 const tile = await chartBox(pg);
@@ -139,6 +140,89 @@ await check('history-no-empty-left', 'The lines start at the plot\'s left edge (
   });
   return { pass: r.gap <= 0.12 && r.width >= 0.5, detail: `lines start ${(r.gap * 100).toFixed(0)}% in and span ${(r.width * 100).toFixed(0)}% of the plot` };
 });
+// --- History camera (owner 2026-11-07): "the models are just so close to each other that it's hard
+// to tell"; "I don't see ... a 'camera' to track the LLMs". Chips by default, and a vertical camera:
+// the y axis fits the lines in the x window and eases there. The card is open here. ---
+await check('history-default-chips', 'History opens on Chips won; bb/100 is one click away', async () => {
+  const r = await pg.evaluate(() => {
+    const g = [...document.querySelectorAll('[role=group][aria-label=Metric]')].find(e => e.getBoundingClientRect().width > 0);
+    const on = g && [...g.querySelectorAll('button')].find(b => b.getAttribute('aria-pressed') === 'true')?.textContent.trim();
+    const other = g && [...g.querySelectorAll('button')].some(b => b.textContent.trim() === 'bb/100');
+    const title = [...document.querySelectorAll('svg text')].some(t => t.textContent.trim() === 'Chips won' && t.getBoundingClientRect().width > 0);
+    return { on, other, title };
+  });
+  return { pass: r.on === 'Chips' && r.other && r.title, detail: `Metric ${r.on ?? 'missing'}, bb/100 option ${r.other ? 'there' : 'missing'}, axis title ${r.title ? 'Chips won' : 'not Chips won'}` };
+});
+// One replay from the start, sampled every frame: how much of the plot's height the visible tips
+// span, and how far the y axis moves per frame. Read at 5 s, 20 s and 40 s.
+let camSamples = null;
+const camRun = async () => {
+  if (camSamples) return camSamples;
+  await clickText(pg, 'Skip'); await sleep(300);
+  if (!(await clickText(pg, 'Replay'))) throw new Error('no Replay button');
+  await pg.evaluate(() => {
+    const t0 = performance.now(), out = (window.__cam = []);
+    const f = () => {
+      const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
+      if (plot) {
+        const [top, h] = plot.dataset.plot.split(',').map(Number), [y0, y1] = plot.dataset.yRange.split(',').map(Number);
+        const tys = [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5).map(e => +e.dataset.ty);
+        const labels = [...plot.querySelectorAll('[data-y-tick]')].filter(e => +e.parentElement.getAttribute('opacity') > 0.5).map(e => e.textContent).join(' ');
+        out.push({ t: performance.now() - t0, y0, y1, fill: tys.length > 1 ? (Math.max(...tys) - Math.min(...tys)) / h : null, out: tys.length ? Math.max(0, top - Math.min(...tys), Math.max(...tys) - top - h) : 0, labels });
+      }
+      if (performance.now() - t0 < 41_000) requestAnimationFrame(f);
+    };
+    requestAnimationFrame(f);
+  });
+  await sleep(41_500);
+  return (camSamples = await pg.evaluate(() => window.__cam));
+};
+const near = (ss, s) => ss.reduce((a, b) => (Math.abs(b.t - s * 1000) < Math.abs(a.t - s * 1000) ? b : a));
+await check('history-y-fill', 'During the replay the visible tips span at least half the plot height (5 s, 20 s, 40 s) and never leave it', async () => {
+  const ss = await camRun();
+  const at = [5, 20, 40].map(s => near(ss, s));
+  const outs = ss.filter(s => s.t > 1000 && s.out > 2);
+  const ok = at.every(a => a.fill != null && a.fill >= 0.5) && !outs.length;
+  return { pass: ok, detail: at.map((a, i) => `${[5, 20, 40][i]}s ${a.fill == null ? 'no tips' : `${(a.fill * 100).toFixed(0)}%`}`).join(', ') + `; tips outside the plot in ${outs.length} of ${ss.length} frames${outs.length ? ` (up to ${Math.max(...outs.map(s => s.out)).toFixed(0)}px)` : ''}` };
+});
+await check('history-y-smooth', 'The y axis follows the race (labels change early to late) and never moves more than 4% of its range per 60 Hz frame', async () => {
+  const ss = (await camRun()).filter(s => s.t > 1000);
+  let worst = 0;
+  // Per 60 Hz frame: a slow frame (a loaded machine) may move further without being a jump.
+  for (let i = 1; i < ss.length; i++) {
+    const r = ss[i].y1 - ss[i].y0, k = 16.7 / Math.max(16.7, ss[i].t - ss[i - 1].t);
+    worst = Math.max(worst, (Math.abs(ss[i].y0 - ss[i - 1].y0) / r) * k, (Math.abs(ss[i].y1 - ss[i - 1].y1) / r) * k);
+  }
+  const [a, b] = [near(ss, 5), near(ss, 40)];
+  const dts = ss.slice(1).map((s, i) => s.t - ss[i].t).sort((x, y) => x - y);
+  const p95 = dts[Math.floor(dts.length * 0.95)] ?? 0, mean = dts.reduce((x, y) => x + y, 0) / (dts.length || 1);
+  return { pass: ss.length > 100 && a.labels !== b.labels && worst <= 0.04, detail: `labels 5s [${a.labels}] → 40s [${b.labels}], worst ${(worst * 100).toFixed(1)}% of the range per 60 Hz frame; frames ${mean.toFixed(1)}ms mean, ${p95.toFixed(1)}ms p95` };
+});
+await check('history-number-style', 'History numbers (ticks, pills, readout) use the body sans, tabular, at the Profiles cells\' 14px', async () => {
+  const c = await pg.evaluate(() => { const p = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0).getBoundingClientRect(); return [p.left + p.width * 0.45, p.top + p.height * 0.5]; });
+  await pg.mouse.move(c[0], c[1]); await sleep(300);
+  const r = await pg.evaluate(() => {
+    const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
+    const svg = plot.querySelector('svg'), k = plot.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+    const ref = document.querySelector('#stats-panel td, #stats-card td') || document.body;
+    const roles = { 'y ticks': '[data-y-tick]', 'x ticks': '[data-x-tick]', pills: '[data-pill]', readout: '[data-readout-value]' };
+    return Object.entries(roles).map(([role, sel]) => {
+      const es = [...plot.querySelectorAll(sel)];
+      if (!es.length) return `${role}: none`;
+      const bad = new Set();
+      for (const e of es) {
+        const cs = getComputedStyle(e), px = parseFloat(cs.fontSize) * k;
+        if (cs.fontFamily !== getComputedStyle(ref).fontFamily) bad.add(`font ${cs.fontFamily.slice(0, 20)}`);
+        if (!cs.fontVariantNumeric.includes('tabular-nums')) bad.add('not tabular');
+        if (Math.abs(px - 14) > 0.75) bad.add(`${px.toFixed(1)}px`);
+      }
+      return bad.size ? `${role}: ${[...bad].join(', ')}` : '';
+    }).filter(Boolean);
+  });
+  await pg.mouse.move(5, 5);
+  return { pass: !r.length, detail: r.length ? r.join('; ') : 'ticks, pills and readout: body sans, tabular, 14px on screen' };
+});
+
 await check('replay-no-reset', 'The replay never restarts on open, back or scroll', async () => {
   const playing = await pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
   if (!playing && !(await clickText(pg, 'Replay'))) return { pass: false, detail: 'neither Skip nor Replay shown' };

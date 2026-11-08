@@ -134,6 +134,58 @@ export function onTable(tl: Timeline, name: string, curve: Pts, hands: number): 
   return out;
 }
 
+// Ticks over [a, b] on a nested ladder of steps (each a multiple of the one before: 1, 5, 10, 50, …),
+// each with an opacity: the finer step's ticks fade out as the range grows toward the coarser step,
+// and ticks fade out near the ends. So a y axis that zooms never pops a label.
+export function zoomTicks(a: number, b: number, count: number) {
+  const s0 = (b - a) / count || 1;
+  const mag = 10 ** Math.floor(Math.log10(s0));
+  const [finer, step] = s0 <= 5 * mag ? [mag, 5 * mag] : [5 * mag, 10 * mag];
+  const fine = (step - s0) / (step - finer), edge = (b - a) * 0.03;
+  const out: { t: number; o: number }[] = [];
+  for (let i = Math.ceil(a / finer); i * finer <= b; i++) {
+    const t = +(i * finer).toPrecision(12);
+    const o = Math.min(Math.abs(t / step - Math.round(t / step)) < 1e-6 ? 1 : fine, (b - t) / edge, (t - a) / edge, 1);
+    if (o > 0.01) out.push({ t, o });
+  }
+  return out;
+}
+
+// The vertical camera: [lo, hi] follows its target as a critically damped spring, so the y axis eases
+// to each new fit with no overshoot, no jump when the target moves and no per-frame jitter. It widens
+// three times faster than it narrows, so a line breaking out is caught at once and the pack is
+// zoomed in on gently.
+const CAM_W = 7; // the spring's rate, 1/s: a narrowing settles in about 0.8 s
+function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
+  const [cur, setCur] = useState<[number, number]>([lo, hi]);
+  const cam = useRef({ x: [lo, hi], v: [0, 0], tgt: [lo, hi], t: 0, raf: 0 });
+  useEffect(() => () => { cancelAnimationFrame(cam.current.raf); cam.current.raf = 0; }, []);
+  useEffect(() => {
+    const c = cam.current;
+    c.tgt = [lo, hi];
+    if (snap) { c.x = [lo, hi]; c.v = [0, 0]; return; }
+    if (c.raf) return; // the running loop picks up the new target
+    c.t = performance.now();
+    const step = (t: number) => {
+      const dt = Math.min(0.25, Math.max(0, (t - c.t) / 1000)), span = Math.abs(c.tgt[1] - c.tgt[0]) || 1;
+      c.t = t;
+      let still = true;
+      for (let i = 0; i < 2; i++) {
+        const w = (i ? c.tgt[1] > c.x[1] : c.tgt[0] < c.x[0]) ? CAM_W * 3 : CAM_W, e = Math.exp(-w * dt);
+        const d = c.x[i] - c.tgt[i], m = (c.v[i] + w * d) * dt;
+        c.v[i] = (c.v[i] - w * m) * e;
+        c.x[i] = c.tgt[i] + (d + m) * e;
+        if (Math.abs(c.x[i] - c.tgt[i]) > span * 1e-4 || Math.abs(c.v[i]) > span * 1e-3) still = false;
+      }
+      if (still) [c.x, c.v, c.raf] = [[...c.tgt], [0, 0], 0];
+      else c.raf = requestAnimationFrame(step);
+      setCur([c.x[0], c.x[1]]);
+    };
+    c.raf = requestAnimationFrame(step);
+  }, [lo, hi, snap]);
+  return snap ? [lo, hi] : cur;
+}
+
 // The nice step for `count` ticks over `range`, and the finer one before it on the ladder (integers).
 function steps(range: number, count: number) {
   const s0 = range / count || 1;
@@ -149,7 +201,7 @@ type Scene = { key: string; camera: boolean; span: number; x0: number; x1: numbe
 
 // Arena-style labels: a pill (logo and name) just right of each line's tip.
 const PILL_ROOM = 190; // the plot's width past the leading edge, for the leader's pill
-const PILL_H = 20;
+const PILL_H = 22;
 const PILL_GAP = 7; // from the tip's dot to its pill
 
 // Pill centres, each as near its target as it can be: two pills whose spans overlap across x are
@@ -274,7 +326,7 @@ export default function CumulativeChart({
   const [hover, setHover] = useState<{ n: number; name: string } | null>(null);
   const [range, setRange] = useState(0); // 0: every hand
   // The Race filters, Arena style. They live here, so the overview tile (the same instance) shows them too.
-  const [metricPick, setMetric] = useState<'bb100' | 'chips'>('bb100');
+  const [metricPick, setMetric] = useState<'bb100' | 'chips'>('chips');
   const [lineup, setLineup] = useState<'seated' | 'all'>('seated');
   const [license, setLicense] = useState<License>('all');
   const [fams, setFams] = useState<string[]>([]); // none picked: every family
@@ -372,38 +424,36 @@ export default function CumulativeChart({
   const [wa, wb] = [windowOf(old), windowOf(scene)];
   const [X0, X1] = [lerp(wa[0], wb[0], k), lerp(wa[1], wb[1], k)];
 
-  // The y axis fits what is in view (and zero over the whole history once the race is over), rounded
-  // out to half a tick, and glides to each new fit: it rescales as the race moves, never snapping.
-  const ys = [...lines.values(), ...evs.values()].flatMap(p => trace(p, X0, X1, nowX).map(q => q[1]));
+  const fading = (was: Map<string, Pts>, is: Map<string, Pts>) => [...is.keys(), ...(k < 1 ? [...was.keys()].filter(n => !is.has(n)) : [])];
+  const fade = (was: Map<string, Pts>, is: Map<string, Pts>, n: string) => (is.has(n) ? (was.has(n) ? 1 : k) : 1 - k);
+  const drawnOf = (end: number, a?: Pts, b?: Pts) => (a && b && k < 1 ? trace(a, X0, X1, end, b, k) : trace((b ?? a)!, X0, X1, end));
+  const drawn = new Map(fading(old.lines, lines).map(n => [n, drawnOf(nowX, old.lines.get(n), lines.get(n))]));
+  // The all-in EV lines, dashed: every model's with the toggle on, else the hovered line's own (below).
+  const evDrawn = fading(old.evs, evs).map(n => ({ n, p: drawnOf(nowX, old.evs.get(n), evs.get(n)), o: fade(old.evs, evs, n) }));
+
+  // The vertical camera: the y axis fits the lines as drawn in the x window (not the whole history),
+  // with a little air, and eases there as a spring. Spikes that have scrolled off no longer flatten
+  // the pack, and two lines swapping places show their gap. Zero joins the static view of every hand.
+  const ys = [...drawn.values(), ...(luck ? evDrawn.map(e => e.p) : [])].flatMap(p => p.map(q => q[1]));
   if (sel) trace(pts(sel), X0, X1, nowX).forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
   if (whole && !playing) ys.push(0);
   let lo = Math.min(...ys), hi = Math.max(...ys);
   if (!Number.isFinite(lo)) [lo, hi] = [0, 1];
   if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
-  const air = (hi - lo) * 0.04;
-  const nice = niceTicks(lo, hi, 8);
-  const half = ((nice[1] ?? nice[0] + 1) - nice[0]) / 2;
-  const fit = [Math.floor((lo - air) / half) * half, Math.ceil((hi + air) / half) * half];
-  const [yr, setYr] = useState({ key: fit.join(), a: fit, b: fit });
-  const [mixY, setMixY] = useState(1);
-  if (yr.key !== fit.join()) {
-    setYr({ key: fit.join(), a: [lerp(yr.a[0], yr.b[0], mixY), lerp(yr.a[1], yr.b[1], mixY)], b: fit });
-    setMixY(0);
-  }
-  useEffect(() => {
-    if (reduce) return;
-    const c = animate(0, 1, { duration: TWEEN_S, ease: EASE, onUpdate: setMixY });
-    return () => c.stop();
-  }, [yr, reduce]);
-  const ky = reduce ? 1 : mixY;
-  const [Y0, Y1] = [lerp(yr.a[0], yr.b[0], ky), lerp(yr.a[1], yr.b[1], ky)];
+  const air = (hi - lo) * 0.06;
+  const cam = useCamera(lo - air, hi + air, !!reduce);
+  const [Y0, Y1] = [Math.min(cam[0], lo), Math.max(cam[1], hi)]; // a lagging camera never cuts off a tip
 
   // The design size the chart is laid out at, and the one scale that fits it in its box. Outside
   // the Race (the model drawer) it simply fills its box.
   const [lw, lh] = race ? [W, H] : [Math.max(box.w, 200), box.h];
   // The legend's rows are set aside, so a filter that changes its length never rescales the plot.
   const s = race ? Math.min(box.w / W, (box.h - (interactive ? LEGEND_H : 0)) / H) : 1;
-  const fs = 14;
+  // Text keeps the site's on-screen sizes (numbers at 14px, as the Profiles cells) however the chart
+  // is scaled: design units are screen px times u.
+  const u = race ? Math.min(1.5, Math.max(1, 1 / s)) : 1;
+  const fs = 14 * u;
+  const [pillH, pillRoom] = [PILL_H * u, PILL_ROOM * u];
   const right = 12;
   const left = 10 + fs * 0.62 * 8; // room for the widest y label ("−100,000"), so the plot never moves
   const padTop = fs + 14; // the y axis title sits above the plot
@@ -411,20 +461,14 @@ export default function CumulativeChart({
   const plotW = lw - left - right;
   const plotH = lh - padTop - padBottom;
   // The leading edge sits this far in from the right; the leader's pill rides just past it.
-  const leadW = plotW - (race ? PILL_ROOM : 0);
+  const leadW = plotW - (race ? pillRoom : 0);
   const x = (n: number) => left + ((n - X0) / (X1 - X0 || 1)) * leadW;
   const y = (v: number) => padTop + ((Y1 - v) / (Y1 - Y0 || 1)) * plotH;
   const line = (p: [number, number][]) => p.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
 
-  const fading = (was: Map<string, Pts>, is: Map<string, Pts>) => [...is.keys(), ...(k < 1 ? [...was.keys()].filter(n => !is.has(n)) : [])];
-  const fade = (was: Map<string, Pts>, is: Map<string, Pts>, n: string) => (is.has(n) ? (was.has(n) ? 1 : k) : 1 - k);
-  const drawnOf = (end: number, a?: Pts, b?: Pts) => (a && b && k < 1 ? trace(a, X0, X1, end, b, k) : trace((b ?? a)!, X0, X1, end));
-  const drawn = new Map(fading(old.lines, lines).map(n => [n, drawnOf(nowX, old.lines.get(n), lines.get(n))]));
   const shown = [...drawn.keys()].flatMap(n => (drawn.get(n)!.length && byName.has(n) ? [byName.get(n)!] : []));
   const hot = shown.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
   const ordered = [...shown.filter(m => m !== sel && m !== hot), ...(sel && sel !== hot && shown.includes(sel) ? [sel] : []), ...(hot ? [hot] : [])]; // selected, then hovered on top
-  // The all-in EV lines, dashed: every model's with the toggle on, else the hovered line's own.
-  const evDrawn = fading(old.evs, evs).map(n => ({ n, p: drawnOf(nowX, old.evs.get(n), evs.get(n)), o: fade(old.evs, evs, n) }));
   if (race && hot && !evDrawn.some(e => e.n === hot.name)) {
     const p = curveOf(hot, true);
     if (p.length) evDrawn.push({ n: hot.name, p: trace(p, X0, X1, nowX), o: 1 });
@@ -434,15 +478,14 @@ export default function CumulativeChart({
     ? line(selPts.map(([n, v]) => [n, v + bandAt(sel, n)])) +
       [...selPts].reverse().map(([n, v]) => `L${x(n)},${y(v - bandAt(sel, n))}`).join('') + 'Z'
     : '';
-  // Ticks of the old and the new range, each fading as the range tweens; a tick in both stays put.
+  // x ticks of the old and the new window, each fading as the window tweens; a tick in both stays put.
   const blend = (was: number[], is: number[], a: number, b: number, kk: number) =>
     [...new Set([...was, ...is])]
       .map(t => ({ t, o: is.includes(t) ? (was.includes(t) ? 1 : kk) : 1 - kk }))
       .filter(d => d.o > 0 && d.t >= Math.min(a, b) - 1e-6 && d.t <= Math.max(a, b) + 1e-6);
-  const yTicksOf = (a: number, b: number) => niceTicks(a, b, 8).filter(t => t >= a && t <= b);
   // x ticks never sit left of where the data starts.
   const xTicksOf = (a: number, b: number) => niceTicks(a, b, 10, true).filter(t => t >= Math.max(a, from) && t <= b);
-  const yTicks = blend(yTicksOf(yr.a[0], yr.a[1]), yTicksOf(yr.b[0], yr.b[1]), Y0, Y1, ky);
+  const yTicks = zoomTicks(Y0, Y1, 6); // they move with the camera's zoom
   // Under the camera the ticks slide with history, fading in at the leading edge and out at the left.
   // While the window widens, the finer step's ticks fade out as the coarser step takes over: no label pops.
   const st = steps(X1 - X0, 10);
@@ -462,10 +505,10 @@ export default function CumulativeChart({
       const [n, v] = p.at(-1)!;
       const tx = x(n);
       const grown = Math.min(1, Math.max(0, (tx - Math.max(left, x(pts(m)[0][0]))) / 24), Math.max(0, (tx - left) / 48));
-      return { m, n, v, tx, ty: y(v), w: Math.min(PILL_ROOM - 12, 34 + m.name.length * 7.4), o: fade(old.lines, lines, m.name) * grown };
+      return { m, n, v, tx, ty: y(v), w: Math.min(pillRoom - 12 * u, (36 + m.name.length * 8) * u), o: fade(old.lines, lines, m.name) * grown };
     })
     .sort((a, b) => b.v - a.v); // best first: ascending y
-  const pillYs = stack(ends.map(e => ({ x: e.tx + PILL_GAP, w: e.w, y: e.ty })), PILL_H + 3, padTop + PILL_H / 2, padTop + plotH - PILL_H / 2);
+  const pillYs = stack(ends.map(e => ({ x: e.tx + PILL_GAP, w: e.w, y: e.ty })), pillH + 3, padTop + pillH / 2, padTop + plotH - pillH / 2);
   // The collision effects play while the race does: a pill newly pushed by another shakes once, and
   // a line that passes another bursts in its colour at its tip. Each plays once per event.
   const live = race && playing && !reduce && k === 1;
@@ -573,7 +616,7 @@ export default function CumulativeChart({
         // One bar for every control; it wraps on narrow widths.
         <motion.div {...appear} className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[14px]" style={{ color: MUTED }}>
           <Field label="Metric">
-            <Segmented label="Metric" options={[{ label: 'bb/100', value: 'bb100' as const }, { label: 'Chips', value: 'chips' as const }]} value={metricPick} onChange={setMetric} />
+            <Segmented label="Metric" options={[{ label: 'Chips', value: 'chips' as const }, { label: 'bb/100', value: 'bb100' as const }]} value={metricPick} onChange={setMetric} />
           </Field>
           <Field label="Lineup">
             <Segmented label="Lineup" options={[{ label: 'Seated now', value: 'seated' as const }, { label: 'All models', value: 'all' as const, disabled: !everyone?.length }]} value={lineup} onChange={setLineup} />
@@ -612,6 +655,9 @@ export default function CumulativeChart({
             both of its boxes have the same shape, so the glide scales it evenly. */}
         <motion.div
           ref={plot}
+          // For checks: the plot's band and the y axis' range now, in design units (pills carry data-ty).
+          data-plot={`${padTop.toFixed(1)},${plotH.toFixed(1)}`}
+          data-y-range={`${Y0},${Y1}`}
           layout={race}
           layoutDependency={`${mini}:${s}:${box.w}:${box.h}`}
           transition={GLIDE}
@@ -636,7 +682,7 @@ export default function CumulativeChart({
               {yTicks.map(({ t, o }) => (
                 <g key={t} opacity={o}>
                   <line x1={left} x2={lw - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.5)' : GRID} />
-                  <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={fs} fill={AXIS} className="tabular-nums">{tick(t)}</text>
+                  <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={fs} fill={AXIS} className="tabular-nums" data-y-tick>{tick(t)}</text>
                 </g>
               ))}
               <line x1={left} x2={left} y1={padTop} y2={padTop + plotH} stroke={GRID} />
@@ -666,7 +712,7 @@ export default function CumulativeChart({
               {race && ends.map((e, i) => (
                 // The tip's dot, and a dotted leader to its pill when stacking moved the pill off the line.
                 <g key={e.m.name} opacity={(hot && hot !== e.m ? 0.3 : 1) * e.o}>
-                  {Math.abs(pillYs[i] - e.ty) > PILL_H / 2 && <path d={`M${e.tx},${e.ty}L${e.tx + PILL_GAP},${pillYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none" opacity={0.7} />}
+                  {Math.abs(pillYs[i] - e.ty) > pillH / 2 && <path d={`M${e.tx},${e.ty}L${e.tx + PILL_GAP},${pillYs[i]}`} stroke={modelColor(e.m.name)} strokeWidth={1} strokeDasharray="2 2" fill="none" opacity={0.7} />}
                   <circle cx={e.tx} cy={e.ty} r={3.5} fill={modelColor(e.m.name)} stroke="white" strokeWidth={1.5} />
                 </g>
               ))}
@@ -700,15 +746,16 @@ export default function CumulativeChart({
                 aria-pressed={selected === e.m.name}
                 tabIndex={interactive ? undefined : -1}
                 aria-hidden={interactive ? undefined : true}
-                className={`absolute flex items-center rounded-full border-[1.5px] px-1.5 text-[13px] leading-none text-left ${interactive ? '' : 'pointer-events-none'}`}
+                data-ty={e.ty.toFixed(1)}
+                className={`absolute flex items-center rounded-full border-[1.5px] leading-none text-left tabular-nums ${interactive ? '' : 'pointer-events-none'}`}
                 style={{
-                  left: e.tx + PILL_GAP, top: pillYs[i] - PILL_H / 2, height: PILL_H, maxWidth: PILL_ROOM - 12, color: TEXT,
+                  left: e.tx + PILL_GAP, top: pillYs[i] - pillH / 2, height: pillH, maxWidth: pillRoom - 12 * u, color: TEXT, fontSize: fs, paddingInline: 6 * u,
                   borderColor: modelColor(e.m.name), opacity: (hot && hot !== e.m ? 0.45 : 1) * e.o,
                   background: selected === e.m.name ? `color-mix(in srgb, ${modelColor(e.m.name)} 16%, white)` : 'white',
                 }}
               >
                 <span ref={el => { if (el) pillEls.current.set(e.m.name, el); else pillEls.current.delete(e.m.name); }} className="flex min-w-0 items-center gap-1">
-                  <LLMLogo model={e.m.name} size={14} />
+                  <LLMLogo model={e.m.name} size={Math.round(15 * u)} />
                   <span className={`min-w-0 truncate ${e.m === hot || i === 0 ? 'font-bold' : 'font-medium'}`}>{e.m.name}</span>
                 </span>
               </button>
@@ -737,8 +784,10 @@ export default function CumulativeChart({
               <div
                 ref={tipRef}
                 aria-hidden
-                className="absolute z-10 pointer-events-none rounded bg-white px-2.5 py-2 text-[14px] tabular-nums"
+                data-readout
+                className="absolute z-10 pointer-events-none rounded bg-white tabular-nums"
                 style={{
+                  fontSize: fs, padding: `${8 * u}px ${10 * u}px`,
                   top: padTop,
                   left: Math.min(crossX + 12, lw - 4),
                   boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px',
@@ -746,10 +795,10 @@ export default function CumulativeChart({
               >
                 <div className="font-bold mb-1" style={{ color: TEXT }}>Hand {hover.n.toLocaleString()}</div>
                 {readout.map(({ m, v }) => (
-                  <div key={m.name} className={`flex items-center gap-2 whitespace-nowrap leading-[20px] ${m === hot ? 'font-bold' : ''}`} style={{ color: TEXT }}>
+                  <div key={m.name} className={`flex items-center gap-2 whitespace-nowrap ${m === hot ? 'font-bold' : ''}`} style={{ color: TEXT, lineHeight: `${20 * u}px` }}>
                     <span aria-hidden className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: modelColor(m.name) }} />
                     <span className="flex-1 min-w-0">{m.name}</span>
-                    <span className="pl-4" style={{ color: netColor(v) }}>{fmt(v)} {unit}</span>
+                    <span data-readout-value className="pl-4" style={{ color: netColor(v) }}>{fmt(v)} {unit}</span>
                   </div>
                 ))}
               </div>
