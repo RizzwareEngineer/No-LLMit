@@ -590,7 +590,8 @@ export default function CumulativeChart({
     const p = curveOf(hot, true);
     if (p.length) evDrawn.push({ n: hot.name, p: trace(p, X0, X1, nowX), o: 1 });
   }
-  const selPts = sel ? drawn.get(sel.name) ?? [] : [];
+  // The selected line's 95% band, from where the y fit takes the line (a rate's band over its first hands is boundless).
+  const selPts = sel ? fitted(sel.name, drawn.get(sel.name) ?? []) : [];
   const bandPath = sel && selPts.length
     ? line(selPts.map(([n, v]) => [n, v + bandAt(sel, n)])) +
       [...selPts].reverse().map(([n, v]) => `L${x(n)},${y(v - bandAt(sel, n))}`).join('') + 'Z'
@@ -611,8 +612,13 @@ export default function CumulativeChart({
   const g0 = between(ya.step) >= 6 && between(ya.step) <= 8 ? null : gridTicks(Y0, Y1);
   const yStep = g0 ? (g0.length > 1 ? +(g0[1] - g0[0]).toPrecision(12) : 1) : ya.step;
   const yTicks = Array.from({ length: Math.max(0, between(yStep)) }, (_, i) => +((Math.ceil(Y0 / yStep - 1e-9) + i) * yStep).toPrecision(12));
-  const yGone = [...new Set([...(yStep === ya.step ? ya.gone : []), ...ya.shown])].filter(t => !yTicks.includes(t) && t >= Y0 && t <= Y1);
-  if (yStep !== ya.step || yTicks.join() !== ya.shown.join()) setYa({ step: yStep, shown: yTicks, gone: yGone });
+  // A label on its way out goes at once when it would touch one that stays (or one leaving that is kept before it), so
+  // labels never overlap while a step change crossfades them; it does not come back.
+  const near = (a: number, b: number) => Math.abs(y(a) - y(b)) < ts * 1.3;
+  const yGone = [...new Set([...(yStep === ya.step ? ya.gone : []), ...ya.shown])]
+    .filter(t => !yTicks.includes(t) && t >= Y0 && t <= Y1)
+    .reduce<number[]>((kept, t) => (yTicks.some(u => near(u, t)) || kept.some(u => near(u, t)) ? kept : [...kept, t]), []);
+  if (yStep !== ya.step || yTicks.join() !== ya.shown.join() || yGone.join() !== ya.gone.join()) setYa({ step: yStep, shown: yTicks, gone: yGone });
   const edge = (t: number) => Math.max(0, Math.min(1, (t - Y0) / ((Y1 - Y0) * 0.02 || 1), (Y1 - t) / ((Y1 - Y0) * 0.02 || 1)));
   // Under the camera the ticks slide with history, fading in at the leading edge and out at the left.
   // While the window widens, the finer step's ticks fade out as the coarser step takes over: no label pops.

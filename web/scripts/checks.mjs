@@ -393,6 +393,19 @@ const camRun = async () => {
         out.push({
           t: (performance.now() - t0) * S, y0, y1, fit: plot.dataset.yFit, fill: tys.length > 1 ? (Math.max(...tys) - Math.min(...tys)) / h : null,
           out: tys.length ? Math.max(0, top - Math.min(...tys), Math.max(...tys) - top - h) : 0, labels: ticks.join(' '), nTicks: ticks.length,
+          // The worst vertical overlap (px) between two y labels that show at all (fading ones too), and which.
+          ylab: (() => {
+            const ls = [...plot.querySelectorAll('svg text[text-anchor=end]')].map(e => {
+              let o = 1; for (let n = e; n && n !== plot; n = n.parentElement) o *= +getComputedStyle(n).opacity;
+              const r = e.getBoundingClientRect(); return { t: e.textContent, o, top: r.top, bottom: r.bottom };
+            }).filter(l => l.o > 0.05 && l.bottom > l.top);
+            let worst = 0, pair = '';
+            for (let i = 0; i < ls.length; i++) for (let j = i + 1; j < ls.length; j++) {
+              const ov = Math.min(ls[i].bottom, ls[j].bottom) - Math.max(ls[i].top, ls[j].top);
+              if (ov > worst) [worst, pair] = [ov, `${ls[i].t}/${ls[j].t}`];
+            }
+            return { worst, pair, n: ls.length };
+          })(),
           order: pills.slice().sort((a, b) => +a.dataset.rank - +b.dataset.rank).map(name).join('|'),
           emph: pills.filter(e => e.hasAttribute('data-emph')).map(name), lineEmph: plot.querySelectorAll('path[data-emph]').length,
           markers: [...plot.querySelectorAll('[data-overtake-marker]')].map(e => e.dataset.overtakeMarker),
@@ -465,6 +478,14 @@ main(() => check('history-y-dynamic', 'The y axis follows the lines in view: it 
   const pct = f => (f == null ? 'no tips' : `${(f * 100).toFixed(0)}%`);
   const both = i => `${pct(fills[i])} (recent ${pct(spans[i])})`;
   return { pass: ok, detail: `fill 10s ${both(0)}, 30s ${both(1)}, 50s ${both(2)}, rest ${both(3)}; axis moved in ${((moved / (ss.length || 1)) * 100).toFixed(0)}% of frames (${wider} wider, ${narrower} narrower), worst ${(worst * 100).toFixed(1)}% per frame; tips outside the plot in ${outs.length} frames` };
+}));
+// Y labels never overlap (orchestrator 2026-11-08, from the pages-flow worker: Trends y-axis labels overlapped mid-
+// animation, "800/750"): when the gridlines' step changes, the old labels fade out as the new fade in; one on its way
+// out gives way at once to a label it would touch. Checked in every frame of the replay, fading labels included.
+main(() => check('history-y-labels-apart', 'No two Trends y-axis labels overlap in any frame of the replay, fading ones included', async () => {
+  const ss = (await camRun()).filter(s => s.ylab), bad = ss.filter(s => s.ylab.worst > 1);
+  const worst = ss.reduce((m, s) => (s.ylab.worst > m.ylab.worst ? s : m), ss[0]);
+  return { pass: ss.length > 100 && !bad.length, detail: `${bad.length} of ${ss.length} frames with labels overlapping${bad.length ? `; worst ${worst.ylab.worst.toFixed(1)}px (${worst.ylab.pair}) at ${(worst.t / 1000).toFixed(1)} s` : ''}` };
 }));
 // Gaps readable: 6–8 labelled gridlines at rest, and at least 6 through nearly all of the replay.
 main(() => check('history-y-gridlines', 'At least 6 labelled y gridlines (6–8 at rest, ≥6 in 90% of replay frames)', async () => {
