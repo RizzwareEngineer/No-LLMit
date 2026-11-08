@@ -48,3 +48,9 @@ npm/next wrapper). The check script closes its headless Chrome even when it cras
 orchestrator runs `scripts/stop-server.sh` with no ports in every progress update: it lists any Next
 server not on :3100 and any headless Chrome older than 30 minutes, and anything that belongs to no
 running worker is stopped.
+
+## The owner's preview (:3100)
+Never edit `web/next.config.ts`, `tsconfig.json` or anything else that restarts the :3100 dev
+server while the owner may have it open: a restart hot-reloads open tabs into a broken mix of old
+and new CSS (tiles stretched wall to wall, charts small, empty bands). If such a change is needed,
+say so first; after it lands, restart :3100 and ask the owner to hard-refresh (Cmd+Shift+R).
