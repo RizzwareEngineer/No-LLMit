@@ -113,8 +113,8 @@ const NONE = { duration: 0 } as const;
 const OUT = { duration: 0.12, ease: 'easeOut' } as const;
 const IN = { duration: 0.3, delay: 0.08, ease: 'easeOut' } as const;
 
-// A tile of the overview: a linked title, a teaser and an "Open ↓" affordance. A click (or Enter or
-// Space with the tile focused) calls onOpen, except on links and controls inside it.
+// A tile of the overview: a title, a teaser and an "Open ↓" affordance. A click (or Enter or
+// Space with the tile focused: it is a tab stop) calls onOpen, except on links and controls inside it.
 // `focused`: the tile stands in its screen card's place; motion's layout animation turns that jump
 // into a glide (transforms only, nothing under reduced motion). `fit` sets that place: a height in px
 // or 'content', centred in the stage at the stage's width, or 'hug' (its content's width and height,
@@ -126,7 +126,6 @@ const IN = { duration: 0.3, delay: 0.08, ease: 'easeOut' } as const;
 // `extra` (the card's header extras) fades in the same way. The body scrolls inside itself when it overflows.
 export default function Panel({
   id,
-  href,
   title,
   aside,
   extra,
@@ -141,7 +140,6 @@ export default function Panel({
   children,
 }: {
   id: string;
-  href: string;
   title: React.ReactNode;
   aside?: React.ReactNode;
   extra?: React.ReactNode; // header extras of the card this tile stands in for, while focused
@@ -184,8 +182,7 @@ export default function Panel({
       inert={covered}
       tabIndex={overview ? 0 : -1}
       onClick={overview ? e => {
-        const t = e.target as Element;
-        if (t.closest(`#${id}-title a`) || !t.closest('a, button, select, input, label')) open(e);
+        if (!(e.target as Element).closest('a, button, select, input, label')) open(e);
       } : undefined}
       onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && open(e) : undefined}
       className={`${CARD} overflow-hidden ${!focused ? 'relative flex-1' : fit === undefined ? 'absolute inset-0' : fit === 'hug' ? `absolute ${HUG}` : `absolute inset-x-0 inset-y-0 my-auto max-h-full ${fit === 'content' ? 'h-fit' : ''}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''}`}
@@ -193,8 +190,8 @@ export default function Panel({
     >
       <motion.div layout="position" transition={move} className={HEADER}>
         <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>
-          {/* Not a tab stop: the tile itself is the one stop that opens it. */}
-          <a href={href} tabIndex={-1} className="hover:underline">{title}</a>
+          {/* No link (the URL never names a stats screen): the tile itself is the one tab stop that opens it. */}
+          <span className="hover:underline">{title}</span>
         </h2>
         <div className="flex items-center gap-4">
           {aside}
