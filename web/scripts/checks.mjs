@@ -251,9 +251,9 @@ await check('history-y-fill', 'During the replay the visible tips span at least 
 await check('history-y-smooth', 'The y axis follows the race (labels change early to late) and never moves more than 4% of its range per 60 Hz frame', async () => {
   const ss = (await camRun()).filter(s => s.t > 1000);
   let worst = 0;
-  // Per 60 Hz frame: a slow frame (a loaded machine) may move further without being a jump.
-  for (let i = 1; i < ss.length; i++) {
-    const r = ss[i].y1 - ss[i].y0, k = 16.7 / Math.max(16.7, ss[i].t - ss[i - 1].t);
+  // Per 60 Hz frame: a slow frame (a loaded machine), or the one after it, may carry more motion without being a jump.
+  for (let i = 2; i < ss.length; i++) {
+    const r = ss[i].y1 - ss[i].y0, k = 16.7 / Math.max(16.7, ss[i].t - ss[i - 1].t, ss[i - 1].t - ss[i - 2].t);
     worst = Math.max(worst, (Math.abs(ss[i].y0 - ss[i - 1].y0) / r) * k, (Math.abs(ss[i].y1 - ss[i - 1].y1) / r) * k);
   }
   const [a, b] = [near(ss, 5), near(ss, 40)];

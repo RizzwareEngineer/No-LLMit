@@ -153,10 +153,8 @@ export function zoomTicks(a: number, b: number, count: number) {
 }
 
 // The vertical camera: [lo, hi] follows its target as a critically damped spring, so the y axis eases
-// to each new fit with no overshoot, no jump when the target moves and no per-frame jitter. It widens
-// three times faster than it narrows, so a line breaking out is caught at once and the pack is
-// zoomed in on gently.
-const CAM_W = 7; // the spring's rate, 1/s: a narrowing settles in about 0.8 s
+// to each new fit with no overshoot, no jump when the target moves and no per-frame jitter.
+const CAM_W = 7; // the spring's rate, 1/s: a step settles in about 0.8 s, trailing a moving target by 2/CAM_W
 function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
   const [cur, setCur] = useState<[number, number]>([lo, hi]);
   const cam = useRef({ x: [lo, hi], v: [0, 0], tgt: [lo, hi], t: 0, raf: 0 });
@@ -172,9 +170,8 @@ function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
       c.t = t;
       let still = true;
       for (let i = 0; i < 2; i++) {
-        const w = (i ? c.tgt[1] > c.x[1] : c.tgt[0] < c.x[0]) ? CAM_W * 3 : CAM_W, e = Math.exp(-w * dt);
-        const d = c.x[i] - c.tgt[i], m = (c.v[i] + w * d) * dt;
-        c.v[i] = (c.v[i] - w * m) * e;
+        const e = Math.exp(-CAM_W * dt), d = c.x[i] - c.tgt[i], m = (c.v[i] + CAM_W * d) * dt;
+        c.v[i] = (c.v[i] - CAM_W * m) * e;
         c.x[i] = c.tgt[i] + (d + m) * e;
         if (Math.abs(c.x[i] - c.tgt[i]) > span * 1e-4 || Math.abs(c.v[i]) > span * 1e-3) still = false;
       }
@@ -436,6 +433,10 @@ export default function CumulativeChart({
   // with a little air, and eases there as a spring. Spikes that have scrolled off no longer flatten
   // the pack, and two lines swapping places show their gap. Zero joins the static view of every hand.
   const ys = [...drawn.values(), ...(luck ? evDrawn.map(e => e.p) : [])].flatMap(p => p.map(q => q[1]));
+  // While the race plays the camera looks 0.5 s ahead (the replay is recorded; the spring trails by
+  // about 0.3 s), so it starts widening before a line breaks out instead of chasing it.
+  const ahead = (lastHand - from) * (0.5 / 60);
+  if (playing) for (const p of lines.values()) ys.push(...sampleAt(p, Array.from({ length: 9 }, (_, i) => nowX + (ahead * i) / 8)).filter((_, i) => p[0][0] <= nowX + (ahead * i) / 8));
   if (sel) trace(pts(sel), X0, X1, nowX).forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
   if (whole && !playing) ys.push(0);
   let lo = Math.min(...ys), hi = Math.max(...ys);
