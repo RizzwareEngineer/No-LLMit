@@ -118,6 +118,25 @@ await check('history-camera-follows', 'While replaying, the leading tips stay pu
   const slid = ta[0] !== tb[0] || Math.abs(ta[1] - tb[1]) > 4;
   return { pass: Math.abs(a - b) <= 6 && slid, detail: `lead tip ${a.toFixed(0)} → ${b.toFixed(0)}, first tick ${ta[0]}@${ta[1].toFixed(0)} → ${tb[0]}@${tb[1].toFixed(0)}` };
 });
+// Like Arena: every line's tip is "now", so the tips share one x; and the plot is never mostly
+// empty, because the window starts at the first hand until the lines reach the camera's edge.
+await check('history-tips-aligned', 'All line tips sit at the same x (one shared clock, like Arena)', async () => {
+  const xs = await pg.evaluate(() => [...document.querySelectorAll('[data-pill]')].filter(e => getComputedStyle(e).opacity > 0.5).map(e => +e.dataset.tipX).filter(Number.isFinite));
+  if (xs.length < 2) return { pass: false, detail: `${xs.length} pills` };
+  const spread = Math.max(...xs) - Math.min(...xs);
+  return { pass: spread <= 6, detail: `${xs.length} tips spread over ${spread.toFixed(0)}px` };
+});
+await check('history-no-empty-left', 'The lines start at the plot\'s left edge (no empty band before them)', async () => {
+  const r = await pg.evaluate(() => {
+    const svg = [...document.querySelectorAll('svg')].filter(e => { const b = e.getBoundingClientRect(); return b.width > 300 && b.top < innerHeight && b.bottom > 0; }).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+    const xs = [...svg.querySelectorAll('[data-x-tick]')].map(t => t.getBoundingClientRect().left);
+    const paths = [...svg.querySelectorAll('path')].filter(p => (p.getAttribute('stroke') || '').startsWith('#') || (p.getAttribute('stroke') || '').startsWith('rgb') ).map(p => p.getBoundingClientRect()).filter(b => b.width > 10);
+    const plotLeft = Math.min(...xs, ...paths.map(b => b.left)), leftmostLine = Math.min(...paths.map(b => b.left)), right = Math.max(...paths.map(b => b.right));
+    const box = svg.getBoundingClientRect();
+    return { gap: (leftmostLine - box.left) / box.width, width: (right - leftmostLine) / box.width };
+  });
+  return { pass: r.gap <= 0.12 && r.width >= 0.5, detail: `lines start ${(r.gap * 100).toFixed(0)}% in and span ${(r.width * 100).toFixed(0)}% of the plot` };
+});
 await check('replay-no-reset', 'The replay never restarts on open, back or scroll', async () => {
   const playing = await pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
   if (!playing && !(await clickText(pg, 'Replay'))) return { pass: false, detail: 'neither Skip nor Replay shown' };
