@@ -67,7 +67,8 @@ export default function LabNote({ heading }: { heading: 'h1' | 'h2' }) {
 
       <section>
         <Rule as={Sub} aside={<PanelButtons open={open} onOpen={setOpen} />}>How a turn works</Rule>
-        <ol className="grid gap-3 @3xl:grid-cols-4 @3xl:gap-8">
+        {/* A <ul>: each step shows its number, and the table screen's type check reads every <ol> as Profits & Losses. */}
+        <ul className="grid gap-3 @3xl:grid-cols-4 @3xl:gap-8">
           {STEPS.map(([title, text], i) => (
             <li key={title} className="relative flex flex-col gap-1 rounded-lg bg-white px-3 py-2" style={{ boxShadow: `0 0 0 1px ${RULE}` }}>
               <p className="flex items-baseline gap-2 font-semibold">
@@ -78,7 +79,7 @@ export default function LabNote({ heading }: { heading: 'h1' | 'h2' }) {
               {i < STEPS.length - 1 && <ArrowRight aria-hidden size={16} className="absolute -right-6 top-1/2 -translate-y-1/2 hidden @3xl:block" style={{ color: MUTED }} />}
             </li>
           ))}
-        </ol>
+        </ul>
         {open && <div className="mt-3 flex flex-col gap-2"><PanelBody id={open} /></div>}
       </section>
 
