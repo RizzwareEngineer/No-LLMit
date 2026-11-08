@@ -1272,7 +1272,7 @@ await check('matchups-tile-no-total', 'The Matchups tile has no Total column; th
 // card cut off names and its last column, the overview cut off its last row. The Trends plot is at least 200px
 // tall where the chart's 2.6:1 shape allows it at the card's full width (a 390px phone: about 129px; a taller
 // plot there needs a phone shape in CumulativeChart).
-await check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'s plot fills its width (200px+ tall where the shape allows), table and matrix rows at least 24px and never overlapping, model names in Profiles and Matchups, nothing clipped without a way to scroll to it', async () => {
+await check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'s plot fills its width (200px+ tall where the shape allows) and the card hugs it, table and matrix rows at least 24px and never overlapping, model names in Profiles and Matchups, nothing clipped without a way to scroll to it', async () => {
   const bad = [], seen = [];
   // Rows of `sel`: each at least 24px, none overlapping the next; names (`names`) visible: 5+ at least 30px wide;
   // every element of `reach` inside every clipping ancestor, and never before a scroller's start.
@@ -1317,6 +1317,9 @@ await check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'s plot
     const shape = c ? Math.min(200, (c.w * 470) / 1220) : 200; // the chart's height at its width, at most the 200px floor
     seen.push(`${size} Trends plot ${c ? `${c.w.toFixed(0)}x${c.h.toFixed(0)}` : 'missing'}`);
     if (!c || c.h < shape - 2) bad.push(`${size}: Trends plot ${c ? `${c.w.toFixed(0)}x${c.h.toFixed(0)}` : 'missing'} (want ${shape.toFixed(0)}px tall)`);
+    // The card hugs its content: no band over 24px under its legend.
+    const slack = await p.evaluate(() => { const c = document.getElementById('race-panel'), r = c.getBoundingClientRect(); const low = Math.max(...[...c.querySelectorAll('*')].filter(e => !e.childElementCount || e.tagName === 'svg').map(e => e.getBoundingClientRect()).filter(b => b.width > 0 && b.height > 0).map(b => b.bottom)); return r.bottom - 16 - low; });
+    if (slack > 24) bad.push(`${size} Trends card: ${slack.toFixed(0)}px empty under its content`);
     const legend = await inspect(p, '#race-panel h2', '#none', '#race-panel h2, #race-panel [role=group]');
     if (legend.cut.length) bad.push(`${size} Trends card: ${legend.cut.slice(0, 4).join(', ')}`);
     await goto(p, 'stats-table'); await sleep(1500);

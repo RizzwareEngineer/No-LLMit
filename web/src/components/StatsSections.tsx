@@ -94,7 +94,10 @@ export default memo(function StatsSections({
         for (let e = root?.lastElementChild as HTMLElement | null; e && e !== sec; e = e.offsetParent as HTMLElement | null) above += e.offsetTop;
         // Under the plot, the card's legend: LEGEND reserved, more where a phone wraps it to more rows.
         const area = root?.lastElementChild as HTMLElement | null;
-        const legend = zoomedNow ? Math.max(LEGEND, (area?.scrollHeight ?? 0) - ((area?.firstElementChild as HTMLElement | null)?.offsetHeight ?? 0)) : 0;
+        // Its content's extent, not the box's height (which follows the card's: that would feed back).
+        const parts = area ? ([...area.children] as HTMLElement[]) : [];
+        const under = Math.max(0, ...parts.map(k => k.offsetTop + k.offsetHeight)) - (parts[0]?.offsetHeight ?? 0);
+        const legend = zoomedNow ? Math.max(LEGEND, under) : 0;
         const h = Math.ceil(above + ((sec.clientWidth - 32) * H) / W + legend + 16);
         (zoomedNow ? setRaceFit : setRaceTile)(keep(h));
         return;
