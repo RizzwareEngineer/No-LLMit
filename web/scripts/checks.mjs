@@ -167,7 +167,7 @@ const camRun = async () => {
       if (plot) {
         const [top, h] = plot.dataset.plot.split(',').map(Number), [y0, y1] = plot.dataset.yRange.split(',').map(Number);
         const tys = [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5).map(e => +e.dataset.ty);
-        const labels = [...plot.querySelectorAll('[data-y-tick]')].filter(e => +e.parentElement.getAttribute('opacity') > 0.5).map(e => e.textContent).join(' ');
+        const labels = [...plot.querySelectorAll('[data-y-tick]')].filter(e => +e.getAttribute('opacity') > 0.5).map(e => e.textContent).join(' ');
         out.push({ t: performance.now() - t0, y0, y1, fill: tys.length > 1 ? (Math.max(...tys) - Math.min(...tys)) / h : null, out: tys.length ? Math.max(0, top - Math.min(...tys), Math.max(...tys) - top - h) : 0, labels });
       }
       if (performance.now() - t0 < 41_000) requestAnimationFrame(f);

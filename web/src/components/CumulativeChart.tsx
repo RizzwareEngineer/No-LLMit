@@ -136,17 +136,18 @@ export function onTable(tl: Timeline, name: string, curve: Pts, hands: number): 
 
 // Ticks over [a, b] on a nested ladder of steps (each a multiple of the one before: 1, 5, 10, 50, …),
 // each with an opacity: the finer step's ticks fade out as the range grows toward the coarser step,
-// and ticks fade out near the ends. So a y axis that zooms never pops a label.
+// and ticks fade out near the ends. So a y axis that zooms never pops a label. `major`: on the coarser step.
 export function zoomTicks(a: number, b: number, count: number) {
   const s0 = (b - a) / count || 1;
   const mag = 10 ** Math.floor(Math.log10(s0));
   const [finer, step] = s0 <= 5 * mag ? [mag, 5 * mag] : [5 * mag, 10 * mag];
   const fine = (step - s0) / (step - finer), edge = (b - a) * 0.03;
-  const out: { t: number; o: number }[] = [];
+  const out: { t: number; o: number; major: boolean }[] = [];
   for (let i = Math.ceil(a / finer); i * finer <= b; i++) {
     const t = +(i * finer).toPrecision(12);
-    const o = Math.min(Math.abs(t / step - Math.round(t / step)) < 1e-6 ? 1 : fine, (b - t) / edge, (t - a) / edge, 1);
-    if (o > 0.01) out.push({ t, o });
+    const major = Math.abs(t / step - Math.round(t / step)) < 1e-6;
+    const o = Math.min(major ? 1 : fine, (b - t) / edge, (t - a) / edge, 1);
+    if (o > 0.01) out.push({ t, o, major });
   }
   return out;
 }
@@ -486,6 +487,8 @@ export default function CumulativeChart({
   // x ticks never sit left of where the data starts.
   const xTicksOf = (a: number, b: number) => niceTicks(a, b, 10, true).filter(t => t >= Math.max(a, from) && t <= b);
   const yTicks = zoomTicks(Y0, Y1, 6); // they move with the camera's zoom
+  // A finer tick's label also fades out as the labels close up, so two never overlap.
+  const fineGap = Math.min(1, Math.max(0, ((yTicks.find(d => !d.major) ? Math.min(...yTicks.slice(1).map((d, i) => d.t - yTicks[i].t)) : Infinity) / (Y1 - Y0 || 1) * plotH - 1.6 * fs) / fs));
   // Under the camera the ticks slide with history, fading in at the leading edge and out at the left.
   // While the window widens, the finer step's ticks fade out as the coarser step takes over: no label pops.
   const st = steps(X1 - X0, 10);
@@ -679,10 +682,10 @@ export default function CumulativeChart({
               {/* Axis titles: the unit above the y labels, the hands under the x labels. */}
               <text x={4} y={fs} fontSize={fs} fontWeight={600} fill={AXIS}>{yTitle}</text>
               <text x={left + plotW / 2} y={lh - 4} textAnchor="middle" fontSize={fs} fontWeight={600} fill={AXIS}>Hands played</text>
-              {yTicks.map(({ t, o }) => (
-                <g key={t} opacity={o}>
-                  <line x1={left} x2={lw - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.5)' : GRID} />
-                  <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={fs} fill={AXIS} className="tabular-nums" data-y-tick>{tick(t)}</text>
+              {yTicks.map(({ t, o, major }) => (
+                <g key={t}>
+                  <line x1={left} x2={lw - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.5)' : GRID} opacity={o} />
+                  <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={fs} fill={AXIS} opacity={major ? o : o * fineGap} className="tabular-nums" data-y-tick>{tick(t)}</text>
                 </g>
               ))}
               <line x1={left} x2={left} y1={padTop} y2={padTop + plotH} stroke={GRID} />
