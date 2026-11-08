@@ -16,7 +16,7 @@ step "engine: go vet + go test"
 (cd "$ROOT/engine" && go vet ./... && go test ./... >/tmp/verify-go.$$ 2>&1; s=$?; tail -8 /tmp/verify-go.$$; rm -f /tmp/verify-go.$$; exit $s) || fail=1
 
 step "llm: pytest"
-(cd "$ROOT/llm" && PYTHONPATH=. uv run --quiet --with pytest --with httpx pytest -q 2>&1 | tail -3; exit "${PIPESTATUS[0]}") || fail=1
+(cd "$ROOT/llm" && PYTHONPATH=. uv run --quiet --no-project --with-requirements requirements.txt --with pytest --with httpx pytest -q 2>&1 | tail -3; exit "${PIPESTATUS[0]}") || fail=1
 
 step "web: tsc"
 (cd "$ROOT/web" && npx tsc --noEmit -p .) || fail=1
