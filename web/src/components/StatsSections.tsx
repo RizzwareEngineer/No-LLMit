@@ -4,7 +4,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExt
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
 import { Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, GLIDE_MS, HEADER, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE_MS, HEADER, HUG, TITLE, backToOverview, currentScreen, hold, setScreen } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
 import StatsTable from '@/components/StatsTable';
 import HeadToHead, { pairwiseLeader } from '@/components/HeadToHead';
@@ -334,10 +334,8 @@ export default memo(function StatsSections({
         <Recede by={statsScreen} timeline="--card-stats" ref={stage} className="sticky top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px]">
           <div className={`@container ${BLOCK} ${EDGE}`} style={BLOCK_VARS}>
             {/* Overview: three tiles, each a miniature of its screen, History on top (stacked on phones).
-                Every size comes from content and fixed shapes, never the window's height: History's row
-                is its chart's shape at the block's width plus the tile's padding and header (72px), the
-                second row holds ten fixed-height table rows (and Matchups' square of ten cells), and the
-                block's width is what lets the two fit the window, at most 1252px, centred. */}
+                History's row is its chart's shape at the block's width plus the tile's padding and header
+                (72px); the second row is a share of it (BLOCK_VARS), split into Profiles and Matchups. */}
             <div className="relative h-full md:h-(--block-h) grid gap-3 grid-cols-1 grid-rows-[repeat(3,minmax(0,1fr))] md:grid-cols-[minmax(0,1fr)_var(--col2)] md:grid-rows-[var(--row1)_var(--row2)]">
               <Panel id="race-panel" title="History" href="#race" away={{ y: -1 }} className="row-start-1 md:col-span-2" aside={lead} fit={raceFit} {...tile('race')}>
                 {stale}
@@ -367,6 +365,7 @@ export default memo(function StatsSections({
                 away={{ x: 1 }}
                 className="row-start-3 md:row-start-2 md:col-start-2"
                 extra={on === 'pairwise' && <div className={ASIDE}>{lead}</div>}
+                fit="hug"
                 {...tile('pairwise')}
               >
                 {pairwiseBody(on === 'pairwise', !snap)}
@@ -382,7 +381,7 @@ export default memo(function StatsSections({
           {statsBody(true)}
         </Card>
 
-        <Card id="pairwise-card" title="Matchups" aside={lead} z="z-20">
+        <Card id="pairwise-card" title="Matchups" aside={lead} z="z-20" fit="hug">
           {pairwiseBody(true)}
         </Card>
       </div>
@@ -417,8 +416,16 @@ function AtHand({ tl, models, children }: { tl: Timeline | null; models: ModelSt
 
 // Profiles at the latest snapshot at or before the hand History is replaying (so they change every
 // profile_step hands, not every hand), else now. `pending`: no hands yet then; `hand`: the snapshot's.
+// A snapshot waits until the rows' last slide (0.3s) has finished, so rows never pile up mid-slide.
 function useProfilesAt(tl: Timeline | null, models: ModelStats[]) {
-  const i = useReplaySnap(tl);
+  const want = useReplaySnap(tl);
+  const [i, setI] = useState(want);
+  const at = useRef(0);
+  useEffect(() => {
+    if (want === i) return;
+    const t = setTimeout(() => { at.current = performance.now(); setI(want); }, Math.max(0, at.current + SLIDE_MS - performance.now()));
+    return () => clearTimeout(t);
+  }, [want, i]);
   return useMemo(
     () => (i === null ? { shown: models, pending: [], hand: null } : { ...profilesAt(tl!, models, i), hand: i < 0 ? 0 : tl!.snaps[i] }),
     [tl, models, i],
@@ -433,28 +440,35 @@ function SyncedProfiles({ tl, models, seated, mini = false }: { tl: Timeline | n
 }
 
 const PAGE = '#FAFAF9';
+const SLIDE_MS = 320; // a Profiles row's slide (StatsTable's SLIDE), and a frame to spare
 const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1'; // a card header's extras
 
-// The overview block and every card: the live table's 1252px wide at most, and on wider screens
-// only as wide as lets History's tile (its chart's shape) and the second row fit the window's height;
-// centred, with the page around it. Its height comes from that width (BLOCK_VARS), never the window.
-// The overview scales with the window: its width is the largest that fits the window's height
-// (History's row at its chart's shape, plus the second row at a fixed share of the width), at most
-// 1600px, so the cards fill the screen at any size without stretching. The second row is ROW2 of the
-// width: Matchups' square of ten cells (plus its padding and header) fills its tile next to the row
-// names, and Profiles' ten rows split the same height. Only viewport units, so every var resolves the
-// same in nested containers.
-const ROW2 = 0.42;
-const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
+// The overview block and every card, centred with the page around them. The block is as wide as lets
+// History's row (its chart's shape plus the tile's 72px of padding and header) and the second row fit
+// the window with a margin above and below (MARGIN), at most MAX_W and never within SIDE of the window's
+// sides. History leads: the second row is History's row / LEAD, but never under ten 28.8px matrix cells
+// (ROW2_MIN, less on a short window). Matchups' tile is its names, its square and its totals, edge to edge;
+// Profiles takes the rest of the row. Only viewport units, so every var resolves the same in nested containers.
+const MAX_W = 1320; // about three quarters of a 1728px window: the overview reads as cards on a page
+const SIDE = 64; // the least page beside the block
+const MARGIN = 'max(24px, 5svh)'; // the least page above and below it (56px on a 1117px window)
+const LEAD = 1.45; // History's row is 1.45x the second row: the tallest tile, read first
+const ROW2_MIN = 'min(360px, 40svh)'; // ten 28.8px matrix cells (with the tile's 72px), where the window allows: room for −173
 const NAMES = 140; // the Matchups tile's row-name column
-const BLOCK = 'h-full w-full max-w-[1252px] md:max-w-(--block-w) mx-auto flex flex-col justify-center';
+const TOTALS = 72; // Matchups' Total column, on the tile and in the card
+const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
+const A = (H / W).toFixed(5);
+const ROOM = `(100svh - 44px - var(--bar-h, 0px) - 2 * ${MARGIN})`; // the block's height at most
+const BLOCK = 'h-full w-full md:max-w-(--block-w) mx-auto flex flex-col justify-center';
 const BLOCK_VARS = {
-  '--block-w': `max(560px, min(1600px, 100vw - 48px, calc((96svh - 44px - var(--bar-h, 0px) - ${(84 - 32 * H / W).toFixed(2)}px) / ${(H / W + ROW2).toFixed(4)})))`,
-  '--row1': `calc((var(--block-w) - 32px) * ${H / W} + 72px)`,
-  '--row2': `calc(var(--block-w) * ${ROW2})`,
-  '--mini-row': `calc((var(--block-w) * ${ROW2} - 72px) / 10)`,
-  '--col2': `calc(var(--block-w) * ${ROW2} - 72px + 32px + ${NAMES}px)`, // Matchups: names, its square, its padding
-  '--block-h': `calc(var(--row1) + 12px + var(--row2))`,
+  '--block-w': `max(560px, min(${MAX_W}px, 100vw - ${2 * SIDE}px, (${ROOM} - 12px - ${ROW2_MIN} - 72px) / ${A} + 32px, ((${ROOM} - 12px) / ${(1 + 1 / LEAD).toFixed(5)} - 72px) / ${A} + 32px))`,
+  '--row1': `calc((var(--block-w) - 32px) * ${A} + 72px)`,
+  '--row2': `max(${ROW2_MIN}, var(--row1) / ${LEAD})`,
+  '--mini-row': 'calc((var(--row2) - 72px) / 10)',
+  '--col2': `calc(var(--row2) - 72px + 32px + ${NAMES + TOTALS}px)`, // Matchups: names, its square, totals, padding
+  '--block-h': 'calc(var(--row1) + 12px + var(--row2))',
+  // The opened Matchups card's square: about History's row, so the two cards have the same presence.
+  '--card-s': 'min(var(--row1) + 80px, var(--block-h) - 220px)',
 } as React.CSSProperties;
 
 // Under the 44px sticky bar and above the connection bar, at least 2% of the window above and
@@ -516,7 +530,7 @@ function Card({
   timeline?: string;
   ref?: React.Ref<HTMLElement>;
   z: string;
-  fit?: boolean; // as tall as its content (centred, at most the overview's height), not the overview's box
+  fit?: boolean | 'hug'; // as tall as its content (centred, at most the overview's height), not the overview's box; 'hug': as wide too
   children: React.ReactNode;
 }) {
   return (
@@ -525,7 +539,7 @@ function Card({
         <div className={`@container ${BLOCK} ${EDGE}`} style={BLOCK_VARS}>
           {/* The overview's box, where its tile stands in for this card. */}
           <div className="relative h-full md:h-(--block-h)">
-          <div className={`${CARD} absolute inset-x-0 inset-y-0 my-auto max-h-full ${fit ? 'h-fit' : ''}`} style={{ boxShadow: CARD_SHADOW }}>
+          <div className={`${CARD} absolute ${fit === 'hug' ? HUG : `inset-x-0 inset-y-0 my-auto max-h-full ${fit ? 'h-fit' : ''}`}`} style={{ boxShadow: CARD_SHADOW }}>
             <div className={HEADER}>
               <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
               {aside && <div className={ASIDE}>{aside}</div>}
@@ -541,5 +555,6 @@ function Card({
 
 // One muted line under a card title saying what the card counts.
 function Definition({ children }: { children: React.ReactNode }) {
-  return <p className="mb-2 text-[14px] leading-snug" style={{ color: MUTED }}>{children}</p>;
+  // Contained: it wraps to the card's width and never widens a card that hugs its content.
+  return <p className="mb-2 text-[14px] leading-snug [contain:inline-size]" style={{ color: MUTED }}>{children}</p>;
 }

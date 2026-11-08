@@ -1,10 +1,11 @@
 'use client';
 
-import { memo, useId, useState } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import { memo, useEffect, useId, useState } from 'react';
+import { motion, type Transition } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { RATE_FROM } from '@/components/CumulativeChart';
+import { GLIDE, GLIDE_MS } from '@/components/Section';
 import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
 interface Column {
@@ -37,12 +38,16 @@ function recent(m: ModelStats) {
   };
 }
 
-// Rows that slide to their new place when the order changes (motion layout). transformTemplate
-// leaves no inline `transform: none` behind, so the rows' CSS hover lift still works.
-export const SLIDE = {
-  transformTemplate: (_: unknown, t: string) => (t === 'none' ? '' : t),
-  transition: { type: 'spring', stiffness: 320, damping: 34 },
-} as const;
+// A row's slide to its new place when the order changes, like Profits & Losses' rows.
+const SLIDE = { duration: 0.3 } as const;
+
+// A cell's content, moved by motion layout (Chrome ignores transforms on a table row, so the cells'
+// content moves, not the rows). On the tile↔card glide it travels with the card at its own size (the
+// box around it grows; the text never shrinks and grows back); when its row changes place it slides
+// there (SLIDE). `at` is what moves it: measured only when that changes.
+function Glides({ at, move, children }: { at: string | boolean; move: Transition; children: React.ReactNode }) {
+  return <motion.span layout="position" layoutDependency={at} transition={move} className="inline-block max-w-full align-middle">{children}</motion.span>;
+}
 
 // The model's recent running bb/100 in its colour, on the y-scale [lo, hi] every row shares; a dot at now.
 function Spark({ m, lo, hi }: { m: ModelStats; lo: number; hi: number }) {
@@ -109,49 +114,55 @@ const MINI = [{ label: 'Core', columns: CORE[0].columns.filter(c => c !== TREND)
 
 // A column header with its definition on hover or focus. Without `onSort` it is a plain label
 // (a fixed-order table); `sort` then only marks the column the rows are ordered by.
-export function HeaderCell({ col, sort, onSort, className = 'p-2', wrap = false }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string; wrap?: boolean }) {
+// `mini` set (Profiles' tile and card): the header glides between the two, the tile's being the label alone.
+export function HeaderCell({ col, sort, onSort, className = 'p-2', wrap = false, mini }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string; wrap?: boolean; mini?: boolean }) {
   const [open, setOpen] = useState(false);
   const tipId = useId();
   const active = sort.key === col.key;
+  const label = (
+    <span className="inline-flex flex-wrap items-end justify-end gap-0.5">
+      {onSort ? (
+        <button onClick={onSort} className={`inline-flex items-center gap-0.5 hover:underline text-right ${wrap ? '' : 'whitespace-nowrap'}`}>
+          {col.label}
+          {active ? (sort.desc ? <CaretDown size={12} weight="bold" aria-hidden /> : <CaretUp size={12} weight="bold" aria-hidden />) : <CaretUpDown size={12} className="opacity-40" aria-hidden />}
+        </button>
+      ) : col.label}
+      <button
+        onClick={() => setOpen(true)} // not a toggle: hover and focus already opened it
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={e => e.key === 'Escape' && setOpen(false)}
+        aria-label={`What ${col.label} means`}
+        aria-expanded={open}
+        aria-describedby={tipId}
+        className="p-1.5 -m-1 opacity-60 hover:opacity-100"
+      >
+        <Info size={12} aria-hidden />
+      </button>
+    </span>
+  );
   return (
     <th
       scope="col"
       aria-sort={active ? (sort.desc ? 'descending' : 'ascending') : onSort ? 'none' : undefined}
       className={`${className.includes('sticky') ? '' : 'relative'} ${className} font-medium text-right align-bottom leading-tight`}
       style={{ color: active ? TEXT : MUTED }}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={mini ? undefined : () => setOpen(true)}
+      onMouseLeave={mini ? undefined : () => setOpen(false)}
     >
-      <span className="inline-flex flex-wrap items-end justify-end gap-0.5">
-        {onSort ? (
-          <button onClick={onSort} className={`inline-flex items-center gap-0.5 hover:underline text-right ${wrap ? '' : 'whitespace-nowrap'}`}>
-            {col.label}
-            {active ? (sort.desc ? <CaretDown size={12} weight="bold" aria-hidden /> : <CaretUp size={12} weight="bold" aria-hidden />) : <CaretUpDown size={12} className="opacity-40" aria-hidden />}
-          </button>
-        ) : col.label}
-        <button
-          onClick={() => setOpen(true)} // not a toggle: hover and focus already opened it
-          onFocus={() => setOpen(true)}
-          onBlur={() => setOpen(false)}
-          onKeyDown={e => e.key === 'Escape' && setOpen(false)}
-          aria-label={`What ${col.label} means`}
-          aria-expanded={open}
-          aria-describedby={tipId}
-          className="p-1.5 -m-1 opacity-60 hover:opacity-100"
-        >
-          <Info size={12} aria-hidden />
-        </button>
-      </span>
+      {mini === undefined ? label : <Glides at={mini} move={GLIDE}>{mini ? col.label : label}</Glides>}
       {/* Always in the DOM so aria-describedby resolves; hidden until opened. */}
-      <span
-        id={tipId}
-        role="tooltip"
-        hidden={!open}
-        className="absolute right-0 top-full z-20 mt-1 w-56 rounded bg-white p-2 text-left text-[13px] font-normal whitespace-normal"
-        style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}
-      >
-        {STAT_DEFINITIONS[col.key]}
-      </span>
+      {!mini && (
+        <span
+          id={tipId}
+          role="tooltip"
+          hidden={!open}
+          className="absolute right-0 top-full z-20 mt-1 w-56 rounded bg-white p-2 text-left text-[13px] font-normal whitespace-normal"
+          style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}
+        >
+          {STAT_DEFINITIONS[col.key]}
+        </span>
+      )}
     </th>
   );
 }
@@ -268,7 +279,16 @@ function Grid({
   mini: boolean; // the overview tile: plain headers, short rows, names as text (the tile opens the card)
 }) {
   const columns = groups.flatMap(g => g.columns);
-  const reduce = useReducedMotion();
+  // Just switched between tile and card: every cell's content glides with the card (GLIDE), else a
+  // moved row's content slides (SLIDE).
+  const [was, setWas] = useState(mini);
+  const [gliding, setGliding] = useState(false);
+  if (was !== mini) { setWas(mini); setGliding(true); }
+  useEffect(() => {
+    if (!gliding) return;
+    const t = setTimeout(() => setGliding(false), GLIDE_MS + 50);
+    return () => clearTimeout(t);
+  }, [gliding]);
   // One y-scale for every row's sparkline.
   const lines = [...rows, ...rest].flatMap(m => recent(m).line.map(([, v]) => v));
   const [lo, hi] = [Math.min(...lines), Math.max(...lines)];
@@ -303,14 +323,12 @@ function Grid({
   const added = (c: Column) => (!mini && c === TREND ? 'add-in' : '');
   const cell = grouped ? 'px-1' : 'px-1.5 md:px-3';
   const row = (m: ModelStats, i: number | null) => {
+    // What moves the row's content: the glide, a re-sort, or the row changing place.
+    const at = `${mini}|${sort.key}|${sort.desc}|${i}`;
+    const move = gliding ? GLIDE : SLIDE;
     return (
-    <motion.tr
+    <tr
       key={m.name}
-      layout={reduce ? false : 'position'}
-      // Rows slide when the reader re-sorts, and follow the tile↔card glide; data reorders (the
-      // History replay steps every snapshot, a live hand) snap, so rows never cross mid-slide.
-      layoutDependency={`${mini}|${sort.key}|${sort.desc}`}
-      {...SLIDE}
       className={`lift relative hover:z-10 ${rowH} ${mini ? '' : 'cursor-pointer'}`}
       tabIndex={mini ? undefined : 0}
       aria-selected={mini ? undefined : picked.has(m.name)}
@@ -319,18 +337,20 @@ function Grid({
       style={{ opacity: picked.size && !picked.has(m.name) ? 0.35 : 1, background: picked.has(m.name) ? 'rgba(35, 131, 226, 0.08)' : undefined }}
     >
       <th scope="row" className={`${cell} text-left font-bold`}>
-        <Name href={mini ? undefined : modelHref(m.name)} name={m.name}>
-          {m.hands < MIN_HANDS && (
-            <Warning size={14} weight="bold" className="shrink-0 @max-md:hidden" style={{ color: 'rgb(140, 95, 20)' }} aria-label={`Fewer than ${MIN_HANDS} hands`} />
-          )}
-        </Name>
+        <Glides at={at} move={move}>
+          <Name href={mini ? undefined : modelHref(m.name)} name={m.name}>
+            {m.hands < MIN_HANDS && (
+              <Warning size={14} weight="bold" className="shrink-0 @max-md:hidden" style={{ color: 'rgb(140, 95, 20)' }} aria-label={`Fewer than ${MIN_HANDS} hands`} />
+            )}
+          </Name>
+        </Glides>
       </th>
       {columns.map(c => (
         <td key={c.key} className={`${cell} ${added(c)} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
-          {c === BB100 ? <Bb100 m={m} /> : c === TREND ? <Spark m={m} lo={lo} hi={hi} /> : <>{i !== null && mark(c, m)}{c.render(m)}</>}
+          <Glides at={at} move={move}>{c === BB100 ? <Bb100 m={m} /> : c === TREND ? <Spark m={m} lo={lo} hi={hi} /> : <>{i !== null && mark(c, m)}{c.render(m)}</>}</Glides>
         </td>
       ))}
-    </motion.tr>
+    </tr>
     );
   };
   return (
@@ -354,10 +374,9 @@ function Grid({
           </tr>
         )}
         <tr className={`border-b border-notion ${mini ? rowH : ''}`}>
-          <th scope="col" className={`${head} text-left font-medium align-bottom`} style={{ color: MUTED }}><span className="@max-md:sr-only">Model</span></th>
-          {columns.map(c => mini
-            ? <th key={c.key} scope="col" className={`${head} text-right font-medium`} style={{ color: c.key === sort.key ? TEXT : MUTED }}>{c.label}</th>
-            : <HeaderCell key={c.key} col={c} sort={sort} onSort={() => onSort(c)} className={`${head} ${added(c)}`} wrap={grouped} />)}
+          <th scope="col" className={`${head} text-left font-medium align-bottom`} style={{ color: MUTED }}><Glides at={mini} move={GLIDE}><span className="@max-md:sr-only">Model</span></Glides></th>
+          {/* The trend's label wraps: its 112px column cannot hold it, its sort mark and its info button on one line. */}
+          {columns.map(c => <HeaderCell key={c.key} col={c} sort={sort} onSort={mini ? undefined : () => onSort(c)} className={`${head} ${added(c)}`} wrap={grouped || c === TREND} mini={mini} />)}
         </tr>
       </thead>
       <tbody className="divide-y divide-black/10">

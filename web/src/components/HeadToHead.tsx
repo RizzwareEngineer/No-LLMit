@@ -1,8 +1,8 @@
 'use client';
 
 import { memo, useEffect, useRef, useState } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
-import { Added, GLIDE } from '@/components/Section';
+import { motion } from 'motion/react';
+import { GLIDE } from '@/components/Section';
 import LLMLogo from '@/components/LLMLogo';
 import { DASH, MUTED, ModelStats, TEXT, chips, modelHref, netAmong, netColor, plural, signed, useChanges } from '@/lib/stats';
 
@@ -32,37 +32,33 @@ export function pairwiseVerdict(models: ModelStats[], scope: string) {
   return `${top.leader} is up ${fmt(top.total)} ${scope}.` + (top.from ? ` It took the most from ${top.from.name}, ${fmt(top.from.net)}.` : '');
 }
 
-// +53,743 as +54k, for cells too narrow for the full figure. The formats are built once: the grid
-// re-renders on every hand History replays.
+// A cell's figure at the grid's one font size: the full figure where it fits, else +1.1k, else +1k,
+// else none (the tint and the tooltip carry it). Never scaled, never clipped. Screen readers get the
+// full figure. The formats are built once: the grid re-renders on every hand History replays.
 const COMPACT = [0, 1].map(d => Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: d }));
-const short = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${COMPACT[Math.abs(n) < 1e4 ? 1 : 0].format(Math.abs(n)).toLowerCase()}`;
-
-// A figure sized by its own cell (an inline-size container): the full figure where it fits at a
-// readable size, else the short one shrunk to the width (10px at least), and in a sliver too narrow for it
-// none (the tint and the tooltip carry it). Never clipped. Screen readers get the full figure.
-// Memoized: while History replays only the cells whose figure changed render again.
-const Fit = memo(function Fit({ n }: { n: number }) {
-  return (
-    <div className="@container w-full" aria-hidden>
-      <span className="hidden @min-[70px]:inline" style={{ fontSize: 'min(1em, 19cqi)' }}>{chips(n)}</span>
-      <span className="hidden @min-[28px]:inline @min-[70px]:hidden" style={{ fontSize: 'max(10px, min(1em, 33cqi))' }}>{short(n)}</span>
-    </div>
-  );
+const sign = (n: number) => (n > 0 ? '+' : n < 0 ? '−' : '');
+// Its width in em, tabular figures (calibrated in the browser: a figure or sign 0.62em, a comma or point 0.29, k 0.53).
+const ems = (t: string) => [...t].reduce((w, c) => w + (c === ',' || c === '.' ? 0.29 : c === 'k' ? 0.53 : 0.62), 0);
+export function fitFigure(n: number, room: number, px: number) {
+  const tries = [chips(n), ...[COMPACT[1], COMPACT[0]].map(f => sign(n) + f.format(Math.abs(n)).toLowerCase())];
+  return tries.find(t => ems(t) * px <= room) ?? '';
+}
+const Fit = memo(function Fit({ n, room, px }: { n: number; room: number; px: number }) {
+  return <span aria-hidden>{fitFigure(n, room, px)}</span>;
 });
 
-// A changed cell: a light tint in the colour of the change and a 1px nudge (tint only under reduced
-// motion), once, 300ms; `delay` staggers the cells that changed together into a quiet ripple.
+// A changed cell flashes toward its new tint (a stronger shade of it fading to it, 400ms) as its figure
+// changes; it never moves or scales. `delay` staggers the cells that changed together into a quiet ripple.
+// A Total (no tint of its own) flashes in its figure's colour.
 const playing = new WeakMap<Element, Animation>(); // not el.getAnimations(), which forces a style recalc per cell
-function wiggle(el: HTMLElement, delta: number, delay: number, still: boolean) {
+function flash(el: HTMLElement, delay: number) {
   playing.get(el)?.cancel(); // a newer change replaces one still playing
-  const glow = (a: number) => `inset 0 0 0 100px rgba(${delta > 0 ? '15, 123, 108' : '200, 50, 50'}, ${a})`;
-  playing.set(el, el.animate(
-    still
-      ? [{ boxShadow: glow(0.16) }, { boxShadow: glow(0) }]
-      : [{ boxShadow: glow(0.16), transform: 'translateX(0)' }, { transform: 'translateX(1px)', offset: 0.3 }, { boxShadow: glow(0), transform: 'translateX(0)' }],
-    { duration: 300, delay, easing: 'ease-out' },
-  ));
+  const to = el.style.backgroundColor;
+  const from = to ? to.replace(/[\d.]+\)$/, a => `${Math.min(1, parseFloat(a) + 0.25).toFixed(3)})`) : `rgba(${el.style.color.match(/\d+/g)!.slice(0, 3).join(', ')}, 0.18)`;
+  playing.set(el, el.animate([{ backgroundColor: from }, { backgroundColor: to || 'rgba(0, 0, 0, 0)' }], { duration: 400, delay, easing: 'ease-out' }));
 }
+
+const TOTALS = 72; // the Total column (StatsSections sizes the tile with it)
 
 // Chips won from each opponent in pots they both played. With `focus`, one model's opponents
 // as a list (the drawer); without it, the full grid of row model against column model, rows
@@ -84,7 +80,6 @@ export default memo(function HeadToHead({
 }) {
   const outer = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ row: string; col: string; x: number; y: number; below: boolean } | null>(null);
-  const reduce = useReducedMotion();
   // Rows and columns in overall rank order (net chips over the range shown, the leader's unit),
   // like a chess crosstable; the Total column sums the row's cells.
   const nets = byNet(models);
@@ -103,8 +98,18 @@ export default memo(function HeadToHead({
     const cells = new Map([...outer.current.querySelectorAll<HTMLElement>('[data-cell]')].map(el => [el.dataset.cell!, el]));
     const gap = Math.min(20, 240 / deltas.size); // a big change (Skip) still ripples within a quarter second
     let i = 0;
-    for (const [k, d] of deltas) { const el = cells.get(k); if (el) wiggle(el, d, i++ * gap, !!reduce); }
-  }, [seq, deltas, reduce]);
+    for (const k of deltas.keys()) { const el = cells.get(k); if (el) flash(el, i++ * gap); }
+  }, [seq, deltas]);
+  // A cell's width, for the figures that fit it (layout size: a glide's transform does not change it).
+  const square = useRef<HTMLDivElement>(null);
+  const [cell, setCell] = useState(0);
+  useEffect(() => {
+    const el = square.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setCell(el.offsetWidth / (models.length + 1)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [models.length]);
   if (focus) {
     const rows = Object.entries(focus.vs ?? {}).sort((a, b) => b[1].net_chips - a[1].net_chips);
     if (rows.length === 0) return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
@@ -157,28 +162,32 @@ export default memo(function HeadToHead({
   const HOT = 'rgba(35, 131, 226, 0.12)';
   // Square cells: the header row and the label column are one cell each, so the matrix is k×k squares
   // and grows from the tile into the card as one piece (motion layout on its box, one aspect: no
-  // stretch). Row names sit to its left wherever the width allows; the card adds the totals to its
-  // right. Names, square and totals are centred as one group.
+  // stretch). Row names sit to its left and the totals to its right, the three edge to edge, centred.
+  // On the tile the square is the largest that fits the tile (a size container); in the card it is
+  // --card-s (StatsSections) and the card hugs it. One font size per place: 14px in the card, like
+  // Profiles' cells; 11px on the tile, whose 28px cells must hold a figure like −173. A figure is
+  // shortened only when it does not fit its cell.
   const k = sorted.length + 1;
-  const names = mini ? 'clamp(0px, 100cqw - 100cqh, 140px)' : 'clamp(64px, 16cqw, 180px)';
-  const totals = mini ? '0px' : '88px';
-  const S = `min(100cqh, 100cqw - ${names} - ${totals})`;
+  const px = mini ? 11 : 14;
+  const names = mini ? `clamp(0px, 100cqw - 100cqh - ${TOTALS}px, 140px)` : 'auto';
+  const S = mini ? `min(100cqh, 100cqw - ${names} - ${TOTALS}px)` : 'var(--card-s)';
   const slot = { height: `calc(${S} / ${k})` }; // a side column's row
   const rowH = { height: `calc((${S} - ${k + 1}px) / ${k})` }; // a matrix row, inside the 1px border spacing
+  const room = cell - 1; // the cell inside its 1px spacing
   return (
-    <div ref={outer} className="relative flex-1 min-h-0 flex flex-col">
-      {/* A size container: the square takes the largest size that fits it. No scroller of its own. */}
-      <div className="flex-1 min-h-0 flex justify-center" style={{ containerType: 'size' }} onMouseLeave={() => setTip(null)}>
-        <div className="shrink-0 flex flex-col tabular-nums overflow-hidden" style={{ width: names }}>
+    <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : ''}`}>
+      {/* On the tile, a size container: the square takes the largest size that fits it. No scroller of its own. */}
+      <div className={`flex justify-center tabular-nums ${mini ? 'flex-1 min-h-0' : ''}`} style={{ containerType: mini ? 'size' : undefined, fontSize: px }} onMouseLeave={() => setTip(null)}>
+        <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: names }}>
           <span className="block" style={slot} />
           {sorted.map(row => (
-            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-2 whitespace-nowrap ${mini ? '' : 'hover:underline'} ${row.name === top?.leader ? 'font-bold' : 'font-medium'}`}>
-              <span className="truncate" style={{ fontSize: mini ? '13px' : 'clamp(12px, 1.6cqh, 16px)' }}>{row.name}</span>
+            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-2 whitespace-nowrap ${mini ? 'text-[13px]' : 'hover:underline'} ${row.name === top?.leader ? 'font-bold' : 'font-medium'}`}>
+              <span className="truncate">{row.name}</span>
             </a>
           ))}
         </div>
-        <motion.div layout layoutDependency={mini} transition={GLIDE} className="shrink-0" style={{ width: S, height: S }}>
-          <table className="w-full h-full table-fixed tabular-nums border-separate border-spacing-px" style={{ fontSize: `clamp(10px, calc(${S} / ${k} * 0.32), 20px)` }}>
+        <motion.div ref={square} layout layoutDependency={mini} transition={GLIDE} className="shrink-0" style={{ width: S, height: S }}>
+          <table className="w-full h-full table-fixed border-separate border-spacing-px">
             <caption className="sr-only">Matchups: chips each row model won from each column model, sorted by net chips</caption>
             <colgroup>{Array.from({ length: k }, (_, i) => <col key={i} style={{ width: `${100 / k}%` }} />)}</colgroup>
             <thead>
@@ -208,11 +217,11 @@ export default memo(function HeadToHead({
                       <td
                         key={col.name}
                         data-cell={`${row.name}|${col.name}`}
-                        className="relative p-0 text-center rounded-sm font-bold whitespace-nowrap"
+                        className="relative p-0 text-center rounded-sm whitespace-nowrap overflow-hidden"
                         style={{ color: TEXT, background: tint(v.net_chips), outline: tip?.row === row.name && tip.col === col.name ? `2px solid ${TEXT}` : undefined }}
                         onMouseEnter={mini ? undefined : e => show(e, row.name, col.name)}
                       >
-                        <Fit n={v.net_chips} />
+                        <Fit n={v.net_chips} room={room} px={px} />
                         <span className="sr-only">{chips(v.net_chips)} vs {col.name}{v.pots ? ` over ${plural(v.pots, 'pot')}` : ''}</span>
                       </td>
                     );
@@ -222,23 +231,22 @@ export default memo(function HeadToHead({
             </tbody>
           </table>
         </motion.div>
-        {!mini && (
-          <Added className="shrink-0 flex flex-col tabular-nums font-bold" style={{ width: totals, fontSize: 'clamp(13px, 1.8cqh, 18px)' }}>
-            <span style={slot} className="flex items-end pl-2 pb-1" title="The row's cells added up">Total</span>
-            {sorted.map(row => {
-              const total = netOf.get(row.name)!;
-              const none = row.hands === 0; // no hands yet at the replay's hand
-              return (
-                <div key={row.name} data-cell={`${row.name}|`} style={{ ...slot, color: none ? MUTED : netColor(total) }} className="flex items-center pl-2 whitespace-nowrap">
-                  {none ? DASH : <>
-                    <span aria-hidden>{chips(total)}</span>
-                    <span className="sr-only">{row.name} total {chips(total)}</span>
-                  </>}
-                </div>
-              );
-            })}
-          </Added>
-        )}
+        {/* The row's cells added up: the same figure as the leader's, bold in its colour. */}
+        <div className="shrink-0 flex flex-col font-bold" style={{ width: TOTALS }}>
+          <span style={slot} className="flex items-end pl-2 pb-1 font-medium" title="The row's cells added up">Total</span>
+          {sorted.map(row => {
+            const total = netOf.get(row.name)!;
+            const none = row.hands === 0; // no hands yet at the replay's hand
+            return (
+              <div key={row.name} data-cell={`${row.name}|`} style={{ ...slot, color: none ? MUTED : netColor(total) }} className="flex items-center pl-2 whitespace-nowrap">
+                {none ? DASH : <>
+                  <span aria-hidden>{fitFigure(total, TOTALS - 8, px)}</span>
+                  <span className="sr-only">{row.name} total {chips(total)}</span>
+                </>}
+              </div>
+            );
+          })}
+        </div>
       </div>
       {/* The hovered cell's readout floats over the grid, clamped inside it. */}
       {tip && tipV && (

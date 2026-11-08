@@ -117,7 +117,8 @@ const IN = { duration: 0.3, delay: 0.08, ease: 'easeOut' } as const;
 // Space with the tile focused) calls onOpen, except on links and controls inside it.
 // `focused`: the tile stands in its screen card's place; motion's layout animation turns that jump
 // into a glide (transforms only, nothing under reduced motion). `fit` sets that place: a height in px
-// or 'content', centred in the stage at the stage's width; without it the tile fills the stage.
+// or 'content', centred in the stage at the stage's width, or 'hug' (its content's width and height,
+// centred); without it the tile fills the stage.
 // `covered`: another tile is focused, and this one slides off the screen by `away` (back in when it
 // is not). `lifted`: the tile focused last, on top while it glides back. `snap`: change without
 // animating (the stage is hidden under a card). The body never cross-fades: the caller keeps the
@@ -149,7 +150,7 @@ export default function Panel({
   away?: { x?: number; y?: number }; // which way it slides off, in viewport lengths (one clears the screen at any size)
   lifted?: boolean;
   snap?: boolean;
-  fit?: number | 'content';
+  fit?: number | 'content' | 'hug';
   onOpen: () => void;
   className?: string;
   children: React.ReactNode;
@@ -187,7 +188,7 @@ export default function Panel({
         if (t.closest(`#${id}-title a`) || !t.closest('a, button, select, input, label')) open(e);
       } : undefined}
       onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && open(e) : undefined}
-      className={`${CARD} overflow-hidden ${!focused ? 'relative flex-1' : fit === undefined ? 'absolute inset-0' : `absolute inset-x-0 inset-y-0 my-auto max-h-full ${fit === 'content' ? 'h-fit' : ''}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''}`}
+      className={`${CARD} overflow-hidden ${!focused ? 'relative flex-1' : fit === undefined ? 'absolute inset-0' : fit === 'hug' ? `absolute ${HUG}` : `absolute inset-x-0 inset-y-0 my-auto max-h-full ${fit === 'content' ? 'h-fit' : ''}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''}`}
       style={{ boxShadow: CARD_SHADOW, height: focused && typeof fit === 'number' ? fit : undefined }}
     >
       <motion.div layout="position" transition={move} className={HEADER}>
@@ -230,6 +231,8 @@ export const CARD = 'card-chrome flex flex-col min-h-0 min-w-0 bg-white p-4 roun
 export const CARD_SHADOW = 'rgba(15, 15, 15, 0.08) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 4px 16px';
 export const HEADER = 'mb-2 min-h-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-1';
 export const TITLE = 'text-[20px] leading-8 font-bold';
+// A card as big as its content, centred in the overview's box (the opened Matchups card).
+export const HUG = 'inset-0 m-auto w-fit h-fit max-w-full max-h-full';
 
 // A row of mutually exclusive buttons (the Race range, the Pairwise view).
 export function Segmented<T extends string | number>({ label, options, value, onChange }: {
