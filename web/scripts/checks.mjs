@@ -44,8 +44,9 @@ const replayHand = async pg => {
 // A fresh page at a window size, on the overview once the stats have loaded.
 const pageAt = async (w, h, id = 'stats') => {
   const p = await browser.newPage(); await p.setViewport({ width: w, height: h });
-  await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 90000 }); await sleep(5000);
-  await goto(p, id); await sleep(2000);
+  await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p.waitForFunction(id => document.getElementById(id), { timeout: 60000 }, id).catch(() => {});
+  await sleep(3000); await goto(p, id); await sleep(2000);
   return p;
 };
 const rect = (p, sel) => p.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; }, sel);
