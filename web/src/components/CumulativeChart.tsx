@@ -20,6 +20,9 @@ const TWEEN_S = 0.5;
 // a whole into its box. The overview's History tile has the same shape (StatsSections sizes its row),
 // so the tile and the card show one picture, filling their width, and nothing ever stretches.
 export const W = 1220, H = 470; // History's shape, 2.6:1: tall enough to tell close lines apart
+// The race clock's Skip/Replay button (the card's, and the tile's Replay).
+const CLOCK_BTN = 'rounded border px-2 py-px font-medium hover:bg-[rgba(55,53,47,0.06)]';
+const CLOCK_BTN_STYLE = { borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT, background: 'white' };
 const LEGEND_H = 68; // the legend under the Race card's plot: up to three rows (every model, and the note)
 
 type Pts = [number, number][];
@@ -152,13 +155,16 @@ export function gridTicks(a: number, b: number) {
 }
 
 // The y axis' range for a set of values, Arena style: their 5th to 95th percentile (so one spike
-// does not flatten the pack), always with zero (break-even) and every value in `keep` (the lines'
-// final values, so the standings at rest are all in view), plus 8% air each side.
-export function robustRange(vs: number[], keep: number[] = []): [number, number] {
-  const s = vs.filter(Number.isFinite).sort((p, q) => p - q);
+// does not flatten the pack) and every value in `keep` (the lines' tips), plus 8% air each side.
+// A tip far outside the pack (more than the pack's own span beyond it) is left out, to sit at the
+// edge with an arrow rather than squash everyone. `zero`: always include break-even.
+export function robustRange(vs: number[], keep: number[] = [], zero = true): [number, number] {
+  const s = (vs.some(Number.isFinite) ? vs : keep).filter(Number.isFinite).sort((p, q) => p - q);
   if (!s.length) return [-1, 1];
   const q = (f: number) => s[Math.round(f * (s.length - 1))];
-  let [lo, hi] = [Math.min(0, q(0.05), ...keep), Math.max(0, q(0.95), ...keep)];
+  const [q0, q1] = [q(0.05), q(0.95)], reach = Math.max(q1 - q0, 1e-9);
+  const near = keep.filter(v => v >= q0 - reach && v <= q1 + reach);
+  let [lo, hi] = [Math.min(q0, ...near, ...(zero ? [0] : [])), Math.max(q1, ...near, ...(zero ? [0] : []))];
   if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
   const air = (hi - lo) * 0.08;
   return [lo - air, hi + air];
@@ -447,24 +453,21 @@ export default function CumulativeChart({
   // The all-in EV lines, dashed: every model's with the toggle on, else the hovered line's own (below).
   const evDrawn = fading(old.evs, evs).map(n => ({ n, p: drawnOf(nowX, old.evs.get(n), evs.get(n)), o: fade(old.evs, evs, n) }));
 
-  // A steady y axis, Arena style: the Race fits it once to what the replay will show (every line over
-  // the window, robustly, see robustRange), so what moves on screen is the lines, not the axis. A line
-  // beyond it is pinned to the edge with an arrow. Every line's final value is in it, so at rest none is. While the replay plays the axis only widens, and
-  // only when the pack (the middle half of the tips, not one outlier) outgrows it; a filter or metric
-  // change refits it. The model drawer fits its one line and band whole.
-  const fitKey = [metric, luck, ...lines.keys()].join();
-  const [fit, setFit] = useState({ key: '', lo: 0, hi: 1 }); // set on the first render, below
+  // A dynamic y axis, as Exa's and Arena's animated charts: the Race fits it to the lines in view (their
+  // values inside the x window, robustly, and every tip; see robustRange), so the pack fills the plot and
+  // the gaps between models read large. It follows them as the replay plays and settles at rest, easing
+  // both ways (useCamera). A tip far from the pack is pinned to the edge with an arrow. The model
+  // drawer fits its one line and band whole.
   let want: [number, number];
   if (race) {
-    want = robustRange([...lines.values(), ...evs.values()].flatMap(p => trace(p, from, lastHand).map(q => q[1])), [...lines.values()].map(p => p.at(-1)![1]));
-    const tips = [...lines.keys()].flatMap(n => drawn.get(n)?.at(-1)?.[1] ?? []).sort((p, q) => p - q);
-    const cut = tips.length >= 4 ? Math.floor(tips.length / 4) : 0, pack = tips.slice(cut, tips.length - cut);
-    if (playing && pack.length) {
-      // Widen in one step (a tenth of the range past the pack), so it never creeps frame by frame.
-      const [lo0, hi0] = fit.key === fitKey ? [Math.min(want[0], fit.lo), Math.max(want[1], fit.hi)] : want;
-      const r = hi0 - lo0;
-      want = [pack[0] < lo0 + r * 0.03 ? pack[0] - r * 0.1 : lo0, pack.at(-1)! > hi0 - r * 0.03 ? pack.at(-1)! + r * 0.1 : hi0];
-    }
+    // While the replay plays, the lines (and all-in EV lines) over the recent quarter of the window's
+    // drawn part (a rate's early hands are noise that would flatten the pack); at rest, the whole
+    // window; before any line is in view, the whole race's.
+    const inView = [...[...lines.keys()].map(n => drawn.get(n) ?? []), ...evDrawn.filter(e => evs.has(e.n)).map(e => e.p)].filter(p => p.length);
+    const cut = playing ? lerp(X0, Math.min(X1, nowX), 0.75) : -Infinity;
+    want = inView.length
+      ? robustRange(inView.flatMap(p => p.filter(q => q[0] >= cut).map(q => q[1])), [...lines.keys()].flatMap(n => drawn.get(n)?.at(-1)?.[1] ?? []), false)
+      : robustRange([...lines.values()].flatMap(p => trace(p, from, lastHand).map(q => q[1])), [], false);
   } else {
     const ys = [...drawn.values()].flatMap(p => p.map(q => q[1]));
     if (sel) trace(pts(sel), X0, X1, nowX).forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
@@ -472,10 +475,7 @@ export default function CumulativeChart({
     if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
     want = [lo - (hi - lo) * 0.06, hi + (hi - lo) * 0.06];
   }
-  // Mid-replay, the same lines: never shrink. Otherwise (a new lineup or metric, or at rest): the fit itself.
-  const next = fit.key === fitKey && race && playing ? { key: fitKey, lo: Math.min(fit.lo, want[0]), hi: Math.max(fit.hi, want[1]) } : { key: fitKey, lo: want[0], hi: want[1] };
-  if (next.key !== fit.key || Math.abs(next.lo - fit.lo) > 1e-9 || Math.abs(next.hi - fit.hi) > 1e-9) setFit(next);
-  const [Y0, Y1] = useCamera(next.lo, next.hi, !!reduce);
+  const [Y0, Y1] = useCamera(want[0], want[1], !!reduce);
 
   // The design size the chart is laid out at, and the one scale that fits it in its box. Outside
   // the Race (the model drawer) it simply fills its box.
@@ -519,8 +519,18 @@ export default function CumulativeChart({
       .filter(d => d.o > 0 && d.t >= Math.min(a, b) - 1e-6 && d.t <= Math.max(a, b) + 1e-6);
   // x ticks never sit left of where the data starts.
   const xTicksOf = (a: number, b: number) => niceTicks(a, b, 10, true).filter(t => t >= Math.max(a, from) && t <= b);
-  // Gridlines from the fit (not the spring), so a widening axis slides its labels rather than relabels every frame.
-  const yTicks = gridTicks(next.lo, next.hi).filter(t => t >= Y0 - 1e-9 && t <= Y1 + 1e-9);
+  // Gridlines on the moving axis: their step holds while it gives 6–8 labels (so they slide with the
+  // axis rather than relabel), then gridTicks picks again. A label joins with a fade in (CSS
+  // @starting-style), leaves with a fade out (it stays, transparent, until the step changes or it
+  // leaves the plot), and fades at the plot's edges. Derived state, updated during render as `rk` is.
+  const [ya, setYa] = useState({ step: 0, shown: [] as number[], gone: [] as number[] });
+  const between = (st: number) => Math.floor(Y1 / st + 1e-9) - Math.ceil(Y0 / st - 1e-9) + 1;
+  const g0 = between(ya.step) >= 6 && between(ya.step) <= 8 ? null : gridTicks(Y0, Y1);
+  const yStep = g0 ? (g0.length > 1 ? +(g0[1] - g0[0]).toPrecision(12) : 1) : ya.step;
+  const yTicks = Array.from({ length: Math.max(0, between(yStep)) }, (_, i) => +((Math.ceil(Y0 / yStep - 1e-9) + i) * yStep).toPrecision(12));
+  const yGone = [...new Set([...(yStep === ya.step ? ya.gone : []), ...ya.shown])].filter(t => !yTicks.includes(t) && t >= Y0 && t <= Y1);
+  if (yStep !== ya.step || yTicks.join() !== ya.shown.join()) setYa({ step: yStep, shown: yTicks, gone: yGone });
+  const edge = (t: number) => Math.max(0, Math.min(1, (t - Y0) / ((Y1 - Y0) * 0.02 || 1), (Y1 - t) / ((Y1 - Y0) * 0.02 || 1)));
   // Under the camera the ticks slide with history, fading in at the leading edge and out at the left.
   // While the window widens, the finer step's ticks fade out as the coarser step takes over: no label pops.
   const st = steps(X1 - X0, 10);
@@ -703,7 +713,7 @@ export default function CumulativeChart({
           // For checks: the plot's band, the y axis' range now and its target, in design units (pills carry data-ty).
           data-plot={`${padTop.toFixed(1)},${plotH.toFixed(1)}`}
           data-y-range={`${Y0},${Y1}`}
-          data-y-fit={`${next.lo},${next.hi}`}
+          data-y-fit={`${want[0]},${want[1]}`}
           layout={race}
           layoutDependency={`${mini}:${s}:${box.w}:${box.h}`}
           transition={GLIDE}
@@ -726,10 +736,12 @@ export default function CumulativeChart({
               {/* One type for the chart's furniture: x and y ticks alike, both titles alike (13px, muted). */}
               <text x={4} y={ts} fontSize={ts} fontWeight={500} fill={MUTED} className="tabular-nums" data-axis-title="y">{yTitle}</text>
               <text x={left + plotW / 2} y={lh - 4} textAnchor="middle" fontSize={ts} fontWeight={500} fill={MUTED} className="tabular-nums" data-axis-title="x">Hands played</text>
-              {yTicks.map(t => (
-                <g key={t}>
-                  <line x1={left} x2={lw - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.5)' : GRID} />
-                  <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={ts} fontWeight={400} fill={MUTED} className="tabular-nums" data-y-tick>{tick(t)}</text>
+              {[...yTicks, ...yGone].map(t => (
+                <g key={t} opacity={edge(t)}>
+                  <g className={`transition-opacity duration-300 starting:opacity-0 ${yTicks.includes(t) ? '' : 'opacity-0'}`}>
+                    <line x1={left} x2={lw - right} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'rgba(55, 53, 47, 0.5)' : GRID} />
+                    <text x={left - 6} y={y(t)} dy="0.32em" textAnchor="end" fontSize={ts} fontWeight={400} fill={MUTED} className="tabular-nums" data-y-tick={yTicks.includes(t) ? '' : undefined}>{tick(t)}</text>
+                  </g>
                 </g>
               ))}
               <line x1={left} x2={left} y1={padTop} y2={padTop + plotH} stroke={GRID} />
@@ -831,7 +843,7 @@ export default function CumulativeChart({
                   </span>
                 )}
                 {interactive && (
-                  <button onPointerMove={ev => ev.stopPropagation()} onPointerDown={ev => ev.stopPropagation()} onClick={playing ? skipReplay : playReplay} className="rounded border px-2 py-px font-medium hover:bg-[rgba(55,53,47,0.06)]" style={{ borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT, background: 'white' }}>
+                  <button onPointerMove={ev => ev.stopPropagation()} onPointerDown={ev => ev.stopPropagation()} onClick={playing ? skipReplay : playReplay} className={CLOCK_BTN} style={CLOCK_BTN_STYLE}>
                     {playing ? 'Skip' : 'Replay'}
                   </button>
                 )}
@@ -865,6 +877,29 @@ export default function CumulativeChart({
             )}
           </div>
         </motion.div>
+        {/* The tile's Replay, once the race has run (ended or skipped): over the clock's place at the plot's
+            scale, but outside the plot, whose role="img" hides its children from screen readers. It
+            restarts the shared replay and never opens the card. */}
+        {race && mini && !playing && replayStarted() && (
+          <div className="absolute pointer-events-none" style={{ left: (box.w - lw * s) / 2, top: 0, width: lw * s, height: lh * s }}>
+            <div className="absolute left-0 top-0 origin-top-left" style={{ width: lw, height: lh, transform: s === 1 ? undefined : `scale(${s})` }}>
+              <div className="absolute flex items-center" style={{ right, top: 0, height: padTop - 4, fontSize: ts }}>
+                <motion.button
+                  data-tile-replay
+                  aria-label="Replay the Trends race"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1, transition: { delay: 0.6, duration: 0.3 } }}
+                  onClick={ev => { ev.stopPropagation(); playReplay(); }}
+                  onKeyDown={ev => ev.stopPropagation()}
+                  className={`pointer-events-auto ${CLOCK_BTN}`}
+                  style={CLOCK_BTN_STYLE}
+                >
+                  Replay
+                </motion.button>
+              </div>
+            </div>
+          </div>
+        )}
         </div>
         {/* The legend, Arena style: a click switches a line off or on, hovering brings it forward. */}
         {interactive && listed.length > 0 && (
