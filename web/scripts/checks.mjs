@@ -19,6 +19,8 @@ async function check(id, rule, fn) {
 
 const goto = (pg, id) => pg.evaluate(id => { const el = document.getElementById(id); window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' }); }, id);
 const clickText = (pg, t) => pg.evaluate(t => { const b = [...document.querySelectorAll('button')].find(e => e.textContent.trim() === t && e.getBoundingClientRect().width > 0); if (b) b.click(); return !!b; }, t);
+// A button whose text starts with `t` (a label that carries a short form for narrow screens, e.g. "Back to overviewOverview").
+const clickPrefix = (pg, t) => pg.evaluate(t => { const b = [...document.querySelectorAll('button, a')].find(e => e.textContent.trim().startsWith(t) && e.getBoundingClientRect().width > 0); if (b) b.click(); return !!b; }, t);
 const clickCenter = async (pg, sel) => { const r = await pg.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, sel); if (!r) throw new Error(`no ${sel}`); await pg.mouse.click(r[0], r[1]); };
 // The biggest visible chart svg on screen: the History plot.
 const chartBox = pg => pg.evaluate(() => {
@@ -379,7 +381,7 @@ await check('replay-no-reset', 'The replay never restarts on open, back or scrol
   const playing = await pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
   if (!playing && !(await clickText(pg, 'Replay'))) return { pass: false, detail: 'neither Skip nor Replay shown' };
   await sleep(2000); const h1 = await replayHand(pg);
-  await clickText(pg, 'Back to overview'); await sleep(1500); const h2 = await replayHand(pg);
+  await clickPrefix(pg, 'Back to overview'); await sleep(1500); const h2 = await replayHand(pg);
   await goto(pg, 'race'); await sleep(1500); const h3 = await replayHand(pg);
   return { pass: h1 != null && h2 != null && h3 != null && h1 <= h2 && h2 <= h3 && h3 > h1, detail: `${h1} → ${h2} → ${h3}` };
 });
@@ -504,7 +506,7 @@ await check('glide-smooth', 'Opening Profiles and Matchups: no jump at the hand-
     seen.push(`${id} hand-over ${jump.toFixed(1)}px${id === 'stats-table' ? `, text ×${lo.toFixed(2)}–${hi.toFixed(2)}` : ''}`);
     if (jump > 2) bad.push(`${id}: the card takes over ${jump.toFixed(0)}px off the tile`);
     if (id === 'stats-table' && (lo < 0.85 || hi > 1.15)) bad.push(`Profiles text drawn at ×${lo.toFixed(2)}–${hi.toFixed(2)} of its size mid-glide`);
-    await clickText(pg, 'Back to overview'); await sleep(1200);
+    await clickPrefix(pg, 'Back to overview'); await sleep(1200);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 });
