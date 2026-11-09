@@ -33,7 +33,8 @@ step "llm: pytest"
 step "web: tsc"
 (cd "$ROOT/web" && npx tsc --noEmit -p .) || fail=1
 
-changed_files() { cd "$ROOT" && { git diff --name-only "$BASE_REF"...HEAD; git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u; }
+# --diff-filter=d: a deleted file is not a file to lint (ESLint 9 errors on a missing path).
+changed_files() { cd "$ROOT" && { git diff --name-only --diff-filter=d "$BASE_REF"...HEAD; git diff --name-only --diff-filter=d HEAD; git ls-files --others --exclude-standard; } | sort -u; }
 step "web: eslint (files changed against $BASE_REF)"
 changed=$(changed_files | grep -E '^web/src/.*\.(ts|tsx)$' | sed 's#^web/##')
 if [ -n "$changed" ]; then (cd "$ROOT/web" && npx eslint $changed) || fail=1; else echo "no changed web files"; fi
