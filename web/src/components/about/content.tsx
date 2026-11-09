@@ -2,12 +2,14 @@
 
 import { ArrowUpRight, Heart, X } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import PlaySoonButton from '@/components/PlaySoonButton';
 import { motion, useInView, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { RATE_FROM, series } from '@/components/CumulativeChart';
 import { CARD, CARD_SHADOW, Segmented, TITLE } from '@/components/Section';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, netColor, seatedModels, signed, useStats } from '@/lib/stats';
 import { EXAMPLE_REPLY, EXAMPLE_USER_PROMPT, SYSTEM_PROMPT } from '@/lib/systemPrompt';
+import { joinWaitlist, waitlistCount } from '@/lib/waitlist';
 
 // The About copy and its parts, shared by both drafts so each says exactly the same things (about-content-complete);
 // a draft only arranges them. Every line is one sentence that fits its line at the drafts' widths (one sentence per line).
@@ -23,8 +25,8 @@ const DATASET_DATE = 'Wednesday, Nov 18';
 type Heading = 'h1' | 'h2' | 'h3';
 
 // Secondary text: 13px muted, the stats cards' definition lines.
-function Label({ as: Tag = 'p', className = '', children }: { as?: 'p' | 'li'; className?: string; children: React.ReactNode }) {
-  return <Tag className={`text-[13px] leading-snug ${className}`} style={{ color: MUTED }}>{children}</Tag>;
+function Label({ as: Tag = 'p', className = '', children, ...rest }: { as?: 'p' | 'li' | 'span'; className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLElement>) {
+  return <Tag {...rest} className={`text-[13px] leading-snug ${className}`} style={{ color: MUTED }}>{children}</Tag>;
 }
 
 export function Eyebrow() {
@@ -40,7 +42,7 @@ export function Thesis({ as: H }: { as: Heading }) {
 export function Intro() {
   return (
     <div className="flex flex-col gap-0.5">
-      <p>Models play No-Limit Hold&apos;em against each other, live.</p>
+      <p>LLMs play No-Limit Hold&apos;em against each other, live.</p>
       <p>You can watch every decision and its reasoning.</p>
     </div>
   );
@@ -50,21 +52,16 @@ export function Intro() {
 export const HOURS = '9am–9pm ET';
 export const HANDS_A_DAY = 150;
 
-// How a turn works: the same system prompt, one fresh call with the hand so far, a three-part reply.
-const CALL = ['Seats', 'Stacks', 'The action', 'The board', 'Its cards', 'The pot', 'To call', 'Legal moves'];
+// How it works: the same two prompts for every model (each opens in the dialog below), and the reply.
 export function How() {
   return (
     <div className="flex flex-col gap-2.5">
-      <p>Every model gets the same system prompt.</p>
-      <div className="flex flex-col gap-1.5">
-        <p>Each turn is one fresh call with the hand so far:</p>
-        <ul aria-label="What the call holds" className="flex flex-wrap gap-1">
-          {CALL.map(c => (
-            <li key={c} className="rounded px-1.5 text-[13px] leading-5" style={{ color: MUTED, background: 'rgba(55, 53, 47, 0.06)' }}>{c}</li>
-          ))}
-        </ul>
+      <div className="flex flex-col gap-0.5">
+        <p>Every model gets the same system prompt and the same standardized user prompt.</p>
+        <p>Click either to see exactly what&apos;s inside.</p>
+        <p>Assume each holds what a typical poker player is looking at.</p>
+        <p>It replies with an action, an amount and a short reason.</p>
       </div>
-      <p>It replies with an action, an amount and a short reason.</p>
       <PromptLinks />
     </div>
   );
@@ -72,15 +69,22 @@ export function How() {
 
 // The caveats: each headline, then why.
 const CAVEATS: [string, string][] = [
-  ['No memory between calls.', 'No earlier hands, no notes: it can’t tag a nit or a fish.'],
+  ['No memory between hands.', 'A model doesn’t remember how anyone played earlier, not even its own last hand.'],
+  ['No tells or leaks.', 'The only information is the action on the table.'],
   ['An illegal or unreadable reply gets one retry.', 'If that fails too, it checks if it can, otherwise folds.'],
-  ['Poker is noisy.', `Under ${MIN_HANDS} hands, a win rate is mostly luck.`],
 ];
 
-const NEXT: [string, string[]][] = [
-  ['Playing against the LLMs.', ['The open-source models playing now are bad at poker.', 'So today it would be a weak game.']],
-  [`An open-source dataset by ${DATASET_DATE}.`, ['Every hand, every decision and its reason.']],
-];
+// The hours and why donations matter, one sentence a line (Draft A shows HOURS and HANDS_A_DAY as tiles above them too).
+export function Hours() {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <p>The main game runs 9am to 9pm ET, every day.</p>
+      <p>About {HANDS_A_DAY} hands a day.</p>
+      <p>A 12-hour live game deals roughly 350.</p>
+      <Label>Every decision is a paid model call, so donations keep the models seated.</Label>
+    </div>
+  );
+}
 
 // A headline in the body's weight, then its lines in muted 13px.
 function Fact({ head, lines }: { head: string; lines: string[] }) {
@@ -96,8 +100,76 @@ export function Caveats() {
   return <div className="flex flex-col gap-2.5">{CAVEATS.map(([h, l]) => <Fact key={h} head={h} lines={[l]} />)}</div>;
 }
 
+// What's next: the home page's disabled Play button, then the dataset and its waitlist.
 export function Next() {
-  return <div className="flex flex-col gap-2.5">{NEXT.map(([h, l]) => <Fact key={h} head={h} lines={l} />)}</div>;
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex"><PlaySoonButton /></div>
+      <div className="flex flex-col gap-2.5">
+        <Fact head={`An open-source dataset by ${DATASET_DATE}.`} lines={[
+          'LLMs are terrible at poker today, and we think there’s a huge unlock in changing that.',
+          'Solvers were AI’s first turn at the game; models that reason in plain words are a whole new paradigm, and this dataset is a push toward it.',
+        ]} />
+        <Waitlist />
+      </div>
+    </div>
+  );
+}
+
+// The dataset's waitlist (lib/waitlist.ts): an email and a secondary button, then how many have joined (fetched once About
+// comes near the window). A bot that fills the hidden "website" field is told it joined, and nothing is sent.
+type Status = 'pending' | 'joined' | 'already' | 'invalid' | 'failed';
+const SAID: Partial<Record<Status, string>> = {
+  joined: 'You’re on the list.',
+  already: 'You’re already on the list.',
+  invalid: 'That doesn’t look like an email.',
+  failed: 'Couldn’t join right now, try again.',
+};
+function Waitlist() {
+  const ref = useRef<HTMLFormElement>(null);
+  const seen = useInView(ref, { once: true, margin: '0px 0px 300px 0px' });
+  const [count, setCount] = useState<number | null>(null);
+  const [status, setStatus] = useState<Status | null>(null);
+  useEffect(() => {
+    if (seen) waitlistCount().then(setCount, () => {});
+  }, [seen]);
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget, data = new FormData(form);
+    if (data.get('website')) return setStatus('joined');
+    if (!form.checkValidity()) return setStatus('invalid');
+    setStatus('pending');
+    try {
+      const r = await joinWaitlist(String(data.get('email')).trim());
+      if (r === 'invalid') return setStatus('invalid');
+      setCount(r.count);
+      setStatus(r.already ? 'already' : 'joined');
+    } catch {
+      setStatus('failed');
+    }
+  };
+  const said = status && SAID[status];
+  return (
+    <form ref={ref} onSubmit={submit} noValidate aria-label="Dataset waitlist" className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <label htmlFor="about-waitlist-email" className="sr-only">Email for the dataset waitlist</label>
+        <input
+          id="about-waitlist-email"
+          name="email"
+          type="email"
+          required
+          autoComplete="email"
+          placeholder="you@example.com"
+          className="min-w-0 w-52 rounded px-2.5 py-1 text-[14px] bg-white border outline-none focus:border-[rgb(35,131,226)]"
+          style={{ borderColor: 'rgba(55, 53, 47, 0.16)' }}
+        />
+        <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="sr-only" />
+        <button type="submit" disabled={status === 'pending'} className="btn-brutal px-3 py-1 disabled:opacity-60">Join the waitlist</button>
+        {count !== null && <Label as="span" data-waitlist-count>{count ? `${count.toLocaleString()} on the waitlist` : 'Be the first on the waitlist.'}</Label>}
+      </div>
+      <div aria-live="polite" className="-mt-1.5">{said && <Label className="mt-1.5">{said}</Label>}</div>
+    </form>
+  );
 }
 
 // The main ask: a stats card with the screen's only filled button (about-support-prominent).
@@ -108,7 +180,7 @@ export function Support({ as: H, className = '' }: { as: Heading; className?: st
       <H className={TITLE}>Keep the table running</H>
       <div className="flex flex-col gap-0.5">
         <p>Donations pay for the OpenRouter model calls and the servers.</p>
-        <Label>$5 is a huge help.</Label>
+        <Label>Even $5 goes a long way.</Label>
       </div>
       <a
         href={SPONSORS}
@@ -155,10 +227,10 @@ function Code({ children }: { children: string }) {
   );
 }
 
-// "Read the system prompt" and "See one turn": the real prompt text (lib/systemPrompt.ts, never copied here) in a modal
+// "Read the system prompt" and "Read the user prompt": the real prompt text (lib/systemPrompt.ts, never copied here) in a modal
 // <dialog> over the page, so opening it never changes About's size (the page leaves wheel and keys inside a dialog alone).
-type View = 'prompt' | 'turn';
-const VIEWS: { label: string; value: View }[] = [{ label: 'System prompt', value: 'prompt' }, { label: 'One turn', value: 'turn' }];
+type View = 'system' | 'user';
+const VIEWS: { label: string; value: View }[] = [{ label: 'System prompt', value: 'system' }, { label: 'User prompt', value: 'user' }];
 
 export function PromptLinks() {
   const [view, setView] = useState<View | null>(null);
@@ -181,7 +253,7 @@ export function PromptLinks() {
             className="font-medium hover:underline"
             style={{ color: BLUE }}
           >
-            {v.value === 'prompt' ? 'Read the system prompt' : 'See one turn'}
+            {`Read the ${v.label.toLowerCase()}`}
           </button>
         ))}
       </div>
@@ -195,19 +267,18 @@ export function PromptLinks() {
       >
         <div className="flex flex-col max-h-[inherit] text-[14px] leading-snug">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 pt-4 pb-3 border-b" style={{ borderColor: RULE }}>
-            <h2 id="about-prompt-title" className={TITLE}>{view === 'turn' ? 'One turn' : 'The system prompt'}</h2>
+            <h2 id="about-prompt-title" className={TITLE}>{view === 'user' ? 'The user prompt' : 'The system prompt'}</h2>
             <div className="flex items-center gap-3">
-              <Segmented label="Show" options={VIEWS} value={view ?? 'prompt'} onChange={setView} />
+              <Segmented label="Show" options={VIEWS} value={view ?? 'system'} onChange={setView} />
               <button onClick={close} aria-label="Close" className="p-1.5 -m-1 rounded hover:bg-[rgba(55,53,47,0.06)]">
                 <X size={18} aria-hidden />
               </button>
             </div>
           </div>
           <div className="min-h-0 overflow-y-auto overscroll-contain px-5 py-4 flex flex-col gap-2">
-            {view === 'turn' ? (
+            {view === 'user' ? (
               <>
-                <p className="font-semibold">The call</p>
-                <Label>The hand so far, sent after the system prompt.</Label>
+                <Label>What a model sees on its turn, sent right after the system prompt.</Label>
                 <Code>{EXAMPLE_USER_PROMPT}</Code>
                 <p className="mt-2 font-semibold">The reply</p>
                 <Label>An action, an amount and a short reason.</Label>
@@ -215,7 +286,7 @@ export function PromptLinks() {
               </>
             ) : (
               <>
-                <Label>Every model gets this exact system prompt at the start of every call.</Label>
+                <Label>Every model gets exactly this at the start of every turn.</Label>
                 <Code>{SYSTEM_PROMPT}</Code>
               </>
             )}
@@ -248,7 +319,7 @@ const W = 600, H = 300, SWING = 1.6, SMOOTH = 2, PAD = 3;
 // One ridge per LLM: its running bb/100 over its own hands (from RATE_FROM, as Profiles' sparkline), each spanning the
 // art, drawn about its latest value so it ends on its row, where its logo sits: the leader on the top row. One scale for
 // all, so a calm line stays calm beside a wild one; the rows' extent fills the box (no empty band above or below). Each
-// ridge's fill (the page's colour, faintly tinted) hides the rows behind it.
+// ridge's fill is the page's own colour (about-race-fill): it hides the rows behind it, so only the lines show.
 function ridges(field: ModelStats[]) {
   const traces = field.map(m => {
     const pts = series(m, 'bb100').filter(([h]) => h >= RATE_FROM);
@@ -297,7 +368,7 @@ export function Race({ art, className = '' }: { art: string; className?: string 
                 {rows.map(r => (
                   <g key={r.m.name} data-model={r.m.name}>
                     <title>{`${r.m.name}: ${signed(r.m.bb100, 0)} bb/100 over ${r.m.hands.toLocaleString()} hands`}</title>
-                    <path d={r.area} style={{ fill: `color-mix(in srgb, ${r.color} 4%, var(--page))` }} />
+                    <path d={r.area} style={{ fill: 'var(--page)' }} />
                     <path d={r.line} fill="none" stroke={r.color} strokeWidth={r.m === leader ? 2 : 1.25} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                   </g>
                 ))}
@@ -322,7 +393,7 @@ export function Race({ art, className = '' }: { art: string; className?: string 
         ))}
       </div>
       <figcaption className="flex flex-col gap-1">
-        <Label>{failed ? 'The race is not available right now.' : 'Running bb/100 of each LLM at the table, best on top.'}</Label>
+        <Label>{failed ? 'The race isn’t available right now.' : 'Running bb/100 of each LLM at the table, best on top.'}</Label>
         {/* LLMLogo is a div: no <p> around it. Empty until the stats arrive, at the same height; the hands count only where
             the line has room for the full name (a phone-narrow draft drops it). */}
         <div className="flex items-center gap-1.5 min-w-0 min-h-[22px] whitespace-nowrap">

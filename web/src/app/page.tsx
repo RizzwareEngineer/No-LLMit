@@ -3,13 +3,14 @@
 import { useMemo, useState, useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
-import { ArrowDown, CircleNotch, GameController } from "@phosphor-icons/react";
+import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import StatsSections from "@/components/StatsSections";
+import PlaySoonButton from "@/components/PlaySoonButton";
 import ModelDrawer from "@/components/ModelDrawer";
 import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
@@ -366,13 +367,7 @@ export default function Home() {
 
         {/* Action buttons row */}
         <div className="mb-1.5 flex items-center justify-center gap-3">
-          <button
-            disabled
-            className="btn-brutal-disabled px-3 py-1 text-[14px] flex items-center gap-2"
-          >
-            <GameController size={14} weight="bold" />
-            Play vs. LLMs — (coming soon)!
-          </button>
+          <PlaySoonButton />
         </div>
 
         {/* Status row - live indicator, hand counter, blinds, timer */}

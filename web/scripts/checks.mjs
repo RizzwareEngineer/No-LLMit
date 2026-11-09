@@ -2043,7 +2043,8 @@ late(() => check('pages-move', 'The main screens move like pages: table → over
 // text is on the stats type scale: the thesis at the site title's 28px bold, card titles 20px bold, section labels 13px muted
 // uppercase, figures 20px bold, body 14px, labels 13px muted, links and buttons blue (the donate button white on its blue fill,
 // about-support-prominent), a number may take the stats' gain or loss colour, all in the body's sans (the code aside). Any card
-// in it is a stats card (radius, ring and shadow, padding, white). No heading carries an emoji, and every draft fits one window
+// in it is a stats card (radius, ring and shadow, padding, white); a disabled control (the home page's Play button,
+// about-play-soon) keeps its own muted look. No heading carries an emoji, and every draft fits one window
 // at the overview's width and centre (not wall to wall) at 1440x900 and 1728x1117. The draft switcher is a temporary control
 // and is left out.
 const ABOUT_DRAFTS = [['a', 'Draft A'], ['b', 'Draft B']];
@@ -2077,7 +2078,7 @@ main(() => check('about-fits', 'Every About draft (A, B) is on the stats type sc
         for (const c of cards) { const s = getComputedStyle(c); for (const k of KEYS) if (s[k] !== ref[k]) why.add(`card ${k} ${s[k]}, not ${ref[k]}`); }
         // Every visible piece of text by its role.
         const body = getComputedStyle(document.body).fontFamily;
-        const texts = [...view.querySelectorAll('*')].filter(e => !e.closest('pre, code, svg, .sr-only') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+        const texts = [...view.querySelectorAll('*')].filter(e => !e.closest('pre, code, svg, .sr-only, button:disabled') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
         for (const e of texts) {
           const s = getComputedStyle(e), size = parseFloat(s.fontSize), bold = +s.fontWeight >= 700, name = `"${e.textContent.trim().slice(0, 20)}"`;
           const control = e.closest('a, button'), number = /^[+−-]?[\d,.]+$/.test(e.textContent.trim());
@@ -2151,7 +2152,7 @@ group(() => check('about-drafts-switcher', 'About shows the default draft; ?abou
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
 }));
 // A draft on /about at 1440x900, then with each prompt dialog opened in turn: its text (an open dialog's included), its own
-// copy (every word but the prompts' code), its links, and each dialog's code blocks.
+// copy (every word but the prompts' code, each dialog's view included), its links, and each dialog's code blocks.
 async function readAbout(draft) {
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   await p.goto(`${BASE}/about?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
@@ -2165,51 +2166,59 @@ async function readAbout(draft) {
     return { text: root.innerText, copy: copy.textContent, links: [...root.querySelectorAll('a[href]')].map(a => a.href), dialog: dialog && [...dialog.querySelectorAll('pre')].map(e => e.textContent) };
   });
   const looks = [await look()], dialogs = {};
-  for (const t of ['Read the system prompt', 'See one turn']) {
+  for (const t of ['Read the system prompt', 'Read the user prompt']) {
     const clicked = await p.evaluate(t => { const b = [...document.querySelectorAll('[data-about-draft] button')].find(b => b.textContent.trim().startsWith(t) && b.getBoundingClientRect().width > 0); b?.click(); return !!b; }, t);
     await sleep(500);
     const l = await look(); looks.push(l); dialogs[t] = clicked ? l.dialog : undefined;
     await p.keyboard.press('Escape'); await sleep(300);
   }
   await p.close();
-  return { text: looks.map(l => l.text).join('\n'), copy: looks[0].copy, links: [...new Set(looks.flatMap(l => l.links))], dialogs };
+  return { text: looks.map(l => l.text).join('\n'), copy: looks.map(l => l.copy).join('\n'), links: [...new Set(looks.flatMap(l => l.links))], dialogs };
 }
 // Owner, 2026-11-09, on what About says: what it is ("some cool pseudo benchmark for LLMs"), how it works ("Each LLM gets the
-// same system prompt, and then they can open up to see what the system prompt is"), the caveats ("No memory between calls ... It
-// can't tag opponents as a nit versus fish"), the hours and hands a day, what's next (playing against them, said honestly, and the
-// open dataset with its date) and the support. Every draft says all of it, the system prompt and one turn's call and reply opened
-// in their dialog from lib/systemPrompt.ts (each export's first line, read from the file as text when the check runs, so no prompt
-// text is pinned here and another worker's rewrite of that file passes as it is; About never copies it); and none of what he cut: LLM Council, training an
-// LLM to play like you, Tinker, "9 LLMs at the table", calls a hand, nor the false "no persona" and "can't see its own earlier
-// decisions" (the call holds the whole hand so far).
+// same system prompt, and then they can open up to see what the system prompt is"), the caveats, the hours and hands a day, what's
+// next and the support. Then, the same day, in plain words: "Every model gets the same system prompt and the same standardized user
+// prompt." / "Click either to see exactly what's inside." / "Assume each holds what a typical poker player is looking at."; the
+// caveats "No memory between hands." (not even its own last hand), "No tells or leaks." and the one retry, with "Poker is noisy"
+// cut; the hours as four lines (9am to 9pm ET, about 150 a day, a 12-hour game deals roughly 350, donations keep the models
+// seated); what's next the home page's Play button, then the dataset, its date and why. Every draft says all of it, the system
+// prompt and the user prompt (then the reply) opened in their dialog from lib/systemPrompt.ts (each export's first line, read from
+// the file as text when the check runs, so no prompt text is pinned here and another worker's rewrite of that file passes as it is;
+// About never copies it); and none of what he cut: LLM Council, training an LLM to play like you, Tinker, "9 LLMs at the table",
+// calls a hand, the false "no persona" and "can't see its own earlier decisions", "Poker is noisy", "One turn" and "The call",
+// and the "Playing against the LLMs" lines.
 const ABOUT_FACTS = [
   ['pseudo benchmark', /A pseudo benchmark for LLMs/],
   ['live hold\'em', /play No-Limit Hold'em against each other, live/],
   ['every decision and why', /watch every decision and its reasoning/],
-  ['same system prompt', /Every model gets the same system prompt/],
-  ['one fresh call', /Each turn is one fresh call with the hand so far/],
-  ['what the call holds', /Seats\s+Stacks\s+The action\s+The board\s+Its cards\s+The pot\s+To call\s+Legal moves/],
+  ['same two prompts', /Every model gets the same system prompt and the same standardized user prompt\./],
+  ['click either', /Click either to see exactly what.s inside\./],
+  ['a typical player\'s view', /Assume each holds what a typical poker player is looking at\./],
   ['the reply', /replies with an action, an amount and a short reason/],
-  ['no memory', /No memory between calls/],
-  ['no notes on opponents', /no notes: it can.t tag a nit or a fish/],
+  ['the reply in the dialog', /The user prompt[\s\S]*The reply/],
+  ['no memory', /No memory between hands\.[\s\S]*A model doesn.t remember how anyone played earlier, not even its own last hand\./],
+  ['no tells', /No tells or leaks\.[\s\S]*The only information is the action on the table\./],
   ['one retry, then check or fold', /illegal or unreadable reply gets one retry[\s\S]*checks if it can, otherwise folds/],
-  ['noise', /Under 500 hands, a win rate is mostly luck/],
-  ['hours', /9am–9pm ET/],
-  ['hands a day', /(~|About )150\s+hands a day/i],
-  ['play against them, honestly', /Playing against the LLMs[\s\S]*open-source models playing now are bad at poker[\s\S]*weak game/],
-  ['dataset and its date', /open-source dataset by \w+day, \w{3} \d{1,2}/],
+  ['hours', /The main game runs 9am to 9pm ET, every day\./],
+  ['hands a day', /About 150 hands a day\./],
+  ['a 12-hour game', /A 12-hour live game deals roughly 350\./],
+  ['donations keep them seated', /Every decision is a paid model call, so donations keep the models seated\./],
+  ['the Play button', /Play vs\. LLMs — \(coming soon\)!/],
+  ['dataset and its date', /An open-source dataset by \w+day, \w{3} \d{1,2}\./],
+  ['why the dataset', /LLMs are terrible at poker today, and we think there.s a huge unlock in changing that\.[\s\S]*Solvers were AI.s first turn at the game; models that reason in plain words are a whole new paradigm, and this dataset is a push toward it\./],
   ['what donations pay for', /Donations pay for the OpenRouter model calls and the servers/],
   ['GitHub', /Open source on GitHub/],
   ['handle', /@RizzwareEngineer/],
 ];
 const ABOUT_GONE = [['LLM Council', /LLM Council/i], ['training an LLM', /Train an LLM/i], ['Tinker', /Tinker/i], ['9 LLMs at the table', /\b(9|nine) LLMs/i],
-  ['calls a hand', /calls? (a|per) hand/i], ['no persona', /no persona/i], ['own earlier decisions', /own earlier decisions/i]];
+  ['calls a hand', /calls? (a|per) hand/i], ['no persona', /no persona/i], ['own earlier decisions', /own earlier decisions/i],
+  ['Poker is noisy', /Poker is noisy/i], ['One turn', /One turn/i], ['The call', /\bThe call\b/], ['Playing against the LLMs', /Playing against the LLMs|weak game/i]];
 const ABOUT_LINKS = ['https://github.com/sponsors/RizzwareEngineer', 'https://github.com/RizzwareEngineer/No-LLMit', 'https://github.com/RizzwareEngineer'];
 // The first line of each prompt lib/systemPrompt.ts exports (`export const NAME = \`first line`), from the file's text.
 const PROMPT_LINES = Object.fromEntries([...readFileSync(new URL('../src/lib/systemPrompt.ts', import.meta.url), 'utf8').matchAll(/^export const (\w+) = `([^\n`]*)/gm)].map(m => [m[1], m[2].trim()]));
 // Each dialog's code blocks, in order, and the export each one starts with.
-const PROMPT_DIALOGS = [['the system prompt', 'Read the system prompt', ['SYSTEM_PROMPT']], ['one turn', 'See one turn', ['EXAMPLE_USER_PROMPT', 'EXAMPLE_REPLY']]];
-group(() => check('about-content-complete', 'Every draft says what About must (pseudo benchmark, how a turn works, the caveats, 9am–9pm ET and ~150 hands a day, playing against them honestly, the dataset and its date, what donations pay for, GitHub and handle) with the system prompt and one turn\'s call and reply opened from lib/systemPrompt.ts (each export\'s first line, read at run time), and nothing the owner cut', async () => {
+const PROMPT_DIALOGS = [['the system prompt', 'Read the system prompt', ['SYSTEM_PROMPT']], ['the user prompt', 'Read the user prompt', ['EXAMPLE_USER_PROMPT', 'EXAMPLE_REPLY']]];
+group(() => check('about-content-complete', 'Every draft says what About must, in the owner\'s plain words (pseudo benchmark, the same system and user prompts, the reply, the caveats, the hours in four lines, the Play button, the dataset, its date and why, what donations pay for, GitHub and handle) with the system prompt and the user prompt then the reply opened from lib/systemPrompt.ts (each export\'s first line, read at run time), and nothing the owner cut ("Poker is noisy" and "One turn" among it)', async () => {
   const bad = [], seen = [];
   const unread = PROMPT_DIALOGS.flatMap(([, , names]) => names).filter(n => !PROMPT_LINES[n]);
   if (unread.length) return { pass: false, detail: `lib/systemPrompt.ts: no \`export const ${unread.join(' / ')} = \`...\` found to read the first line of` };
@@ -2323,6 +2332,116 @@ group(() => check('about-bb100', 'The race on About draws running bb/100: its ro
     if (why.length) bad.push(`${label}: ${why.join('; ')}`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+}));
+// Owner, 2026-11-09: what's next shows the dataset with a waitlist under it: a labelled email input (type email, required) and a
+// "Join the waitlist" button that is not filled (the Sponsor button stays the only filled one), then how many have joined ("N on
+// the waitlist", or "Be the first on the waitlist." at 0). The engine's /api/waitlist is intercepted here (GET → {count}, POST
+// {email} → 201 {count}), so the form is tested whatever the engine has: an invalid email says so and sends nothing; a valid one is
+// posted and says "You're on the list.", the count refreshed.
+group(() => check('about-waitlist', 'About\'s dataset waitlist: a labelled email input and an unfilled "Join the waitlist" button; the count reads "Be the first on the waitlist." at 0 and "12 on the waitlist" at 12; an invalid email shows "That doesn\'t look like an email." with no request, a valid one is posted and shows "You\'re on the list."', async () => {
+  const bad = [], seen = [];
+  const open = async count => {
+    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+    const posts = [];
+    await p.setRequestInterception(true);
+    p.on('request', req => {
+      if (!/\/api\/waitlist$/.test(new URL(req.url()).pathname)) return req.continue();
+      const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST' };
+      if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers });
+      if (req.method() === 'POST') { posts.push(req.postData()); return req.respond({ status: 201, headers, contentType: 'application/json', body: JSON.stringify({ count: count + 1 }) }); }
+      req.respond({ status: 200, headers, contentType: 'application/json', body: JSON.stringify({ count }) });
+    });
+    await p.goto(`${BASE}/about?about=${ABOUT_DEFAULT}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await aboutReady(p);
+    return { p, posts };
+  };
+  const form = 'form[aria-label="Dataset waitlist"]';
+  const said = p => p.evaluate(f => document.querySelector(f)?.innerText.replace(/\s+/g, ' ').trim() ?? '', form);
+  const wait = (p, text) => p.waitForFunction((f, t) => document.querySelector(f)?.innerText.includes(t), { timeout: 10000, polling: 100 }, form, text).then(() => true, () => false);
+  // At 0: the form's parts, and the empty count.
+  let { p } = await open(0);
+  const parts = await p.evaluate(f => {
+    const el = document.querySelector(f), input = el?.querySelector('input[type=email]'), button = el?.querySelector('button[type=submit]');
+    return el && {
+      input: !!input, required: !!input?.required, label: (input?.labels?.[0]?.textContent.trim() || input?.getAttribute('aria-label') || '').length > 0,
+      button: button?.textContent.trim(), bg: button && getComputedStyle(button).backgroundColor,
+    };
+  }, form);
+  if (!parts) bad.push('no waitlist form');
+  else {
+    if (!parts.input || !parts.required) bad.push('no required email input');
+    if (!parts.label) bad.push('the email input has no label');
+    if (parts.button !== 'Join the waitlist') bad.push(`button says "${parts.button}"`);
+    if (parts.bg === 'rgb(35, 131, 226)') bad.push('the button is filled blue');
+  }
+  if (!(await wait(p, 'Be the first on the waitlist.'))) bad.push(`at 0 it says "${await said(p)}"`);
+  await p.close();
+  // At 12: the count, then an invalid email and a valid one.
+  const at12 = await open(12); p = at12.p;
+  if (!(await wait(p, '12 on the waitlist'))) bad.push(`at 12 it says "${await said(p)}"`);
+  await p.type(`${form} input[type=email]`, 'not-an-email');
+  await p.click(`${form} button[type=submit]`);
+  if (!(await wait(p, 'That doesn’t look like an email.')) && !(await wait(p, "That doesn't look like an email."))) bad.push(`an invalid email says "${await said(p)}"`);
+  if (at12.posts.length) bad.push('an invalid email was posted');
+  await p.click(`${form} input[type=email]`, { clickCount: 3 });
+  await p.type(`${form} input[type=email]`, 'fan@example.com');
+  await p.click(`${form} button[type=submit]`);
+  const joined = (await wait(p, 'You’re on the list.')) || (await wait(p, "You're on the list."));
+  const after = await said(p);
+  if (!joined) bad.push(`a valid email says "${after}"`);
+  if (at12.posts.length !== 1 || JSON.parse(at12.posts[0] ?? '{}').email !== 'fan@example.com') bad.push(`posted ${JSON.stringify(at12.posts)}, not {"email":"fan@example.com"} once`);
+  if (!after.includes('13 on the waitlist')) bad.push(`the count did not refresh: "${after}"`);
+  seen.push(`0 → "Be the first", 12 → "12 on the waitlist", invalid → no request, valid → posted, "${after}"`);
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+// Owner, 2026-11-09: what's next starts with "the same disabled Play button as the home page", nothing written under it. Every
+// draft's button is the home page's, markup and all (one shared PlaySoonButton).
+group(() => check('about-play-soon', 'About\'s disabled Play button (every draft) is the home page\'s: same text, classes and markup, disabled', async () => {
+  const bad = [], seen = [];
+  const read = async (path, scope) => {
+    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+    await p.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await aboutReady(p);
+    if (scope) await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 10000, polling: 100 }, path.slice(-1)).catch(() => {});
+    const r = await p.evaluate(scope => {
+      const b = [...document.querySelectorAll(`${scope} button`)].find(b => b.textContent.includes('Play vs. LLMs'));
+      return b && { html: b.outerHTML, text: b.textContent.trim(), cls: b.className, disabled: b.disabled };
+    }, scope || 'body');
+    await p.close();
+    return r;
+  };
+  const home = await read('/', '');
+  if (!home) return { pass: false, detail: 'no Play button on the home page' };
+  if (!home.disabled) bad.push('the home page\'s Play button is not disabled');
+  for (const [draft, label] of ABOUT_DRAFTS) {
+    const r = await read(`/about?about=${draft}`, '[data-about-draft]');
+    if (!r) { bad.push(`${label}: no Play button`); continue; }
+    if (r.text !== home.text) bad.push(`${label}: says "${r.text}", not "${home.text}"`);
+    if (r.cls !== home.cls) bad.push(`${label}: classes "${r.cls}", not "${home.cls}"`);
+    if (r.html !== home.html) bad.push(`${label}: markup differs from the home page's`);
+    if (!r.disabled) bad.push(`${label}: not disabled`);
+    seen.push(`${label}: "${r.text}" as on the home page`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+// Owner, 2026-11-09, of the race art: he dislikes the grey "mountain" under the lines. Each ridge's fill is the page's own colour
+// (var(--page), no model tint), so only the coloured lines show and the shape melts into the background.
+group(() => check('about-race-fill', 'Every ridge area in About\'s race (every draft) is filled with var(--page), untinted', async () => {
+  const bad = [], seen = [];
+  for (const [draft, label] of ABOUT_DRAFTS) {
+    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+    await p.goto(`${BASE}/about?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await aboutReady(p);
+    await p.waitForFunction(() => document.querySelector('[data-about-draft] figure svg [data-model]'), { timeout: 60000, polling: 250 }).catch(() => {});
+    const fills = await p.evaluate(() => [...document.querySelectorAll('[data-about-draft] figure svg [data-model]')].map(g => [g.dataset.model, g.querySelector('path')?.style.fill ?? '']));
+    await p.close();
+    if (!fills.length) { bad.push(`${label}: no ridges`); continue; }
+    const off = fills.filter(([, f]) => f !== 'var(--page)');
+    if (off.length) bad.push(`${label}: ${off.map(([m, f]) => `${m} filled ${f || 'none'}`).join(', ')}`);
+    seen.push(`${label}: ${fills.length} ridges on var(--page)`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 // Opens a card from the overview the way a visitor does (a click on its tile), and waits for the glide.
 const median = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return Math.round(b[b.length >> 1]); };

@@ -1,7 +1,7 @@
 'use client';
 
 import { MUTED, TEXT } from '@/lib/stats';
-import { Caveats, Eyebrow, Footer, HANDS_A_DAY, HOURS, How, Intro, LABEL, Next, RULE, Race, Support, Thesis } from '@/components/about/content';
+import { Caveats, Eyebrow, Footer, HANDS_A_DAY, HOURS, Hours, How, Intro, LABEL, Next, RULE, Race, Support, Thesis } from '@/components/about/content';
 
 // Draft A, "split hero": what it is, the hours and the ask on the left, the race large on the right; how it works, the
 // caveats and what's next under it in three columns on hairlines. Laid out by its own width (container queries).
@@ -30,13 +30,16 @@ export default function HeroSplit({ heading }: { heading: 'h1' | 'h2' }) {
             <Thesis as={heading} />
             <Intro />
           </div>
-          <div className="flex flex-wrap gap-x-10 gap-y-2">
-            {[[HOURS, 'Open every day'], [`~${HANDS_A_DAY}`, 'Hands a day']].map(([n, what]) => (
-              <div key={what}>
-                <p className="text-[20px] leading-7 font-bold tabular-nums whitespace-nowrap">{n}</p>
-                <p className="text-[13px] leading-snug" style={{ color: MUTED }}>{what}</p>
-              </div>
-            ))}
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap gap-x-10 gap-y-2">
+              {[[HOURS, 'Open every day'], [`~${HANDS_A_DAY}`, 'Hands a day']].map(([n, what]) => (
+                <div key={what}>
+                  <p className="text-[20px] leading-7 font-bold tabular-nums whitespace-nowrap">{n}</p>
+                  <p className="text-[13px] leading-snug" style={{ color: MUTED }}>{what}</p>
+                </div>
+              ))}
+            </div>
+            <Hours />
           </div>
           <Support as={Sub} className="self-start" />
         </div>
