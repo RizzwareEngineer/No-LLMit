@@ -12,18 +12,18 @@ import { EXAMPLE_REPLY, EXAMPLE_USER_PROMPT, SYSTEM_PROMPT } from '@/lib/systemP
 // The About copy and its parts, shared by both drafts so each says exactly the same things (about-content-complete);
 // a draft only arranges them. Every line is one sentence that fits its line at the drafts' widths (one sentence per line).
 
-export const BLUE = 'rgb(35, 131, 226)';
+const BLUE = 'rgb(35, 131, 226)';
 export const RULE = 'rgba(55, 53, 47, 0.16)'; // hairlines between sections
 // A small uppercase label (13px muted, the stats' label size): a section's name, an eyebrow.
 export const LABEL = 'text-[13px] leading-snug font-medium uppercase tracking-[0.08em]';
 
 // The day the open dataset ships: one constant, so moving it is a one-word change.
-export const DATASET_DATE = 'Wednesday, Nov 18';
+const DATASET_DATE = 'Wednesday, Nov 18';
 
 type Heading = 'h1' | 'h2' | 'h3';
 
 // Secondary text: 13px muted, the stats cards' definition lines.
-export function Label({ as: Tag = 'p', className = '', children }: { as?: 'p' | 'li'; className?: string; children: React.ReactNode }) {
+function Label({ as: Tag = 'p', className = '', children }: { as?: 'p' | 'li'; className?: string; children: React.ReactNode }) {
   return <Tag className={`text-[13px] leading-snug ${className}`} style={{ color: MUTED }}>{children}</Tag>;
 }
 
@@ -71,19 +71,19 @@ export function How() {
 }
 
 // The caveats: each headline, then why.
-export const CAVEATS: [string, string][] = [
+const CAVEATS: [string, string][] = [
   ['No memory between calls.', 'No earlier hands, no notes: it can’t tag a nit or a fish.'],
   ['An illegal or unreadable reply gets one retry.', 'If that fails too, it checks if it can, otherwise folds.'],
   ['Poker is noisy.', `Under ${MIN_HANDS} hands, a win rate is mostly luck.`],
 ];
 
-export const NEXT: [string, string[]][] = [
+const NEXT: [string, string[]][] = [
   ['Playing against the LLMs.', ['The open-source models playing now are bad at poker.', 'So today it would be a weak game.']],
   [`An open-source dataset by ${DATASET_DATE}.`, ['Every hand, every decision and its reason.']],
 ];
 
 // A headline in the body's weight, then its lines in muted 13px.
-export function Fact({ head, lines }: { head: string; lines: string[] }) {
+function Fact({ head, lines }: { head: string; lines: string[] }) {
   return (
     <div className="flex flex-col gap-0.5">
       <p className="font-semibold">{head}</p>
@@ -101,7 +101,7 @@ export function Next() {
 }
 
 // The main ask: a stats card with the screen's only filled button (about-support-prominent).
-export const SPONSORS = 'https://github.com/sponsors/RizzwareEngineer';
+const SPONSORS = 'https://github.com/sponsors/RizzwareEngineer';
 export function Support({ as: H, className = '' }: { as: Heading; className?: string }) {
   return (
     <section data-support className={`${CARD} relative gap-3 ${className}`} style={{ boxShadow: CARD_SHADOW }}>
@@ -127,7 +127,7 @@ export function Support({ as: H, className = '' }: { as: Heading; className?: st
 }
 
 // A link out, in the site's link blue.
-export function Out({ href, children }: { href: string; children: React.ReactNode }) {
+function Out({ href, children }: { href: string; children: React.ReactNode }) {
   return <a href={href} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: BLUE }}>{children}</a>;
 }
 
