@@ -204,8 +204,9 @@ export default memo(function HeadToHead({
             <thead>
               <tr style={{ height: strip - 1 }}>
                 <th aria-hidden className="p-0" />
+                {/* Opaque when pinned (the highlight over white, a white 1px ring over the cell spacing): scrolled cells never show through. */}
                 {sorted.map(m => (
-                  <th key={m.name} scope="col" className={`p-0 font-medium rounded-sm ${pin && `${pin} top-0 z-[1]`}`} title={m.name} style={{ background: m.name === from?.col ? HOT : undefined }}>
+                  <th key={m.name} scope="col" className={`p-0 font-medium rounded-sm ${pin && `${pin} top-0 z-[1]`}`} title={m.name} style={{ background: m.name === from?.col ? `linear-gradient(${HOT}, ${HOT}) white` : undefined, boxShadow: pin ? '0 0 0 1px white' : undefined }}>
                     <span className="flex justify-center"><LLMLogo model={m.name} size={zoomed ? 24 : 16} /></span>
                     <span className="sr-only">{m.name}</span>
                   </th>
