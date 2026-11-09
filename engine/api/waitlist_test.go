@@ -162,6 +162,12 @@ func TestWaitlistSupabase(t *testing.T) {
 	fake.down = true
 	fake.mu.Unlock()
 	store.cachedAt = time.Time{}
+	defer func() {
+		// Nor do sign-ups in that time make it be asked: each is stored or refused without another count.
+		if gets, _ := fake.state(); gets != 4 {
+			t.Errorf("counted %d times by the end, want 4", gets)
+		}
+	}()
 	for range 3 {
 		if code, out := waitlistCall(t, h, "GET", ""); code != 200 || out["count"] != 1.0 {
 			t.Errorf("GET with the store down: %d %v", code, out)
@@ -292,18 +298,46 @@ func TestWaitlistDailyLimit(t *testing.T) {
 			t.Errorf("request %d (%s): %d, want %d", i+1, email, code, want)
 		}
 	}
-	// The next UTC day starts a new allowance.
+	// The next UTC day starts a new allowance; a row that was reserved and not added is given back.
 	l := newWaitlistLimiter()
 	now := time.Date(2026, 11, 9, 23, 59, 0, 0, time.UTC)
-	l.allow("", now)
-	l.added()
-	l.added()
-	if l.allow("", now) || !l.allow("", now.Add(2*time.Minute)) {
-		t.Error("the daily limit should hold until midnight UTC and reset after it")
+	if !l.allow("", now) || !l.allow("", now) || l.allow("", now) {
+		t.Error("two rows a day: the third attempt should be refused")
+	}
+	l.release()
+	if !l.allow("", now) || l.allow("", now) || !l.allow("", now.Add(2*time.Minute)) {
+		t.Error("a released row can be taken again; the limit holds until midnight UTC and resets after it")
+	}
+}
+
+// slowList is a store whose insert takes a while, so many sign-ups are in flight together.
+type slowList struct{ *memoryWaitlist }
+
+func (s slowList) add(email string) (bool, error) {
+	time.Sleep(5 * time.Millisecond)
+	return s.memoryWaitlist.add(email)
+}
+
+func TestWaitlistDailyLimitHoldsUnderABurst(t *testing.T) {
+	t.Setenv("WAITLIST_DAILY_MAX", "50")
+	list := &memoryWaitlist{emails: map[string]bool{}}
+	h := waitlistHandler(slowList{list})
+	var wg sync.WaitGroup
+	for i := range 400 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			waitlistFrom(h, fmt.Sprintf("198.51.%d.%d", i/256, i%256), fmt.Sprintf("burst%d@example.com", i))
+		}()
+	}
+	wg.Wait()
+	if n, _ := list.count(); n != 50 {
+		t.Errorf("400 sign-ups at once stored %d rows, want exactly the day's 50", n)
 	}
 }
 
 func TestWaitlistLimiterStaysBounded(t *testing.T) {
+	t.Setenv("WAITLIST_DAILY_MAX", "1000000") // this test is about senders, not the day's rows
 	l := newWaitlistLimiter()
 	now := time.Now()
 	for i := range 25000 {
@@ -322,34 +356,28 @@ func TestWaitlistLimiterStaysBounded(t *testing.T) {
 }
 
 func TestCleanEmail(t *testing.T) {
-	good := []string{"ada@example.com", "first.last+tag@sub.example.co.uk", "o'brien@example.ie", "ünï@exämple.de", " Ada@Example.com "}
+	good := []string{"ada@example.com", "first.last+tag@sub.example.co.uk", "o'brien@example.ie", " Ada@Example.com ",
+		"ada@xn--exmple-cua.de", "a@b.photography", "ada_lovelace@example-mail.org", "1@2.co"}
 	for _, s := range good {
 		if _, ok := cleanEmail(s); !ok {
 			t.Errorf("%q should be accepted", s)
 		}
 	}
 	bad := []string{
-		"a@.", ".@.", "a@-.-", "a@b..c", "a@-b.com", "a@b", "ada", "@example.com", "a@@example.com", "x,victim@example.com",
+		"", "a@.", ".@.", "a@-.-", "a@b..c", "a@-b.com", "a@b", "ada", "@example.com", "a@@example.com", "x,victim@example.com",
 		"<script>alert(1)</script>@x.y", `=hyperlink("http://evil.example","x")&"@x.y`, "Ada <ada@example.com>", `"ada"@example.com`,
 		"ada@example.com\x00", "ada\x08@example.com", "ada@exam\u2028ple.com", "ada\u00a0b@example.com", "ada\u200b@example.com",
 		"ad a@example.com", "ada@example.com\nbcc: x@example.com",
+		// not a host that takes mail
+		"a@1.2", "a@127.0.0.1", "a@" + strings.Repeat("x", 64) + ".com", "ada@example.com.",
+		// a formula once the list is opened in a spreadsheet
+		"=a1+@evil.example", "=1+1@x.yy", "+1@x.yy", "-1@x.yy",
+		// look-alike copies of an address: invisible or non-ASCII characters
+		"ada\u034f@example.com", "ada\ufe0f@example.com", "ada@ex\u3164ample.com", "ada\u2800@example.com", "ünï@exämple.de", "ａda@example.com",
 	}
 	for _, s := range bad {
 		if _, ok := cleanEmail(s); ok {
 			t.Errorf("%q should be refused", s)
-		}
-	}
-}
-
-func TestContentRangeTotal(t *testing.T) {
-	for h, want := range map[string]int{"0-0/42": 42, "*/0": 0, "0-999/1000": 1000} {
-		if got, err := contentRangeTotal(h); err != nil || got != want {
-			t.Errorf("%q: %d %v, want %d", h, got, err, want)
-		}
-	}
-	for _, h := range []string{"", "0-0/*", "0-0", "junk"} {
-		if n, err := contentRangeTotal(h); err == nil {
-			t.Errorf("%q: %d, want an error", h, n)
 		}
 	}
 }

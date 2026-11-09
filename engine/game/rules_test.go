@@ -334,6 +334,49 @@ func TestLoneStackWithNothingToCallIsNotAsked(t *testing.T) {
 			t.Errorf("complete=%v, C has %d (at most 90), A %d (at least 1040), %d chips in all (2030)", gs.IsHandComplete(), c, a, total(gs))
 		}
 	})
+	t.Run("a big blind all-in for less than the small blind's post", func(t *testing.T) {
+		// Button A(0), SB B(1), BB C(2) with 3 chips, D(3). The bet to call is nominally 10, but
+		// once the others fold nobody has more in than the small blind's 5.
+		gs := newTable(1000, 1000, 3, 1000)
+		if err := gs.StartHand(); err != nil {
+			t.Fatal(err)
+		}
+		act(t, gs, ActionFold, 0) // D
+		act(t, gs, ActionFold, 0) // A
+		if gs.IsWaitingForAction() || !gs.NeedToAdvanceStreet() {
+			t.Fatalf("the small blind has more in than the all-in big blind, yet player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
+		}
+		gs.AdvanceStreet()
+		// C can win 6: its 3 and 3 of the small blind's 5.
+		if b, c := gs.Players[1].Stack, gs.Players[2].Stack; !gs.IsHandComplete() || c > 6 || b+c != 1003 || total(gs) != 3003 {
+			t.Errorf("complete=%v, C has %d (at most 6), small blind %d (1003 between them), %d chips in all (3003)", gs.IsHandComplete(), c, b, total(gs))
+		}
+	})
+	t.Run("a big blind all-in for more than the small blind's post is still called or folded", func(t *testing.T) {
+		gs := newTable(1000, 1000, 8, 1000)
+		if err := gs.StartHand(); err != nil {
+			t.Fatal(err)
+		}
+		act(t, gs, ActionFold, 0) // D
+		act(t, gs, ActionFold, 0) // A
+		if gs.CurrentPlayerIdx != 1 || !offers(gs, ActionCall) || !offers(gs, ActionFold) || offers(gs, ActionRaise) {
+			t.Errorf("the small blind has 5 in against 8 and must call or fold; player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
+		}
+	})
+	t.Run("heads-up, a blind posted all-in", func(t *testing.T) {
+		// Two seats: seat 1 posts the small blind with its last 3 chips, seat 0 the big blind.
+		gs := newTable(1000, 3)
+		if err := gs.StartHand(); err != nil {
+			t.Fatal(err)
+		}
+		if gs.IsWaitingForAction() || !gs.NeedToAdvanceStreet() {
+			t.Fatalf("nothing can be decided, yet player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
+		}
+		gs.AdvanceStreet()
+		if short := gs.Players[1].Stack; !gs.IsHandComplete() || short > 6 || total(gs) != 1003 {
+			t.Errorf("complete=%v, the short stack has %d (at most 6), %d chips in all (1003)", gs.IsHandComplete(), short, total(gs))
+		}
+	})
 	t.Run("a stack that still owes a call is asked", func(t *testing.T) {
 		gs := newTable(1000, 1000, 300)
 		if err := gs.StartHand(); err != nil {

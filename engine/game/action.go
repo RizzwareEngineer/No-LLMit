@@ -275,7 +275,7 @@ func (gs *GameState) advanceToNextPlayer() {
 }
 
 func (gs *GameState) IsBettingRoundComplete() bool {
-	playersToAct, playersInHand, withChips, owing := 0, 0, 0, 0
+	playersToAct, playersInHand, withChips, last := 0, 0, 0, -1
 
 	for i := range gs.Players {
 		player := &gs.Players[i]
@@ -286,17 +286,27 @@ func (gs *GameState) IsBettingRoundComplete() bool {
 			continue
 		}
 		withChips++
-		if player.CurrentBet < gs.CurrentBet {
-			owing++
-		}
+		last = i
 		if !player.HasActedThisRound || player.CurrentBet < gs.CurrentBet {
 			playersToAct++
 		}
 	}
-
-	// The last player with chips, owing nothing, has no decision left: nobody could answer
-	// a bet, and a fold would hand an all-in player chips it never covered. The board runs out.
-	return playersInHand <= 1 || playersToAct == 0 || (withChips == 1 && owing == 0)
+	if playersInHand <= 1 || playersToAct == 0 {
+		return true
+	}
+	if withChips != 1 {
+		return false
+	}
+	// The last player with chips has no decision left once no opponent has more in than it
+	// has: nobody could answer a bet, and a fold would hand an all-in player chips it never
+	// covered. The board runs out. (Measured against the opponents' bets, not CurrentBet:
+	// a big blind all-in for less still sets CurrentBet to the full blind.)
+	for i := range gs.Players {
+		if p := &gs.Players[i]; p.Status == PlayerAllIn && p.CurrentBet > gs.Players[last].CurrentBet {
+			return false
+		}
+	}
+	return true
 }
 
 func (gs *GameState) CountActivePlayers() int {

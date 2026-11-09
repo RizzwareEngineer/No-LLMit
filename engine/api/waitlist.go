@@ -16,12 +16,10 @@ import (
 	"net/mail"
 	"net/netip"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 )
 
 const (
@@ -66,19 +64,21 @@ func waitlistHandler(store waitlistStore) http.HandlerFunc {
 				email, ok = cleanEmail(in.Email)
 			}
 			if !ok {
+				limit.release()
 				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid email"})
 				return
 			}
 			added, err := store.add(email)
 			if err != nil {
+				limit.release()
 				log.Printf("Waitlist: %v", err)
 				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
 				return
 			}
 			if added {
 				status = http.StatusCreated
-				limit.added()
 			} else {
+				limit.release()
 				out["already"] = true
 			}
 		default:
@@ -119,8 +119,10 @@ func newWaitlistLimiter() *waitlistLimiter {
 	return &waitlistLimiter{tries: map[string]*waitlistTries{}, dailyMax: envInt("WAITLIST_DAILY_MAX", 5000)}
 }
 
-// allow counts one sign-up attempt and says whether it may go on. addr is "" when the
-// sender is unknown (no edge in front: local runs); then only the daily limit applies.
+// allow counts one sign-up attempt and, when it may go on, reserves the row it could add,
+// so sign-ups in flight together cannot pass the daily limit; release gives the row back
+// when none was added. addr is "" when the sender is unknown (no edge in front: local
+// runs); then only the daily limit applies.
 func (l *waitlistLimiter) allow(addr string, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -130,32 +132,36 @@ func (l *waitlistLimiter) allow(addr string, now time.Time) bool {
 	if l.rows >= l.dailyMax {
 		return false
 	}
-	if addr == "" {
-		return true
-	}
-	if len(l.tries) >= 10000 { // bounded whatever arrives: drop the hours that have passed, else start over
-		for a, t := range l.tries {
-			if now.Sub(t.since) >= time.Hour {
-				delete(l.tries, a)
+	if addr != "" {
+		if len(l.tries) >= 10000 { // bounded whatever arrives: drop the hours that have passed, else start over
+			for a, t := range l.tries {
+				if now.Sub(t.since) >= time.Hour {
+					delete(l.tries, a)
+				}
+			}
+			if len(l.tries) >= 10000 {
+				clear(l.tries)
 			}
 		}
-		if len(l.tries) >= 10000 {
-			clear(l.tries)
+		t := l.tries[addr]
+		if t == nil || now.Sub(t.since) >= time.Hour {
+			t = &waitlistTries{since: now}
+			l.tries[addr] = t
+		}
+		if t.n++; t.n > waitlistPerAddress {
+			return false
 		}
 	}
-	t := l.tries[addr]
-	if t == nil || now.Sub(t.since) >= time.Hour {
-		t = &waitlistTries{since: now}
-		l.tries[addr] = t
-	}
-	t.n++
-	return t.n <= waitlistPerAddress
+	l.rows++
+	return true
 }
 
-// added counts one new row toward the day's limit.
-func (l *waitlistLimiter) added() {
+// release returns a reserved row that was not added (an invalid or listed address, a store failure).
+func (l *waitlistLimiter) release() {
 	l.mu.Lock()
-	l.rows++
+	if l.rows > 0 {
+		l.rows--
+	}
 	l.mu.Unlock()
 }
 
@@ -176,24 +182,45 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// A host name with a dot: labels of letters, digits and inner hyphens.
-var waitlistDomain = regexp.MustCompile(`^[\p{L}\p{N}]([\p{L}\p{N}-]*[\p{L}\p{N}])?(\.[\p{L}\p{N}]([\p{L}\p{N}-]*[\p{L}\p{N}])?)+$`)
-
 // cleanEmail trims and lowercases an address and says whether it is one we accept: at
-// most 254 characters, a plain address as net/mail reads it (no display name, no quotes
-// or comments around it), a host name with a dot after the "@", and no space, control or
-// invisible character anywhere (a zero-width space would slip a second copy past the
-// unique index).
+// most 254 characters, printable ASCII only (browsers send an international domain in its
+// ASCII form and refuse other local parts; anything else is mostly look-alike copies of an
+// address that the unique index cannot catch), a plain address as net/mail reads it (no
+// display name, quotes or comments), not starting with = + or - (a formula once the list
+// is opened in a spreadsheet), and a host name after the "@".
 func cleanEmail(s string) (string, bool) {
 	s = strings.ToLower(strings.TrimSpace(s))
-	if len(s) > 254 || strings.ContainsFunc(s, func(r rune) bool {
-		return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
-	}) {
+	if s == "" || len(s) > 254 || strings.IndexByte("=+-", s[0]) >= 0 {
 		return s, false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] <= ' ' || s[i] > '~' {
+			return s, false
+		}
 	}
 	parsed, err := mail.ParseAddress(s)
 	at := strings.LastIndex(s, "@")
-	return s, err == nil && parsed.Address == s && parsed.Name == "" && at > 0 && waitlistDomain.MatchString(s[at+1:])
+	return s, err == nil && parsed.Address == s && parsed.Name == "" && at > 0 && isHostName(s[at+1:])
+}
+
+// isHostName reports whether h is two or more labels of letters, digits and inner hyphens,
+// each at most 63 long, the last one with a letter (so an IP address is not one).
+func isHostName(h string) bool {
+	labels := strings.Split(h, ".")
+	if len(labels) < 2 {
+		return false
+	}
+	for _, l := range labels {
+		if l == "" || len(l) > 63 || l[0] == '-' || l[len(l)-1] == '-' {
+			return false
+		}
+		for i := 0; i < len(l); i++ {
+			if c := l[i]; !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+	}
+	return strings.ContainsAny(labels[len(labels)-1], "abcdefghijklmnopqrstuvwxyz")
 }
 
 // memoryWaitlist is the list without Supabase; it lasts as long as the process.
@@ -221,8 +248,9 @@ func (m *memoryWaitlist) count() (int, error) {
 // supabaseWaitlist is the dataset_waitlist table through PostgREST (schema:
 // supabase/migrations). The count is cached for waitlistCountTTL and counted again after
 // each insert; one request counts at a time while the others wait (at most
-// waitlistCountTimeout), and a failed count is remembered for the TTL too (the last total
-// is served if there is one), so a struggling store is not asked on every request.
+// waitlistCountTimeout), and a failed count is remembered for the TTL too, whatever is
+// inserted meanwhile (the last total is served if there is one), so a struggling store is
+// asked once per TTL, not on every request.
 type supabaseWaitlist struct {
 	url  string
 	key  string
@@ -232,7 +260,8 @@ type supabaseWaitlist struct {
 	cached    int
 	counted   bool // cached holds a total the store gave
 	cachedErr error
-	cachedAt  time.Time
+	cachedAt  time.Time // when the store last gave a total; zeroed by an insert so the next count asks again
+	failedAt  time.Time // when a count last failed; inserts leave it, so they cannot make a struggling store be asked again
 }
 
 func (s *supabaseWaitlist) do(ctx context.Context, method, query string, body []byte, prefer string) (*http.Response, error) {
@@ -273,19 +302,18 @@ func (s *supabaseWaitlist) add(email string) (bool, error) {
 func (s *supabaseWaitlist) count() (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if time.Since(s.cachedAt) < waitlistCountTTL {
+	if time.Since(s.cachedAt) < waitlistCountTTL || time.Since(s.failedAt) < waitlistCountTTL {
 		return s.cached, s.cachedErr
 	}
 	n, err := s.fetchCount()
-	s.cachedAt = time.Now()
 	switch {
 	case err == nil:
-		s.cached, s.counted, s.cachedErr = n, true, nil
+		s.cached, s.counted, s.cachedErr, s.cachedAt, s.failedAt = n, true, nil, time.Now(), time.Time{}
 	case s.counted:
 		log.Printf("Waitlist: serving the last total: %v", err)
-		s.cachedErr = nil
+		s.cachedErr, s.failedAt = nil, time.Now()
 	default:
-		s.cachedErr = err
+		s.cachedErr, s.failedAt = err, time.Now()
 	}
 	return s.cached, s.cachedErr
 }
