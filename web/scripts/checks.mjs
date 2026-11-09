@@ -1734,7 +1734,7 @@ async function readAbout(draft) {
 const ABOUT_FACTS = [
   ['pseudo benchmark', /A pseudo benchmark for LLMs/],
   ['live hold\'em', /play No-Limit Hold'em against each other, live/],
-  ['every decision and why', /watch every decision and the reasoning behind it/],
+  ['every decision and why', /watch every decision and its reasoning/],
   ['same system prompt', /Every model gets the same system prompt/],
   ['one fresh call', /Each turn is one fresh call with the hand so far/],
   ['what the call holds', /Seats\s+Stacks\s+The action\s+The board\s+Its cards\s+The pot\s+To call\s+Legal moves/],

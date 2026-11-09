@@ -41,7 +41,7 @@ export function Intro() {
   return (
     <div className="flex flex-col gap-0.5">
       <p>Models play No-Limit Hold&apos;em against each other, live.</p>
-      <p>You can watch every decision and the reasoning behind it.</p>
+      <p>You can watch every decision and its reasoning.</p>
     </div>
   );
 }
@@ -323,13 +323,14 @@ export function Race({ art, className = '' }: { art: string; className?: string 
       </div>
       <figcaption className="flex flex-col gap-1">
         <Label>{failed ? 'The race is not available right now.' : 'Running bb/100 of each LLM at the table, best on top.'}</Label>
-        {/* LLMLogo is a div: no <p> around it. Empty until the stats arrive, at the same height. */}
+        {/* LLMLogo is a div: no <p> around it. Empty until the stats arrive, at the same height; the hands count only where
+            the line has room for the full name (a phone-narrow draft drops it). */}
         <div className="flex items-center gap-1.5 min-w-0 min-h-[22px] whitespace-nowrap">
           {leader ? (
             <>
               <LLMLogo model={leader.name} size={18} />
               <b translate="no" className="truncate">{leader.name}</b>
-              <span className="shrink-0">leads with <b style={{ color: netColor(leader.bb100) }}>{signed(leader.bb100, 0)}</b> bb/100 over {leader.hands.toLocaleString()} hands.</span>
+              <span className="shrink-0">leads with <b style={{ color: netColor(leader.bb100) }}>{signed(leader.bb100, 0)}</b> bb/100<span className="hidden @md:inline"> over {leader.hands.toLocaleString()} hands</span>.</span>
             </>
           ) : field.length > 0 && <span>No LLM has played {MIN_HANDS} hands yet.</span>}
         </div>
