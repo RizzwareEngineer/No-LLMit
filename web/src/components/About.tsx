@@ -14,7 +14,7 @@ const DRAFTS = [
 ] as const;
 type Draft = (typeof DRAFTS)[number]['value'];
 const VIEWS = { a: HeroSplit, b: SpecSheet };
-const DEFAULT: Draft = 'a';
+const DEFAULT: Draft = 'b'; // B (spec sheet): one labelled row per topic, the ask beside the thesis
 
 const listeners = new Set<() => void>();
 const subscribe = (l: () => void) => {
