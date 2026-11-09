@@ -43,6 +43,8 @@ export const TOTAL_TITLE = 'Big blinds won from the models shown per 100 hands d
 const NEVER_MET = 'never sat together';
 // A pair's or a row's figure under its sample rule is drawn at this opacity.
 const FAINT = 0.4;
+// The cell readout's width: its longest line (two long names around a figure) on one line, never wrapped.
+const TIP_W = 380;
 
 // Big blinds the row model won from the column model per 100 hands they were both dealt in. With `focus`,
 // one model's opponents as a list (the drawer); without it, the full grid of row model against column
@@ -149,7 +151,7 @@ export default memo(function HeadToHead({
     const o = outer.current!.getBoundingClientRect();
     const r = e.currentTarget.getBoundingClientRect();
     const below = r.top - o.top < 90; // no room above the cell: show it underneath
-    setTip({ row, col, x: Math.min(Math.max(r.left - o.left + r.width / 2, 130), o.width - 130), y: below ? r.bottom - o.top + 4 : r.top - o.top - 4, below });
+    setTip({ row, col, x: Math.min(Math.max(r.left - o.left + r.width / 2, TIP_W / 2), o.width - TIP_W / 2), y: below ? r.bottom - o.top + 4 : r.top - o.top - 4, below });
   };
   const tipRow = tip && sorted.find(m => m.name === tip.row);
   const tipCell = tipRow && cellOf(tipRow, tip.col);
@@ -184,8 +186,9 @@ export default memo(function HeadToHead({
       {/* On the tile, a size container: the matrix takes what its names leave. No scroller of its own. */}
       {/* Centred, but never past the left edge: a card that scrolls (a phone, All models) keeps the names pinned. */}
       <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : ''}`} style={{ containerType: mini ? 'size' : undefined, fontSize: px }} onMouseLeave={() => setTip(null)}>
-        <div className={`shrink-0 flex flex-col overflow-hidden ${pin && `${pin} left-0 z-[2]`}`} style={{ width: namesW }}>
-          <span className={`block shrink-0 ${pin && `${pin} top-0`}`} style={{ height: strip }} />
+        {/* No overflow-hidden in the card: it would make the column the sticky container of its own top spacer. */}
+        <div className={`shrink-0 flex flex-col ${mini ? 'overflow-hidden' : `${pin} left-0 z-[2]`}`} style={{ width: namesW }}>
+          <span className={`block shrink-0 ${pin && `${pin} top-0 z-[1]`}`} style={{ height: strip }} />
           {/* Model names as in Profiles (14px bold); the Leader on the highlight. */}
           {sorted.map(row => (
             <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold ${mini ? '' : 'hover:underline'}`}>
@@ -266,8 +269,8 @@ export default memo(function HeadToHead({
       {tip && tipCell && (
         <div
           role="tooltip"
-          className="absolute z-10 pointer-events-none w-[260px] rounded bg-white px-2.5 py-2 text-[13px] leading-snug tabular-nums"
-          style={{ left: tip.x, top: tip.y, transform: `translate(-50%, ${tip.below ? '0' : '-100%'})`, color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}
+          className="absolute z-10 pointer-events-none rounded bg-white px-2.5 py-2 text-[13px] leading-snug tabular-nums whitespace-nowrap"
+          style={{ width: TIP_W, left: tip.x, top: tip.y, transform: `translate(-50%, ${tip.below ? '0' : '-100%'})`, color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}
         >
           {tipCell.bb === null ? (
             <div><span className="font-bold">{tip.row}</span> and <span className="font-bold">{tip.col}</span> {NEVER_MET}.</div>
