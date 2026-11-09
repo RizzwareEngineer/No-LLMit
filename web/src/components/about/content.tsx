@@ -165,7 +165,7 @@ function Waitlist() {
         />
         <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="sr-only" />
         <button type="submit" disabled={status === 'pending'} className="btn-brutal px-3 py-1 disabled:opacity-60">Join the waitlist</button>
-        {count !== null && <Label as="span" className="ml-1" data-waitlist-count>{count ? `${count.toLocaleString()} on the waitlist` : 'Be the first on the waitlist.'}</Label>}
+        {count !== null && <Label as="span" data-waitlist-count>{count ? `${count.toLocaleString()} on the waitlist` : 'Be the first on the waitlist.'}</Label>}
       </div>
       <div aria-live="polite" className="-mt-1.5">{said && <Label className="mt-1.5">{said}</Label>}</div>
     </form>
