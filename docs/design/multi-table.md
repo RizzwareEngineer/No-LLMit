@@ -21,7 +21,6 @@ stacks         {start: 2000, session_hands: 1000, rebuy: true}
 seating        "balanced-8" | "fixed"                     ordering rotates per session
 pace           1.0 (display) | 0 (model speed)
 hours          {open: 9, close: 21, tz: "America/New_York"} | "always"
-gate_on_spectators  true | false
 daily_call_cap 5000
 enabled        true
 ```

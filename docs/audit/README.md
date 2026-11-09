@@ -50,7 +50,7 @@ Not audited: a real browser render at any width, `next build`, Dockerfiles, Rail
 ### Tier 3 — decide later
 
 17. **Offline re-query harness** on stored prompts (HUD-memory probe, self-consistency, cross-model same-spot). A few dollars per run, no engine change; do this before any second live table.
-18. **Headless capped research table** (pace ≈ 0, no spectator gate): ~10x hands/day for ~$10 per 10k hands. Needs the multi-table config (TableConfig, table map, model id per request).
+18. **Headless capped research table** (pace ≈ 0): ~10x hands/day for ~$10 per 10k hands. Needs the multi-table config (TableConfig, table map, model id per request).
 19. **Flagship showcase sessions** (weekly, time-boxed): the Twitter draw; 10–100x per hand.
 20. **Replace models with >5% error rate** after a week of data, or publish a separate "format reliability" leaderboard.
 
