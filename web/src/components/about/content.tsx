@@ -23,7 +23,7 @@ export const DATASET_DATE = 'Wednesday, Nov 18';
 type Heading = 'h1' | 'h2' | 'h3';
 
 // Secondary text: 13px muted, the stats cards' definition lines.
-export function Label({ as: Tag = 'p', className = '', children }: { as?: 'p' | 'li' | 'span'; className?: string; children: React.ReactNode }) {
+export function Label({ as: Tag = 'p', className = '', children }: { as?: 'p' | 'li'; className?: string; children: React.ReactNode }) {
   return <Tag className={`text-[13px] leading-snug ${className}`} style={{ color: MUTED }}>{children}</Tag>;
 }
 
@@ -179,11 +179,10 @@ export function PromptLinks() {
             onClick={() => setView(v.value)}
             aria-haspopup="dialog"
             aria-expanded={view === v.value}
-            className="flex items-center gap-1 font-medium hover:underline"
+            className="font-medium hover:underline"
             style={{ color: BLUE }}
           >
             {v.value === 'prompt' ? 'Read the system prompt' : 'See one turn'}
-            <ArrowUpRight size={13} weight="bold" aria-hidden />
           </button>
         ))}
       </div>

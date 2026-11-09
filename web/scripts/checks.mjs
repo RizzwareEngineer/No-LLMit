@@ -1849,7 +1849,7 @@ group(() => check('about-bb100', 'The race on About draws running bb/100: its ro
     await p.waitForFunction(() => document.querySelector('[data-race-row]'), { timeout: 60000, polling: 250 }).catch(() => {});
     await sleep(800);
     const r = await p.evaluate(() => {
-      const fig = document.querySelector('[data-about-draft] [data-race]');
+      const fig = document.querySelector('[data-about-draft] figure');
       return fig && {
         rows: [...fig.querySelectorAll('[data-race-row]')].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map(e => e.dataset.raceRow),
         ridges: [...fig.querySelectorAll('svg [data-model]')].map(e => e.dataset.model),

@@ -38,7 +38,7 @@ export default function HeroSplit({ heading }: { heading: 'h1' | 'h2' }) {
               </div>
             ))}
           </div>
-          <Support as={Sub} />
+          <Support as={Sub} className="self-start" />
         </div>
         <Race art="h-[clamp(220px,30cqw,300px)] [@media(min-height:960px)]:h-[clamp(240px,30cqw,400px)]" />
       </div>
