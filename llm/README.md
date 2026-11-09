@@ -182,27 +182,30 @@ The reply format is ACTION, AMOUNT, REASON in that order for every model. Models
 reasoning channel think there before the first line; models without one commit first and
 explain after. Putting REASON first would turn it into a thinking dump that the site has to
 display, and a long one risks being cut off before the ACTION line, the worst failure. The
-parser is strict about that structure and lenient only about dress (markdown, case, list
-numbers, spellings of the all-in, commas in numbers): a reply is read as the move it states
-or as a miss that gets the retry, never as a different move.
+parser holds a reply to that format and forgives only dress (markdown, case, list numbers,
+quotes, emoji, field order, spellings of the all-in, commas in numbers): a reply is read as
+the move it states or as a miss that gets the retry, never as a different move. Three
+reviews each found a looser parser playing moves the model had not made, so:
 
-- A label counts only at the start of a line, so prose such as "the next action: fold" is
-  not an answer. The last ACTION line is the answer; an earlier draft's AMOUNT and REASON
-  are never borrowed. A one-line reply (`ACTION: fold | AMOUNT: 0 | REASON: ...`) and a
-  label alone on its line with the value on the next are read too.
-- The ACTION line holds one move: `fold`, `check`, `call`, `bet`, `raise`, or the all-in
-  (`all-in`, `raise all-in`, `bet all-in`, `go all-in`). Words may follow, but not another
-  move's name: `call would be too loose, so I fold` is `unparseable`, and after the all-in
-  only its size may follow. `call all-in` is a call, so `call the all-in` never shoves
-  over a smaller bet; `call` when the bet covers the stack is that all-in. Any other word
-  (`calling`, `shove`) is `unparseable`.
-- A bet or raise takes its size from the AMOUNT line when it is one whole number of chips
-  (`300`, `$1,130`, `raise to 300`, `300 chips`), else from right after the word on the
-  ACTION line (`raise to 300`). Big blinds, multiples, percentages, decimals, arithmetic
-  and two numbers are `illegal` with a message that says so; `AMOUNT: all-in` is the all-in.
-- With no ACTION label, only a first line that is the move alone counts (`RAISE: 150`).
+- A label counts only at the start of a line, and a reply holds one answer: ACTION lines
+  that differ are `unparseable` (a draft before the answer and a plan after it look the
+  same). A one-line reply (`ACTION: fold | AMOUNT: 0 | REASON: ...`) and a label alone on
+  its line with the value on the next are read.
+- The ACTION line is only the move: `fold`, `check`, `call`, `bet`, `raise`, or the all-in
+  (`all-in`, `raise all-in`, `bet all-in`, `go all-in`), with a size after bet or raise
+  (`raise to 300`). Anything more is `unparseable`: `calling`, `shove`, `call the raise`,
+  `fold (too weak)`, `call - actually all-in`. `call all-in` is a call, so `call the
+  all-in` never shoves over a smaller bet; `call` when the bet covers the stack is that
+  all-in.
+- A bet or raise needs one whole number of chips, on the AMOUNT line (`300`, `$1,130`,
+  `raise to 300`, `300 chips`) or right after the word. Big blinds, multiples, percentages,
+  signs, decimals, arithmetic, and an ACTION and AMOUNT that disagree are `illegal` with a
+  message that says which; `AMOUNT: all-in` is the all-in.
+- With no ACTION label, only a reply whose first line is the move alone counts, with
+  nothing else outside labelled fields (`RAISE: 150`).
 - A reply the token limit cut off before the REASON that ends its answer is `unparseable`,
-  and so is a parser error: the service never answers 500 for a reply.
+  and so is one over 20,000 characters. A parser error is ours: status `service_error`, no
+  retry, never a 500 and never the model's miss.
 
 `bet` where the legal action is RAISE is a raise; a raise to the all-in total is a raise when
 one is legal and the all-in otherwise. The retry message after a bad reply is `That reply wasn't legal: <reason>.

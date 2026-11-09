@@ -58,7 +58,7 @@ def check_legal(parsed: dict, request: DecisionRequest) -> str:
         parsed["action"] = "ALL_IN"  # a call for the whole stack is the all-in
         return ""
     if action == "CHECK":
-        return f"there is {request.to_call:,} to call, so check is not legal"
+        return f"there is {min(request.to_call, request.stack):,} to call, so check is not legal"
     if action == "CALL":
         return "there is nothing to call"
     return f"{action.lower().replace('_', '-')} is not legal here"
@@ -105,10 +105,10 @@ def decide(request: DecisionRequest, complete) -> dict:
         _merge(out, reply)
         try:
             parsed = parse_response(reply["raw"])
-        except Exception:  # a reply the parser cannot read is the model's miss, never a 500
+        except Exception as e:  # our bug, not the model's miss: never a 500, never charged to the model
             log.exception("the parser failed on a reply")
-            parsed = {"action": "FOLD", "amount": 0, "reason": "", "status": "unparseable",
-                      "problem": "the reply could not be read"}
+            out.update(status="service_error", error=f"parser: {e}")
+            break
         # A reply the token limit cut off before the end of its answer (the REASON comes last)
         # is not an answer: "bet 12" may be half of 120.
         if reply.get("finish_reason") == "length" and not parsed.get("complete"):

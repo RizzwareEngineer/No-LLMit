@@ -18,7 +18,7 @@ def test_reason_is_kept():
 @pytest.mark.parametrize("spelling", ["ALL_IN", "ALL-IN", "ALL IN", "ALLIN", "all-in", "All In"])
 def test_all_in_spellings(spelling):
     assert parse_response(f"ACTION: {spelling}\nAMOUNT: 0\nREASON: Shove.")["action"] == "ALL_IN"
-    assert parse_response(f"{spelling}\nShove.")["action"] == "ALL_IN"
+    assert parse_response(spelling)["action"] == "ALL_IN"  # the label-less form: the move alone
 
 
 def test_bet_is_raise():
@@ -51,7 +51,7 @@ def test_commas_and_currency_in_amounts():
 
 @pytest.mark.parametrize("line,action", [
     ("raise all-in", "ALL_IN"), ("call all-in", "CALL"), ("bet all in", "ALL_IN"), ("Raise to 200", "RAISE"),
-    ("call", "CALL"), ("Check.", "CHECK"), ("fold (nothing to do)", "FOLD"),
+    ("call", "CALL"), ("Check.", "CHECK"), ("fold!", "FOLD"),
 ])
 def test_action_line_wording(line, action):
     assert parse_response(f"ACTION: {line}\nAMOUNT: 0")["action"] == action
