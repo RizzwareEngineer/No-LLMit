@@ -10,7 +10,7 @@
       "small_blind": 5,
       "big_blind": 10,
       "provider": "mock",
-      "prompt_version": "d7fd8ae",
+      "prompt_version": "f605559",
       "memory": "none"
     },
     "button_seat": 6,
@@ -230,7 +230,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 2,
@@ -275,7 +277,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 3,
@@ -321,7 +325,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 4,
@@ -367,7 +373,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 5,
@@ -412,7 +420,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 6,
@@ -458,7 +468,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 7,
@@ -503,7 +515,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 8,
@@ -548,7 +562,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 9,
@@ -594,7 +610,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 10,
@@ -639,7 +657,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 11,
@@ -684,7 +704,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 12,
@@ -730,7 +752,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 13,
@@ -776,7 +800,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 14,
@@ -821,7 +847,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 15,
@@ -867,7 +895,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 16,
@@ -912,7 +942,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 17,
@@ -956,7 +988,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       },
       {
         "n": 18,
@@ -1000,7 +1034,9 @@
         "latency_ms": 0,
         "tokens_in": null,
         "tokens_out": null,
-        "cost_usd": null
+        "cost_usd": null,
+        "prompt_version": "f605559",
+        "model": "mock"
       }
     ],
     "result": {
@@ -1044,109 +1080,109 @@
     {
       "prompt_id": "tbl_684679-000002-01",
       "n": 1,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10\n\nYou are GPT-OSS 20B, in the UTG. Your hole cards: Ks 4d.\nPot: 15. To call: 10. Your stack: 2057.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Claude Haiku 5.5 (UTG+1, 2000 behind), Gemma 3 12B (MP, 2000 behind), Llama 3.1 8B (MP+1, 2000 behind), Mistral Nemo (HJ, 2000 behind), DeepSeek V4 Flash (CO, 1990 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 10\n- RAISE: AMOUNT is your total bet this street, between 20 and 2057\n- ALL_IN (2057 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1990 (199 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 2000 (200 BB)\nPlayer 4 (MP+1): 2000 (200 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1990 (199 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB)\n\nYou are Player 1 (UTG). Your hole cards: Ks 4d.\nPot: 15 (1.5 BB). To call: 10 (1 BB). Your stack: 2057 (205.7 BB).\n\nLegal actions:\n- FOLD\n- CALL 10 (1 BB)\n- RAISE 20 to 2057 (2 to 205.7 BB)\n- ALL_IN",
       "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-02",
       "n": 2,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds\n\nYou are Claude Haiku 5.5, in the UTG+1. Your hole cards: Ah As.\nPot: 15. To call: 10. Your stack: 2000.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 2000 behind), Llama 3.1 8B (MP+1, 2000 behind), Mistral Nemo (HJ, 2000 behind), DeepSeek V4 Flash (CO, 1990 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 10\n- RAISE: AMOUNT is your total bet this street, between 20 and 2000\n- ALL_IN (2000 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1990 (199 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 2000 (200 BB)\nPlayer 4 (MP+1): 2000 (200 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1990 (199 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds\n\nYou are Player 2 (UTG+1). Your hole cards: Ah As.\nPot: 15 (1.5 BB). To call: 10 (1 BB). Your stack: 2000 (200 BB).\n\nLegal actions:\n- FOLD\n- CALL 10 (1 BB)\n- RAISE 20 to 2000 (2 to 200 BB)\n- ALL_IN",
       "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-03",
       "n": 3,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds\n\nYou are Gemma 3 12B, in the MP. Your hole cards: 2s 2c.\nPot: 15. To call: 10. Your stack: 2000.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Llama 3.1 8B (MP+1, 2000 behind), Mistral Nemo (HJ, 2000 behind), DeepSeek V4 Flash (CO, 1990 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 10\n- RAISE: AMOUNT is your total bet this street, between 20 and 2000\n- ALL_IN (2000 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1990 (199 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 2000 (200 BB)\nPlayer 4 (MP+1): 2000 (200 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1990 (199 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds\n\nYou are Player 3 (MP). Your hole cards: 2s 2c.\nPot: 15 (1.5 BB). To call: 10 (1 BB). Your stack: 2000 (200 BB).\n\nLegal actions:\n- FOLD\n- CALL 10 (1 BB)\n- RAISE 20 to 2000 (2 to 200 BB)\n- ALL_IN",
       "raw_reply": "ACTION: RAISE\nAMOUNT: 22\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-04",
       "n": 4,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22\n\nYou are Llama 3.1 8B, in the MP+1. Your hole cards: Ad Kh.\nPot: 37. To call: 22. Your stack: 2000.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 1978 behind), Mistral Nemo (HJ, 2000 behind), DeepSeek V4 Flash (CO, 1990 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 22\n- RAISE: AMOUNT is your total bet this street, between 34 and 2000\n- ALL_IN (2000 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1990 (199 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 2000 (200 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1990 (199 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB)\n\nYou are Player 4 (MP+1). Your hole cards: Ad Kh.\nPot: 37 (3.7 BB). To call: 22 (2.2 BB). Your stack: 2000 (200 BB).\n\nLegal actions:\n- FOLD\n- CALL 22 (2.2 BB)\n- RAISE 34 to 2000 (3.4 to 200 BB)\n- ALL_IN",
       "raw_reply": "ACTION: RAISE\nAMOUNT: 100\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-05",
       "n": 5,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100\n\nYou are Mistral Nemo, in the HJ. Your hole cards: 4h 2h.\nPot: 137. To call: 100. Your stack: 2000.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 1978 behind), Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1990 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 100\n- RAISE: AMOUNT is your total bet this street, between 178 and 2000\n- ALL_IN (2000 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1990 (199 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1900 (190 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1990 (199 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB)\n\nYou are Player 5 (HJ). Your hole cards: 4h 2h.\nPot: 137 (13.7 BB). To call: 100 (10 BB). Your stack: 2000 (200 BB).\n\nLegal actions:\n- FOLD\n- CALL 100 (10 BB)\n- RAISE 178 to 2000 (17.8 to 200 BB)\n- ALL_IN",
       "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-06",
       "n": 6,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds\n\nYou are DeepSeek V4 Flash, in the CO. Your hole cards: Jd 6s.\nPot: 137. To call: 100. Your stack: 1990.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 1978 behind), Llama 3.1 8B (MP+1, 1900 behind), Phi-4 (BTN, 1995 behind).\n\nLegal actions:\n- FOLD\n- CALL 100\n- RAISE: AMOUNT is your total bet this street, between 178 and 1990\n- ALL_IN (1990 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1990 (199 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1900 (190 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1990 (199 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds\n\nYou are Player 6 (CO). Your hole cards: Jd 6s.\nPot: 137 (13.7 BB). To call: 100 (10 BB). Your stack: 1990 (199 BB).\n\nLegal actions:\n- FOLD\n- CALL 100 (10 BB)\n- RAISE 178 to 1990 (17.8 to 199 BB)\n- ALL_IN",
       "raw_reply": "ACTION: CALL\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-07",
       "n": 7,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100\n\nYou are Phi-4, in the BTN. Your hole cards: 4s 8s.\nPot: 237. To call: 100. Your stack: 1995.\nStill in the hand: Qwen 3.7 Flash (SB, 1953 behind), Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 1978 behind), Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CALL 100\n- RAISE: AMOUNT is your total bet this street, between 178 and 1995\n- ALL_IN (1995 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1990 (199 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1900 (190 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1890 (189 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB)\n\nYou are Player 7 (BTN). Your hole cards: 4s 8s.\nPot: 237 (23.7 BB). To call: 100 (10 BB). Your stack: 1995 (199.5 BB).\n\nLegal actions:\n- FOLD\n- CALL 100 (10 BB)\n- RAISE 178 to 1995 (17.8 to 199.5 BB)\n- ALL_IN",
       "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-08",
       "n": 8,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds\n\nYou are Qwen 3.7 Flash, in the SB. Your hole cards: Kd 6d.\nPot: 237. To call: 95. Your stack: 1953.\nStill in the hand: Cohere Command R7B (BB, 1990 behind), Gemma 3 12B (MP, 1978 behind), Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CALL 95\n- RAISE: AMOUNT is your total bet this street, between 178 and 1958\n- ALL_IN (1958 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1990 (199 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1900 (190 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1890 (189 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds\n\nYou are Player 8 (SB). Your hole cards: Kd 6d.\nPot: 237 (23.7 BB). To call: 95 (9.5 BB). Your stack: 1953 (195.3 BB).\n\nLegal actions:\n- FOLD\n- CALL 95 (9.5 BB)\n- RAISE 178 to 1958 (17.8 to 195.8 BB)\n- ALL_IN",
       "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-09",
       "n": 9,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds\n\nYou are Cohere Command R7B, in the BB. Your hole cards: 5c 9h.\nPot: 237. To call: 90. Your stack: 1990.\nStill in the hand: Gemma 3 12B (MP, 1978 behind), Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CALL 90\n- RAISE: AMOUNT is your total bet this street, between 178 and 2000\n- ALL_IN (2000 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1990 (199 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1900 (190 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1890 (189 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds, Player 8 (SB) folds\n\nYou are Player 9 (BB). Your hole cards: 5c 9h.\nPot: 237 (23.7 BB). To call: 90 (9 BB). Your stack: 1990 (199 BB).\n\nLegal actions:\n- FOLD\n- CALL 90 (9 BB)\n- RAISE 178 to 2000 (17.8 to 200 BB)\n- ALL_IN",
       "raw_reply": "ACTION: CALL\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-10",
       "n": 10,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90\n\nYou are Gemma 3 12B, in the MP. Your hole cards: 2s 2c.\nPot: 327. To call: 78. Your stack: 1978.\nStill in the hand: Cohere Command R7B (BB, 1900 behind), Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CALL 78\n- RAISE: AMOUNT is your total bet this street, between 178 and 2000\n- ALL_IN (2000 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1900 (190 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1900 (190 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1890 (189 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds, Player 8 (SB) folds, Player 9 (BB) calls 90 (9 BB)\n\nYou are Player 3 (MP). Your hole cards: 2s 2c.\nPot: 327 (32.7 BB). To call: 78 (7.8 BB). Your stack: 1978 (197.8 BB).\n\nLegal actions:\n- FOLD\n- CALL 78 (7.8 BB)\n- RAISE 178 to 2000 (17.8 to 200 BB)\n- ALL_IN",
       "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-11",
       "n": 11,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): no action yet\n\nYou are Cohere Command R7B, in the BB. Your hole cards: 5c 9h.\nPot: 327. To call: 0. Your stack: 1900.\nStill in the hand: Llama 3.1 8B (MP+1, 1900 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET: AMOUNT is your total bet this street, between 10 and 1900\n- ALL_IN (1900 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1900 (190 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1900 (190 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1890 (189 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds, Player 8 (SB) folds, Player 9 (BB) calls 90 (9 BB), Player 3 (MP) folds\nFlop [3s 6c Td], pot 327 (32.7 BB): no action yet\n\nYou are Player 9 (BB). Your hole cards: 5c 9h.\nPot: 327 (32.7 BB). To call: 0 (0 BB). Your stack: 1900 (190 BB).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET 10 to 1900 (1 to 190 BB)\n- ALL_IN",
       "raw_reply": "ACTION: BET\nAMOUNT: 12\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-12",
       "n": 12,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12\n\nYou are Llama 3.1 8B, in the MP+1. Your hole cards: Ad Kh.\nPot: 339. To call: 12. Your stack: 1900.\nStill in the hand: Cohere Command R7B (BB, 1888 behind), DeepSeek V4 Flash (CO, 1890 behind).\n\nLegal actions:\n- FOLD\n- CALL 12\n- RAISE: AMOUNT is your total bet this street, between 24 and 1900\n- ALL_IN (1900 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1888 (188.8 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1900 (190 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1890 (189 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds, Player 8 (SB) folds, Player 9 (BB) calls 90 (9 BB), Player 3 (MP) folds\nFlop [3s 6c Td], pot 327 (32.7 BB): Player 9 (BB) bets 12 (1.2 BB)\n\nYou are Player 4 (MP+1). Your hole cards: Ad Kh.\nPot: 339 (33.9 BB). To call: 12 (1.2 BB). Your stack: 1900 (190 BB).\n\nLegal actions:\n- FOLD\n- CALL 12 (1.2 BB)\n- RAISE 24 to 1900 (2.4 to 190 BB)\n- ALL_IN",
       "raw_reply": "ACTION: CALL\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-13",
       "n": 13,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12\n\nYou are DeepSeek V4 Flash, in the CO. Your hole cards: Jd 6s.\nPot: 351. To call: 12. Your stack: 1890.\nStill in the hand: Cohere Command R7B (BB, 1888 behind), Llama 3.1 8B (MP+1, 1888 behind).\n\nLegal actions:\n- FOLD\n- CALL 12\n- RAISE: AMOUNT is your total bet this street, between 24 and 1890\n- ALL_IN (1890 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1888 (188.8 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1888 (188.8 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1890 (189 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds, Player 8 (SB) folds, Player 9 (BB) calls 90 (9 BB), Player 3 (MP) folds\nFlop [3s 6c Td], pot 327 (32.7 BB): Player 9 (BB) bets 12 (1.2 BB), Player 4 (MP+1) calls 12 (1.2 BB)\n\nYou are Player 6 (CO). Your hole cards: Jd 6s.\nPot: 351 (35.1 BB). To call: 12 (1.2 BB). Your stack: 1890 (189 BB).\n\nLegal actions:\n- FOLD\n- CALL 12 (1.2 BB)\n- RAISE 24 to 1890 (2.4 to 189 BB)\n- ALL_IN",
       "raw_reply": "ACTION: CALL\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-14",
       "n": 14,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash calls 12\nTurn [3s 6c Td 7c] (pot 363): no action yet\n\nYou are Cohere Command R7B, in the BB. Your hole cards: 5c 9h.\nPot: 363. To call: 0. Your stack: 1888.\nStill in the hand: Llama 3.1 8B (MP+1, 1888 behind), DeepSeek V4 Flash (CO, 1878 behind).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET: AMOUNT is your total bet this street, between 10 and 1888\n- ALL_IN (1888 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1888 (188.8 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1888 (188.8 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1878 (187.8 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds, Player 8 (SB) folds, Player 9 (BB) calls 90 (9 BB), Player 3 (MP) folds\nFlop [3s 6c Td], pot 327 (32.7 BB): Player 9 (BB) bets 12 (1.2 BB), Player 4 (MP+1) calls 12 (1.2 BB), Player 6 (CO) calls 12 (1.2 BB)\nTurn [3s 6c Td 7c], pot 363 (36.3 BB): no action yet\n\nYou are Player 9 (BB). Your hole cards: 5c 9h.\nPot: 363 (36.3 BB). To call: 0 (0 BB). Your stack: 1888 (188.8 BB).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET 10 to 1888 (1 to 188.8 BB)\n- ALL_IN",
       "raw_reply": "ACTION: BET\nAMOUNT: 12\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-15",
       "n": 15,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash calls 12\nTurn [3s 6c Td 7c] (pot 363): Cohere Command R7B bets 12\n\nYou are Llama 3.1 8B, in the MP+1. Your hole cards: Ad Kh.\nPot: 375. To call: 12. Your stack: 1888.\nStill in the hand: Cohere Command R7B (BB, 1876 behind), DeepSeek V4 Flash (CO, 1878 behind).\n\nLegal actions:\n- FOLD\n- CALL 12\n- RAISE: AMOUNT is your total bet this street, between 24 and 1888\n- ALL_IN (1888 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1876 (187.6 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1888 (188.8 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1878 (187.8 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds, Player 8 (SB) folds, Player 9 (BB) calls 90 (9 BB), Player 3 (MP) folds\nFlop [3s 6c Td], pot 327 (32.7 BB): Player 9 (BB) bets 12 (1.2 BB), Player 4 (MP+1) calls 12 (1.2 BB), Player 6 (CO) calls 12 (1.2 BB)\nTurn [3s 6c Td 7c], pot 363 (36.3 BB): Player 9 (BB) bets 12 (1.2 BB)\n\nYou are Player 4 (MP+1). Your hole cards: Ad Kh.\nPot: 375 (37.5 BB). To call: 12 (1.2 BB). Your stack: 1888 (188.8 BB).\n\nLegal actions:\n- FOLD\n- CALL 12 (1.2 BB)\n- RAISE 24 to 1888 (2.4 to 188.8 BB)\n- ALL_IN",
       "raw_reply": "ACTION: CALL\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-16",
       "n": 16,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash calls 12\nTurn [3s 6c Td 7c] (pot 363): Cohere Command R7B bets 12, Llama 3.1 8B calls 12\n\nYou are DeepSeek V4 Flash, in the CO. Your hole cards: Jd 6s.\nPot: 387. To call: 12. Your stack: 1878.\nStill in the hand: Cohere Command R7B (BB, 1876 behind), Llama 3.1 8B (MP+1, 1876 behind).\n\nLegal actions:\n- FOLD\n- CALL 12\n- RAISE: AMOUNT is your total bet this street, between 24 and 1878\n- ALL_IN (1878 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1876 (187.6 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1876 (187.6 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1878 (187.8 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds, Player 8 (SB) folds, Player 9 (BB) calls 90 (9 BB), Player 3 (MP) folds\nFlop [3s 6c Td], pot 327 (32.7 BB): Player 9 (BB) bets 12 (1.2 BB), Player 4 (MP+1) calls 12 (1.2 BB), Player 6 (CO) calls 12 (1.2 BB)\nTurn [3s 6c Td 7c], pot 363 (36.3 BB): Player 9 (BB) bets 12 (1.2 BB), Player 4 (MP+1) calls 12 (1.2 BB)\n\nYou are Player 6 (CO). Your hole cards: Jd 6s.\nPot: 387 (38.7 BB). To call: 12 (1.2 BB). Your stack: 1878 (187.8 BB).\n\nLegal actions:\n- FOLD\n- CALL 12 (1.2 BB)\n- RAISE 24 to 1878 (2.4 to 187.8 BB)\n- ALL_IN",
       "raw_reply": "ACTION: FOLD\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-17",
       "n": 17,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash calls 12\nTurn [3s 6c Td 7c] (pot 363): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash folds\nRiver [3s 6c Td 7c Tc] (pot 387): no action yet\n\nYou are Cohere Command R7B, in the BB. Your hole cards: 5c 9h.\nPot: 387. To call: 0. Your stack: 1876.\nStill in the hand: Llama 3.1 8B (MP+1, 1876 behind).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET: AMOUNT is your total bet this street, between 10 and 1876\n- ALL_IN (1876 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1876 (187.6 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1876 (187.6 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1878 (187.8 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds, Player 8 (SB) folds, Player 9 (BB) calls 90 (9 BB), Player 3 (MP) folds\nFlop [3s 6c Td], pot 327 (32.7 BB): Player 9 (BB) bets 12 (1.2 BB), Player 4 (MP+1) calls 12 (1.2 BB), Player 6 (CO) calls 12 (1.2 BB)\nTurn [3s 6c Td 7c], pot 363 (36.3 BB): Player 9 (BB) bets 12 (1.2 BB), Player 4 (MP+1) calls 12 (1.2 BB), Player 6 (CO) folds\nRiver [3s 6c Td 7c Tc], pot 387 (38.7 BB): no action yet\n\nYou are Player 9 (BB). Your hole cards: 5c 9h.\nPot: 387 (38.7 BB). To call: 0 (0 BB). Your stack: 1876 (187.6 BB).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET 10 to 1876 (1 to 187.6 BB)\n- ALL_IN",
       "raw_reply": "ACTION: CHECK\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     },
     {
       "prompt_id": "tbl_684679-000002-18",
       "n": 18,
-      "prompt": "Hand #2. No Limit Texas Hold'em cash game, blinds 5/10, 9 players.\n\nSeats (stack at start of hand):\nSB: Qwen 3.7 Flash (1958)\nBB: Cohere Command R7B (2000)\nUTG: GPT-OSS 20B (2057)\nUTG+1: Claude Haiku 5.5 (2000)\nMP: Gemma 3 12B (2000)\nMP+1: Llama 3.1 8B (2000)\nHJ: Mistral Nemo (2000)\nCO: DeepSeek V4 Flash (1990)\nBTN: Phi-4 (1995)\n\nPreflop: Qwen 3.7 Flash posts small blind 5, Cohere Command R7B posts big blind 10, GPT-OSS 20B folds, Claude Haiku 5.5 folds, Gemma 3 12B raises to 22, Llama 3.1 8B raises to 100, Mistral Nemo folds, DeepSeek V4 Flash calls 100, Phi-4 folds, Qwen 3.7 Flash folds, Cohere Command R7B calls 90, Gemma 3 12B folds\nFlop [3s 6c Td] (pot 327): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash calls 12\nTurn [3s 6c Td 7c] (pot 363): Cohere Command R7B bets 12, Llama 3.1 8B calls 12, DeepSeek V4 Flash folds\nRiver [3s 6c Td 7c Tc] (pot 387): Cohere Command R7B checks\n\nYou are Llama 3.1 8B, in the MP+1. Your hole cards: Ad Kh.\nPot: 387. To call: 0. Your stack: 1876.\nStill in the hand: Cohere Command R7B (BB, 1876 behind).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET: AMOUNT is your total bet this street, between 10 and 1876\n- ALL_IN (1876 total this street)\n",
+      "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\nPlayer 8 (SB): 1953 (195.3 BB)\nPlayer 9 (BB): 1876 (187.6 BB)\nPlayer 1 (UTG): 2057 (205.7 BB)\nPlayer 2 (UTG+1): 2000 (200 BB)\nPlayer 3 (MP): 1978 (197.8 BB)\nPlayer 4 (MP+1): 1876 (187.6 BB)\nPlayer 5 (HJ): 2000 (200 BB)\nPlayer 6 (CO): 1878 (187.8 BB)\nPlayer 7 (BTN): 1995 (199.5 BB)\n\nPreflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) raises to 22 (2.2 BB), Player 4 (MP+1) raises to 100 (10 BB), Player 5 (HJ) folds, Player 6 (CO) calls 100 (10 BB), Player 7 (BTN) folds, Player 8 (SB) folds, Player 9 (BB) calls 90 (9 BB), Player 3 (MP) folds\nFlop [3s 6c Td], pot 327 (32.7 BB): Player 9 (BB) bets 12 (1.2 BB), Player 4 (MP+1) calls 12 (1.2 BB), Player 6 (CO) calls 12 (1.2 BB)\nTurn [3s 6c Td 7c], pot 363 (36.3 BB): Player 9 (BB) bets 12 (1.2 BB), Player 4 (MP+1) calls 12 (1.2 BB), Player 6 (CO) folds\nRiver [3s 6c Td 7c Tc], pot 387 (38.7 BB): Player 9 (BB) checks\n\nYou are Player 4 (MP+1). Your hole cards: Ad Kh.\nPot: 387 (38.7 BB). To call: 0 (0 BB). Your stack: 1876 (187.6 BB).\n\nLegal actions:\n- FOLD\n- CHECK\n- BET 10 to 1876 (1 to 187.6 BB)\n- ALL_IN",
       "raw_reply": "ACTION: CHECK\nAMOUNT: 0\nREASON: Mock provider: random legal action, no model was called."
     }
   ]

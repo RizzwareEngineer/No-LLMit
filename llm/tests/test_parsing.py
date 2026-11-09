@@ -29,3 +29,21 @@ def test_bet_is_raise():
 def test_unparseable_folds(text):
     result = parse_response(text)
     assert (result["action"], result["status"]) == ("FOLD", "unparseable")
+
+
+def test_markdown_is_stripped():
+    text = "```\n**ACTION:** `RAISE`\n- **AMOUNT:** 1,200\n* REASON: _Value_ bet.\n```"
+    result = parse_response(text)
+    assert (result["action"], result["amount"], result["reason"], result["status"]) == ("RAISE", 1200, "Value bet.", "ok")
+
+
+def test_last_action_line_wins():
+    text = ("Thinking: ACTION: CALL would be fine but I prefer pressure.\nAMOUNT: 0\n\n"
+            "ACTION: RAISE\nAMOUNT: 60\nREASON: Take it down now.")
+    result = parse_response(text)
+    assert (result["action"], result["amount"], result["reason"]) == ("RAISE", 60, "Take it down now.")
+
+
+def test_commas_and_currency_in_amounts():
+    assert parse_response("ACTION: RAISE\nAMOUNT: $2,057")["amount"] == 2057
+    assert parse_response("RAISE: 1,500")["amount"] == 1500
