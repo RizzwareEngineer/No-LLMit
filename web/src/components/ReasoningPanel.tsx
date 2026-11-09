@@ -3,6 +3,7 @@
 import CornerBorders from "@/components/CornerBorders";
 import LLMLogo from "@/components/LLMLogo";
 import TypewriterText from "@/components/TypewriterText";
+import { formatAmount, useBigBlind } from "@/lib/amounts";
 
 type DisplayPhase = 'idle' | 'waiting' | 'thinking' | 'reasoning' | 'revealed';
 
@@ -27,6 +28,7 @@ export default function ReasoningPanel({
   shotClockRemaining,
   isPaused = false,
 }: ReasoningPanelProps) {
+  const bb = useBigBlind(); // the action's amount follows the Chips/BB switch; the model's own words stay as written
 
   const phase = displayState?.phase || 'idle';
   const playerName = displayState?.playerName || '—';
@@ -50,7 +52,7 @@ export default function ReasoningPanel({
   };
   const reasonFontSize = getReasonFontSize(reason);
   // Full text for screen readers, announced once per action (not the typewriter partials)
-  const spokenAction = action ? `${action.toLowerCase().replace('_', '-')}${amount > 0 ? ` ${amount}` : ''}` : '';
+  const spokenAction = action ? `${action.toLowerCase().replace('_', '-')}${amount > 0 ? ` ${formatAmount(amount, bb)}` : ''}` : '';
   const announcement = showReason && reason ? `${playerName}: ${spokenAction}. ${reason}` : '';
 
   return (
@@ -105,15 +107,16 @@ export default function ReasoningPanel({
           
           {showReason && reason && (
             <>
-              {/* Reasoning label with action */}
-              <div className="flex items-center gap-2 mb-1">
+              {/* Reasoning label with action. A narrow phone puts the action (in big blinds, longer) under the label
+                  rather than cutting it off. */}
+              <div className="flex flex-wrap items-center gap-x-2 mb-1">
                 <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
                 {action && (
                   // The same look as the action on each seat: mono, uppercase, bold, the amount muted.
                   <span className="flex flex-row items-center gap-1">
                     <span className="text-[11px] font-mono uppercase font-bold tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>{action.replace('_', '-')}</span>
                     {amount > 0 && action !== 'FOLD' && action !== 'CHECK' && (
-                      <span className="text-[11px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{amount.toLocaleString()}</span>
+                      <span data-chips={amount} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{formatAmount(amount, bb)}</span>
                     )}
                   </span>
                 )}

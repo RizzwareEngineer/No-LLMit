@@ -50,7 +50,7 @@ const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { wh
 // --changed: only the checks tied to the files changed against $BASE_REF (committed, uncommitted, untracked).
 // A web file no rule names, or a change to this script outside a check's own block, selects every check.
 const COVERS = [
-  [/components\/(PokerTable|Player|TableFelt|ChipStack|Card|CornerBorders|ActionPanel|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/sound\./, /^(seat-size|table-|no-currency|main-scroll|stats-font-unified|stats-type-scale)/],
+  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|CornerBorders|ActionPanel|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/(sound|amounts)\./, /^(seat-size|table-|no-currency|main-scroll|stats-font-unified|stats-type-scale)/],
   [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges)/],
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
   [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],
@@ -144,6 +144,64 @@ const sharedAt = async (w, h, id = 'stats') => {
   return p;
 };
 const parkShared = () => Promise.all([...shared().values()].map(p => life(p, 'frozen').catch(() => {})));
+// The table's game socket, scripted (test-only). Before the page's scripts run, WebSocket is wrapped: the engine's
+// messages reach the page until a check takes over, then only the messages the check plays, built from the engine's
+// last state. So a check can put bets out, end a hand and deal the next on cue, whatever the shared table is doing (it
+// may be closed or at its daily call cap). Each of window.__sock's plays returns when it was fed (performance.now()).
+const scriptSocket = p => p.evaluateOnNewDocument(() => {
+  const Real = window.WebSocket, s = window.__sock = { last: null, scripted: false, feed: null };
+  window.WebSocket = class extends Real {
+    set onmessage(fn) {
+      s.feed = m => fn(new MessageEvent('message', { data: JSON.stringify(m) }));
+      super.onmessage = e => {
+        if (s.scripted) return;
+        try { const m = JSON.parse(e.data); if (m.type === 'game_state') s.last = m.payload; } catch {}
+        fn(e);
+      };
+    }
+    get onmessage() { return super.onmessage; }
+  };
+  const play = (...msgs) => {
+    s.scripted = true;
+    for (const m of msgs) { if (m.type === 'game_state') s.last = m.payload; s.feed(m); }
+    return performance.now();
+  };
+  const open = { type: 'table_notice', payload: { kind: '', message: '' } };
+  // Bets out: 5, 10 and a raise to 35 in front of seats 1-3, the raise also in the reasoning panel ("35" in its words).
+  s.bets = () => {
+    const l = s.last, raiser = l.players[3].name, bet = [0, 5, 10, 35];
+    return play(open, { type: 'game_state', payload: { ...l, street: 'preflop', pot: 50, currentBet: 35, winners: undefined, nextHandInMs: undefined,
+      players: l.players.map((q, i) => ({ ...q, status: 'active', currentBet: bet[i] ?? 0, lastAction: i === 3 ? 'RAISE' : '', lastAmount: i === 3 ? 35 : 0 })) } },
+    { type: 'llm_thinking', payload: { playerIdx: 3, playerName: raiser } },
+    { type: 'llm_action', payload: { playerIdx: 3, playerName: raiser, action: 'RAISE', amount: 35, reason: 'Raising to 35 with a strong hand.' } });
+  };
+  // The hand ends: seat 0 takes the pot at showdown, and the next hand is due in `ms`.
+  s.end = ms => {
+    const l = s.last;
+    return play(open, { type: 'game_state', payload: { ...l, street: 'complete', nextHandInMs: ms, currentPlayerIdx: -1, communityCards: ['Kh', '7d', '2c', '9s', 'Ks'],
+      players: l.players.map((q, i) => ({ ...q, currentBet: 0, stack: i === 0 ? q.stack + l.pot : q.stack })),
+      winners: [{ playerIdx: 0, amount: l.pot, handType: 'Pair', handDesc: 'Pair of Kings', eligiblePlayers: l.players.map((_, i) => i), potNumber: 1 }] } });
+  };
+  // The next hand: the button moves on, two cards to every seat, the blinds posted.
+  s.deal = () => {
+    const l = s.last, n = l.players.length, btn = (l.players.findIndex(q => q.isButton) + 1) % n;
+    const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => r + x));
+    const blind = i => (i === (btn + 1) % n ? 5 : i === (btn + 2) % n ? 10 : 0);
+    return play({ type: 'hand_start', payload: { handNumber: l.handNumber + 1 } }, { type: 'game_state', payload: { ...l, handNumber: l.handNumber + 1, street: 'preflop',
+      pot: 15, currentBet: 10, communityCards: [], winners: undefined, nextHandInMs: undefined, currentPlayerIdx: (btn + 3) % n,
+      players: l.players.map((q, i) => ({ ...q, isButton: i === btn, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: blind(i), stack: q.stack - blind(i) })) } });
+  };
+});
+// A page at a window size on the live table, its game socket scripted, once the engine's state is in.
+const scriptedTable = async (w, h, reduced = false) => {
+  const p = await newPage(); await p.setViewport({ width: w, height: h });
+  if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await scriptSocket(p);
+  await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p.waitForFunction(() => window.__sock?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+  await sleep(2000);
+  return p;
+};
 const rect = (p, sel) => p.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; }, sel);
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--mute-audio'] });
@@ -233,6 +291,178 @@ group(async () => {
   await check('table-no-hscroll', 'No sideways scroll on the page; the table screen scrolls sideways only at the floor', async () => {
     const bad = fits.filter(f => f.pageScroll > 0 || (f.screenScroll > 0 && (f.phone || f.zoom > FIT_FLOOR + 1e-3))).map(f => `${f.size}: page +${f.pageScroll}px, screen +${f.screenScroll}px at ${f.zoom}`);
     return { pass: fits.length > 0 && !bad.length, detail: bad.length ? bad.join(' | ') : fits.map(f => `${f.size}${f.screenScroll > 0 ? ' (scrolls at floor)' : ''}`).join(', ') };
+  });
+});
+
+// The table's amounts in chips or in big blinds (owner 2026-11-08: "a toggle view if someone cares about looking at the
+// game by big blinds versus just the absolute size of the stack"). One switch in the header's status row, kept across a
+// reload. Every amount on the table screen follows it in one format: seat stacks and actions, bets, the pot, Profits &
+// Losses (bare, its unit in the panel's header) and the reasoning panel's action; the model's own words stay as written.
+// Text only: the locked sizes never move (seats 200x128, 250x160 at 1870x1200; the table 1000px), and big blinds wrap,
+// clip or cut short nothing that chips leave whole, phones included. Bets and a raise are scripted (scriptSocket).
+group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns every amount on the table screen (stacks, actions, bets, pot, P&L, the reasoning action) into big blinds and back, the model\'s words aside; kept across a reload; no size changes, nothing newly cut, wrapped or clipped', async () => {
+  const bad = [], seen = [];
+  const fmt = (chips, bb, unit) => { const v = chips / bb; return v.toLocaleString('en-US', { maximumFractionDigits: v < 100 ? 1 : 0 }) + (unit ? ' BB' : ''); };
+  // The switch's two buttons (null without it), and every visible amount with its chips (data-chips) and its place.
+  const read = () => {
+    const group = document.querySelector('[role=group][aria-label="Amounts in"]');
+    const btn = t => group && [...group.querySelectorAll('button')].find(b => b.textContent.trim() === t);
+    const sec = document.querySelector('section[data-screen]'), vis = e => e.getBoundingClientRect().width > 0;
+    const box = e => { const r = e.getBoundingClientRect(); return `${Math.round(r.width * 10) / 10}x${Math.round(r.height * 10) / 10}`; };
+    // Line boxes: a rect that starts below the line before it starts a new one (mixed sizes on one line stay one line).
+    const lines = e => { const r = document.createRange(); r.selectNodeContents(e); let n = 0, low = -Infinity; for (const c of [...r.getClientRects()].filter(c => c.width > 0).sort((a, b) => a.top - b.top)) { if (c.top >= low - 1) { n++; low = c.bottom; } else low = Math.max(low, c.bottom); } return n; };
+    const clipped = e => { const r = e.getBoundingClientRect(); for (let a = e.parentElement; a && a !== sec; a = a.parentElement) { if (getComputedStyle(a).overflowX === 'visible') continue; const b = a.getBoundingClientRect(); if (r.left < b.left - 1 || r.right > b.right + 1) return true; } return false; };
+    return {
+      ok: !!(btn('Chips') && btn('BB')) && !!group.parentElement.querySelector('button[aria-label="Sounds"]'),
+      pressed: group && btn('BB')?.getAttribute('aria-pressed') === 'true',
+      amounts: [...sec.querySelectorAll('[data-chips]')].filter(vis).map(e => ({
+        chips: +e.dataset.chips, text: (e.getAttribute('aria-label')?.replace(/^Pot /, '') ?? e.textContent).trim().replace(/^[+−-]/, ''),
+        where: e.closest('[data-seat]') ? 'seat' : e.closest('[data-bet]') ? 'bet' : e.closest('ol') ? 'pnl' : e.hasAttribute('aria-label') ? 'pot' : e.closest('[data-pot]') ? 'collected' : 'reasoning',
+        lines: lines(e), clipped: clipped(e),
+      })),
+      unit: !!sec.querySelector('[data-unit]'),
+      words: [...sec.querySelectorAll('p')].map(e => e.textContent).find(t => t.includes('Raising to')) ?? '',
+      seats: [...new Set([...sec.querySelectorAll('td.w-\\[200px\\]')].map(td => `${td.offsetWidth}x${td.offsetHeight}`))],
+      cell: box(sec.querySelector('td.w-\\[200px\\]')),
+      table: sec.querySelector('table')?.offsetWidth,
+      boxes: [...sec.querySelectorAll('[data-seat], table, ol, h2')].filter(vis).map(box).concat([...sec.children].map(box)),
+      // Text cut short with an ellipsis (kept on the page to tell which only BB cuts).
+      cut: (window.__cut = [...sec.querySelectorAll('*')].filter(e => vis(e) && getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth + 1)).length,
+    };
+  };
+  for (const [w, h] of [[1440, 790], [1870, 1200], [390, 844]]) {
+    const size = `${w}x${h}`, p = await scriptedTable(w, h), phone = w < 768;
+    try {
+      await p.evaluate(() => window.__sock.bets());
+      await sleep(2000); // the reasoning panel types the model's words
+      const bb = await p.evaluate(() => window.__sock.last.stakes?.bigBlind || 10);
+      // Both modes from one state (the engine's messages are held back): chips, then big blinds, a frame after each click.
+      const m = await p.evaluate(async read => {
+        read = eval(`(${read})`);
+        const frame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 50)));
+        const click = t => [...document.querySelectorAll('[role=group][aria-label="Amounts in"] button')].find(b => b.textContent.trim() === t)?.click();
+        if (!read().ok) return null;
+        click('Chips'); await frame(); const chips = read(), cut = new Set(window.__cut);
+        click('BB'); await frame(); const big = read();
+        return { chips, big, newlyCut: window.__cut.filter(e => !cut.has(e)).map(e => e.textContent.trim().slice(0, 24)) };
+      }, read.toString());
+      if (!m) { bad.push(`${size}: no Chips/BB switch beside the sound switch`); continue; }
+      const { chips, big, newlyCut } = m;
+      for (const [mode, r] of [['chips', chips], ['BB', big]]) {
+        for (const a of r.amounts) {
+          const want = mode === 'chips' ? a.chips.toLocaleString('en-US') : fmt(a.chips, bb, a.where !== 'pnl');
+          if (a.text !== want) bad.push(`${size} ${mode}: ${a.where} ${a.chips} shows "${a.text}", not "${want}"`);
+        }
+        if (phone) continue; // the phone layout has no grid
+        // seat-size's tolerance: the grid's rows round to 128 or 129 on some windows, in either mode.
+        if (r.seats.some(c => { const [cw, ch] = c.split('x').map(Number); return Math.abs(cw - 200) > 1 || Math.abs(ch - 128) > 2; })) bad.push(`${size} ${mode}: seat cells ${r.seats.join(', ')}`);
+        if (r.table !== 1000) bad.push(`${size} ${mode}: table ${r.table}px`);
+      }
+      // The same amounts in the same order in both modes: what only big blinds wrap or clip.
+      big.amounts.forEach((a, i) => {
+        const c = chips.amounts[i];
+        if (a.lines > (c?.lines ?? 1)) bad.push(`${size} BB: ${a.where} "${a.text}" wraps`);
+        if (a.clipped && !c?.clipped) bad.push(`${size} BB: ${a.where} "${a.text}" is clipped`);
+      });
+      const where = new Set(big.amounts.map(a => a.where));
+      for (const k of ['seat', 'bet', 'pot', 'pnl', 'reasoning']) if (!where.has(k)) bad.push(`${size}: no ${k} amount to check`);
+      if (!big.unit || chips.unit) bad.push(`${size}: Profits & Losses header unit ${chips.unit ? 'shown in chips' : 'missing in BB'}`);
+      if (!/Raising to 35\b/.test(big.words)) bad.push(`${size}: the model's words changed in BB ("${big.words.slice(0, 40)}")`);
+      const moved = big.boxes.filter((b, i) => b !== chips.boxes[i]).length;
+      if (moved || big.boxes.length !== chips.boxes.length) bad.push(`${size}: ${moved} boxes changed size in BB`);
+      if (w === 1870 && big.cell !== '250x160') bad.push(`${size}: seat cell drawn ${big.cell}, not 250x160`);
+      if (newlyCut.length) bad.push(`${size}: cut short only in BB: ${newlyCut.join(', ')}`);
+      // Kept: a reload opens in big blinds.
+      await p.reload({ waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+      await sleep(1500);
+      const kept = await p.evaluate(read);
+      const stacks = kept.amounts.filter(a => a.where === 'seat');
+      if (!kept.pressed || !stacks.length || stacks.some(a => !a.text.endsWith(' BB'))) bad.push(`${size}: BB not kept across a reload (${stacks[0]?.text})`);
+      seen.push(`${size}: ${big.amounts.length} amounts (${[...where].join(', ')}), e.g. ${big.amounts.slice(0, 3).map(a => `${a.chips}→${a.text}`).join(', ')}${phone ? '' : `; seat cells ${big.seats}, drawn ${big.cell} in both`}`);
+      await p.evaluate(() => [...document.querySelectorAll('[role=group][aria-label="Amounts in"] button')].find(b => b.textContent.trim() === 'Chips')?.click());
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 6).join(' | ') : seen.join(' | ') };
+}));
+
+// The deal and the shuffle (owner 2026-11-08: "what happened to the shuffling process and the sound effects? ... let's try
+// the dealing animation, the dealing sounds, the shuffle animation, and the shuffle sounds"). Scripted (scriptSocket): a
+// hand ends with the next due in 4 s, and the next is dealt on time. A second page with reduced motion watches the same.
+// Times are the page's (performance.now()), recorded by a MutationObserver: card and chip flights, the deck's phases.
+group(async () => {
+  if (!want('table-deal-motion') && !want('table-shuffle')) return;
+  const run = async reduced => {
+    const p = await scriptedTable(1440, 900, reduced);
+    try {
+      await p.evaluate(() => {
+        const t = window.__t = { flights: [], deck: [], spread: 0, squared: null, early: null, done: null };
+        // Each visible hole card: its name and whether it is drawn (its own and its wrapper's opacity).
+        window.__cards = () => [...document.querySelectorAll('[data-seat] [data-hole] > *')].filter(e => e.getBoundingClientRect().width > 0)
+          .map(e => ({ label: e.querySelector('[role=img]')?.getAttribute('aria-label') ?? e.getAttribute('aria-label'), on: +getComputedStyle(e).opacity * +getComputedStyle(e.firstElementChild ?? e).opacity > 0.95 }));
+        // The riffle spreads the cards sideways; squared, they are back on one pile.
+        const spread = d => Math.max(0, ...[...d.children].map(c => Math.abs(new DOMMatrix(getComputedStyle(c).transform).m41)));
+        const sample = d => { if (!d.isConnected || d.dataset.deck !== 'riffle') return; t.spread = Math.max(t.spread, spread(d)); requestAnimationFrame(() => sample(d)); };
+        new MutationObserver(muts => {
+          const now = performance.now();
+          for (const m of muts) {
+            if (m.type === 'attributes') {
+              const d = m.target;
+              if (d.getBoundingClientRect().width > 0) { t.deck.push({ phase: d.dataset.deck, t: now }); setTimeout(() => { t.squared = spread(d); }, 100); }
+              continue;
+            }
+            for (const n of m.addedNodes) {
+              if (!(n instanceof Element)) continue;
+              if (n.dataset.flight) t.flights.push({ kind: n.dataset.flight, t: now });
+              // The cards shown 0.1 s into the deal (the first lands at 0.4 s) and 1.5 s into it (the last lands at 1.1 s).
+              if (n.dataset.flight === 'card' && !t.early) { t.early = []; setTimeout(() => { t.early = window.__cards(); }, 100); setTimeout(() => { t.done = window.__cards(); }, 1500); }
+              const d = n.matches('[data-deck]') ? n : n.querySelector('[data-deck]');
+              if (d && d.getBoundingClientRect().width > 0) { t.deck.push({ phase: d.dataset.deck, t: now }); sample(d); }
+            }
+          }
+        }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-deck'] });
+      });
+      const ended = await p.evaluate(() => window.__sock.end(4000));
+      await sleep(4000);
+      const dealt = await p.evaluate(() => window.__sock.deal());
+      await sleep(600);
+      const soon = await p.evaluate(() => window.__cards()); // reduced motion: all there
+      await sleep(1900); // the deal's samples are in, and the deck is put away
+      const t = await p.evaluate(() => ({ ...window.__t, seats: window.__sock.last.players.length, deckNow: [...document.querySelectorAll('[data-deck]')].some(d => d.getBoundingClientRect().width > 0) }));
+      return { ...t, ended, dealt, soon };
+    } finally { await p.close(); }
+  };
+  const [full, reduced] = await Promise.all([run(false), alone(() => run(true))]);
+  const cards = r => r.flights.filter(f => f.kind === 'card' && f.t >= r.dealt);
+  // The dealt hand's cards by name (scriptSocket deals seat i the deck's cards 2i and 2i + 1), and how many of them show.
+  const NAMES = { T: '10', J: 'Jack', Q: 'Queen', K: 'King', A: 'Ace' }, SUITS = { h: 'hearts', d: 'diamonds', c: 'clubs', s: 'spades' };
+  const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => `${NAMES[r] ?? r} of ${SUITS[x]}`));
+  const fresh = (r, list) => (list ?? []).filter(c => deck.indexOf(c.label) >= 0 && deck.indexOf(c.label) < 2 * r.seats);
+  const showing = (r, list) => fresh(r, list).filter(c => c.on).length;
+  await check('table-deal-motion', 'A new hand is dealt on the felt: a card flies to every seat, twice, starting at once and all within 1 s, and each seat\'s cards show as they land; with reduced motion nothing flies and the cards are there at once', async () => {
+    const bad = [];
+    const c = cards(full), first = c.length ? c[0].t - full.dealt : null;
+    if (c.length !== 2 * full.seats) bad.push(`${c.length} card flights for ${full.seats} seats`);
+    if (first === null || first > 600) bad.push(`the first flight ${first === null ? 'never came' : `came ${first.toFixed(0)} ms after the new hand`}`);
+    if (!full.early || showing(full, full.early) > full.seats) bad.push(`${full.early ? showing(full, full.early) : '?'} of the new cards already showing 0.1 s into the deal (they do not wait for their flights)`);
+    if (showing(full, full.done) !== 2 * full.seats) bad.push(`${showing(full, full.done)} of ${2 * full.seats} new cards showing 1.5 s into the deal`);
+    if (reduced.flights.length) bad.push(`reduced motion: ${reduced.flights.length} flights`);
+    if (showing(reduced, reduced.soon) !== 2 * reduced.seats) bad.push(`reduced motion: ${showing(reduced, reduced.soon)} of ${2 * reduced.seats} new cards showing 0.6 s after the deal`);
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${c.length} cards dealt to ${full.seats} seats from ${first.toFixed(0)} ms after the new hand, ${showing(full, full.early)} showing at 0.1 s, all ${showing(full, full.done)} at 1.5 s; reduced motion: no flights, all ${showing(reduced, reduced.soon)} cards at 0.6 s` };
+  });
+  await check('table-shuffle', 'Between hands the deck is riffled on the felt (the cards spread and come back together) and is squared before the next hand is due and before the first card is dealt from it; with reduced motion there is no deck', async () => {
+    const bad = [];
+    const riffle = full.deck.find(d => d.phase === 'riffle'), ready = full.deck.find(d => d.phase === 'ready'), first = cards(full)[0];
+    const at = v => (v === undefined ? 'never' : `${((v - full.ended) / 1000).toFixed(2)} s`);
+    if (!riffle) bad.push('no riffle');
+    else if (riffle.t <= full.ended || riffle.t >= full.dealt) bad.push(`riffle at ${at(riffle.t)}, outside the pause (deal at ${at(full.dealt)})`);
+    if (!ready) bad.push('never squared');
+    else if (ready.t > full.dealt || (first && ready.t > first.t)) bad.push(`squared at ${at(ready.t)}, after the deal at ${at(full.dealt)}`);
+    if (riffle && ready && ready.t - riffle.t < 500) bad.push(`riffle took ${(ready.t - riffle.t).toFixed(0)} ms`);
+    if (full.spread < 20 || full.squared === null || full.squared > 1) bad.push(`cards spread ${full.spread.toFixed(0)}px, ${full.squared === null ? 'never squared' : `squared to ${full.squared.toFixed(1)}px`}`);
+    if (full.deckNow) bad.push('the deck is still on the felt 2.5 s after the deal');
+    if (reduced.deck.length) bad.push('reduced motion: a deck');
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `hand over at 0 s: riffle ${at(riffle.t)}, cards spread ${full.spread.toFixed(0)}px, squared ${at(ready.t)}; deal due and dealt at ${at(full.dealt)}, first card ${at(first?.t)}; reduced motion: no deck` };
   });
 });
 

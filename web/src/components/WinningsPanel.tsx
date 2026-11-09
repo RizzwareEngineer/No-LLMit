@@ -5,12 +5,14 @@ import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import CornerBorders from "@/components/CornerBorders";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
+import { formatAmount, useBigBlind } from "@/lib/amounts";
 
 interface WinningsPanelProps {
   players: PlayerState[];
 }
 
 export default function WinningsPanel({ players }: WinningsPanelProps) {
+  const bb = useBigBlind();
   return (
     <div 
       className="flex flex-col relative w-full bg-white flex-1 rounded overflow-hidden"
@@ -21,6 +23,8 @@ export default function WinningsPanel({ players }: WinningsPanelProps) {
         <div className="flex flex-col">
           <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
         </div>
+        {/* In big blinds the column's unit sits here, so the rows stay as narrow as in chips and no name is cut shorter. */}
+        {bb && <span data-unit className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>BB</span>}
       </div>
       <div className="flex-1 overflow-auto">
         {players.length > 0 && <Rankings players={players} />}
@@ -30,6 +34,7 @@ export default function WinningsPanel({ players }: WinningsPanelProps) {
 }
 
 function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
+  const bb = useBigBlind();
   const winnings = player.winnings || 0;
   const color = winnings > 0 ? 'rgb(15, 123, 108)' : winnings < 0 ? 'rgb(200, 50, 50)' : 'rgba(55, 53, 47, 0.65)';
 
@@ -43,7 +48,7 @@ function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
       <div className="flex flex-row items-center gap-1 text-[13px] font-bold tabular-nums" style={{ color }}>
         {winnings > 0 && <CaretUp size={11} weight="bold" aria-hidden />}
         {winnings < 0 && <CaretDown size={11} weight="bold" aria-hidden />}
-        {winnings > 0 ? '+' : winnings < 0 ? '−' : ''}{Math.abs(winnings).toLocaleString()}
+        <span data-chips={Math.abs(winnings)}>{winnings > 0 ? '+' : winnings < 0 ? '−' : ''}{formatAmount(Math.abs(winnings), bb, false)}</span>
       </div>
     </div>
   );

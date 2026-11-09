@@ -7,7 +7,7 @@ import { ArrowDown, CircleNotch, GameController } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
-import SoundToggle from "@/components/SoundToggle";
+import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import StatsSections from "@/components/StatsSections";
 import ModelDrawer from "@/components/ModelDrawer";
@@ -401,6 +401,8 @@ export default function Home() {
               <span className="text-[14px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
             </>
           )}
+          <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+          <UnitToggle bigBlind={stakes.bigBlind} />
           <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
           <SoundToggle />
         </div>
