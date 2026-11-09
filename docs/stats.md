@@ -51,10 +51,16 @@ A rate with nothing to count, such as c-bet for a model that never had the chanc
 - **Cumulative bb**: the running total in big blinds after each of the model's hands,
   starting at [0, 0]. Past 200 hands it keeps every nth point (and always the last) so
   there are never more than 200.
-- **Head to head (vs)**: over the hands where both models put chips in by choice or
-  reached showdown, `pots` is how many there were and `net_chips` is what flowed between
-  them. In a pot with several players, each loser's chips are shared among the winners
-  in proportion to what each won.
+- **Head to head (vs)**: `hands` is how many hands both models were dealt in; over the
+  hands where both put chips in by choice or reached showdown, `pots` is how many there
+  were and `net_chips` is what flowed between them. In a pot with several players, each
+  loser's chips are shared among the winners in proportion to what each won. The Matchups
+  card shows each pair as bb/100: `net_chips` ÷ big blind ÷ `hands` × 100, drawn faint under
+  100 hands together (on the demo data, pairs under 100 hands swing to a 90th-percentile
+  |bb/100| of 250–680; from 100 up it is 135–210, the same as pairs with a thousand). Its
+  Total column is the row's bb/100 against the models shown: the chips it won from them per
+  100 hands dealt in with one of them, which is the row's cells averaged by hands together.
+  A pair with no hands together has no entry (an empty cell).
 - **By players to flop**: the hands where the model was still in when the flop was dealt,
   split by how many players were still in then: `"2"`, `"3"` and `"4+"`. Hands that end
   before the flop are in none of them; hands where players are all in before the flop and
@@ -142,8 +148,15 @@ pass over the hands as `/api/stats`, recomputed with it after each hand, so the 
   never more than 1,200 change points. Each row is the change in the rounded running total,
   so adding a pair's rows up to any hand gives its `vs.net_chips` there, and up to the end
   gives the current `/api/stats` exactly.
+- **Lineups**: who was dealt in, as `[hand, model, model, …]` rows: the hand (1-based) a
+  lineup started at, then the seated models ascending, holding until the next row. Any
+  pair's hands together by any hand follows (the runs both are in, cut at the hand), so the
+  replay shows each pair's bb/100; at the last hand it equals `vs.hands`. One row per
+  lineup change: a handful on a history of whole sessions, 509 on the demo's interleaved
+  ones (19 KB raw, 2 KB gzipped).
 
-Sizes, uncompressed and gzipped: the demo history (895 hands, 19 models) is 68 KB / 22 KB.
+Sizes, uncompressed and gzipped: the demo history (895 hands, 19 models) is 68 KB / 22 KB;
+the preview's 1,587 hands with lineups are 134 KB / 36 KB (120 KB / 34 KB before them).
 A synthetic 10,000 hands with nine fixed models is 43 KB of profiles and 188 KB of matchups;
 the real lineups repeated to 10,000 hands (19 models) are 93 KB and 399 KB, 134 KB gzipped
 in all. Matchups grow with the pairs that play in each change point, not with the cap: on

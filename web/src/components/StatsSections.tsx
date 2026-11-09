@@ -5,12 +5,12 @@ import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react'
 import LLMLogo from '@/components/LLMLogo';
 import About from '@/components/About';
 import { ArrowDown, Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, Segmented, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
 import StatsTable, { MINI_CHROME } from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
-import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, seatedModels, useStats } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, useStats } from '@/lib/stats';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
 
 type Stats = ReturnType<typeof useStats>;
@@ -273,8 +273,20 @@ export default memo(function StatsSections({
   // One scope for History, Profiles and Matchups (all time) and one clock: History's replay,
   // which the other two follow through the timeline.
   const tl = useTimeline('', data?.scope.hands);
-  // The leader, in one unit and one scope on every screen: net chips over the range shown.
-  const lead = ready && <Leader tl={tl} models={field} bigBlind={bigBlind} />;
+  // The leader, in one unit and one scope on every screen: bb/100 over the range shown, among the models shown.
+  const lead = ready && <Leader tl={tl} models={field} />;
+  // The Matchups card's lineup: the models seated now (the tile's, and Trends' default) or everyone with hands.
+  const [muLineup, setMuLineup] = useState<'seated' | 'all'>('seated');
+  const muModels = muLineup === 'all' ? models : field;
+  const muAside = ready && (
+    <>
+      <div className="flex min-w-0 items-center gap-2 text-[14px]" style={{ color: MUTED }}>
+        <span className="shrink-0">Lineup</span>
+        <Segmented label="Lineup" options={[{ label: 'Seated now', value: 'seated' as const }, { label: 'All models', value: 'all' as const, disabled: models.length <= field.length }]} value={muLineup} onChange={setMuLineup} />
+      </div>
+      <Leader tl={tl} models={muModels} />
+    </>
+  );
 
   // Each card's body, in its tile (`card` false: the tile's content alone) and in the card. The tile's
   // table or matrix stays the same element when it opens and grows into the card's; what the card adds
@@ -295,10 +307,10 @@ export default memo(function StatsSections({
     </>
   );
   const pairwiseBody = (card: boolean) => !ready ? message : (
-    <AtHand tl={tl} models={field}>
+    <AtHand tl={tl} models={card ? muModels : field}>
       {(ms, hand) => (
         <div {...syncAttrs(tl, hand)} className="contents">
-          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} />
+          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} fitTo={field.length} leader={leaderAt(tl, ms, hand)?.m.name} />
         </div>
       )}
     </AtHand>
@@ -420,7 +432,7 @@ export default memo(function StatsSections({
           {statsBody(true)}
         </Card>
 
-        <Card id="pairwise-card" title="Matchups" aside={lead} z="z-20" fit="hug">
+        <Card id="pairwise-card" title="Matchups" aside={muAside} z="z-20" fit="hug">
           {pairwiseBody(true)}
         </Card>
       </div>
@@ -428,22 +440,33 @@ export default memo(function StatsSections({
   );
 });
 
-// The leader by net chips over the range shown, at the hand Trends is replaying (its chart value then),
-// else now; nobody before anyone has a hand. The scope says which: "at hand N" while the replay plays,
-// "all time" once it has finished or been skipped; the same words on every card (one shared clock).
-function Leader({ tl, models, bigBlind }: { tl: Timeline | null; models: ModelStats[]; bigBlind: number }) {
+// The leader by bb/100 over the range shown among `models` with at least MIN_HANDS hands then, at the hand
+// Trends is replaying (its chart value then, over its hands then), else now; null when none qualifies.
+function leaderAt(tl: Timeline | null, models: ModelStats[], hand: number | null) {
+  if (hand !== null && !tl) return null;
+  const rows = models.map(m => {
+    const hands = hand === null ? m.hands : Math.floor(playedAt(tl!, m.name, hand));
+    return { m, hands, bb100: hand === null ? m.bb100 : hands ? (valueAt(m.cumulative_bb, hands) / hands) * 100 : 0 };
+  });
+  return leaderBy(rows);
+}
+
+// The Leader line: the model leaderAt names, its bb/100 and the scope; one plain line when none has MIN_HANDS
+// hands yet. The scope says when: "at hand N" while the replay plays, "all time" once it has finished or been
+// skipped; the same words on every card (one shared clock). `data-scope` carries it for the checks.
+function Leader({ tl, models }: { tl: Timeline | null; models: ModelStats[] }) {
   const hand = useReplayHand(tl);
   const scope = hand === null ? 'all time' : `at hand ${hand.toLocaleString()}`;
-  const played = (m: ModelStats) => (hand === null ? m.hands : playedAt(tl!, m.name, hand));
-  const net = (m: ModelStats) => (hand === null ? m.net_chips : Math.round(valueAt(m.cumulative_bb, played(m)) * bigBlind));
-  const [top] = models.filter(m => played(m) > 0).map(m => ({ m, n: net(m) })).sort((a, b) => b.n - a.n);
-  return top && (
+  const top = leaderAt(tl, models, hand);
+  return (
     // One line: on a phone the name truncates rather than wrapping, so the header keeps its height as the leader changes.
-    <span className="flex items-center gap-1.5 min-w-0 whitespace-nowrap tabular-nums text-[14px]" style={{ color: TEXT }}>
+    <span className="flex items-center gap-1.5 min-w-0 whitespace-nowrap tabular-nums text-[14px]" style={{ color: TEXT }} data-scope={scope}>
       <span style={{ color: MUTED }}>Leader</span>
-      <LLMLogo model={top.m.name} size={18} />
-      <span translate="no" className="font-bold truncate">{top.m.name}</span>
-      <span className="font-bold shrink-0" style={{ color: netColor(top.n) }}>{chips(top.n)} chips {scope}</span>
+      {top ? <>
+        <LLMLogo model={top.m.name} size={18} />
+        <span translate="no" className="font-bold truncate">{top.m.name}</span>
+        <span className="font-bold shrink-0" style={{ color: netColor(top.bb100) }}>{signedBrief(top.bb100)} bb/100 {scope}</span>
+      </> : <span className="truncate" style={{ color: MUTED }}>No model has {MIN_HANDS} hands yet{hand === null ? '' : ` ${scope}`}</span>}
     </span>
   );
 }

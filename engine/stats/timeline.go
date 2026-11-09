@@ -2,6 +2,7 @@ package stats
 
 import (
 	"math"
+	"slices"
 	"sort"
 	"time"
 
@@ -18,6 +19,9 @@ type Timeline struct {
 	MatchupBucket int           `json:"matchup_bucket"` // hands summed into one matchups change point
 	Profiles      Table[[]any]  `json:"profiles"`       // hand, model, hands, bb100, vpip, pfr, af
 	Matchups      Table[[4]int] `json:"matchups"`       // hand, a, b, chips
+	// Who was dealt in: each row is the hand (1-based) a lineup started at, then the seated models,
+	// ascending; it holds until the next row. Any pair's hands together by any hand follows from it.
+	Lineups [][]int `json:"lineups"`
 }
 
 // Table is rows of values in the order of Fields, rather than repeating object keys.
@@ -38,6 +42,7 @@ type timelineBuilder struct {
 	index   map[string]int
 	touched []bool         // by model: in a hand since the last matchups change point
 	sent    map[[2]int]int // per pair, the running net already sent
+	lineup  []int          // the last lineup sent, by model index
 }
 
 func newTimelineBuilder(hands []history.HandRecord) *timelineBuilder {
@@ -64,6 +69,7 @@ func newTimelineBuilder(hands []history.HandRecord) *timelineBuilder {
 	b.tl.MatchupBucket = max(1, ceilDiv(n, maxMatchupSteps))
 	b.tl.Profiles = Table[[]any]{Fields: []string{"hand", "model", "hands", "bb100", "vpip", "pfr", "af"}, Rows: [][]any{}}
 	b.tl.Matchups = Table[[4]int]{Fields: []string{"hand", "a", "b", "chips"}, Rows: [][4]int{}}
+	b.tl.Lineups = [][]int{}
 	return b
 }
 
@@ -72,8 +78,15 @@ func ceilDiv(a, b int) int { return (a + b - 1) / b }
 // after records the state once hand i (0-based) has been added to accs.
 func (b *timelineBuilder) after(i int, h history.HandRecord, accs map[string]*acc) {
 	hand, last := i+1, i == b.n-1
+	seated := make([]int, 0, len(h.Seats))
 	for _, s := range h.Seats {
 		b.touched[b.index[s.Name]] = true
+		seated = append(seated, b.index[s.Name])
+	}
+	sort.Ints(seated)
+	if !slices.Equal(seated, b.lineup) {
+		b.lineup = seated
+		b.tl.Lineups = append(b.tl.Lineups, append([]int{hand}, seated...))
 	}
 
 	if hand%b.tl.MatchupBucket == 0 || last {

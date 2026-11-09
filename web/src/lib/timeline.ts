@@ -38,6 +38,7 @@ export interface Timeline {
   snaps: number[]; // the hands with a profiles snapshot, ascending
   profiles: Map<string, Profile>[]; // per snapshot: each model seated by then, with its figures then
   pairs: { a: string; b: string; at: number[]; sum: number[] }[]; // per pair: what a had taken from b by each change point
+  lineups: { from: number; to: number; seated: Set<string> }[]; // who was dealt in over each run of hands (to: inclusive)
 }
 
 // Index of the last of the ascending `xs` at or before x (-1: none).
@@ -52,7 +53,7 @@ export function lastAtOrBefore(xs: number[], x: number) {
 }
 
 type Table = { fields: string[]; rows: (number | null)[][] };
-function parse(j: { hands?: unknown; profile_step?: unknown; models?: unknown; profiles?: Table; matchups?: Table }): Timeline {
+function parse(j: { hands?: unknown; profile_step?: unknown; models?: unknown; profiles?: Table; matchups?: Table; lineups?: number[][] }): Timeline {
   if (typeof j?.hands !== 'number' || !Array.isArray(j.models) || !Array.isArray(j.profiles?.rows) || !Array.isArray(j.matchups?.rows)) {
     throw new Error('timeline: unexpected shape');
   }
@@ -73,7 +74,20 @@ function parse(j: { hands?: unknown; profile_step?: unknown; models?: unknown; p
     pair.at.push(r[m.hand]!);
     pair.sum.push((pair.sum.at(-1) ?? 0) + r[m.chips]!);
   }
-  return { hands: j.hands, step: Number(j.profile_step) || 0, snaps, profiles, pairs: [...pairs.values()] };
+  // Lineups (absent from an older engine: no hands together, so no pair bb/100 while replaying).
+  const runs = [...(j.lineups ?? [])].sort((x, y) => x[0] - y[0]);
+  const lineups = runs.map(([from, ...ms], i) => ({ from, to: i + 1 < runs.length ? runs[i + 1][0] - 1 : Infinity, seated: new Set(ms.map(m => names[m])) }));
+  return { hands: j.hands, step: Number(j.profile_step) || 0, snaps, profiles, pairs: [...pairs.values()], lineups };
+}
+
+// Hands up to `hand` that a and b were both dealt in.
+export function handsTogetherAt(tl: Timeline, a: string, b: string, hand: number) {
+  let n = 0;
+  for (const r of tl.lineups) {
+    if (r.from > hand) break;
+    if (r.seated.has(a) && r.seated.has(b)) n += Math.min(r.to, hand) - r.from + 1;
+  }
+  return n;
 }
 
 // The timeline for a scope ('' all time, or a session id), refetched when `refreshKey` changes (the
@@ -123,16 +137,23 @@ export function profilesAt(tl: Timeline, models: ModelStats[], i: number) {
   return { shown, pending: models.filter(m => !snap?.has(m.name)).map(m => m.name) };
 }
 
-// Matchups at hand `hand`: each model's head-to-head nets then (the running pair sums; pots are not
-// in the timeline: 0) and its hands played then. net_chips stays live, so the grid keeps its order.
+// Matchups at hand `hand`: each model's head-to-head then, for every pair dealt in together by then (the
+// running pair net and their hands together; pots are not in the timeline: 0), and its hands played then.
+// net_chips and bb100 stay live, so the grid keeps its order.
 export function matchupsAt(tl: Timeline, models: ModelStats[], hand: number): ModelStats[] {
-  const vs = new Map<string, Record<string, { pots: number; net_chips: number }>>(models.map(m => [m.name, {}]));
+  const vs = new Map<string, Record<string, { pots: number; net_chips: number; hands: number }>>(models.map(m => [m.name, {}]));
+  for (const [i, a] of models.entries()) for (const b of models.slice(i + 1)) {
+    const hands = handsTogetherAt(tl, a.name, b.name, hand);
+    if (!hands) continue;
+    vs.get(a.name)![b.name] = { pots: 0, net_chips: 0, hands };
+    vs.get(b.name)![a.name] = { pots: 0, net_chips: 0, hands };
+  }
   for (const p of tl.pairs) {
     const i = lastAtOrBefore(p.at, hand);
     if (i < 0) continue;
-    const [ra, rb] = [vs.get(p.a), vs.get(p.b)];
-    if (ra) ra[p.b] = { pots: 0, net_chips: p.sum[i] };
-    if (rb) rb[p.a] = { pots: 0, net_chips: -p.sum[i] };
+    const [ra, rb] = [vs.get(p.a)?.[p.b], vs.get(p.b)?.[p.a]];
+    if (ra) ra.net_chips = p.sum[i];
+    if (rb) rb.net_chips = -p.sum[i];
   }
   return models.map(m => ({ ...m, hands: Math.floor(playedAt(tl, m.name, hand)), vs: vs.get(m.name)! }));
 }
@@ -143,8 +164,10 @@ if (process.env.NODE_ENV === 'development') {
     hands: 50, models: ['A', 'B'],
     profiles: { fields: ['hand', 'model', 'hands', 'bb100', 'vpip', 'pfr', 'af'], rows: [[25, 0, 25, 10, 0.5, 0.2, 1], [50, 0, 50, 20, 0.5, 0.2, 1], [50, 1, 10, -5, 0.3, 0.1, null]] },
     matchups: { fields: ['hand', 'a', 'b', 'chips'], rows: [[3, 0, 1, 40], [40, 0, 1, -15]] },
+    lineups: [[1, 0], [3, 0, 1], [10, 0], [41, 0, 1]], // B dealt in over hands 3-9 and from 41
   });
   console.assert(playedAt(tl, 'A', 25) === 25 && playedAt(tl, 'B', 25) === 0 && playedAt(tl, 'B', 45) === 8, 'playedAt: exact on snapshots, linear between');
+  console.assert(handsTogetherAt(tl, 'A', 'B', 2) === 0 && handsTogetherAt(tl, 'A', 'B', 5) === 3 && handsTogetherAt(tl, 'A', 'B', 20) === 7 && handsTogetherAt(tl, 'A', 'B', 50) === 17, 'handsTogetherAt: the runs both were dealt in, cut at the hand');
   const at = (h: number) => matchupsAt(tl, [{ name: 'A' }, { name: 'B' }] as ModelStats[], h);
-  console.assert(!('B' in at(2)[0].vs) && at(39)[0].vs.B.net_chips === 40 && at(40)[1].vs.A.net_chips === -25, 'matchupsAt: running pair sums, both ways');
+  console.assert(!('B' in at(2)[0].vs) && at(39)[0].vs.B.net_chips === 40 && at(39)[0].vs.B.hands === 7 && at(40)[1].vs.A.net_chips === -25, 'matchupsAt: running pair sums both ways, with hands together');
 }

@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"reflect"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -153,6 +154,15 @@ func TestTimelineEndsAtTheTotals(t *testing.T) {
 			}
 		}
 
+		// The lineups give every pair's hands together: at the end, vs.hands.
+		for _, m := range s.Models {
+			for other, v := range m.Vs {
+				if got := handsTogether(tl, m.Name, other, n); got != v.Hands {
+					t.Errorf("n=%d %s with %s: lineups give %d hands together, vs %d", n, m.Name, other, got, v.Hands)
+				}
+			}
+		}
+
 		// The caps, and the step below them.
 		snaps, points := map[any]bool{}, map[int]bool{}
 		for _, r := range tl.Profiles.Rows {
@@ -177,6 +187,65 @@ func TestTimelineEndsAtTheTotals(t *testing.T) {
 			// (docs/stats.md, "Timeline"). The ceiling guards against the encoding growing.
 			if len(p) > 80_000 || len(m) > 200_000 {
 				t.Errorf("10k hands: profiles %d bytes (max 80 KB), matchups %d bytes (max 200 KB)", len(p), len(m))
+			}
+		}
+	}
+}
+
+// handsTogether counts the hands up to `hand` that a and b were both dealt in, from the lineups
+// (what the web does to replay a pair's bb/100).
+func handsTogether(tl Timeline, a, b string, hand int) int {
+	idx := map[string]int{}
+	for i, name := range tl.Models {
+		idx[name] = i
+	}
+	n := 0
+	for i, row := range tl.Lineups {
+		from, to := row[0], hand
+		if i+1 < len(tl.Lineups) {
+			to = min(to, tl.Lineups[i+1][0]-1)
+		}
+		if to >= from && slices.Contains(row[1:], idx[a]) && slices.Contains(row[1:], idx[b]) {
+			n += to - from + 1
+		}
+	}
+	return n
+}
+
+// A roster that rotates: every fourth hand one seat sits out, so pairs' hands together differ and the
+// lineups change often. The replay's last frame (the lineups up to the last hand) equals vs.hands, and a
+// mid-replay frame equals a direct count.
+func TestTimelineLineupsFollowTheRotation(t *testing.T) {
+	hands := syntheticHands(400)
+	for i := range hands {
+		if i%4 == 0 {
+			out := (i / 4) % 9
+			hands[i].Seats = slices.DeleteFunc(slices.Clone(hands[i].Seats), func(s history.SeatRecord) bool { return s.Seat == out })
+		}
+	}
+	s, tl := ComputeWithTimeline(hands)
+	if len(tl.Lineups) < 100 {
+		t.Fatalf("%d lineups, want one per change (about 200)", len(tl.Lineups))
+	}
+	for _, m := range s.Models {
+		if len(m.Vs) != 8 {
+			t.Errorf("%s: %d opponents, want 8", m.Name, len(m.Vs))
+		}
+		for other, v := range m.Vs {
+			if got := handsTogether(tl, m.Name, other, 400); got != v.Hands || v.Hands >= 400 || v.Hands < 300 {
+				t.Errorf("%s with %s: lineups give %d, vs.hands %d (want equal, between 300 and 399)", m.Name, other, got, v.Hands)
+			}
+			direct := 0
+			for _, h := range hands[:250] {
+				in := func(name string) bool {
+					return slices.ContainsFunc(h.Seats, func(s history.SeatRecord) bool { return s.Name == name })
+				}
+				if in(m.Name) && in(other) {
+					direct++
+				}
+			}
+			if got := handsTogether(tl, m.Name, other, 250); got != direct {
+				t.Errorf("%s with %s at hand 250: lineups give %d, counted %d", m.Name, other, got, direct)
 			}
 		}
 	}

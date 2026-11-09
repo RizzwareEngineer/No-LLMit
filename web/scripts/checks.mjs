@@ -1343,7 +1343,7 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
       ['card title', '#pairwise-card h2', 20, [700], [TEXT]],
       ['Leader line', '#pairwise-card h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
       ['Matchups names', '#pairwise-card a [translate=no]', 14, [700], [TEXT]],
-      ['Matchups Total header', '#pairwise-card [title="The row\'s cells added up"]', 13, [500], [MUTED]],
+      ['Matchups Total header', '#pairwise-card [title^="Big blinds won from the models shown"]', 13, [500], [MUTED]],
       ['Matchups figures', '#pairwise-card td[data-cell] [aria-hidden]', 14, [400], null, true],
       ['Matchups totals', '#pairwise-card div[data-cell] [aria-hidden]', 14, [700], null, true],
     ],
@@ -1934,7 +1934,7 @@ group(() => check('trends-name', 'No visible "History" on the stats screens or t
 group(() => check('leader-scope', 'The Leader says "at hand N" while the replay plays and "all time" after Skip, the same words on every card', async () => {
   const bad = [], seen = [];
   const p = await pageAt(1440, 900, 'race');
-  const read = () => p.evaluate(() => [...document.querySelectorAll('span')].filter(e => /^Leader/.test(e.textContent) && e.querySelector('span')).map(e => e.textContent.replace(/^Leader.*?chips /, '')));
+  const read = () => p.evaluate(() => [...document.querySelectorAll('span[data-scope]')].filter(e => /^Leader/.test(e.textContent) && e.getBoundingClientRect().width > 0).map(e => e.dataset.scope));
   const playing = () => p.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
   if (!(await playing())) await clickText(p, 'Replay');
   await sleep(1500);
@@ -1965,6 +1965,137 @@ main(() => check('matchups-tile-no-total', 'The Matchups tile has no Total colum
   const card = await pg.evaluate(() => ({ head: [...document.querySelectorAll('#pairwise-card *')].some(e => e.childElementCount === 0 && e.textContent.trim() === 'Total' && e.getBoundingClientRect().width > 0), cells: document.querySelectorAll('#pairwise-card div[data-cell]').length, rows: document.querySelectorAll('#pairwise-card tbody tr').length }));
   const ok = !tile.head && !tile.cells && card.head && card.cells === card.rows && card.rows > 0;
   return { pass: ok, detail: `tile: ${tile.head ? 'Total header' : 'no Total header'}, ${tile.cells} totals; card: ${card.head ? 'Total header' : 'no Total header'}, ${card.cells} totals for ${card.rows} rows` };
+}));
+
+// Owner, 2026-11-08: "We should be using BB per 100 because, as we add more models, what's going to be the fair
+// metric: chips all time or BB per 100?" Matchups cells are each pair's bb/100 (net chips / big blind / hands
+// together x 100, as the engine counts them); the card's "All models" lineup shows everyone with hands at the
+// seated lineup's cell size, scrolling inside the card with the names and logos pinned; a pair that never sat
+// together is an empty cell whose readout says so; the Leader line is bb/100 among models with 500 hands.
+// The engine's /api/stats, from the page's own request (the build's NEXT_PUBLIC_WS_URL); null if it never asked.
+const engineStats = async p => {
+  const url = await p.evaluate(() => performance.getEntriesByType('resource').map(e => e.name).find(u => /\/api\/stats(\?|$)/.test(u)));
+  return url ? { url, stats: await (await fetch(url)).json() } : null;
+};
+// bb/100 as the cards print it (lib/stats signedBrief): +12.3 below a thousand, +1.2k above.
+const bbText = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n) < 1000 ? Math.abs(n).toFixed(1) : Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase()}`;
+const bb100 = (v, bb) => (v.net_chips / bb / v.hands) * 100;
+// The models the Seated now lineup shows (lib/stats seatedModels): the seated with stats when two or more have them, else all.
+const seatedOf = stats => { const at = stats.models.filter(m => stats.seated?.includes(m.name)); return at.length >= 2 ? at : stats.models; };
+const cardCells = p => p.evaluate(() => [...document.querySelectorAll('#pairwise-card td[data-cell]')].map(td => ({ key: td.dataset.cell, hands: td.dataset.hands ?? null, text: td.querySelector('[aria-hidden]')?.textContent ?? td.textContent.trim() })));
+group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/100: net_chips / big_blind / hands together x 100 from the engine, with those hands on it', async () => {
+  const p = await pageAt(1440, 900, 'race');
+  await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
+  const e = await engineStats(p);
+  if (!e) { await p.close(); return { pass: false, detail: 'the page never fetched /api/stats' }; }
+  const bb = e.stats.scope.big_blind, by = Object.fromEntries(e.stats.models.map(m => [m.name, m]));
+  const cells = await cardCells(p);
+  await p.close();
+  const bad = []; let n = 0;
+  for (const c of cells) {
+    const [row, col] = c.key.split('|');
+    if (!col || row === col) continue;
+    const v = by[row]?.vs?.[col];
+    if (!v?.hands) { if (c.text) bad.push(`${c.key}: "${c.text}" for a pair without hands together`); continue; }
+    n++;
+    const x = bb100(v, bb), want = bbText(x), whole = `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.round(Math.abs(x))}`; // a whole where the decimal does not fit
+    if (c.text !== want && c.text !== whole) bad.push(`${c.key}: shows "${c.text}", engine ${v.net_chips} chips over ${v.hands} hands = ${want}`);
+    if (+c.hands !== v.hands) bad.push(`${c.key}: data-hands ${c.hands}, engine ${v.hands}`);
+  }
+  if (n < 20) bad.push(`only ${n} pairs with hands together`);
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 5).join('; ') : `${n} cells match the engine's bb/100 (big blind ${bb})` };
+}));
+group(() => check('matchups-all-models', 'The Matchups card\'s "All models" shows every model with hands at the seated cell size; the grid scrolls inside the card with the row names, column logos and totals pinned', async () => {
+  const p = await pageAt(1440, 900, 'race');
+  await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
+  const e = await engineStats(p);
+  if (!e) { await p.close(); return { pass: false, detail: 'the page never fetched /api/stats' }; }
+  const seated = seatedOf(e.stats).length, all = e.stats.models.length;
+  const state = () => p.evaluate(() => {
+    const card = document.querySelector('#pairwise-card'), sc = card.querySelector('.panel-scroll'), box = sc.getBoundingClientRect();
+    const rows = [...card.querySelectorAll('tbody tr')], cell = rows[0]?.querySelectorAll('td')[1]?.getBoundingClientRect();
+    const names = [...card.querySelectorAll('a [translate=no]')].map(e => e.textContent);
+    const inBox = r => r.width > 0 && r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+    const firstName = card.querySelector('a [translate=no]')?.getBoundingClientRect(), firstLogo = card.querySelector('thead th[scope=col]')?.getBoundingClientRect();
+    const total = card.querySelector('[title^="Big blinds won"]')?.getBoundingClientRect();
+    return { rows: rows.length, names, cell: cell && [cell.width, cell.height], scrolls: [sc.scrollWidth - sc.clientWidth, sc.scrollHeight - sc.clientHeight], pinned: { name: firstName && inBox(firstName), logo: firstLogo && inBox(firstLogo), total: total && inBox(total) }, scrolled: [sc.scrollLeft, sc.scrollTop] };
+  });
+  const before = await state();
+  if (!(await clickText(p, 'All models'))) { await p.close(); return { pass: false, detail: 'no "All models" button on the Matchups card' }; }
+  await sleep(900);
+  const after = await state();
+  // Scroll the card's box half way across and down, then look for the first name, the first logo and the Total header.
+  await p.evaluate(() => { const sc = document.querySelector('#pairwise-card .panel-scroll'); sc.scrollLeft = (sc.scrollWidth - sc.clientWidth) / 2; sc.scrollTop = (sc.scrollHeight - sc.clientHeight) / 2; });
+  await sleep(500);
+  const scrolled = await state();
+  await clickText(p, 'Seated now'); await sleep(900);
+  const back = await state();
+  await p.close();
+  const bad = [];
+  if (before.rows !== seated) bad.push(`Seated now: ${before.rows} rows, ${seated} seated with stats`);
+  if (after.rows !== all || after.names.length !== all) bad.push(`All models: ${after.rows} rows, ${after.names.length} names, ${all} models with hands`);
+  if (!before.cell || !after.cell || Math.abs(before.cell[0] - after.cell[0]) > 1.5 || Math.abs(before.cell[1] - after.cell[1]) > 1.5) bad.push(`cell ${before.cell?.map(Math.round)} -> ${after.cell?.map(Math.round)}: All models changed the cell size`);
+  if (all > seated && after.scrolls[0] < 10 && after.scrolls[1] < 10) bad.push(`All models: the grid does not outgrow the card (${after.scrolls.join('x')} px to scroll)`);
+  if (scrolled.scrolled[0] + scrolled.scrolled[1] < 10) bad.push('the card did not scroll');
+  for (const [k, v] of Object.entries(scrolled.pinned)) if (!v) bad.push(`scrolled ${scrolled.scrolled.map(Math.round)}: the first ${k} is out of view`);
+  if (back.rows !== seated) bad.push(`back to Seated now: ${back.rows} rows`);
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${seated} seated -> ${all} models at ${after.cell.map(Math.round).join('x')}px cells, ${after.scrolls.join('x')}px of scroll; names, logos and Total pinned at ${scrolled.scrolled.map(Math.round)}` };
+}));
+// No pair in the local data has never met, so the page is served a /api/stats with one seated pair's head-to-head removed.
+group(() => check('matchups-never-met', 'A pair with no hands together is an empty Matchups cell whose readout says they never sat together', async () => {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  let pair = null;
+  await p.setRequestInterception(true);
+  p.on('request', async req => {
+    if (!/\/api\/stats(\?|$)/.test(req.url()) || req.method() !== 'GET') return req.continue();
+    try {
+      const stats = await (await fetch(req.url())).json();
+      const [a, b] = seatedOf(stats).map(m => m.name);
+      pair = [a, b];
+      for (const m of stats.models) if (m.name === a || m.name === b) delete m.vs[m.name === a ? b : a];
+      await req.respond({ status: 200, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' }, body: JSON.stringify(stats) });
+    } catch (e) { req.continue(); }
+  });
+  await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p); await sleep(3000);
+  await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
+  if (!pair) { await p.close(); return { pass: false, detail: 'the page never fetched /api/stats' }; }
+  const keys = [`${pair[0]}|${pair[1]}`, `${pair[1]}|${pair[0]}`];
+  const cells = (await cardCells(p)).filter(c => keys.includes(c.key));
+  const tips = [];
+  for (const k of keys) {
+    await p.hover(`#pairwise-card td[data-cell="${k}"]`).catch(() => {});
+    await sleep(300);
+    tips.push(await p.evaluate(() => document.querySelector('#pairwise-card [role=tooltip]')?.textContent ?? ''));
+  }
+  await p.close();
+  const bad = [];
+  if (cells.length !== 2) bad.push(`${cells.length} cells for ${keys.join(' and ')}`);
+  for (const c of cells) if (c.text.trim()) bad.push(`${c.key}: shows "${c.text}"`);
+  for (const [i, t] of tips.entries()) if (!/never sat together/.test(t)) bad.push(`${keys[i]}: readout "${t}"`);
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${keys.join(' and ')}: empty cells, "${tips[0]}"` };
+}));
+group(() => check('leader-bb100', 'The Leader line is the best bb/100 among the models shown with at least 500 hands (Seated now, then All models on the Matchups card), in bb/100', async () => {
+  const p = await pageAt(1440, 900, 'race');
+  await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
+  const e = await engineStats(p);
+  if (!e) { await p.close(); return { pass: false, detail: 'the page never fetched /api/stats' }; }
+  const read = () => p.evaluate(() => { const l = [...document.querySelectorAll('#pairwise-card span[data-scope]')].find(e => e.getBoundingClientRect().width > 0); return l && { text: l.textContent, name: l.querySelector('[translate=no]')?.textContent ?? null, figure: l.querySelector('.font-bold.shrink-0')?.textContent ?? null }; });
+  const want = ms => ms.filter(m => m.hands >= 500).sort((a, b) => b.bb100 - a.bb100)[0] ?? null;
+  const bad = [], seen = [];
+  for (const [label, ms] of [['Seated now', seatedOf(e.stats)], ['All models', e.stats.models]]) {
+    if (label === 'All models' && !(await clickText(p, 'All models'))) { bad.push('no "All models" button'); break; }
+    await sleep(900);
+    const got = await read(), top = want(ms);
+    seen.push(`${label}: ${got?.text}`);
+    if (!got) { bad.push(`${label}: no Leader line`); continue; }
+    if (!top) { if (!/No model has 500 hands yet/.test(got.text)) bad.push(`${label}: nobody has 500 hands, line "${got.text}"`); continue; }
+    if (got.name !== top.name) bad.push(`${label}: names ${got.name}, the best bb/100 with 500 hands is ${top.name} (${top.hands} hands, ${top.bb100})`);
+    if (got.figure !== `${bbText(top.bb100)} bb/100 all time`) bad.push(`${label}: figure "${got.figure}", want "${bbText(top.bb100)} bb/100 all time"`);
+    const unqualified = ms.filter(m => m.hands < 500 && m.bb100 > top.bb100);
+    if (unqualified.some(m => m.name === got.name)) bad.push(`${label}: ${got.name} leads with under 500 hands`);
+  }
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
 // Phones and 200% browser zoom (CSS width under 768px). Owner's report: the opened Trends card collapsed to a
 // strip, Matchups rows to 2-17px and overlapping, Profiles showed logos only with overlapping rows, the Matchups

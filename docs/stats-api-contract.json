@@ -16,7 +16,7 @@
       "by_position": { "BTN": { "hands": 14, "vpip": 0.43, "pfr": 0.36, "bb100": 80.1 } },
       "cumulative_bb": [ [0, 0.0], [10, 4.5], [20, -3.0] ],
       "cumulative_aiev_bb": [ [0, 0.0], [10, 3.1], [20, -0.5] ],
-      "vs": { "Llama 3.1 8B": { "pots": 21, "net_chips": 150 } },
+      "vs": { "Llama 3.1 8B": { "pots": 21, "net_chips": 150, "hands": 120 } },
       "by_players_to_flop": {
         "2": { "hands": 18, "won": 11, "net_chips": 260, "bb100": 144.4 },
         "3": { "hands": 9, "won": 3, "net_chips": -40, "bb100": -44.4 },
@@ -30,7 +30,7 @@
   "definitions_url": "/docs/stats.md",
   "partial": false,
   "_timeline": {
-    "_comment": "Contract for GET /api/stats/timeline, the same numbers at past hands; not a field of /api/stats. Same scope as /api/stats: all time, or ?session=<session_id>. Model fields are indexes into models (sorted by name). profiles has a row per model seated so far at every profile_step hands (25, or ceil(hands/120) past 3,000 hands, so never more than 120 snapshots) and at the last hand, whose rows equal /api/stats (bb100 rounded to 0.01, vpip and pfr to 0.0001, af to 0.001; null as in /api/stats). matchups has a row for each pair whose head-to-head net changed, a < b, chips being what a took from b: per hand, or per matchup_bucket hands (ceil(hands/1200)) past 1,200 hands, at the bucket's last hand. Summing chips per pair over every row gives vs.net_chips in /api/stats exactly (b's total against a is minus a's). Example: rows from the demo history, cut to four of its 19 models with the indexes renumbered to match.",
+    "_comment": "Contract for GET /api/stats/timeline, the same numbers at past hands; not a field of /api/stats. Same scope as /api/stats: all time, or ?session=<session_id>. Model fields are indexes into models (sorted by name). profiles has a row per model seated so far at every profile_step hands (25, or ceil(hands/120) past 3,000 hands, so never more than 120 snapshots) and at the last hand, whose rows equal /api/stats (bb100 rounded to 0.01, vpip and pfr to 0.0001, af to 0.001; null as in /api/stats). matchups has a row for each pair whose head-to-head net changed, a < b, chips being what a took from b: per hand, or per matchup_bucket hands (ceil(hands/1200)) past 1,200 hands, at the bucket's last hand. Summing chips per pair over every row gives vs.net_chips in /api/stats exactly (b's total against a is minus a's). lineups is who was dealt in: each row the hand (1-based) a lineup started at, then the seated models' indexes ascending, holding until the next row; a pair's hands together up to any hand are the hands of the rows holding both, and at the last hand equal vs.hands. Example: rows from the demo history, cut to four of its 19 models with the indexes renumbered to match.",
     "generated_at": "2026-11-07T22:31:15Z",
     "hands": 895,
     "models": ["Claude Haiku 5.5", "Cohere Command R7B", "DeepSeek V3.2", "DeepSeek V4 Flash"],
@@ -43,6 +43,7 @@
     "matchups": {
       "fields": ["hand", "a", "b", "chips"],
       "rows": [ [2, 0, 1, 37], [2, 0, 3, 297], [3, 1, 2, 22] ]
-    }
+    },
+    "lineups": [ [1, 0, 1, 3], [3, 1, 2, 3] ]
   }
 }
