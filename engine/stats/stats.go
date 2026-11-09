@@ -102,6 +102,7 @@ type Position struct {
 type Vs struct {
 	Pots     int `json:"pots"`
 	NetChips int `json:"net_chips"`
+	Hands    int `json:"hands,omitempty"` // hands both were dealt in (vs only; heads_up_vs leaves it out)
 }
 
 // SessionID is the session a hand belongs to. Until there is a sessions table, each
@@ -160,8 +161,9 @@ type posAcc struct {
 }
 
 type vsAcc struct {
-	pots int
-	net  float64
+	pots  int
+	net   float64
+	hands int // hands both were dealt in, pot or not
 }
 
 // Compute builds the stats for the given hands, which must be in the order played. It
@@ -489,13 +491,17 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 		// Head to head: each loser's chips are shared among the winners in proportion
 		// to what they won, and only hands where both put chips in or reached showdown count.
 		for _, other := range h.Seats {
-			if other.Seat == seat.Seat || !s.inPot || !sh[other.Seat].inPot {
+			if other.Seat == seat.Seat {
 				continue
 			}
 			v := a.vs[other.Name]
 			if v == nil {
 				v = &vsAcc{}
 				a.vs[other.Name] = v
+			}
+			v.hands++ // dealt in together: the hands bb/100 between them is per 100 of
+			if !s.inPot || !sh[other.Seat].inPot {
+				continue
 			}
 			v.pots++
 			on := netOf(&h, other.Seat)
@@ -533,7 +539,7 @@ func (a *acc) result() Model {
 		m.ByPosition[name] = Position{Hands: p.hands, VPIP: p.vpip.rate(), PFR: p.pfr.rate(), BB100: 100 * p.bb / float64(p.hands)}
 	}
 	for name, v := range a.vs {
-		m.Vs[name] = Vs{Pots: v.pots, NetChips: int(math.Round(v.net))}
+		m.Vs[name] = Vs{Pots: v.pots, NetChips: int(math.Round(v.net)), Hands: v.hands}
 	}
 	for name, v := range a.hu {
 		m.HeadsUpVs[name] = Vs{Pots: v.pots, NetChips: int(math.Round(v.net))}

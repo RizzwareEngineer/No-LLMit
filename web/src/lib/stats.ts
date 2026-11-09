@@ -16,6 +16,7 @@ export interface PositionStats {
 export interface VsStats {
   pots: number;
   net_chips: number;
+  hands?: number; // hands both were dealt in (vs only: heads_up_vs and older engines leave it out)
 }
 
 export interface ModelStats {
@@ -82,6 +83,19 @@ export interface StatsResponse {
 
 // Below this many hands bb/100 is mostly noise.
 export const MIN_HANDS = 500;
+// A pair's bb/100 under this many hands together is drawn faint: on the local data, pairs under 100 hands
+// swing to a 90th-percentile |bb/100| of 250-680 (max 1,100); from 100 hands up it is 135-210, as noisy
+// as the pairs with a thousand. Pairs accrue hands far slower than models (hands together ≤ either's hands),
+// so the models' 500 would leave a grid faint for a season.
+export const MIN_PAIR_HANDS = 100;
+
+// Big blinds per 100 hands from a chip net over `hands` hands; null with no hands.
+export const bb100Of = (net: number, bigBlind: number, hands: number) => (hands > 0 && bigBlind > 0 ? (net / bigBlind / hands) * 100 : null);
+
+// The leader by bb/100 among `rows` with at least MIN_HANDS hands (null when none qualifies).
+export function leaderBy<T extends { hands: number; bb100: number }>(rows: T[]): T | null {
+  return rows.filter(r => r.hands >= MIN_HANDS).sort((a, b) => b.bb100 - a.bb100)[0] ?? null;
+}
 
 export const TEXT = 'rgb(55, 53, 47)';
 export const MUTED = 'rgba(55, 53, 47, 0.65)';
@@ -189,6 +203,11 @@ if (process.env.NODE_ENV === 'development') {
   console.assert(d.size === 2 && d.get('b') === 3 && d.get('c') === -2 && !d.has('d'), 'diffValues: changed shared keys only, new minus old');
   console.assert(diffValues({}, { a: 1 }).size === 0, 'diffValues: a first snapshot changes nothing');
   console.assert(sameValues({ a: 1 }, { a: 1 }) && !sameValues({ a: 1 }, { a: 1, b: 2 }) && !sameValues({ a: 1 }, { a: 2 }), 'sameValues');
+  console.assert(bb100Of(500, 10, 200) === 25 && bb100Of(5, 10, 0) === null, 'bb100Of');
+  const vs = { B: { pots: 3, net_chips: 300, hands: 100 }, C: { pots: 1, net_chips: -100, hands: 300 }, D: { pots: 1, net_chips: 900, hands: 10 } };
+  const among = bb100Among({ name: 'A', vs } as unknown as ModelStats, new Set(['A', 'B', 'C']), 10);
+  console.assert(among.hands === 400 && among.net === 200 && among.bb100 === 5, 'bb100Among: the shown opponents only, weighted by hands together');
+  console.assert(leaderBy([{ hands: 600, bb100: 2 }, { hands: 499, bb100: 9 }, { hands: 500, bb100: 5 }])?.bb100 === 5 && leaderBy([{ hands: 10, bb100: 1 }]) === null, 'leaderBy: MIN_HANDS, then bb/100');
 }
 
 // Splits the roster for display. noHands: seated models without hands yet, listed with dashes.
@@ -209,9 +228,14 @@ export function seatedModels<T extends { name: string }>(models: T[], seated: st
   return at.length >= 2 ? at : models;
 }
 
-// Net chips a model won from the opponents in `names` only, so a row's net is the sum of what it shows.
-export const netAmong = (m: ModelStats, names: Set<string>) =>
-  Object.entries(m.vs ?? {}).reduce((sum, [n, v]) => (names.has(n) && n !== m.name ? sum + v.net_chips : sum), 0);
+// A model's bb/100 against the opponents in `names` only: the chips it won from them per 100 hands it was
+// dealt in with one of them (its row's cells averaged, each weighted by their hands together), with that
+// hand count. Both 0 before any hand together.
+export function bb100Among(m: ModelStats, names: Set<string>, bigBlind: number) {
+  let net = 0, hands = 0;
+  for (const [n, v] of Object.entries(m.vs ?? {})) if (names.has(n) && n !== m.name) { net += v.net_chips; hands += v.hands ?? 0; }
+  return { bb100: bb100Of(net, bigBlind, hands) ?? 0, hands, net };
+}
 
 export const NOT_SEATED = 'Not seated yet';
 export const NOT_SEATED_HINT = 'Listed for future sessions; no hands played.';

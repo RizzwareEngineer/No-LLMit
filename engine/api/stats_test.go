@@ -123,14 +123,15 @@ func TestStatsFromScriptedHands(t *testing.T) {
 	if a.BiggestPotWon != 4010 || a.BiggestPotLost != 0 || c.BiggestPotLost != 4005 {
 		t.Errorf("biggest pots: A won %d lost %d, C lost %d", a.BiggestPotWon, a.BiggestPotLost, c.BiggestPotLost)
 	}
-	if v := a.Vs["C"]; v != (stats.Vs{Pots: 2, NetChips: 2030}) {
+	if v := a.Vs["C"]; v != (stats.Vs{Pots: 2, NetChips: 2030, Hands: 5}) {
 		t.Errorf("A vs C %+v", v)
 	}
-	if v := a.Vs["B"]; v != (stats.Vs{Pots: 2, NetChips: 2010}) {
+	if v := a.Vs["B"]; v != (stats.Vs{Pots: 2, NetChips: 2010, Hands: 5}) {
 		t.Errorf("A vs B %+v", v)
 	}
-	if _, ok := b.Vs["C"]; ok {
-		t.Errorf("B and C never both put chips in: %+v", b.Vs)
+	// B and C never both put chips in, but were dealt in together every hand.
+	if v := b.Vs["C"]; v != (stats.Vs{Hands: 5}) {
+		t.Errorf("B vs C %+v", v)
 	}
 
 	// All-in EV. Hand 4: Ah2h has 362/990 of the 4005 pot after the flop shove (see
