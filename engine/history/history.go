@@ -65,10 +65,10 @@ type ActionRecord struct {
 	LegalActions []game.LLMValidAction `json:"legal_actions"`
 	PromptID     string                `json:"prompt_id"`
 	Parsed       ParsedAction          `json:"parsed"`
-	// Status is ok, or why Applied is not the model's own choice: unparseable, timeout,
-	// api_error, service_error (LLM service unreachable) or illegal (move not allowed).
-	// After an unparseable or illegal reply the model is asked once more (Retried); if
-	// the retry is also bad, Applied is CHECK when that is legal and FOLD otherwise.
+	// Status is ok, or why Applied is not the model's own choice. unparseable and illegal
+	// are the model's own miss: it was asked once more (Retried) and the retry was bad
+	// too. timeout and api_error are the provider's failure, service_error the LLM
+	// service being unreachable. Any fallback is CHECK when legal and FOLD otherwise.
 	Status    string        `json:"status"`
 	Retried   bool          `json:"retried"`
 	Applied   AppliedAction `json:"applied"`
@@ -76,6 +76,11 @@ type ActionRecord struct {
 	TokensIn  *int          `json:"tokens_in"`
 	TokensOut *int          `json:"tokens_out"`
 	CostUSD   *float64      `json:"cost_usd"`
+	// Added with the Python-owned prompts; absent on older records.
+	PromptVersion    string `json:"prompt_version,omitempty"`    // system prompt, user template and parser
+	Model            string `json:"model,omitempty"`             // the model OpenRouter reports serving the call
+	UpstreamProvider string `json:"upstream_provider,omitempty"` // the host OpenRouter routed to
+	ReasoningTokens  *int   `json:"reasoning_tokens,omitempty"`
 }
 
 // ParsedAction is what we read from the model's reply.

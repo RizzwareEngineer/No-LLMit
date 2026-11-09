@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -48,26 +49,27 @@ func playTable(t *testing.T, names []string, stacks []int, holes [][]string, boa
 	}
 	rec := newHandRecorder(gs, "tbl_test", nil)
 
-	// Each call to the model takes the next scripted reply, so a retried decision uses two.
-	ask := func(string) (*client.LLMDecisionResponse, error) {
+	// Each decision takes the next scripted reply (the LLM service's whole answer for the
+	// turn, retries included), with the prompt the service would have rendered.
+	ask := func() (*client.LLMDecisionResponse, error) {
 		if len(script) == 0 {
 			t.Fatal("script ran out")
 		}
 		reply := script[0]
 		script = script[1:]
-		reply.Provider, reply.PromptVersion, reply.Model = "test", "v1", "model-"+gs.Players[gs.CurrentPlayerIdx].Name
+		idx := gs.CurrentPlayerIdx
+		reply.Provider, reply.PromptVersion, reply.Model = "test", "v1", "model-"+gs.Players[idx].Name
+		reply.Prompt = fmt.Sprintf("You are Player %d (%s).\n\nLegal actions:\n- FOLD", idx+1, gs.PositionName(idx))
 		return &reply, nil
 	}
 	for len(script) > 0 {
 		if gs.IsHandComplete() {
 			t.Fatal("script is longer than the hand")
 		}
-		idx := gs.CurrentPlayerIdx
 		legal := buildLLMValidActions(gs)
-		prompt := gs.GetLLMPrompt(gs.Players[idx].Name, legal)
-		rec.beginDecision(gs, legal, prompt)
+		rec.beginDecision(gs, legal)
 
-		turn := decideLLMTurn(gs, prompt, ask)
+		turn := decideLLMTurn(gs, ask)
 		if err := gs.ProcessAction(turn.action); err != nil {
 			t.Fatalf("decideLLMTurn chose an action the engine rejects: %v", err)
 		}
@@ -132,7 +134,7 @@ func TestHandRecordThroughShowdown(t *testing.T) {
 		if a.N != i+1 || a.PromptID != prompts[i].PromptID || a.Status != "ok" {
 			t.Errorf("action %d: n=%d prompt_id=%s status=%s", i+1, a.N, a.PromptID, a.Status)
 		}
-		if !strings.Contains(prompts[i].Prompt, "You are "+a.Player) || prompts[i].RawReply == "" {
+		if !strings.Contains(prompts[i].Prompt, fmt.Sprintf("You are Player %d", a.Seat+1)) || prompts[i].RawReply == "" {
 			t.Errorf("action %d: prompt or reply missing", i+1)
 		}
 	}
@@ -185,12 +187,19 @@ func TestHandRecordThroughShowdown(t *testing.T) {
 	}
 }
 
+// missed is the service's answer after the model's own miss twice: the last parsed reply
+// with the status saying why it cannot be played.
+func missed(status, action string, amount int) client.LLMDecisionResponse {
+	r := reply(action, amount)
+	r.Status, r.Retried, r.Raw = status, true, "ACTION: "+action+"\n\n--- retry ---\nACTION: "+action
+	r.RetryPrompt = "Your reply was invalid: ..."
+	return r
+}
+
 func TestHandRecordUncontestedAndFallbacks(t *testing.T) {
 	// A twice sends a raise below the minimum; B twice sends a reply with no action.
 	// Neither can check, so both fall back to a fold.
-	unparseable := reply("FOLD", 0)
-	unparseable.Status = "unparseable"
-	record, prompts := playRecorded(t, []client.LLMDecisionResponse{reply("RAISE", 12), reply("RAISE", 12), unparseable, unparseable})
+	record, prompts := playRecorded(t, []client.LLMDecisionResponse{missed("illegal", "RAISE", 12), missed("unparseable", "FOLD", 0)})
 
 	if a := record.Actions[0]; a.Status != "illegal" || !a.Retried || a.Applied.Type != "FOLD" || a.Parsed.Action != "RAISE" {
 		t.Errorf("illegal raise: %+v", a)
@@ -198,8 +207,8 @@ func TestHandRecordUncontestedAndFallbacks(t *testing.T) {
 	if a := record.Actions[1]; a.Status != "unparseable" || !a.Retried || a.Applied.Type != "FOLD" {
 		t.Errorf("unparseable reply: %+v", a)
 	}
-	if !strings.Contains(prompts[0].RawReply, "--- retry ---") {
-		t.Errorf("both raw replies should be kept: %q", prompts[0].RawReply)
+	if !strings.Contains(prompts[0].RawReply, "--- retry ---") || prompts[0].RetryPrompt == "" {
+		t.Errorf("both raw replies and the retry message should be kept: %+v", prompts[0])
 	}
 	if len(record.Result.Pots) != 1 || record.Result.Pots[0].Amount != 15 {
 		t.Errorf("big blind should win the 15 chip pot: %+v", record.Result.Pots)
@@ -231,41 +240,12 @@ func TestAllInReplyIsApplied(t *testing.T) {
 
 func TestIllegalRaiseFallsBackToCheckWhenFree(t *testing.T) {
 	// Limped to the big blind, who twice "raises" by the 5-chip increment instead of a total.
-	script := []client.LLMDecisionResponse{reply("CALL", 0), reply("CALL", 0), reply("RAISE", 15), reply("RAISE", 15)}
+	script := []client.LLMDecisionResponse{reply("CALL", 0), reply("CALL", 0), missed("illegal", "RAISE", 15)}
 	for i := 0; i < 9; i++ {
 		script = append(script, reply("CHECK", 0))
 	}
 	record, _ := playRecorded(t, script)
 	if a := record.Actions[2]; a.Applied.Type != "CHECK" || a.Status != "illegal" || !a.Retried {
 		t.Errorf("big blind could check for free: %+v", a)
-	}
-}
-
-func TestIllegalRaiseFixedOnRetry(t *testing.T) {
-	gs := game.NewGame(game.GameConfig{
-		PlayerNames:   []string{"A", "B", "C"},
-		StartingStack: 2000,
-		Stakes:        game.Stakes{SmallBlind: 5, BigBlind: 10},
-	})
-	if err := gs.StartHand(); err != nil {
-		t.Fatal(err)
-	}
-	tokens := 7
-	replies := []client.LLMDecisionResponse{reply("RAISE", 12), reply("RAISE", 30)}
-	replies[0].TokensIn, replies[1].TokensIn = &tokens, &tokens
-	var asked []string
-	turn := decideLLMTurn(gs, "PROMPT", func(p string) (*client.LLMDecisionResponse, error) {
-		asked = append(asked, p)
-		r := replies[len(asked)-1]
-		return &r, nil
-	})
-	if len(asked) != 2 || !strings.HasPrefix(asked[1], "PROMPT\n\nYour previous reply was invalid: raise must be at least") {
-		t.Fatalf("retry prompt should carry the engine's reason: %q", asked)
-	}
-	if turn.fallback || !turn.retried || turn.action.Type != game.ActionRaise || turn.action.Amount != 30 {
-		t.Errorf("retry reply should be applied: %+v", turn)
-	}
-	if *turn.decision.TokensIn != 14 {
-		t.Errorf("tokens of both calls should be counted, got %d", *turn.decision.TokensIn)
 	}
 }

@@ -16,10 +16,11 @@ const handRecordSchema = 1
 
 // HandPrompt is the exact text one decision was made from and the reply to it.
 type HandPrompt struct {
-	PromptID string `json:"prompt_id"`
-	N        int    `json:"n"`
-	Prompt   string `json:"prompt"`
-	RawReply string `json:"raw_reply"`
+	PromptID    string `json:"prompt_id"`
+	N           int    `json:"n"`
+	Prompt      string `json:"prompt"`
+	RawReply    string `json:"raw_reply"`              // both replies when retried, separated by "--- retry ---"
+	RetryPrompt string `json:"retry_prompt,omitempty"` // the follow-up message after an invalid reply
 }
 
 // handRecorder accumulates one hand's record as it is played.
@@ -67,8 +68,9 @@ func newHandRecorder(gs *game.GameState, tableID string, rebought []int) *handRe
 	return r
 }
 
-// beginDecision captures the situation the current player faces, before they act.
-func (r *handRecorder) beginDecision(gs *game.GameState, legal []game.LLMValidAction, prompt string) {
+// beginDecision captures the situation the current player faces, before they act. The
+// prompt text arrives with the reply (the LLM service renders it) and is stored in endDecision.
+func (r *handRecorder) beginDecision(gs *game.GameState, legal []game.LLMValidAction) {
 	idx := gs.CurrentPlayerIdx
 	p := gs.Players[idx]
 	n := len(r.record.Actions) + 1
@@ -83,7 +85,7 @@ func (r *handRecorder) beginDecision(gs *game.GameState, legal []game.LLMValidAc
 		LegalActions: legal,
 		PromptID:     fmt.Sprintf("%s-%02d", r.record.HandID, n),
 	}
-	r.prompts = append(r.prompts, HandPrompt{PromptID: r.pending.PromptID, N: n, Prompt: prompt})
+	r.prompts = append(r.prompts, HandPrompt{PromptID: r.pending.PromptID, N: n})
 }
 
 // endDecision records the reply and what the engine applied for it.
@@ -99,15 +101,16 @@ func (r *handRecorder) endDecision(gs *game.GameState, turn llmTurn) {
 	a.LatencyMs = decision.LatencyMs
 	a.TokensIn, a.TokensOut, a.CostUSD = decision.TokensIn, decision.TokensOut, decision.CostUSD
 	a.Status = decision.Status
-	a.Retried = turn.retried
+	a.Retried = decision.Retried
 	switch {
 	case turn.serviceErr:
 		a.Status = "service_error"
 	case turn.fallback && (a.Status == "" || a.Status == "ok"):
-		a.Status = "illegal"
+		a.Status = "illegal" // the service said ok but the engine refused the move
 	case a.Status == "":
 		a.Status = "ok"
 	}
+	a.PromptVersion, a.Model, a.UpstreamProvider, a.ReasoningTokens = decision.PromptVersion, decision.Model, decision.UpstreamProvider, decision.ReasoningTokens
 
 	if last := gs.Players[a.Seat].LastAction; last != nil {
 		switch last.Type {
@@ -130,7 +133,8 @@ func (r *handRecorder) endDecision(gs *game.GameState, turn llmTurn) {
 		}
 	}
 
-	r.prompts[len(r.prompts)-1].RawReply = decision.Raw
+	p := &r.prompts[len(r.prompts)-1]
+	p.Prompt, p.RawReply, p.RetryPrompt = decision.Prompt, decision.Raw, decision.RetryPrompt
 	r.record.Actions = append(r.record.Actions, *a)
 
 	if r.record.Config.Provider == "" {

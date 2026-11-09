@@ -594,22 +594,19 @@ func (t *Table) playTurn() {
 	playerIdx := t.gs.CurrentPlayerIdx
 	playerName := t.gs.Players[playerIdx].Name
 	validActions := buildLLMValidActions(t.gs)
-	prompt := t.gs.GetLLMPrompt(playerName, validActions)
-	t.recorder.beginDecision(t.gs, validActions, prompt)
+	req := buildDecisionRequest(t.gs, validActions)
+	t.recorder.beginDecision(t.gs, validActions)
 	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{PlayerIdx: playerIdx, PlayerName: playerName}}
 	t.turn = &thinking
 	t.broadcast(thinking)
 	t.mu.Unlock()
 
 	start := time.Now()
-	ask := func(prompt string) (*client.LLMDecisionResponse, error) {
-		t.mu.Lock()
-		t.calls++
-		t.mu.Unlock()
-		return client.GetLLMDecision(playerName, prompt, validActions)
-	}
+	t.mu.Lock()
+	t.calls++
+	t.mu.Unlock()
 	// Reading t.gs without the lock is safe here: only this goroutine changes it.
-	turn := decideLLMTurn(t.gs, prompt, ask)
+	turn := decideLLMTurn(t.gs, func() (*client.LLMDecisionResponse, error) { return client.GetLLMDecision(req) })
 	decision := turn.decision
 	log.Printf("%s: %s %d (%dms)", playerName, decision.Action, decision.Amount, time.Since(start).Milliseconds())
 	if remaining := time.Duration(float64(thinkingDuration)*t.pace) - time.Since(start); remaining > 0 {
@@ -655,55 +652,46 @@ func (t *Table) playTurn() {
 
 // llmTurn is one model decision and the move the engine will apply for it.
 type llmTurn struct {
-	decision   *client.LLMDecisionResponse // the reply to record (the retry's, if there was one)
+	decision   *client.LLMDecisionResponse // the service's reply: the model's move, or its fallback
 	action     game.Action
 	serviceErr bool // the LLM service could not be reached
-	retried    bool // the first reply was unparseable or illegal, so the model was asked again
-	fallback   bool // no usable reply: action is CHECK when legal, otherwise FOLD
+	fallback   bool // action is not the model's own choice: CHECK when legal, otherwise FOLD
 }
 
-// decideLLMTurn asks the current player's model for a move. An unparseable or illegal
-// reply is retried once with the engine's reason appended to the prompt; if the retry is
-// bad too, the player checks when checking is legal and folds otherwise. It only reads gs.
-func decideLLMTurn(gs *game.GameState, prompt string, ask func(prompt string) (*client.LLMDecisionResponse, error)) llmTurn {
+// decideLLMTurn asks the LLM service for the current player's move. The service owns the
+// prompts, parsing and retries and reports a status; the engine checks the move against
+// the rules anyway and falls back (check when legal, else fold) if it cannot be applied.
+func decideLLMTurn(gs *game.GameState, ask func() (*client.LLMDecisionResponse, error)) llmTurn {
 	idx := gs.CurrentPlayerIdx
 	name := gs.Players[idx].Name
-	d, err := ask(prompt)
+	d, err := ask()
 	if err != nil {
 		log.Printf("❌ LLM ERROR for %s: %v", name, err)
 		return llmTurn{
-			decision:   &client.LLMDecisionResponse{Action: "FOLD", Reason: "LLM service error"},
+			decision:   &client.LLMDecisionResponse{Action: "FOLD", Status: "service_error"},
 			action:     fallbackAction(gs, idx),
 			serviceErr: true,
 			fallback:   true,
 		}
 	}
-
-	turn := llmTurn{}
+	turn := llmTurn{decision: d}
 	action, reason := checkLLMDecision(gs, idx, d)
-	if reason != "" {
-		log.Printf("%s: invalid reply (%s), asking again", name, reason)
-		turn.retried = true
-		if retry, err := ask(prompt + "\n\nYour previous reply was invalid: " + reason + ". Reply again."); err != nil {
-			log.Printf("❌ LLM ERROR for %s on retry: %v", name, err)
-		} else {
-			d = combineRetry(d, retry)
-			action, reason = checkLLMDecision(gs, idx, d)
-		}
+	switch {
+	case d.Status != "ok":
+		log.Printf("%s: %s (%s), falling back", name, d.Status, d.Error)
+	case reason != "":
+		// Not expected: the service checked the reply against the legal list the engine sent.
+		log.Printf("%s: service returned an unplayable move (%s), falling back", name, reason)
 	}
-	if reason != "" {
-		log.Printf("%s: invalid reply again (%s), falling back", name, reason)
+	if d.Status != "ok" || reason != "" {
 		action, turn.fallback = fallbackAction(gs, idx), true
 	}
-	turn.decision, turn.action = d, action
+	turn.action = action
 	return turn
 }
 
 // checkLLMDecision turns a reply into an action, or says why the engine cannot apply it.
 func checkLLMDecision(gs *game.GameState, idx int, d *client.LLMDecisionResponse) (game.Action, string) {
-	if d.Status == "unparseable" {
-		return game.Action{}, "no ACTION line was found"
-	}
 	actionType, ok := ParseActionType(d.Action)
 	if !ok {
 		return game.Action{}, fmt.Sprintf("%q is not a legal action", d.Action)
@@ -724,32 +712,11 @@ func fallbackAction(gs *game.GameState, idx int) game.Action {
 	return game.Action{Type: game.ActionFold, PlayerIdx: idx}
 }
 
-// combineRetry keeps the retry's reply, with both raw replies and the cost of both calls.
-func combineRetry(first, retry *client.LLMDecisionResponse) *client.LLMDecisionResponse {
-	d := *retry
-	d.Raw = first.Raw + "\n\n--- retry ---\n" + retry.Raw
-	d.LatencyMs += first.LatencyMs
-	d.TokensIn = addPtr(first.TokensIn, retry.TokensIn)
-	d.TokensOut = addPtr(first.TokensOut, retry.TokensOut)
-	d.CostUSD = addPtr(first.CostUSD, retry.CostUSD)
-	return &d
-}
-
-func addPtr[T int | float64](a, b *T) *T {
-	if a == nil {
-		return b
-	}
-	if b == nil {
-		return a
-	}
-	sum := *a + *b
-	return &sum
-}
-
 // buildLLMValidActions converts game valid actions to LLM-friendly format
 func buildLLMValidActions(gs *game.GameState) []game.LLMValidAction {
 	validActions := gs.GetValidActions()
 	var llmActions []game.LLMValidAction
+	player := gs.Players[gs.CurrentPlayerIdx]
 
 	for _, va := range validActions {
 		actionType := va.Type.String()
@@ -773,6 +740,12 @@ func buildLLMValidActions(gs *game.GameState) []game.LLMValidAction {
 			llmAction.Max = va.MaxAmount
 			llmAction.Description = fmt.Sprintf("choose ANY amount between %d and %d", va.MinAmount, va.MaxAmount)
 		} else if va.Type == game.ActionAllIn {
+			if toCall := gs.CurrentBet - player.CurrentBet; toCall >= player.Stack {
+				// The bet covers the stack: the engine plays CALL as an all-in, so offer it.
+				llmActions = append(llmActions, game.LLMValidAction{
+					Type: "CALL", Amount: player.Stack, Description: fmt.Sprintf("call all-in for your last %d", player.Stack),
+				})
+			}
 			llmAction.Amount = va.MaxAmount
 			llmAction.Description = fmt.Sprintf("put all %d chips in", va.MaxAmount)
 		} else if va.Type == game.ActionFold {
