@@ -104,14 +104,13 @@ export function Next() {
 const SPONSORS = 'https://github.com/sponsors/RizzwareEngineer';
 export function Support({ as: H, className = '' }: { as: Heading; className?: string }) {
   return (
-    <section data-support className={`${CARD} relative gap-3 ${className}`} style={{ boxShadow: CARD_SHADOW }}>
+    <section className={`${CARD} relative gap-3 ${className}`} style={{ boxShadow: CARD_SHADOW }}>
       <H className={TITLE}>Keep the table running</H>
       <div className="flex flex-col gap-0.5">
         <p>Donations pay for the OpenRouter model calls and the servers.</p>
         <Label>$5 is a huge help.</Label>
       </div>
       <a
-        data-donate
         href={SPONSORS}
         target="_blank"
         rel="noopener noreferrer"
@@ -280,7 +279,7 @@ export function Race({ art, className = '' }: { art: string; className?: string 
   const rows = useMemo(() => ridges(field), [field]);
   const leader = field[0]?.hands >= MIN_HANDS ? field[0] : undefined;
   return (
-    <figure ref={ref} data-race className={`flex flex-col gap-2.5 min-w-0 ${className}`}>
+    <figure ref={ref} className={`flex flex-col gap-2.5 min-w-0 ${className}`}>
       <div className={`relative ${art}`}>
         <svg
           viewBox={`0 0 ${W} ${H}`}

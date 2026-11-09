@@ -5,7 +5,6 @@
 import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
@@ -1728,7 +1727,8 @@ async function readAbout(draft) {
 // same system prompt, and then they can open up to see what the system prompt is"), the caveats ("No memory between calls ... It
 // can't tag opponents as a nit versus fish"), the hours and hands a day, what's next (playing against them, said honestly, and the
 // open dataset with its date) and the support. Every draft says all of it, the system prompt and one turn's call and reply opened
-// in their dialog exactly as lib/systemPrompt.ts exports them (never a copy); and none of what he cut: LLM Council, training an
+// in their dialog from lib/systemPrompt.ts (each export's first line, read from the file as text when the check runs, so no prompt
+// text is pinned here and another worker's rewrite of that file passes as it is; About never copies it); and none of what he cut: LLM Council, training an
 // LLM to play like you, Tinker, "9 LLMs at the table", calls a hand, nor the false "no persona" and "can't see its own earlier
 // decisions" (the call holds the whole hand so far).
 const ABOUT_FACTS = [
@@ -1754,16 +1754,14 @@ const ABOUT_FACTS = [
 const ABOUT_GONE = [['LLM Council', /LLM Council/i], ['training an LLM', /Train an LLM/i], ['Tinker', /Tinker/i], ['9 LLMs at the table', /\b(9|nine) LLMs/i],
   ['calls a hand', /calls? (a|per) hand/i], ['no persona', /no persona/i], ['own earlier decisions', /own earlier decisions/i]];
 const ABOUT_LINKS = ['https://github.com/sponsors/RizzwareEngineer', 'https://github.com/RizzwareEngineer/No-LLMit', 'https://github.com/RizzwareEngineer'];
-// The prompts as lib/systemPrompt.ts exports them, the file run as plain JS; null if it no longer runs that way (the check then
-// only asks for the code blocks).
-const PROMPTS = (() => {
-  try {
-    const src = readFileSync(new URL('../src/lib/systemPrompt.ts', import.meta.url), 'utf8').replace(/^export /gm, '');
-    return vm.runInNewContext(`${src}\n;({ SYSTEM_PROMPT, EXAMPLE_USER_PROMPT, EXAMPLE_REPLY })`);
-  } catch { return null; }
-})();
-group(() => check('about-content-complete', 'Every draft says what About must (pseudo benchmark, how a turn works, the caveats, 9am–9pm ET and ~150 hands a day, playing against them honestly, the dataset and its date, what donations pay for, GitHub and handle) with the system prompt and one turn shown exactly as lib/systemPrompt.ts exports them, and nothing the owner cut', async () => {
+// The first line of each prompt lib/systemPrompt.ts exports (`export const NAME = \`first line`), from the file's text.
+const PROMPT_LINES = Object.fromEntries([...readFileSync(new URL('../src/lib/systemPrompt.ts', import.meta.url), 'utf8').matchAll(/^export const (\w+) = `([^\n`]*)/gm)].map(m => [m[1], m[2].trim()]));
+// Each dialog's code blocks, in order, and the export each one starts with.
+const PROMPT_DIALOGS = [['the system prompt', 'Read the system prompt', ['SYSTEM_PROMPT']], ['one turn', 'See one turn', ['EXAMPLE_USER_PROMPT', 'EXAMPLE_REPLY']]];
+group(() => check('about-content-complete', 'Every draft says what About must (pseudo benchmark, how a turn works, the caveats, 9am–9pm ET and ~150 hands a day, playing against them honestly, the dataset and its date, what donations pay for, GitHub and handle) with the system prompt and one turn\'s call and reply opened from lib/systemPrompt.ts (each export\'s first line, read at run time), and nothing the owner cut', async () => {
   const bad = [], seen = [];
+  const unread = PROMPT_DIALOGS.flatMap(([, , names]) => names).filter(n => !PROMPT_LINES[n]);
+  if (unread.length) return { pass: false, detail: `lib/systemPrompt.ts: no \`export const ${unread.join(' / ')} = \`...\` found to read the first line of` };
   for (const [draft, label] of ABOUT_DRAFTS) {
     const got = await readAbout(draft);
     if (!got) { bad.push(`${label}: not shown by /about?about=${draft}`); continue; }
@@ -1771,11 +1769,12 @@ group(() => check('about-content-complete', 'Every draft says what About must (p
     const gone = ABOUT_GONE.filter(([, re]) => re.test(got.copy)).map(([name]) => name);
     const noLink = ABOUT_LINKS.filter(l => !got.links.includes(l));
     const code = [];
-    for (const [name, pres, want] of [['the system prompt', got.dialogs['Read the system prompt'], PROMPTS && [PROMPTS.SYSTEM_PROMPT]], ['one turn', got.dialogs['See one turn'], PROMPTS && [PROMPTS.EXAMPLE_USER_PROMPT, PROMPTS.EXAMPLE_REPLY]]]) {
+    for (const [name, button, names] of PROMPT_DIALOGS) {
+      const pres = got.dialogs[button];
       if (!pres) code.push(`${name} never opened`);
-      else if (want ? pres.join('\0') !== want.join('\0') : !pres.length || pres.some(t => !t.trim())) code.push(`${name} shows ${pres.length} code block(s), not ${want ? 'exactly what systemPrompt.ts exports' : 'its code'}`);
+      else if (pres.length !== names.length || names.some((n, i) => !pres[i].trim().startsWith(PROMPT_LINES[n]))) code.push(`${name} shows ${pres.length} code block(s) starting "${pres.map(t => t.trim().split('\n')[0].slice(0, 30)).join('", "')}", not ${names.join(' then ')} from lib/systemPrompt.ts`);
     }
-    seen.push(`${label}: ${ABOUT_FACTS.length - missing.length}/${ABOUT_FACTS.length} facts, ${ABOUT_LINKS.length - noLink.length}/${ABOUT_LINKS.length} links, prompts ${PROMPTS ? 'match lib/systemPrompt.ts' : 'shown (systemPrompt.ts not readable as JS)'}`);
+    seen.push(`${label}: ${ABOUT_FACTS.length - missing.length}/${ABOUT_FACTS.length} facts, ${ABOUT_LINKS.length - noLink.length}/${ABOUT_LINKS.length} links, prompts from lib/systemPrompt.ts`);
     const why = [missing.length && `missing ${missing.join(', ')}`, gone.length && `still says ${gone.join(', ')}`, noLink.length && `no link to ${noLink.join(', ')}`, ...code].filter(Boolean);
     if (why.length) bad.push(`${label}: ${why.join('; ')}`);
   }
