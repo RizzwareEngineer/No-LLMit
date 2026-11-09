@@ -1,7 +1,7 @@
 'use client';
 
 import { MUTED, TEXT } from '@/lib/stats';
-import { Caveats, Eyebrow, Footer, HANDS_A_DAY, HOURS, How, Intro, LABEL, Next, RULE, Race, Support, Thesis } from '@/components/about/content';
+import { Caveats, Eyebrow, Footer, Hours, How, Intro, LABEL, Next, RULE, Race, Support, Thesis } from '@/components/about/content';
 
 // Draft B, "spec sheet": the thesis, then one row per topic, its name in a gutter on the left (Arena's labelled rules);
 // the ask and the race in a column of their own on the right. On a phone: the thesis, the ask, the race, then the rows.
@@ -31,10 +31,7 @@ export default function SpecSheet({ heading }: { heading: 'h1' | 'h2' }) {
           <div className="order-3 @4xl:order-none border-b" style={{ borderColor: RULE }}>
             <Row as={Sub} title="How it works"><How /></Row>
             <Row as={Sub} title="Caveats"><Caveats /></Row>
-            <Row as={Sub} title="Hours">
-              <p>Open {HOURS}, every day.</p>
-              <p>About {HANDS_A_DAY} hands a day.</p>
-            </Row>
+            <Row as={Sub} title="Hours"><Hours /></Row>
             <Row as={Sub} title="What’s next"><Next /></Row>
           </div>
         </div>
