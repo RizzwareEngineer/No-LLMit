@@ -23,8 +23,6 @@ type replies = []client.LLMDecisionResponse
 // statsHands plays five three-handed hands through the engine. A is the button, B the
 // small blind and C the big blind every time; stacks are 2000 and blinds 5/10.
 func statsHands(t *testing.T) []history.HandRecord {
-	bad := reply("FOLD", 0)
-	bad.Status = "unparseable"
 	var hands []history.HandRecord
 	play := func(holes [][]string, board []string, script replies) {
 		h, _ := playDealt(t, holes, board, script)
@@ -39,7 +37,7 @@ func statsHands(t *testing.T) []history.HandRecord {
 		replies{reply("CALL", 0), reply("CALL", 0), reply("FOLD", 0),
 			reply("CHECK", 0), reply("CHECK", 0), reply("CHECK", 0), reply("CHECK", 0), reply("CHECK", 0), reply("CHECK", 0)})
 	// 3. A's raise is illegal twice and B's replies are unparseable: both forced folds.
-	play(nil, nil, replies{reply("RAISE", 12), reply("RAISE", 12), bad, bad})
+	play(nil, nil, replies{missed("illegal", "RAISE", 12), missed("unparseable", "FOLD", 0)})
 	// 4. A opens with Ah2h, C calls with TcJs and shoves the 9h8h7c flop; A calls and hits.
 	play([][]string{{"Ah", "2h"}, {"3c", "4d"}, {"Tc", "Js"}}, []string{"9h", "8h", "7c", "3h", "4s"},
 		replies{reply("RAISE", 30), reply("FOLD", 0), reply("CALL", 0), reply("ALL_IN", 0), reply("CALL", 0)})

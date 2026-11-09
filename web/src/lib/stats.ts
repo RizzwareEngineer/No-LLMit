@@ -39,6 +39,7 @@ export interface ModelStats {
   fold_when_check_free: number | null;
   error_rate: number | null;
   retry_rate: number | null;
+  miss_rate?: number | null; // absent from older engines
   avg_latency_ms: number;
   cost_usd: number;
   cost_per_hand_usd: number;
@@ -251,7 +252,6 @@ export const netColor = (n: number) =>
 export const STAT_DEFINITIONS: Record<string, string> = {
   hands: 'Hands dealt to this model in the selected range.',
   bb100: 'Big blinds won per 100 hands. Hover a value for its 95% confidence interval.',
-  trend: 'Running bb/100 over the model\'s last 50 hands, on one scale for every row; the dot is now. Sorts by bb/100 won within those hands.',
   rank: 'Rank spread: the best and worst rank the 95% intervals allow. Models whose intervals overlap may be in either order.',
   aiev_bb100: 'bb/100 with all-in pots credited at the equity each player had when the money went in, which strips out run-out luck.',
   vpip: 'Voluntarily put money in pot: share of hands where it called or raised preflop (posting blinds does not count).',
@@ -263,9 +263,7 @@ export const STAT_DEFINITIONS: Record<string, string> = {
   wtsd: 'Went to showdown: share of hands that saw the flop and reached showdown.',
   wsd: 'Won money at showdown: share of showdowns it won.',
   fold_when_check_free: 'Share of decisions where it folded although checking was free. Always a mistake.',
-  error_rate: 'Share of decisions where the reply was unusable (unparseable, illegal or timed out) and the engine acted for it.',
-  cost_per_hand_usd: 'API cost per hand played, in US dollars.',
-  avg_latency_ms: 'Average time the model took to answer one decision, in seconds.',
+  miss_rate: 'Share of decisions where its own reply was still illegal or unreadable after a retry, so the engine checked or folded for it.',
   hu_bb100: 'Big blinds won per 100 hands over flops only two players saw. It counts blinds folded by the other players, which the cells leave out, so it can differ from the row\'s chips.',
   mw_bb: 'Big blinds won per 100 hands over all flops with 3 or more players. The table is sorted by it.',
   mw_hands: 'Hands where this model saw a flop with 3 or more players.',

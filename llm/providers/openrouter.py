@@ -5,78 +5,75 @@ import time
 
 import requests
 
-from parsing import parse_response
-from prompts import system_prompt
 from registry import get_model_id
+from schemas import DecisionRequest
 
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
-TIMEOUT_SECONDS = 25  # the engine gives up at 30
 # Sent explicitly so every host samples the same way instead of using its own default.
 TEMPERATURE = 0.7
+# One budget for every model. Reasoning tokens count against max_tokens on most providers,
+# so the reply (three lines, ~60 tokens) keeps 512 tokens of room after a full think.
+# Anthropic needs reasoning.max_tokens >= 1024 and max_tokens above it; effort-only models
+# (OpenAI, xAI) get the effort OpenRouter derives from the budget (1024/1536 ~ medium-high);
+# models without reasoning ignore the parameter. https://openrouter.ai/docs/use-cases/reasoning-tokens
+MAX_TOKENS = 1536
+REASONING_TOKENS = 1024
 
 
-def get_decision(player_name: str, prompt: str, valid_actions: list[dict], retry_note: str | None = None) -> dict:
-    """
-    Ask the seat's model for its action given the current hand.
-    retry_note, when set, tells the model why its previous reply was rejected.
-    """
-    model_id = get_model_id(player_name)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt},
-    ]
-    if retry_note:
-        messages.append({
-            "role": "user",
-            "content": f"Your previous reply was invalid: {retry_note}\nReply again in the required format.",
-        })
+class ProviderError(Exception):
+    """The provider, not the model, failed: network, HTTP error, empty body."""
 
-    response = requests.post(
-        API_URL,
-        headers={
-            "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
-            "HTTP-Referer": "https://nollmit.vercel.app",
-            "X-Title": "No-LLMit",
-        },
-        json={
-            "model": model_id,
-            "messages": messages,
-            "temperature": TEMPERATURE,
-            # Room for models that think before answering; the reply itself is ~80 tokens.
-            "max_tokens": 2048,
-            "usage": {"include": True},
-        },
-        timeout=TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
+
+def complete(request: DecisionRequest, messages: list[dict], timeout: float) -> dict:
+    """One chat completion for the seat's model. Raises ProviderError (or requests.Timeout)
+    when no reply came back; a reply that is only reasoning cut short counts as a reply."""
+    model_id = get_model_id(request.player_name)
+    try:
+        response = requests.post(
+            API_URL,
+            headers={
+                "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
+                "HTTP-Referer": "https://nollmit.vercel.app",
+                "X-Title": "No-LLMit",
+            },
+            json={
+                "model": model_id,
+                "messages": messages,
+                "temperature": TEMPERATURE,
+                "max_tokens": MAX_TOKENS,
+                "reasoning": {"max_tokens": REASONING_TOKENS},
+                "usage": {"include": True},
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+    except requests.Timeout:
+        raise
+    except requests.RequestException as e:
+        raise ProviderError(f"{model_id}: {e}") from e
     body = response.json()
     if "error" in body:
-        raise RuntimeError(f"{model_id}: {body['error'].get('message', body['error'])}")
+        raise ProviderError(f"{model_id}: {body['error'].get('message', body['error'])}")
 
-    choice = body["choices"][0]
+    choice = (body.get("choices") or [{}])[0]
     message = choice.get("message") or {}
     finish_reason = choice.get("finish_reason")
-    raw_text = message.get("content") or ""
-    if not raw_text.strip() and finish_reason != "length":
-        raise RuntimeError(f"{model_id} returned an empty reply")
-
-    result = parse_response(raw_text)
-    # Ran out of max_tokens (usually while thinking) before giving a usable answer.
-    if finish_reason == "length" and result["status"] == "unparseable":
-        result["status"] = "truncated"
+    raw = message.get("content") or ""
+    if not raw.strip() and finish_reason != "length":
+        raise ProviderError(f"{model_id} returned an empty reply")
 
     usage = body.get("usage") or {}
-    result.update(
-        model=model_id,
-        usage=usage,
-        reasoning=message.get("reasoning") or None,
-        reasoning_tokens=(usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
-        finish_reason=finish_reason,
-        upstream_provider=body.get("provider"),
-        generation_id=body.get("id"),
-        temperature=TEMPERATURE,
-    )
-    return result
+    return {
+        "raw": raw,
+        "model": body.get("model") or model_id,
+        "usage": usage,
+        "reasoning": message.get("reasoning") or None,
+        "reasoning_tokens": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+        "finish_reason": finish_reason,
+        "upstream_provider": body.get("provider"),
+        "generation_id": body.get("id"),
+        "temperature": TEMPERATURE,
+    }
 
 
 KEY_URL = "https://openrouter.ai/api/v1/key"

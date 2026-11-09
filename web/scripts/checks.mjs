@@ -1411,14 +1411,104 @@ main(() => check('matchups-tile-numbers', 'The Matchups tile shows a number in i
   return { pass: r.withNum >= r.cells * 0.5 && r.fs >= 10, detail: `${r.withNum}/${r.cells} cells with numbers, ${r.fs}px text` };
 }));
 
-// Owner's rules from 2026-11-07: Profiles leads with Hands (no bb/100, no rank spread); no scope line,
-// session picker or Bars view on the cards; Matchups gets the wider tile; tiles never scroll.
-main(() => check('profiles-columns', 'Profiles columns are Model, Hands, VPIP, PFR, AF (tile), then the trend (card)', async () => {
-  const heads = sel => pg.evaluate(sel => [...document.querySelectorAll(`${sel} thead th`)].map(e => e.textContent.trim()).filter(Boolean), sel);
-  await goto(pg, 'stats'); await sleep(1500); const tile = (await heads('#stats-panel')).join(',');
-  // A card header also holds its tooltip's text: judge it by how it starts.
-  await goto(pg, 'stats-table'); await sleep(1500); const card = (await heads('#stats-card')).map(h => ['Model', 'Hands', 'VPIP', 'PFR', 'AF', 'Last 50 hands', 'bb/100', 'Rank spread'].find(l => h.startsWith(l)) ?? h.slice(0, 12)).join(',');
-  return { pass: tile === 'Model,Hands,VPIP,PFR,AF' && card === 'Model,Hands,VPIP,PFR,AF,Last 50 hands', detail: `tile ${tile} | card ${card}` };
+// Owner's rules from 2026-11-07: Profiles leads with Hands (no bb/100 on the tile, no rank spread); no scope line,
+// session picker or Bars view on the cards; Matchups gets the wider tile; tiles never scroll. 2026-11-08: the card
+// shows every stat at once, the "Last 50 hands" sparkline gone (see profiles-all-stats, profiles-no-sparkline).
+const PROFILE_STATS = ['Hands', 'bb/100', 'All-in adj.', 'VPIP', 'PFR', '3-bet', 'AF', 'C-bet', 'Fold to c-bet', 'WTSD', 'W$SD', 'Fold when check free', 'Misses'];
+// A header's label: its sort button's text (the th also holds its tooltip's), or the th's own (the tile, Model).
+const headLabels = (p, sel) => p.evaluate(sel => [...document.querySelectorAll(`${sel} thead tr:last-child th`)].map(th => (th.querySelector('button') ?? th).textContent.trim()), sel);
+main(() => check('profiles-columns', 'Profiles columns are Model, Hands, VPIP, PFR, AF (tile), then Model and every stat in order (card)', async () => {
+  await goto(pg, 'stats'); await sleep(1500); const tile = (await headLabels(pg, '#stats-panel')).join(',');
+  await goto(pg, 'stats-table'); await sleep(1500); const card = (await headLabels(pg, '#stats-card')).join(',');
+  return { pass: tile === 'Model,Hands,VPIP,PFR,AF' && card === ['Model', ...PROFILE_STATS].join(','), detail: `tile ${tile} | card ${card}` };
+}));
+// Owner, 2026-11-08: "the last 50 hands in profiles just sucks. they look like straight lines. plus we don't need a
+// line graph considering trends covers that."
+main(() => check('profiles-no-sparkline', 'The opened Profiles card has no Last 50 hands column and no sparkline', async () => {
+  await goto(pg, 'stats-table'); await sleep(1500);
+  const r = await pg.evaluate(() => ({ head: [...document.querySelectorAll('#stats-card thead th')].some(th => th.textContent.trim().startsWith('Last 50')), lines: document.querySelectorAll('#stats-card tbody svg polyline').length }));
+  return { pass: !r.head && !r.lines, detail: `${r.head ? 'a Last 50 hands column' : 'no trend column'}, ${r.lines} sparklines` };
+}));
+// Owner, 2026-11-08: "when I click into profiles we should include c bet, fold to cbet and all the other stats
+// outright." Every stat at once (no "All stats" link), all in view without a sideways scroll at his two laptop
+// windows; names whole, the Model column hugging them (no band before Hands), no figure clipped.
+main(() => check('profiles-all-stats', 'The opened Profiles card shows all 13 stats at once at 1440x900 and 1728x1117: no All stats link, no sideways scroll, names whole and hugged, figures unclipped', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
+    const p2 = await sharedAt(w, h, 'stats-table');
+    const r = await p2.evaluate(() => {
+      const card = document.getElementById('stats-card'), sc = card.querySelector('.panel-scroll'), box = sc.getBoundingClientRect();
+      const ths = [...card.querySelectorAll('thead tr:last-child th')].slice(1);
+      const shown = ths.filter(th => { const b = th.getBoundingClientRect(); return b.width >= 20 && b.left >= box.left - 1 && b.right <= box.right + 1; }).map(th => (th.querySelector('button') ?? th).textContent.trim());
+      const names = [...card.querySelectorAll('tbody th [translate=no]')].filter(n => n.getBoundingClientRect().width > 0);
+      // The Model column's room after its widest name (and its warning mark): the cell's padding, nothing more.
+      const slack = Math.min(...[...card.querySelectorAll('tbody th[scope=row]')].filter(t => t.getBoundingClientRect().height > 4).map(t => t.getBoundingClientRect().right - t.firstElementChild.getBoundingClientRect().right));
+      return {
+        shown, sideways: sc.scrollWidth - sc.clientWidth, slack,
+        cut: names.filter(n => n.scrollWidth > n.clientWidth + 1).map(n => n.textContent),
+        clipped: [...card.querySelectorAll('tbody td')].filter(td => td.scrollWidth > td.clientWidth + 1).map(td => td.textContent.trim()),
+        link: [...card.querySelectorAll('button')].some(b => /^(All stats|Fewer stats)/.test(b.textContent.trim())),
+      };
+    });
+    const missing = PROFILE_STATS.filter(l => !r.shown.includes(l));
+    seen.push(`${w}x${h}: ${r.shown.length} stats in view, ${Math.round(r.slack)}px after the widest name`);
+    if (missing.length) bad.push(`${w}x${h}: not in view: ${missing.join(', ')}`);
+    if (r.sideways > 1) bad.push(`${w}x${h}: scrolls ${r.sideways}px sideways`);
+    if (r.link) bad.push(`${w}x${h}: an All stats link`);
+    if (r.cut.length) bad.push(`${w}x${h}: names cut: ${r.cut.join(', ')}`);
+    if (r.clipped.length) bad.push(`${w}x${h}: figures clipped: ${r.clipped.slice(0, 4).join(', ')}`);
+    if (r.slack > 24) bad.push(`${w}x${h}: ${Math.round(r.slack)}px empty after the widest name`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// Owner, 2026-11-08: "we shouldn't care about errors, latency and cost per hand considering it's all coming from
+// openrouter." No Errors, Latency or Cost column in the card (with All stats opened, where an older build kept them),
+// and no error rate, retry rate, latency or cost in the model drawer.
+main(() => check('profiles-no-llm-cost', 'No Errors, Latency or Cost columns in the Profiles card, and no error, retry, latency or cost figures in the model drawer', async () => {
+  await goto(pg, 'stats-table'); await sleep(1500);
+  const more = await clickPrefix(pg, 'All stats'); if (more) await sleep(800);
+  const heads = await headLabels(pg, '#stats-card');
+  if (more) { await clickPrefix(pg, 'Fewer stats'); await sleep(500); }
+  const opened = await pg.evaluate(() => { const a = document.querySelector('#stats-card tbody th a[href^="#model="]'); a?.click(); return !!a; });
+  await sleep(1200);
+  const drawer = await pg.evaluate(() => { const d = document.querySelector('dialog[open]'); return d && [...d.querySelectorAll('h3, dt')].map(e => e.textContent.trim()); });
+  if (drawer) { await pg.keyboard.press('Escape'); await sleep(800); }
+  const bad = [...heads.filter(t => /^(Errors|Latency|Cost)/.test(t)).map(t => `card column ${t}`), ...(drawer ?? []).filter(t => /error|retry|latency|cost/i.test(t)).map(t => `drawer ${t}`)];
+  if (!opened || !drawer) bad.push('the drawer did not open');
+  return { pass: !bad.length, detail: bad.join(', ') || `card: ${heads.length - 1} stat columns; drawer: ${drawer.join(', ')}` };
+}));
+// Owner, 2026-11-08, on errors that are the model's own (an illegal or unreadable reply, played as a fold): "oh okay
+// that'd be great to track". The card's Misses column shows the engine's miss_rate for each row (one decimal; a dash
+// from an engine without it), its header says what it counts, and it sorts lowest first (lower is better).
+main(() => check('profiles-misses', 'The Profiles card\'s Misses column shows the engine\'s miss_rate per model, defines it, and sorts lowest first', async () => {
+  await goto(pg, 'stats-table'); await sleep(1500);
+  const r = await pg.evaluate(async () => {
+    // The all-time stats the page fetched, from the engine its build points at.
+    const url = performance.getEntriesByType('resource').map(e => e.name).find(u => /\/api\/stats$/.test(u)) ?? 'http://localhost:8080/api/stats';
+    const models = (await (await fetch(url)).json()).models;
+    const ths = [...document.querySelectorAll('#stats-card thead tr:last-child th')];
+    const i = ths.findIndex(th => th.querySelector('button')?.textContent.trim() === 'Misses');
+    if (i < 0) return { err: 'no Misses column' };
+    const rows = [...document.querySelectorAll('#stats-card tbody tr')].filter(tr => tr.querySelector('th a'))
+      .map(tr => { const name = tr.querySelector('th [translate=no]').textContent; return { name, cell: tr.children[i].textContent.trim(), rate: models.find(m => m.name === name)?.miss_rate }; });
+    return { url, rows, tip: ths[i].querySelector('[role=tooltip]')?.textContent ?? '' };
+  });
+  if (r.err) return { pass: false, detail: r.err };
+  const sortBy = label => pg.evaluate(label => {
+    const th = [...document.querySelectorAll('#stats-card thead tr:last-child th')].find(t => t.querySelector('button')?.textContent.trim() === label);
+    th?.querySelector('button').click();
+  }, label);
+  const ariaSort = label => pg.evaluate(label => [...document.querySelectorAll('#stats-card thead tr:last-child th')].find(t => t.querySelector('button')?.textContent.trim() === label)?.getAttribute('aria-sort'), label);
+  await sortBy('Misses'); await sleep(600); const order = await ariaSort('Misses');
+  await sortBy('bb/100'); await sleep(600); // back to the default order
+  const off = r.rows.filter(({ cell, rate }) => (rate == null ? cell !== '—' : !/^\d+\.\d%$/.test(cell) || Math.abs(parseFloat(cell) - rate * 100) > 0.1));
+  const bad = [];
+  if (!r.rows.length) bad.push('no rows');
+  if (off.length) bad.push(`cells off the engine: ${off.slice(0, 3).map(o => `${o.name} ${o.cell} vs ${o.rate}`).join(', ')}`);
+  if (!/illegal or unreadable/.test(r.tip)) bad.push(`header says "${r.tip.slice(0, 60)}"`);
+  if (order !== 'ascending') bad.push(`first sort ${order}, not ascending`);
+  const shown = r.rows.filter(o => o.rate != null).map(o => `${o.name} ${o.cell}`);
+  return { pass: !bad.length, detail: bad.join('; ') || `${r.rows.length} rows match ${r.url}${shown.length ? ` (${shown.slice(0, 3).join(', ')}…)` : ' (no miss_rate from this engine: dashes)'}; sorts lowest first` };
 }));
 // The Profiles tile names its models (truncated if need be) at every overview size, not logos alone.
 main(() => check('profiles-tile-names', 'The Profiles tile shows model names at 1440x900 and 1728x1117', async () => {
@@ -1948,18 +2038,21 @@ late(() => check('pages-move', 'The main screens move like pages: table → over
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
 // Owner, 2026-11-08: "the About page in general just doesn't look like it belongs, so we need to change the UX/UI of the
-// About page to fit in with the rest." Then: "this About page kind of sucks ... it's just too plain ... It's how we organize it",
-// so About has drafts (about-drafts-switcher), each held to the same rules here. Its text is on the stats type scale: the thesis
-// at the site title's 28px bold, card titles 20px bold, section labels 13px muted uppercase, figures 20px bold, body 14px, labels
-// 13px muted, links and buttons blue, a number may take the stats' gain or loss colour, all in the body's sans (the code aside).
-// Any card in it is a stats card (radius, ring and shadow, padding, white); cards are no longer required (a draft may set its
-// sections on hairlines instead). No heading carries an emoji, and every draft fits one window at the overview's width and
-// centre (not wall to wall) at 1440x900 and 1728x1117. The draft switcher is a temporary control and is left out.
-const ABOUT_DRAFTS = [['a', 'Draft A'], ['b', 'Draft B'], ['current', 'Current']];
+// About page to fit in with the rest." Then, 2026-11-09: "we're not just changing the content we're changing the layout cuz
+// right now it's just......bad", so About has two layout drafts (about-drafts-switcher), each held to the same rules here. Its
+// text is on the stats type scale: the thesis at the site title's 28px bold, card titles 20px bold, section labels 13px muted
+// uppercase, figures 20px bold, body 14px, labels 13px muted, links and buttons blue (the donate button white on its blue fill,
+// about-support-prominent), a number may take the stats' gain or loss colour, all in the body's sans (the code aside). Any card
+// in it is a stats card (radius, ring and shadow, padding, white). No heading carries an emoji, and every draft fits one window
+// at the overview's width and centre (not wall to wall) at 1440x900 and 1728x1117. The draft switcher is a temporary control
+// and is left out.
+const ABOUT_DRAFTS = [['a', 'Draft A'], ['b', 'Draft B']];
+const ABOUT_DEFAULT = readFileSync(new URL('../src/components/About.tsx', import.meta.url), 'utf8').match(/const DEFAULT: Draft = '(\w+)'/)?.[1];
+const ABOUT_DEFAULT_LABEL = Object.fromEntries(ABOUT_DRAFTS)[ABOUT_DEFAULT];
 const pickDraft = (p, label) => p.evaluate(t => [...document.querySelectorAll('[data-draft-switcher] button')].find(b => b.textContent.trim() === t)?.click(), label);
-// React has taken over the page (its props are on the switcher): the server's HTML shows Draft A and ignores clicks until then.
+// React has taken over the page (its props are on the switcher): the server's HTML shows the default draft and ignores clicks until then.
 const aboutReady = p => p.waitForFunction(() => { const b = document.querySelector('[data-draft-switcher] button'); return !!b && Object.keys(b).some(k => k.startsWith('__react')); }, { timeout: 60000, polling: 100 }).catch(() => {});
-main(() => check('about-fits', 'Every About draft (A, B, Current) is on the stats type scale (thesis 28px bold, titles and figures 20px bold, section labels 13px muted uppercase, body 14px, labels 13px muted, body sans), any card in it is a stats card, no heading has an emoji, and it fits one window at the overview\'s width and centre at 1440x900 and 1728x1117', async () => {
+main(() => check('about-fits', 'Every About draft (A, B) is on the stats type scale (thesis 28px bold, titles and figures 20px bold, section labels 13px muted uppercase, body 14px, labels 13px muted, the filled donate button white, body sans), any card in it is a stats card, no heading has an emoji, and it fits one window at the overview\'s width and centre at 1440x900 and 1728x1117', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await sharedAt(w, h, 'about');
@@ -1974,7 +2067,7 @@ main(() => check('about-fits', 'Every About draft (A, B, Current) is on the stat
       if (!on) { bad.push(`${w}x${h}: the switcher did not show ${label}`); continue; }
       await sleep(500);
       const r = await p.evaluate(() => {
-        const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)', NET = ['rgb(15, 123, 108)', 'rgb(200, 50, 50)'];
+        const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)', WHITE = 'rgb(255, 255, 255)', NET = ['rgb(15, 123, 108)', 'rgb(200, 50, 50)'];
         const about = document.querySelector('section[aria-label=About]'), race = document.getElementById('race-panel');
         const root = about.querySelector('[data-about-draft]'), view = root.firstElementChild;
         const why = new Set();
@@ -1987,12 +2080,13 @@ main(() => check('about-fits', 'Every About draft (A, B, Current) is on the stat
         const texts = [...view.querySelectorAll('*')].filter(e => !e.closest('pre, code, svg, .sr-only') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
         for (const e of texts) {
           const s = getComputedStyle(e), size = parseFloat(s.fontSize), bold = +s.fontWeight >= 700, name = `"${e.textContent.trim().slice(0, 20)}"`;
-          const control = !!e.closest('a, button'), number = /^[+−-]?[\d,.]+$/.test(e.textContent.trim());
+          const control = e.closest('a, button'), number = /^[+−-]?[\d,.]+$/.test(e.textContent.trim());
+          const filled = !!control && getComputedStyle(control).backgroundColor === BLUE;
           if (s.fontFamily !== body) why.add(`${name} in ${s.fontFamily.split(',')[0]}`);
           const ok = e.closest('h1, h2, h3, h4, h5, h6')
             ? ((size === 28 || size === 20) && bold && s.color === TEXT) || (size === 13 && s.color === MUTED && s.textTransform === 'uppercase')
             : size === 20 ? bold && s.color === TEXT
-            : size === 14 ? s.color === TEXT || (control && s.color === BLUE) || (number && NET.includes(s.color))
+            : size === 14 ? s.color === TEXT || (control && s.color === BLUE) || (filled && s.color === WHITE) || (number && NET.includes(s.color))
             : size === 13 ? s.color === MUTED || (control && s.color === BLUE)
             : false;
           if (!ok) why.add(`${e.closest('h1, h2, h3, h4, h5, h6') ? 'heading ' : ''}${name} ${size}px ${s.fontWeight} ${s.color}${s.textTransform === 'none' ? '' : ` ${s.textTransform}`}`);
@@ -2011,111 +2105,222 @@ main(() => check('about-fits', 'Every About draft (A, B, Current) is on the stat
       if (Math.abs(r.L - r.oL) > 2 || Math.abs(r.R - r.oR) > 2) why.push(`${r.L.toFixed(0)}..${r.R.toFixed(0)} wide, not the overview's ${r.oL.toFixed(0)}..${r.oR.toFixed(0)}`);
       if (why.length) bad.push(`${w}x${h} ${label}: ${why.slice(0, 8).join('; ')}`);
     }
-    await pickDraft(p, 'Draft A'); // the shared page as the other checks expect it
+    await pickDraft(p, ABOUT_DEFAULT_LABEL); // the shared page as the other checks expect it
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
 }));
 // Owner's rule (drafts on the site): drafts live on the real page, with real data and a switcher, never as chat mockups. About
-// shows Draft A by default; ?about=a|b|current picks a draft on the home page's About screen and on /about (anything else: A);
-// the switcher's buttons swap the drafts in place, the page staying on About, and keep the choice in the URL's query (never a
-// hash: the URL never names a screen).
-group(() => check('about-drafts-switcher', 'About shows Draft A by default; ?about=a|b|current picks Draft A, Draft B or Current (home page and /about); the switcher swaps them in place by click and keeps the choice in the query, never a hash', async () => {
+// shows the default draft (About.tsx's DEFAULT); ?about=a|b picks a draft on the home page's About screen and on /about (anything
+// else: the default); the switcher's buttons swap the drafts in place, the page staying on About, and keep the choice in the
+// URL's query (never a hash: the URL never names a screen). Each draft names its layout (data-layout), so a draft shown is the
+// right one.
+group(() => check('about-drafts-switcher', 'About shows the default draft; ?about=a|b picks Draft A or Draft B (home page and /about), anything else the default; the switcher swaps them in place by click and keeps the choice in the query, never a hash', async () => {
   const bad = [], seen = [];
-  const LABEL = Object.fromEntries(ABOUT_DRAFTS), MARK = { a: 'how a turn works', b: 'leaderboard', current: 'limitations' };
+  const LABEL = Object.fromEntries(ABOUT_DRAFTS), LAYOUT = { a: 'hero-split', b: 'spec-sheet' };
+  if (!ABOUT_DEFAULT_LABEL) return { pass: false, detail: `About.tsx's DEFAULT (${ABOUT_DEFAULT}) is not a draft` };
   const read = p => p.evaluate(() => {
     const root = document.querySelector('[data-about-draft]');
     const on = [...document.querySelectorAll('[data-draft-switcher] button')].find(b => b.getAttribute('aria-pressed') === 'true');
-    return { draft: root?.dataset.aboutDraft, pressed: on?.textContent.trim(), text: (root?.innerText ?? '').toLowerCase(), search: location.search, hash: location.hash, top: document.getElementById('about')?.getBoundingClientRect().top };
+    return { draft: root?.dataset.aboutDraft, pressed: on?.textContent.trim(), layout: root?.querySelector('[data-layout]')?.dataset.layout, search: location.search, hash: location.hash, top: document.getElementById('about')?.getBoundingClientRect().top };
   });
-  const shows = (r, d) => r.draft === d && r.pressed === LABEL[d] && r.text.includes(MARK[d]);
+  const shows = (r, d) => r.draft === d && r.pressed === LABEL[d] && r.layout === LAYOUT[d];
   const open = async path => {
     const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
     await p.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    await aboutReady(p); await sleep(500); // hydration swaps the server's default (A) for the URL's draft
+    await aboutReady(p); await sleep(500); // hydration swaps the server's default for the URL's draft
     return p;
   };
-  for (const [path, want] of [['/', 'a'], ['/?about=b', 'b'], ['/about?about=current', 'current'], ['/about?about=a', 'a'], ['/about?about=nonsense', 'a']]) {
+  for (const [path, want] of [['/', ABOUT_DEFAULT], ['/?about=a', 'a'], ['/?about=b', 'b'], ['/about?about=a', 'a'], ['/about?about=b', 'b'], ['/about?about=nonsense', ABOUT_DEFAULT]]) {
     const p = await open(path), r = await read(p);
     await p.close();
     seen.push(`${path} → ${r.draft ?? 'none'}`);
-    if (!shows(r, want)) bad.push(`${path}: shows ${r.draft ?? 'no draft'} (pressed ${r.pressed ?? 'none'}), not ${LABEL[want]}`);
+    if (!shows(r, want)) bad.push(`${path}: shows ${r.draft ?? 'no draft'} (pressed ${r.pressed ?? 'none'}, layout ${r.layout ?? 'none'}), not ${LABEL[want]}`);
   }
   // By click, on the home page's About screen.
   const p = await open('/');
   await goto(p, 'about'); await sleep(1500);
-  for (const d of ['b', 'current', 'a']) {
+  for (const d of [...ABOUT_DRAFTS.map(([d]) => d).filter(d => d !== ABOUT_DEFAULT), ABOUT_DEFAULT]) {
     await pickDraft(p, LABEL[d]); await sleep(700);
     const r = await read(p);
     seen.push(`click ${LABEL[d]} → ${r.draft} ${r.search}`);
-    if (!shows(r, d)) bad.push(`click ${LABEL[d]}: shows ${r.draft} (pressed ${r.pressed})`);
+    if (!shows(r, d)) bad.push(`click ${LABEL[d]}: shows ${r.draft} (pressed ${r.pressed}, layout ${r.layout})`);
     if (r.search !== `?about=${d}` || r.hash) bad.push(`click ${LABEL[d]}: URL ${r.search}${r.hash}, not ?about=${d}`);
     if (Math.abs(r.top) > 1) bad.push(`click ${LABEL[d]}: the page moved off About (About at ${Math.round(r.top)})`);
   }
   await p.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
 }));
-// "All the content's there. It's how we organize it": every draft says everything the About said before the drafts (Current is
-// the reference: its run proves each fact's pattern), with every panel and answer opened in turn: the pitch, the call and its
-// system prompt, input and output (shown as code), no memory between calls, the hours, the budget's limits, what a donation
-// pays for and where to give, what's coming next, and the GitHub and handle links.
+// A draft on /about at 1440x900, then with each prompt dialog opened in turn: its text (an open dialog's included), its own
+// copy (every word but the prompts' code), its links, and each dialog's code blocks.
+async function readAbout(draft) {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  await p.goto(`${BASE}/about?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await aboutReady(p);
+  const on = await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 10000 }, draft).then(() => true, () => false);
+  if (!on) { await p.close(); return null; }
+  await sleep(500);
+  const look = () => p.evaluate(() => {
+    const root = document.querySelector('[data-about-draft]'), copy = root.cloneNode(true), dialog = root.querySelector('dialog[open]');
+    copy.querySelectorAll('pre, [data-draft-switcher]').forEach(e => e.remove());
+    return { text: root.innerText, copy: copy.textContent, links: [...root.querySelectorAll('a[href]')].map(a => a.href), dialog: dialog && [...dialog.querySelectorAll('pre')].map(e => e.textContent) };
+  });
+  const looks = [await look()], dialogs = {};
+  for (const t of ['Read the system prompt', 'See one turn']) {
+    const clicked = await p.evaluate(t => { const b = [...document.querySelectorAll('[data-about-draft] button')].find(b => b.textContent.trim().startsWith(t) && b.getBoundingClientRect().width > 0); b?.click(); return !!b; }, t);
+    await sleep(500);
+    const l = await look(); looks.push(l); dialogs[t] = clicked ? l.dialog : undefined;
+    await p.keyboard.press('Escape'); await sleep(300);
+  }
+  await p.close();
+  return { text: looks.map(l => l.text).join('\n'), copy: looks[0].copy, links: [...new Set(looks.flatMap(l => l.links))], dialogs };
+}
+// Owner, 2026-11-09, on what About says: what it is ("some cool pseudo benchmark for LLMs"), how it works ("Each LLM gets the
+// same system prompt, and then they can open up to see what the system prompt is"), the caveats ("No memory between calls ... It
+// can't tag opponents as a nit versus fish"), the hours and hands a day, what's next (playing against them, said honestly, and the
+// open dataset with its date) and the support. Every draft says all of it, the system prompt and one turn's call and reply opened
+// in their dialog from lib/systemPrompt.ts (each export's first line, read from the file as text when the check runs, so no prompt
+// text is pinned here and another worker's rewrite of that file passes as it is; About never copies it); and none of what he cut: LLM Council, training an
+// LLM to play like you, Tinker, "9 LLMs at the table", calls a hand, nor the false "no persona" and "can't see its own earlier
+// decisions" (the call holds the whole hand so far).
 const ABOUT_FACTS = [
-  ['the pitch', /Watch SOTA LLMs play a No Limit Texas Hold'em cash game against each other, live/],
-  ['explains its move', /Each one explains its move as it plays/],
-  ['coming soon', /Playing against them, and tournaments, are coming soon/],
-  ['one fresh call', /Each turn is one fresh call/],
-  ['plain text', /hand so far in plain text/],
-  ['same system prompt', /same system prompt/],
-  ['system prompt shown', /no persona, no strategy hints[\s\S]*You are an expert No Limit Texas Hold'em poker player[\s\S]*RESPONSE FORMAT/],
-  ['call input shown', /amount to call and its legal actions[\s\S]*Your hole cards: Ks Qh[\s\S]*Legal actions:/],
-  ['call output shown', /Three lines: the action \(FOLD, CHECK, CALL, BET, RAISE or ALL_IN\), the amount if any, and a short reason[\s\S]*ACTION: BET\s+AMOUNT: 40\s+REASON:/],
+  ['pseudo benchmark', /A pseudo benchmark for LLMs/],
+  ['live hold\'em', /play No-Limit Hold'em against each other, live/],
+  ['every decision and why', /watch every decision and its reasoning/],
+  ['same system prompt', /Every model gets the same system prompt/],
+  ['one fresh call', /Each turn is one fresh call with the hand so far/],
+  ['what the call holds', /Seats\s+Stacks\s+The action\s+The board\s+Its cards\s+The pot\s+To call\s+Legal moves/],
+  ['the reply', /replies with an action, an amount and a short reason/],
   ['no memory', /No memory between calls/],
-  ['what it never sees', /never sees earlier hands, how its opponents played, or its own earlier decisions in the hand/],
-  ['hours', /Open 9am to 9pm ET, daily/],
-  ['closed outside hours', /Outside those hours the table is closed and no LLMs are called/],
-  ['~150 hands a day', /About 150 hands per day/],
-  ['fixed budget', /The table runs on a fixed monthly budget/],
-  ['~15 calls a hand', /A hand takes about 15 API calls across all 9 LLMs/],
-  ['a session', /A 5-hour live cash game session has about 125 hands/],
-  ['donate ask', /\$5 would be a huge help to cover/],
-  ['donate: OpenRouter', /OpenRouter, the LLM calls/],
-  ['donate: Railway', /Railway, the servers/],
-  ['donate: Tinker', /Tinker, training LLMs to play like you/],
-  ['next: datasets', /Open source datasets[\s\S]*Every action and reason each LLM gave, with what seasoned players weigh: hole cards, position, stacks and earlier actions/],
-  ['next: train', /Train an LLM to play like you[\s\S]*Tinker by Thinking Machines Lab and your hands against the LLMs, without leaving the site/],
-  ['next: council', /Andrej Karpathy's LLM Council will analyze how each LLM plays/],
+  ['no notes on opponents', /no notes: it can.t tag a nit or a fish/],
+  ['one retry, then check or fold', /illegal or unreadable reply gets one retry[\s\S]*checks if it can, otherwise folds/],
+  ['noise', /Under 500 hands, a win rate is mostly luck/],
+  ['hours', /9am–9pm ET/],
+  ['hands a day', /(~|About )150\s+hands a day/i],
+  ['play against them, honestly', /Playing against the LLMs[\s\S]*open-source models playing now are bad at poker[\s\S]*weak game/],
+  ['dataset and its date', /open-source dataset by \w+day, \w{3} \d{1,2}/],
+  ['what donations pay for', /Donations pay for the OpenRouter model calls and the servers/],
   ['GitHub', /Open source on GitHub/],
   ['handle', /@RizzwareEngineer/],
 ];
-const ABOUT_LINKS = ['https://openrouter.ai/', 'https://railway.com/', 'https://thinkingmachines.ai/tinker/', 'https://github.com/sponsors/RizzwareEngineer',
-  'https://github.com/thinking-machines-lab/tinker-cookbook', 'https://github.com/karpathy/llm-council', 'https://github.com/RizzwareEngineer/No-LLMit', 'https://github.com/RizzwareEngineer'];
-group(() => check('about-content-complete', 'Every fact and link of the About (Current) is in Draft A and Draft B, every panel and answer opened in turn: the pitch, each call (system prompt, input, output), no memory, hours, ~150 hands a day, ~15 calls a hand, budget, donate targets, coming next, GitHub and handle', async () => {
+const ABOUT_GONE = [['LLM Council', /LLM Council/i], ['training an LLM', /Train an LLM/i], ['Tinker', /Tinker/i], ['9 LLMs at the table', /\b(9|nine) LLMs/i],
+  ['calls a hand', /calls? (a|per) hand/i], ['no persona', /no persona/i], ['own earlier decisions', /own earlier decisions/i]];
+const ABOUT_LINKS = ['https://github.com/sponsors/RizzwareEngineer', 'https://github.com/RizzwareEngineer/No-LLMit', 'https://github.com/RizzwareEngineer'];
+// The first line of each prompt lib/systemPrompt.ts exports (`export const NAME = \`first line`), from the file's text.
+const PROMPT_LINES = Object.fromEntries([...readFileSync(new URL('../src/lib/systemPrompt.ts', import.meta.url), 'utf8').matchAll(/^export const (\w+) = `([^\n`]*)/gm)].map(m => [m[1], m[2].trim()]));
+// Each dialog's code blocks, in order, and the export each one starts with.
+const PROMPT_DIALOGS = [['the system prompt', 'Read the system prompt', ['SYSTEM_PROMPT']], ['one turn', 'See one turn', ['EXAMPLE_USER_PROMPT', 'EXAMPLE_REPLY']]];
+group(() => check('about-content-complete', 'Every draft says what About must (pseudo benchmark, how a turn works, the caveats, 9am–9pm ET and ~150 hands a day, playing against them honestly, the dataset and its date, what donations pay for, GitHub and handle) with the system prompt and one turn\'s call and reply opened from lib/systemPrompt.ts (each export\'s first line, read at run time), and nothing the owner cut', async () => {
+  const bad = [], seen = [];
+  const unread = PROMPT_DIALOGS.flatMap(([, , names]) => names).filter(n => !PROMPT_LINES[n]);
+  if (unread.length) return { pass: false, detail: `lib/systemPrompt.ts: no \`export const ${unread.join(' / ')} = \`...\` found to read the first line of` };
+  for (const [draft, label] of ABOUT_DRAFTS) {
+    const got = await readAbout(draft);
+    if (!got) { bad.push(`${label}: not shown by /about?about=${draft}`); continue; }
+    const missing = ABOUT_FACTS.filter(([, re]) => !re.test(got.text)).map(([name]) => name);
+    const gone = ABOUT_GONE.filter(([, re]) => re.test(got.copy)).map(([name]) => name);
+    const noLink = ABOUT_LINKS.filter(l => !got.links.includes(l));
+    const code = [];
+    for (const [name, button, names] of PROMPT_DIALOGS) {
+      const pres = got.dialogs[button];
+      if (!pres) code.push(`${name} never opened`);
+      else if (pres.length !== names.length || names.some((n, i) => !pres[i].trim().startsWith(PROMPT_LINES[n]))) code.push(`${name} shows ${pres.length} code block(s) starting "${pres.map(t => t.trim().split('\n')[0].slice(0, 30)).join('", "')}", not ${names.join(' then ')} from lib/systemPrompt.ts`);
+    }
+    seen.push(`${label}: ${ABOUT_FACTS.length - missing.length}/${ABOUT_FACTS.length} facts, ${ABOUT_LINKS.length - noLink.length}/${ABOUT_LINKS.length} links, prompts from lib/systemPrompt.ts`);
+    const why = [missing.length && `missing ${missing.join(', ')}`, gone.length && `still says ${gone.join(', ')}`, noLink.length && `no link to ${noLink.join(', ')}`, ...code].filter(Boolean);
+    if (why.length) bad.push(`${label}: ${why.join('; ')}`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+}));
+// Owner, 2026-11-09: "don't link any sort of system design. That's not what should be inside of the About page." No draft's text
+// (its prompt dialogs opened) says "system design", and no link goes to a design doc.
+group(() => check('about-no-system-design', 'About never mentions or links the system design: no "system design" in any draft\'s text, prompt dialogs opened, and no link to a design doc', async () => {
   const bad = [], seen = [];
   for (const [draft, label] of ABOUT_DRAFTS) {
+    const got = await readAbout(draft);
+    if (!got) { bad.push(`${label}: not shown by /about?about=${draft}`); continue; }
+    const said = got.text.match(/[^\n]*system[ -]design[^\n]*/i)?.[0], linked = got.links.filter(l => /system[-_]design|\/docs\/design\b/i.test(l));
+    seen.push(`${label}: ${got.links.length} links, none to a design doc`);
+    if (said) bad.push(`${label}: says "${said.trim().slice(0, 60)}"`);
+    if (linked.length) bad.push(`${label}: links ${linked.join(', ')}`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+}));
+// Owner, 2026-11-09: "I do want a support section, and that should honestly be highlighted a bit better because that's the main
+// thing. I'm trying to get people to donate." The donate button (the GitHub Sponsors link) is in the window without scrolling at
+// 1440x900, on the home page's About screen (under the sticky bar) and on /about, in every draft; and it is About's most
+// prominent control: the only filled one, and the biggest (the draft switcher aside).
+group(() => check('about-support-prominent', 'The donate button is visible without scrolling at 1440x900 (home page About screen and /about, every draft) and is About\'s most prominent control: its only filled one, and the biggest', async () => {
+  const bad = [], seen = [];
+  for (const [draft, label] of ABOUT_DRAFTS) for (const home of [true, false]) {
+    const where = `${label} ${home ? 'home' : '/about'}`;
     const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
-    await p.goto(`${BASE}/about?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.goto(`${BASE}${home ? '/' : '/about'}?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await aboutReady(p);
-    const on = await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 10000 }, draft).then(() => true, () => false);
-    if (!on) { bad.push(`${label}: not shown by /about?about=${draft}`); await p.close(); continue; }
-    await sleep(500);
-    // Opens every closed panel or answer once (one at a time where a draft allows only one), reading the text after each.
-    const got = await p.evaluate(async () => {
-      const root = document.querySelector('[data-about-draft]'), texts = [root.innerText], links = new Set(), done = new Set();
-      const look = () => { texts.push(root.innerText); root.querySelectorAll('a[href]').forEach(a => links.add(a.href)); };
-      look();
-      for (let i = 0; i < 40; i++) {
-        const b = [...root.querySelectorAll('button[aria-expanded=false]')].find(e => !done.has(e.textContent.trim()) && e.getBoundingClientRect().width > 0);
-        if (!b) break;
-        done.add(b.textContent.trim()); b.click();
-        await new Promise(r => setTimeout(r, 200));
-        look();
-      }
-      return { text: texts.join('\n'), links: [...links], opened: done.size };
+    if (home) { await sleep(1500); await goto(p, 'about'); }
+    await sleep(1500);
+    const r = await p.evaluate(() => {
+      const view = document.querySelector('[data-about-draft]')?.firstElementChild;
+      const box = e => e.getBoundingClientRect(), area = e => box(e).width * box(e).height, name = e => e.textContent.trim().slice(0, 24) || e.getAttribute('aria-label');
+      const controls = [...(view?.querySelectorAll('a, button') ?? [])].filter(e => area(e) > 0);
+      const donate = controls.find(e => /github\.com\/sponsors\//.test(e.href ?? ''));
+      // Filled: an opaque background that is not the page's or a card's near-white.
+      const filled = e => { const v = (getComputedStyle(e).backgroundColor.match(/[\d.]+/g) || []).map(Number); return v.length >= 3 && (v[3] ?? 1) > 0.5 && Math.min(v[0], v[1], v[2]) < 230; };
+      const scroller = document.querySelector('section[aria-label=About] .panel-scroll');
+      return donate && {
+        t: box(donate).top, b: box(donate).bottom, h: innerHeight, scrolled: Math.round(scroller ? scroller.scrollTop : scrollY), // the About panel's own scroll, or /about's
+        filled: filled(donate), others: controls.filter(e => e !== donate && filled(e)).map(name), bigger: controls.filter(e => e !== donate && area(e) >= area(donate)).map(name),
+      };
     });
     await p.close();
-    const missing = ABOUT_FACTS.filter(([, re]) => !re.test(got.text)).map(([name]) => name);
-    const noLink = ABOUT_LINKS.filter(l => !got.links.includes(l));
-    seen.push(`${label}: ${ABOUT_FACTS.length - missing.length}/${ABOUT_FACTS.length} facts, ${ABOUT_LINKS.length - noLink.length}/${ABOUT_LINKS.length} links, ${got.opened} panels opened`);
-    if (missing.length || noLink.length) bad.push(`${label}: ${missing.length ? `missing ${missing.join(', ')}` : ''}${missing.length && noLink.length ? '; ' : ''}${noLink.length ? `no link to ${noLink.join(', ')}` : ''}`);
+    if (!r) { bad.push(`${where}: no donate button (GitHub Sponsors link) on screen`); continue; }
+    seen.push(`${where}: donate at ${r.t.toFixed(0)}..${r.b.toFixed(0)}`);
+    const why = [];
+    if (r.scrolled || r.t < 44 || r.b > r.h) why.push(`not in the window without scrolling (${r.t.toFixed(0)}..${r.b.toFixed(0)} of ${r.h}${r.scrolled ? `, scrolled ${r.scrolled}px` : ''})`);
+    if (!r.filled) why.push('not filled');
+    if (r.others.length) why.push(`other filled controls: ${r.others.join(', ')}`);
+    if (r.bigger.length) why.push(`as big or bigger: ${r.bigger.join(', ')}`);
+    if (why.length) bad.push(`${where}: ${why.join('; ')}`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+}));
+// Owner, 2026-11-09, of the race art on About ("I do like the visual that you included"): "I don't like the fact that we're using
+// chips. We should be using BB per 100." Each ridge is an LLM at the table's running bb/100, its logo where it ends; the rows run
+// best first by bb/100, the LLMs with 500+ hands (MIN_HANDS) ahead of the rest, as the stats the page loaded say; the caption
+// names the leader, the best of those with 500+ hands, with its bb/100, and nothing in the figure says chips.
+group(() => check('about-bb100', 'The race on About draws running bb/100: its rows in bb/100 order (500+ hands first) from the stats the page loaded, and its caption names the leader among the LLMs with 500+ hands with its bb/100, never chips', async () => {
+  const bad = [], seen = [];
+  const fmt = v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(0)}`;
+  for (const [draft, label] of ABOUT_DRAFTS) {
+    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+    let stats = null;
+    p.on('response', r => { const u = new URL(r.url()); if (u.pathname === '/api/stats' && !u.search && r.ok()) r.json().then(j => { stats = j; }, () => {}); });
+    await p.goto(`${BASE}/about?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await aboutReady(p);
+    await p.waitForFunction(() => document.querySelector('[data-race-row]'), { timeout: 60000, polling: 250 }).catch(() => {});
+    await sleep(800);
+    const r = await p.evaluate(() => {
+      const fig = document.querySelector('[data-about-draft] figure');
+      return fig && {
+        rows: [...fig.querySelectorAll('[data-race-row]')].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map(e => e.dataset.raceRow),
+        ridges: [...fig.querySelectorAll('svg [data-model]')].map(e => e.dataset.model),
+        caption: fig.querySelector('figcaption')?.innerText ?? '', all: fig.textContent + (fig.querySelector('svg')?.getAttribute('aria-label') ?? ''),
+      };
+    });
+    await p.close();
+    if (!r) { bad.push(`${label}: no race figure`); continue; }
+    if (!stats) { bad.push(`${label}: never saw the page load /api/stats`); continue; }
+    // The app's rule: the lineup when at least two of it have stats (seatedModels), with hands, 500+ first, then by bb/100.
+    const at = stats.seated ? stats.models.filter(m => stats.seated.includes(m.name)) : [];
+    const field = (at.length >= 2 ? at : stats.models).filter(m => m.hands > 0).sort((a, b) => (b.hands >= 500) - (a.hands >= 500) || b.bb100 - a.bb100);
+    const want = field.map(m => m.name), leader = field[0]?.hands >= 500 ? field[0] : null;
+    seen.push(`${label}: ${r.rows.length} rows in bb/100 order; ${leader ? `${leader.name} ${fmt(leader.bb100)} bb/100` : 'no leader yet'}`);
+    const why = [];
+    if (r.rows.join('|') !== want.join('|')) why.push(`rows ${r.rows.join(', ') || 'none'}, not by bb/100: ${want.join(', ')}`);
+    if (r.ridges.join('|') !== want.join('|')) why.push(`${r.ridges.length} ridges, not one per row in order`);
+    if (!/bb\/100/.test(r.caption)) why.push(`caption without bb/100: "${r.caption.replace(/\s+/g, ' ').slice(0, 80)}"`);
+    if (/chips/i.test(r.all)) why.push('says chips');
+    if (leader && !(r.caption.includes(leader.name) && r.caption.includes(`${fmt(leader.bb100)} bb/100`))) why.push(`caption does not name ${leader.name} at ${fmt(leader.bb100)} bb/100`);
+    if (why.length) bad.push(`${label}: ${why.join('; ')}`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
 }));

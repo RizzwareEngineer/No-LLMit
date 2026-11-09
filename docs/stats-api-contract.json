@@ -1,5 +1,5 @@
 {
-  "_comment": "Contract for GET /api/stats on the engine. Optional query: ?session=<session_id>. All rates are 0..1. bb = big blinds. Non-ok decisions are excluded from style stats but counted in error_rate. Rates with nothing to count are null. by_players_to_flop always has the keys 2, 3 and 4+. The same model fields appear in the ?session= payload. partial is true while all-ins after a restart are still being worked out (aiev_bb100 then counts them at their actual result). seated is the table's current lineup (seat order); it is present on the all-time payload and on the live session's, and absent for past sessions and until the engine knows its lineup.",
+  "_comment": "Contract for GET /api/stats on the engine. Optional query: ?session=<session_id>. All rates are 0..1. bb = big blinds. Non-ok decisions are excluded from style stats but counted in error_rate; miss_rate counts only illegal and unparseable ones (the model's own reply, still unusable after its retry). Rates with nothing to count are null. by_players_to_flop always has the keys 2, 3 and 4+. The same model fields appear in the ?session= payload. partial is true while all-ins after a restart are still being worked out (aiev_bb100 then counts them at their actual result). seated is the table's current lineup (seat order); it is present on the all-time payload and on the live session's, and absent for past sessions and until the engine knows its lineup.",
   "generated_at": "2026-11-04T08:00:00Z",
   "scope": { "table_id": "tbl_xxxxxx", "prompt_version": "d7fd8ae", "big_blind": 10, "hands": 128, "sessions": 1 },
   "sessions": [ { "id": "tbl_xxxxxx-s001", "started_at": "2026-10-09T21:49:05Z", "ended_at": null, "hands": 128 } ],
@@ -10,7 +10,7 @@
       "net_chips": 412, "bb100": 32.2, "bb100_ci": [-58.0, 122.4], "aiev_bb100": 18.9,
       "vpip": 0.21, "pfr": 0.14, "three_bet": 0.05, "af": 2.1, "cbet": 0.62, "fold_to_cbet": 0.41,
       "wtsd": 0.24, "wsd": 0.52, "avg_bet_pct_pot": 0.63,
-      "fold_when_check_free": 0.02, "error_rate": 0.03, "retry_rate": 0.04,
+      "fold_when_check_free": 0.02, "error_rate": 0.03, "retry_rate": 0.04, "miss_rate": 0.01,
       "avg_latency_ms": 1210, "cost_usd": 0.19, "cost_per_hand_usd": 0.0015,
       "biggest_pot_won": 910, "biggest_pot_lost": 640,
       "by_position": { "BTN": { "hands": 14, "vpip": 0.43, "pfr": 0.36, "bb100": 80.1 } },

@@ -85,71 +85,120 @@ uvicorn app:app --reload --port 5001
 
 - `GET /health` - Health check
 - `GET /usage` - `{"provider", "spend"}`: the provider and OpenRouter spend against the key's limit
-- `GET /prompt` - The system prompt and its version
+- `GET /prompt` - The system prompt and the prompt version
 - `GET /models?session=N` - `{"provider", "seated", "models": [{"name", "slug", "price_per_mtok", "seated"}]}`; `session` only matters to the mock provider's rotation
-- `POST /decide` - Get LLM decision
+- `POST /decide` - The seat's move for a game state
 
 ### POST /decide
 
-Request:
+The engine sends the game state as data; the service renders the prompts, asks the seat's
+model, parses and checks the reply, retries, and returns the move. Players are never named
+to the model: it sees `Player N (POS)`, N being the seat number.
+
+Request (`schemas.py` `DecisionRequest`):
 ```json
 {
   "player_name": "Claude Haiku 5.5",
-  "prompt": "Hand #12. No Limit Texas Hold'em cash game, blinds 5/10, 9 players. ...",
-  "valid_actions": [{"type": "FOLD"}, {"type": "CALL", "amount": 20}],
-  "retry_note": null
+  "small_blind": 5, "big_blind": 10,
+  "seats": [{"seat": 7, "position": "SB", "stack": 1953}, {"seat": 8, "position": "BB", "stack": 1990}, "..."],
+  "streets": [
+    {"street": "preflop", "board": [], "pot": 0, "actions": [
+      {"seat": 7, "action": "post", "amount": 5}, {"seat": 8, "action": "post", "amount": 10},
+      {"seat": 0, "action": "fold"}, {"seat": 6, "action": "raise", "amount": 30}, {"seat": 7, "action": "call", "amount": 25}]},
+    {"street": "flop", "board": ["Ah", "7d", "2c"], "pot": 90, "actions": []}
+  ],
+  "seat": 8, "position": "BB", "hole_cards": ["Ad", "Tc"],
+  "pot": 90, "to_call": 0, "stack": 1970,
+  "legal_actions": [{"type": "FOLD"}, {"type": "CHECK"}, {"type": "BET", "min": 10, "max": 1970}, {"type": "ALL-IN", "amount": 1970}]
 }
 ```
 
-`retry_note` is optional. When set, it is sent as a second user message
-("Your previous reply was invalid: ... Reply again in the required format.").
+`seats` run clockwise from the small blind with current stacks. Action amounts are chips
+added for `post` and `call` and the street total for `raise` and `all_in`; `pot` on a street
+is the pot when it began. When the bet covers the player's stack the engine lists `CALL`
+with the player's remaining chips, rendered as `CALL N (x BB), all-in`.
 
-Response:
+Response (`DecisionResponse`):
 ```json
 {
-  "action": "RAISE",
-  "amount": 150,
-  "reason": "Strong hand in position.",
+  "action": "RAISE", "amount": 150, "reason": "Strong hand in position.",
   "raw": "ACTION: RAISE\nAMOUNT: 150\nREASON: Strong hand in position.",
-  "latency_ms": 1234,
-  "status": "ok",
-  "provider": "openrouter",
-  "model": "microsoft/phi-4",
-  "tokens_in": 812,
-  "tokens_out": 41,
-  "cost_usd": 0.00002,
-  "prompt_version": "d7fd8ae",
-  "reasoning": null,
-  "reasoning_tokens": null,
-  "finish_reason": "stop",
-  "upstream_provider": "DeepInfra",
-  "generation_id": "gen-1730000000-abc",
-  "temperature": 0.7
+  "latency_ms": 1234, "status": "ok", "retried": false, "error": null,
+  "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\n...",
+  "retry_prompt": null,
+  "provider": "openrouter", "model": "microsoft/phi-4",
+  "tokens_in": 812, "tokens_out": 41, "cost_usd": 0.00002, "prompt_version": "f605559",
+  "reasoning": null, "reasoning_tokens": null, "finish_reason": "stop",
+  "upstream_provider": "DeepInfra", "generation_id": "gen-1730000000-abc", "temperature": 0.7
 }
 ```
 
-- `status`: `ok`, `unparseable` (no action in the reply; the service folds), `truncated`
-  (hit `max_tokens`, usually while thinking, before a usable answer), `timeout` or `api_error`.
+- `status`: `ok`; `unparseable` (no readable ACTION, twice) or `illegal` (a move outside the
+  legal list, twice) are the model's own miss; `timeout` and `api_error` mean the provider
+  failed (network, 429, 5xx, empty reply) after retries within the turn budget. When the
+  status is not `ok`, `action`/`amount` are the model's last parsed reply (`FOLD 0` when none
+  came) and the engine plays its own fallback: CHECK when legal, otherwise FOLD.
+- `retried`: the first reply was unparseable or illegal and the model got one follow-up
+  message (`retry_prompt`: its own reply back, the reason and the legal list). `raw` holds
+  both replies separated by `--- retry ---`. A provider failure never counts as a retry.
+- `prompt` is the user prompt rendered for this turn; the engine stores it with the hand.
+- `prompt_version` hashes `prompts.py` and `parsing.py`: the system prompt, the user prompt
+  template and the parser. A change to any of them starts a new version.
+- `model` and `upstream_provider` are what OpenRouter reports serving the call;
+  `reasoning` is the model's thinking text when it returns one, `reasoning_tokens` its
+  count, and `finish_reason`, `generation_id`, `temperature` come from OpenRouter. The mock
+  provider leaves them null.
 - `reason` is empty when the model gave no REASON; it is never filled in for the model.
-- `reasoning` is the model's thinking text when the model returns one; `reasoning_tokens`,
-  `finish_reason`, `upstream_provider` (the host OpenRouter routed to), `generation_id` and
-  `temperature` come from OpenRouter. The mock provider leaves all six null.
+
+## Prompts
+
+`prompts.py` holds the system prompt (`system_prompt`) and renders the user prompt
+(`render_user_prompt`) and the retry message (`render_retry_prompt`). The same two prompts
+go to every model; no model name, hand number or "still in the hand" list appears in them.
+`web/src/lib/systemPrompt.ts` shows copies on the About page; `tests/test_prompts.py` fails
+when they drift.
+
+The reply format is ACTION, AMOUNT, REASON in that order for every model. Models with a
+reasoning channel think there before the first line; models without one commit first and
+explain after. Putting REASON first would turn it into a thinking dump that the site has to
+display, and a long one risks being cut off before the ACTION line, the worst failure. The
+parser takes the last ACTION line, strips markdown and accepts commas in amounts.
+
+## Budget and timeouts
+
+One budget for every model (`providers/openrouter.py`, `decide.py`):
+
+| Setting | Value | Why |
+|---|---|---|
+| `max_tokens` | 1536 | reasoning counts against it on most providers; leaves 512 for the three-line reply |
+| `reasoning.max_tokens` | 1024 | Anthropic's minimum; effort-only models get the effort OpenRouter derives from it; non-reasoning models ignore it |
+| `temperature` | 0.7 | sent explicitly so every host samples the same way |
+| `REQUEST_TIMEOUT` | 25 s | a full 1024-token think plus the reply at ~50 tok/s |
+| `TURN_BUDGET` | 45 s | the whole turn: one slow request, one retry, backoffs |
+| `BACKOFF` | 1 s, 2 s | pauses before retrying a provider failure, while the budget allows |
+| engine timeout | 50 s | `engine/client/llm.go`, the turn budget plus slack |
+
+See https://openrouter.ai/docs/use-cases/reasoning-tokens for how OpenRouter maps a token
+budget to an effort level and vice versa.
 
 ## Architecture
 
-- **Go** manages game state and writes the text prompt for each decision
-- **Python** is stateless: receives the prompt → calls the seat's model on OpenRouter → returns the action
+- **Go** manages game state, lists the legal moves and sends the state as data
+- **Python** renders the prompts, calls the seat's model on OpenRouter, parses and checks the
+  reply, retries once on the model's miss and while time remains on provider failures
+- **Go** checks the returned move against the rules again (it stays the source of truth),
+  applies it or its fallback, and records the decision
 - Each prompt describes the current hand only; there is no memory of previous hands
-- Only the "You are ..." section (name, cards, stack) differs per LLM
 
 ## Files
 
 - `app.py` - FastAPI server
-- `prompts.py` - System prompt for LLM poker players
-- `registry.py` - Seat names and the OpenRouter model behind each
+- `decide.py` - One turn: prompts, call, parse, legality check, retries, fallback status
+- `prompts.py` - The system prompt, the user prompt renderer and the version
 - `parsing.py` - Turns a raw reply into an action
-- `providers/openrouter.py` - OpenRouter client
+- `registry.py` - Seat names and the OpenRouter model behind each
+- `providers/openrouter.py` - OpenRouter client and the token budget
 - `providers/mock.py` - Random legal actions for local development
 - `schemas.py` - `/decide` request and response
-- `tests/` - pytest tests for parsing, `/decide` with the mock provider, and the OpenRouter client
+- `tests/` - pytest tests for prompt rendering (golden examples), parsing, the decision loop, `/decide` with the mock provider, and the OpenRouter client
 

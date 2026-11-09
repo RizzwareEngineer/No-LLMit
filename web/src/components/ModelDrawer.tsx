@@ -5,6 +5,7 @@ import { X } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
 import HeadToHead from '@/components/HeadToHead';
 import CumulativeChart from '@/components/CumulativeChart';
+import { missPct } from '@/components/StatsTable';
 import { SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
 import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, ciHalf, modelSlug, netColor, pct, signed, chips } from '@/lib/stats';
 
@@ -168,14 +169,11 @@ export default function ModelDrawer({
               </dl>
             </Block>
 
-            <Block title="Errors and cost">
+            {/* Profiles' Mistakes group; API errors, latency and cost come from the provider, not the model. */}
+            <Block title="Mistakes">
               <dl className="grid grid-cols-2 gap-4">
-                <Fact label="Error rate" value={pct(m.error_rate)} />
-                <Fact label="Retry rate" value={pct(m.retry_rate)} />
                 <Fact label="Fold when check free" value={pct(m.fold_when_check_free)} />
-                <Fact label="Avg latency" value={`${(m.avg_latency_ms / 1000).toFixed(1)} s`} />
-                <Fact label="Total cost" value={`$${m.cost_usd.toFixed(2)}`} />
-                <Fact label="Cost/hand" value={`$${m.cost_per_hand_usd.toFixed(4)}`} />
+                <Fact label="Misses" value={missPct(m)} />
               </dl>
             </Block>
           </>
