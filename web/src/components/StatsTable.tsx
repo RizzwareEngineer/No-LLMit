@@ -206,7 +206,9 @@ export function Bb100({ m }: { m: ModelStats }) {
 // A row's model: logo and name, a link to its drawer (plain text on the tile, which opens the card).
 // The overview tile keeps names down to a 288px table (truncated), so a short window still says who's who; a phone's
 // card keeps 6.5rem of each (its table scrolls sideways under them); a wider card shows them whole.
-const nameFit = (mini: boolean) => (mini ? '@max-2xs:sr-only max-w-[calc(100cqw-9.5rem)]' : '@max-md:max-w-[6.5rem]');
+// The tile's name shrinks to leave the rest of its row room: the logo and gap (24px), the cell padding (8px) and the four
+// number columns (153px measured on a 390px phone with 100% rates), so 12rem; at 9.5rem a long name clipped the AF column.
+const nameFit = (mini: boolean) => (mini ? '@max-2xs:sr-only max-w-[calc(100cqw-12rem)]' : '@max-md:max-w-[6.5rem]');
 function Name({ href, name, mini = false, children }: { href?: string; name: string; mini?: boolean; children?: React.ReactNode }) {
   const inner = <><LLMLogo model={name} size={16} /><span translate="no" className={`truncate ${nameFit(mini)}`}>{name}</span>{children}</>;
   return href
