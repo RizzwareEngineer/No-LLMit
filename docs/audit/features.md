@@ -5,7 +5,7 @@ Files read: `docs/hand-history.md`, `docs/hand-record-example.json`, `supabase/m
 
 ## Facts that drive the recommendations
 
-- Data rate is small: ~12 hands/hour, ~150 hands/day, and hands are only dealt while someone is watching (`waitForSpectators`). Realistic ceiling is ~4,500 hands/month, at ~$0.001/hand that is ~$4.5/month, so the $10 budget is not the binding constraint today. Display pacing is.
+- Data rate is small: ~12 hands/hour, ~150 hands/day, and hands are dealt whenever the table is open, watched or not. Realistic ceiling is ~4,500 hands/month, at ~$0.001/hand that is ~$4.5/month, so the $10 budget is not the binding constraint today. Display pacing is.
 - Sample size reality: a 9-max win rate has a standard deviation on the order of 100+ bb/100 (LLMs likely higher). At 4,500 hands the standard error per model is roughly ±20-25 bb/100. Extreme leakers (calling stations losing 100+ bb/100) will separate within a month; mid-pack rankings will not. VPIP/PFR stabilize in a few hundred hands, 3-bet and c-bet in ~1-2k, win rate in tens of thousands.
 - Stacks are never reset. `RebuyBrokePlayers` only tops up a player at exactly 0 chips, so winners grow without bound (a 1,000bb stack plays a different game) and a player with 3 chips keeps playing short. Every engine restart also creates a new random `tbl_xxxxxx`, resets stacks to 2000 and restarts `hand_number`, so "sessions" already exist, but they are set by deploys, not by design.
 - The prompt names opponents by model ("GPT-OSS 20B: ... (2000)", "You are Llama 3.1 8B"). Models may carry priors about named models.
@@ -92,7 +92,7 @@ Alternatives: daily reset at open (keeps one day of deep-stack drift, still non-
 - LLM service `/decide` must receive the model ID and prompt variant in the request. Today `registry.py` maps display name to model, and the system prompt is a module global, so two tables with the same seat name but different models or prompts can't coexist.
 - Per-table budget accounting (the daily cap is per `Table` already; add a shared global cap so the sum stays under budget).
 - Frontend table switcher.
-- A headless research table: no spectator gating and `TABLE_PACE` near zero (it already accepts e.g. 0.01) runs at LLM latency, roughly 10x more hands/day. That is the cheapest way to get statistically useful samples, capped by hands/day to stay on budget. At ~$0.001/hand, 10k extra hands/month is ~$10.
+- A headless research table: `TABLE_PACE` near zero (it already accepts e.g. 0.01) runs at LLM latency, roughly 10x more hands/day. That is the cheapest way to get statistically useful samples, capped by hands/day to stay on budget. At ~$0.001/hand, 10k extra hands/month is ~$10.
 
 Effort: M. Most of it is plumbing config through; the game engine itself doesn't change.
 
@@ -158,7 +158,7 @@ Also: the About page and README advertise "Train an LLM to play like you" and "L
 | PokerStars-format hand history export | Med | M | None | Add after HF export |
 | Reasoning checks (hallucinated cards/made hands, reason-action contradiction) | Med | M | None | Add after stats |
 | Offline re-query harness (memory/HUD probe, self-consistency, cross-model same-spot) | High | M | ~$1-5 per run | Do before any second live table |
-| Headless capped research table (pace ~0, no spectator gate) | Med-High | M (needs multi-table) | ~$10 per extra 10k hands | Add once budget allows |
+| Headless capped research table (pace ~0) | Med-High | M (needs multi-table) | ~$10 per extra 10k hands | Add once budget allows |
 | Multi-table engine (TableConfig, table map, per-request model/prompt) | Med | M | None by itself | Build when a second table is justified |
 | Live HUD-memory second table | Med | S (after multi-table) | +1x plus ~15% tokens | Only if offline probe shows an effect |
 | Flagship showcase sessions | High (Twitter) | S (after multi-table) | 10-100x per hand; time-boxed | Weekly/donation-funded |

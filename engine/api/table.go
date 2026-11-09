@@ -1,7 +1,8 @@
-// The shared spectator table: one game that the server starts at boot and plays forever.
-// The server owns the clock, releasing each LLM turn on a timer and broadcasting it to
-// every connected spectator, so everyone watches the same moment and late joiners get
-// the current state. Spectators are read-only. Started by server.go.
+// The shared spectator table: one game that the server starts at boot and plays forever,
+// watched or not, inside its opening hours and daily call cap. The server owns the clock,
+// releasing each LLM turn on a timer and broadcasting it to every connected spectator, so
+// everyone watches the same moment and late joiners get the current state. Spectators are
+// read-only. Started by server.go.
 package api
 
 import (
@@ -348,27 +349,6 @@ func (t *Table) sleep(d time.Duration) {
 	time.Sleep(time.Duration(float64(d) * t.pace))
 }
 
-// waitForSpectators blocks while nobody is watching, so an empty table makes no LLM calls.
-func (t *Table) waitForSpectators() {
-	logged := false
-	for {
-		t.mu.Lock()
-		n := len(t.spectators)
-		t.mu.Unlock()
-		if n > 0 {
-			if logged {
-				log.Printf("Table resumed")
-			}
-			return
-		}
-		if !logged {
-			log.Printf("Table idle: no spectators")
-			logged = true
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-}
-
 // waitForBudget blocks once the day's LLM call cap is reached, until the next UTC day.
 func (t *Table) waitForBudget() {
 	for {
@@ -422,8 +402,6 @@ func (t *Table) startGame() {
 	log.Printf("Shared table created: %s", t.gs.ID)
 	t.broadcast(t.stateMessage())
 	t.mu.Unlock()
-
-	t.waitForSpectators()
 
 	for _, bc := range cards {
 		t.mu.Lock()
@@ -492,7 +470,6 @@ func seatedPlayers(fetch func() ([]string, error), tries int, wait time.Duration
 
 func (t *Table) playHand() {
 	t.waitForOpenHours()
-	t.waitForSpectators()
 
 	t.mu.Lock()
 	rebought := t.gs.RebuyBrokePlayers(tableStartingStack)
@@ -519,7 +496,6 @@ func (t *Table) playHand() {
 		if done {
 			break
 		}
-		t.waitForSpectators()
 		t.waitForBudget()
 		t.playTurn()
 	}

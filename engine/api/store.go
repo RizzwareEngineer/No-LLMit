@@ -194,7 +194,7 @@ type supabaseSaver struct {
 func (s *supabaseSaver) describe() string { return "Supabase (" + s.url + ")" }
 
 // keepAlive reads one row every 6 hours, so a free Supabase project is never paused for
-// inactivity while the table is closed or idle.
+// inactivity while the table is closed.
 func (s *supabaseSaver) keepAlive() {
 	for {
 		if err := s.ping(); err != nil {
