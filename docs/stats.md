@@ -20,8 +20,9 @@ Playing-style stats (VPIP, PFR, 3-bet, AF, c-bet, fold to c-bet, average bet, fo
 check was free) count only decisions with status `ok`. A decision that was fixed on its
 retry is `ok` and counts. Any other status means the engine chose the action (a forced
 check or fold), so it says nothing about the model's style; it counts only toward the
-error rate. Results (net, bb/100, all-in EV, WTSD, W$SD, pots, head to head) count every
-hand, since the chips moved whoever chose the action.
+error rate (and, for `illegal` and `unparseable`, misses). Results (net, bb/100, all-in
+EV, WTSD, W$SD, pots, head to head) count every hand, since the chips moved whoever chose
+the action.
 
 A rate with nothing to count, such as c-bet for a model that never had the chance, is
 `null`, not 0.
@@ -100,6 +101,10 @@ A rate with nothing to count, such as c-bet for a model that never had the chanc
 
 - **Error rate**: decisions whose status is not `ok`, over all decisions.
 - **Retry rate**: decisions that needed a second ask (`retried`), over all decisions.
+- **Misses (miss_rate)**: decisions whose status is `illegal` or `unparseable`, over all
+  decisions: the model's own reply was still illegal or unreadable after its one retry, so
+  the engine checked (when that was free) or folded for it. Provider failures (`timeout`,
+  `api_error`, `service_error` and any other status) are not misses.
 - **Average latency**: the mean `latency_ms` over all decisions.
 - **Cost**: the sum of `cost_usd` (null costs count as 0); cost per hand divides by the
   model's hands.
