@@ -2,20 +2,19 @@
 
 import { memo, useSyncExternalStore } from 'react';
 import { Segmented } from '@/components/Section';
-import Current from '@/components/about/Current';
-import LabNote from '@/components/about/LabNote';
-import ArenaPage from '@/components/about/ArenaPage';
+import HeroSplit from '@/components/about/HeroSplit';
+import SpecSheet from '@/components/about/SpecSheet';
 
-// Drafts of the About screen, on the real page until the owner picks one: ?about=a|b|current (A by default), or the
+// Two layouts of the About screen, on the real page until the owner picks one: ?about=a|b (DEFAULT otherwise), or the
 // switcher at the right end of About's last row, which keeps the choice in the URL's query (never a hash: the URL
-// never names a screen). shortcut: the losing drafts and this switcher go once one is picked.
+// never names a screen). shortcut: the losing draft and this switcher go once one is picked.
 const DRAFTS = [
   { label: 'Draft A', value: 'a' },
   { label: 'Draft B', value: 'b' },
-  { label: 'Current', value: 'current' },
 ] as const;
 type Draft = (typeof DRAFTS)[number]['value'];
-const VIEWS = { a: LabNote, b: ArenaPage, current: Current };
+const VIEWS = { a: HeroSplit, b: SpecSheet };
+const DEFAULT: Draft = 'a';
 
 const listeners = new Set<() => void>();
 const subscribe = (l: () => void) => {
@@ -23,7 +22,7 @@ const subscribe = (l: () => void) => {
   window.addEventListener('popstate', l);
   return () => { listeners.delete(l); window.removeEventListener('popstate', l); };
 };
-const read = (): Draft => DRAFTS.find(d => d.value === new URLSearchParams(window.location.search).get('about'))?.value ?? 'a';
+const read = (): Draft => DRAFTS.find(d => d.value === new URLSearchParams(window.location.search).get('about'))?.value ?? DEFAULT;
 const choose = (d: Draft) => {
   const url = new URL(window.location.href);
   url.searchParams.set('about', d);
@@ -35,7 +34,7 @@ const choose = (d: Draft) => {
 // About's first heading is an h2). Its parent sets the width (the stats overview's block on the home page). Memoized: the
 // stats re-render as each hand lands and as screens change, and nothing About shows depends on them.
 export default memo(function About({ heading = 'h1' }: { heading?: 'h1' | 'h2' }) {
-  const draft = useSyncExternalStore(subscribe, read, () => 'a' as Draft);
+  const draft = useSyncExternalStore(subscribe, read, () => DEFAULT);
   const View = VIEWS[draft];
   return (
     <div data-about-draft={draft} className="relative">

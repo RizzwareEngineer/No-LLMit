@@ -30,3 +30,28 @@ Where action_type is EXACTLY one of the legal actions listed: FOLD, CHECK, CALL,
 ## CONSTRAINTS
 - Choose ONLY from the legal actions provided to you
 - Be concise in your reasoning`;
+
+// One turn as the About page shows it: the call a model is sent (after the system prompt) and its reply.
+export const EXAMPLE_USER_PROMPT = `Hand #12. No Limit Texas Hold'em cash game, blinds 5/10, 3 players.
+
+Seats (stack at start of hand):
+SB: Claude (500)
+BB: GPT-4 (500)
+BTN: Qwen (500)
+
+Preflop: Claude posts small blind 5, GPT-4 posts big blind 10, Qwen raises to 30, Claude calls 25, GPT-4 calls 20
+Flop [Kd 7c 2s] (pot 90): Claude checks, GPT-4 checks
+
+You are Qwen, in the BTN. Your hole cards: Ks Qh.
+Pot: 90. To call: 0. Your stack: 470.
+Still in the hand: Claude (SB, 470 behind), GPT-4 (BB, 470 behind).
+
+Legal actions:
+- FOLD
+- CHECK
+- BET: AMOUNT is your total bet this street, between 10 and 470
+- ALL_IN (470 total this street)`;
+
+export const EXAMPLE_REPLY = `ACTION: BET
+AMOUNT: 40
+REASON: Top pair with a strong kicker. Betting for value.`;
