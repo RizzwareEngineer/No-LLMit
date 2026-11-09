@@ -739,6 +739,34 @@ main(() => check('history-pill-rank-value', 'Every Trends pill shows its rank (i
   const bad = r.filter((p, i) => p[0] !== String(i + 1) || !/^[+−]?\d[\d,]*(\.\d+)?$/.test(p[2] ?? ''));
   return { pass: r.length > 1 && !bad.length, detail: bad.length ? `bad: ${JSON.stringify(bad.slice(0, 3))}` : r.map(p => `${p[0]} ${p[1]} ${p[2]}`).join(', ') };
 }));
+// Plain line labels (owner 2026-11-08: "the bubble wrap around each model in the trends graph. it doesn't feel like it
+// fits"): each line ends in its rank, logo, name in the line's colour and value, with no border, fill or pill shape, and
+// no two labels overlap.
+main(() => check('trends-labels-plain', 'Trends line labels are plain (no border, background, shadow or pill radius), each still shows its rank, logo, name in its line\'s colour and value, and no two overlap', async () => {
+  await clickText(pg, 'Skip'); await sleep(300);
+  const r = await pg.evaluate(() => {
+    const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
+    return [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5).map(e => {
+      const cs = getComputedStyle(e), name = e.querySelector('[data-pill-name]'), rank = e.querySelector('[data-pill-rank]');
+      const logo = rank?.nextElementSibling, tip = name && plot.querySelector(`[data-tip="${CSS.escape(name.textContent)}"]`), b = name?.getBoundingClientRect();
+      return {
+        name: name?.textContent, rank: rank?.textContent, value: e.querySelector('[data-pill-value]')?.textContent, logo: !!logo && logo.getBoundingClientRect().width > 4,
+        border: Math.max(...['Top', 'Right', 'Bottom', 'Left'].map(s => parseFloat(cs[`border${s}Width`]) || 0)), radius: parseFloat(cs.borderTopLeftRadius) || 0,
+        bg: cs.backgroundColor, shadow: cs.boxShadow, color: name && getComputedStyle(name).color, line: tip && getComputedStyle(tip).fill, top: b?.top, bottom: b?.bottom,
+      };
+    });
+  });
+  const bad = r.flatMap(l => [
+    l.border > 0 && `${l.name} has a ${l.border}px border`, l.radius > 0 && `${l.name} is rounded (${l.radius}px)`,
+    !/^(rgba\(0, 0, 0, 0\)|transparent)$/.test(l.bg) && `${l.name} is filled (${l.bg})`, l.shadow !== 'none' && `${l.name} has a shadow`,
+    !/^\d+$/.test(l.rank ?? '') && `${l.name} has no rank`, !l.logo && `${l.name} has no logo`, !l.name && 'a label has no name',
+    !/^[+−]?\d[\d,]*(\.\d+)?$/.test(l.value ?? '') && `${l.name} has no value`, l.color !== l.line && `${l.name} is ${l.color}, its line ${l.line}`,
+  ].filter(Boolean));
+  const ys = r.filter(l => l.top != null).sort((a, b) => a.top - b.top);
+  const overlaps = ys.slice(1).filter((l, i) => l.top < ys[i].bottom - 0.5).map(l => l.name);
+  if (overlaps.length) bad.push(`overlapping: ${overlaps.join(', ')}`);
+  return { pass: r.length > 1 && !bad.length, detail: bad.length ? bad.slice(0, 5).join('; ') : `${r.length} plain labels: ${r.map(l => `${l.rank} ${l.name} ${l.value}`).join(', ')}` };
+}));
 // Replay time with the page's stalls taken out: a frame over 50 ms of real time (a loaded machine, another lane's work)
 // counts as 50 ms, and inside such a frame the clock stops after its first 50 ms. The overtake checks time the chart's
 // effects against the swap on this clock, so the chart is never charged for time the page could not run.
@@ -947,6 +975,109 @@ group(() => check('history-filters-spacing', 'The Trends card\'s filter bar: 24p
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
+// Trends zoom (owner 2026-11-08: "is there a way we can include a zoom feature like if people zoom into the trends they can
+// zoom into the graph?"). The opened card's hands axis [x0, x1], read off its first and last x tick, its plot area in
+// page px, its Reset zoom button and race clock, and the page's scroll; `y` is a point 45% down the plot.
+const zoomState = p => p.evaluate(() => {
+  const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0), r = plot.getBoundingClientRect();
+  const k = r.width / plot.querySelector('svg').viewBox.baseVal.width, clip = plot.querySelector('clipPath rect'), [cl, cw] = [+clip.getAttribute('x'), +clip.getAttribute('width')];
+  const ts = [...plot.querySelectorAll('[data-x-tick]')].map(e => [+e.textContent.replace(/,/g, ''), +e.getAttribute('x')]).sort((a, b) => a[0] - b[0]);
+  const per = ts.length > 1 ? (ts.at(-1)[1] - ts[0][1]) / (ts.at(-1)[0] - ts[0][0]) : NaN, x0 = ts.length > 1 ? ts[0][0] - (ts[0][1] - cl) / per : NaN; // design px per hand
+  const reset = [...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Reset zoom' && b.getBoundingClientRect().width > 0);
+  const scrolled = [...document.querySelectorAll('*')].reduce((s, e) => s + e.scrollTop, 0); // the page's scroll and every scroller's
+  return { x0, x1: x0 + cw / per, left: r.left + cl * k, w: cw * k, y: r.top + r.height * 0.45, reset, clock: !!plot.querySelector('[data-race-clock]'), scrolled, scale: visualViewport.scale };
+});
+// A pinch in Chrome or Firefox (a wheel with ctrlKey; ⌘ on a Mac works the same) at a fraction `f` across the plot.
+const ctrlWheel = async (p, s, f, dy, n) => {
+  await p.mouse.move(s.left + f * s.w, s.y); await p.keyboard.down('Control');
+  for (let i = 0; i < n; i++) { await p.mouse.wheel({ deltaY: dy }); await sleep(30); }
+  await p.keyboard.up('Control'); await sleep(900);
+};
+group(() => check('trends-zoom', 'In the opened Trends card a pinch or ctrl+wheel over the plot narrows the hands axis around the pointer (no page zoom), a drag pans it, and double-click, Reset zoom or a Hands preset restore every hand; a zoom over the replay ends it; a plain wheel over the chart still moves the page', async () => {
+  const p = await pageAt(1440, 900, 'race'), bad = [], seen = [];
+  try {
+    await clickCenter(p, '#race-panel'); await sleep(1500);
+    await clickText(p, 'Skip'); await sleep(1200);
+    // Every wheel event as the page saw it once handled: a ctrl+wheel the chart took is cancelled (no browser zoom).
+    await p.evaluate(() => { window.__wheels = []; addEventListener('wheel', e => window.__wheels.push({ ctrl: e.ctrlKey, cancelled: e.defaultPrevented })); });
+    const full = await zoomState(p), all = full.x1 - full.x0, near = (s, a, b) => Math.abs(s.x0 - a) <= all * 0.01 && Math.abs(s.x1 - b) <= all * 0.01;
+    if (!Number.isFinite(all) || all <= 0) return { pass: false, detail: 'no hands axis on the plot (fewer than two x ticks)' };
+    const atPointer = s => s.x0 + 0.7 * (s.x1 - s.x0);
+    await ctrlWheel(p, full, 0.7, -40, 5);
+    const z = await zoomState(p), w = z.x1 - z.x0, wheels = await p.evaluate(() => window.__wheels);
+    if (!(w < all * 0.6)) bad.push(`ctrl+wheel left ${w.toFixed(0)} of ${all.toFixed(0)} hands`);
+    if (Math.abs(atPointer(z) - atPointer(full)) > all * 0.01) bad.push(`the hand under the pointer moved from ${atPointer(full).toFixed(0)} to ${atPointer(z).toFixed(0)}`);
+    if (!wheels.length || wheels.some(e => e.ctrl && !e.cancelled)) bad.push(`${wheels.filter(e => !e.cancelled).length} of ${wheels.length} ctrl+wheel events left to the browser (page zoom)`);
+    if (z.scrolled !== full.scrolled) bad.push('the page scrolled');
+    if (!z.reset) bad.push('no Reset zoom while zoomed');
+    seen.push(`ctrl+wheel: ${full.x0.toFixed(0)}–${full.x1.toFixed(0)} → ${z.x0.toFixed(0)}–${z.x1.toFixed(0)}`);
+    // A drag 20% of the plot to the left shows later hands, at the same width.
+    await p.mouse.move(z.left + 0.5 * z.w, z.y); await p.mouse.down();
+    await p.mouse.move(z.left + 0.3 * z.w, z.y, { steps: 8 }); await p.mouse.up(); await sleep(300);
+    const d = await zoomState(p), shift = d.x0 - z.x0;
+    if (Math.abs(shift - 0.2 * w) > 0.03 * w || Math.abs(d.x1 - d.x0 - w) > 0.5) bad.push(`a drag moved the window ${shift.toFixed(1)} hands (want ${(0.2 * w).toFixed(1)}), width ${w.toFixed(1)} → ${(d.x1 - d.x0).toFixed(1)}`);
+    seen.push(`drag: → ${d.x0.toFixed(0)}–${d.x1.toFixed(0)}`);
+    // Double-click, Reset zoom and a Hands preset (the one already on) each bring back every hand.
+    await p.mouse.click(d.left + 0.5 * d.w, d.y, { count: 2 }); await sleep(900);
+    const dbl = await zoomState(p);
+    if (!near(dbl, full.x0, full.x1) || dbl.reset) bad.push(`double-click left ${dbl.x0.toFixed(0)}–${dbl.x1.toFixed(0)}${dbl.reset ? ' and Reset zoom' : ''}`);
+    await ctrlWheel(p, dbl, 0.4, -40, 4);
+    if (!(await zoomState(p)).reset) bad.push('no Reset zoom after the second zoom');
+    await clickText(p, 'Reset zoom'); await sleep(900);
+    const rs = await zoomState(p);
+    if (!near(rs, full.x0, full.x1) || rs.reset) bad.push(`Reset zoom left ${rs.x0.toFixed(0)}–${rs.x1.toFixed(0)}${rs.reset ? ' and its button' : ''}`);
+    await ctrlWheel(p, rs, 0.4, -40, 4);
+    await p.evaluate(() => [...document.querySelectorAll('[role=group][aria-label="Hands shown"] button')].find(b => b.getAttribute('aria-pressed') === 'true')?.click()); await sleep(900);
+    const pr = await zoomState(p);
+    if (!near(pr, full.x0, full.x1)) bad.push(`the Hands preset left ${pr.x0.toFixed(0)}–${pr.x1.toFixed(0)}`);
+    // A zoom over the replay ends it (as Skip would) and zooms the resting chart.
+    if (!(await clickText(p, 'Replay'))) bad.push('no Replay');
+    await sleep(1500);
+    const playing = (await zoomState(p)).clock;
+    await ctrlWheel(p, pr, 0.5, -40, 5);
+    const rz = await zoomState(p);
+    if (!playing || rz.clock || !(rz.x1 - rz.x0 < all * 0.9)) bad.push(`a zoom over the replay: ${!playing ? 'it was not playing' : rz.clock ? 'it kept playing' : `${(rz.x1 - rz.x0).toFixed(0)} hands shown`}`);
+    await p.mouse.click(rz.left + 0.5 * rz.w, rz.y, { count: 2 }); await sleep(900);
+    // A plain wheel over the plot pages as everywhere (Trends to Profiles) and leaves the axis alone.
+    const before = await zoomState(p);
+    await p.mouse.move(before.left + 0.5 * before.w, before.y); await p.mouse.wheel({ deltaY: 100 }); await sleep(1800);
+    const axis = await zoomState(p);
+    if (Math.abs(axis.scrolled - before.scrolled) < 50) bad.push('a plain wheel over the plot did not move the page');
+    if (!near(axis, full.x0, full.x1)) bad.push(`a plain wheel changed the axis to ${axis.x0.toFixed(0)}–${axis.x1.toFixed(0)}`);
+    seen.push(`plain wheel: page moved ${(axis.scrolled - before.scrolled).toFixed(0)}px`);
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+// The same on a touch screen: two fingers pinch the plot's hands axis (never the page); one finger keeps scrolling the page.
+group(() => check('trends-zoom-touch', 'On a phone (390x844, touch) a two-finger pinch on the opened Trends plot zooms its hands axis, not the page; a one-finger swipe on it scrolls the page', async () => {
+  const p = await newPage(), bad = [];
+  try {
+    await p.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p); await sleep(3000);
+    await goto(p, 'race'); await sleep(1500);
+    const c = await rect(p, '#race-panel');
+    await p.touchscreen.tap(c.l + c.w / 2, c.t + c.h / 2); await sleep(2000);
+    await clickText(p, 'Skip'); await sleep(1200);
+    const cdp = await p.target().createCDPSession(), touch = (type, touchPoints) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
+    const s0 = await zoomState(p), all = s0.x1 - s0.x0;
+    if (!Number.isFinite(all) || all <= 0) return { pass: false, detail: 'no hands axis on the plot (fewer than two x ticks)' };
+    // Two fingers 40px apart at the plot's centre spread to 200px.
+    const cx = s0.left + s0.w / 2, fingers = d => [{ x: cx - d / 2, y: s0.y, id: 0 }, { x: cx + d / 2, y: s0.y, id: 1 }];
+    await touch('touchStart', fingers(40));
+    for (let i = 1; i <= 16; i++) { await touch('touchMove', fingers(40 + i * 10)); await sleep(16); }
+    await touch('touchEnd', []); await sleep(900);
+    const s1 = await zoomState(p), w = s1.x1 - s1.x0;
+    if (!(w < all * 0.6)) bad.push(`a pinch left ${w.toFixed(0)} of ${all.toFixed(0)} hands`);
+    if (s1.scale !== 1) bad.push(`the page zoomed to ${s1.scale.toFixed(2)}x`);
+    // One finger swiping up 300px from the plot's centre scrolls the page.
+    await touch('touchStart', [{ x: cx, y: s1.y, id: 0 }]);
+    for (let i = 1; i <= 15; i++) { await touch('touchMove', [{ x: cx, y: s1.y - i * 20, id: 0 }]); await sleep(16); }
+    await touch('touchEnd', []); await sleep(1500);
+    const s2 = await zoomState(p);
+    if (Math.abs(s2.scrolled - s1.scrolled) < 30) bad.push('a one-finger swipe on the plot did not scroll the page');
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `pinch: ${all.toFixed(0)} → ${w.toFixed(0)} hands, page at 1x; swipe scrolled ${(s2.scrolled - s1.scrolled).toFixed(0)}px` };
+  } finally { await p.close(); }
+}));
 // A sound on every collision (owner 2026-11-08, via the orchestrator): a soft whoosh when one line passes another and a
 // brighter chime for a new #1, through the site's sound system. Nothing before the viewer has clicked or pressed a key,
 // nothing while muted; with sound on, one sound per frame of overtakes at most and never two at once. Sped-up test
@@ -1025,7 +1156,7 @@ main(() => check('history-type', 'Trends type: x and y ticks alike, axis titles 
   const MUTED = 'rgba(55, 53, 47, 0.65)';
   one('ticks', [...r.y, ...r.x], { family: 'body', px: 13, color: MUTED, tab: true });
   one('axis titles', r.titles, { family: 'body', px: 13, color: MUTED });
-  one('pill names', r.names, { family: 'body', px: 13, weight: '500' });
+  one('pill names', r.names.map(({ color, ...s }) => s), { family: 'body', px: 13, weight: '500' }); // each in its line's colour (trends-labels-plain)
   for (const v of r.values) if (v.family !== 'body' || v.px !== 13 || !v.tab) { bad.push(`pill value ${JSON.stringify(v)}`); break; }
   const s = o => o ? `${o.family} ${o.px}px ${o.weight} ${o.color ?? ''}${o.tab ? ' tabular' : ''}` : 'none';
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `ticks ${s(r.y[0])}; titles ${s(r.titles[0])}; pill names ${s(r.names[0])}; values ${s(r.values[0])}` };

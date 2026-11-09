@@ -234,10 +234,16 @@ function steps(range: number, count: number) {
 // tip) and its lines. A new key starts a tween to it.
 type Scene = { key: string; camera: boolean; span: number; x0: number; x1: number; lines: Map<string, Pts>; evs: Map<string, Pts> };
 
-// Arena-style labels: a pill (rank, logo, name and value) just right of each line's tip.
-const PILL_ROOM = 250; // the plot's width past the leading edge, for the leader's pill
+// Arena-style labels: plain text (rank, logo, the name in its line's colour, and the value) just right of each line's
+// tip. The code still calls them pills (data-pill), from when each sat in a bordered bubble.
+const PILL_ROOM = 250; // the plot's width past the leading edge, for the leader's label
 const PILL_H = 22;
-const PILL_GAP = 7; // from the tip's dot to its pill
+const PILL_GAP = 10; // from the tip's dot to its label's text
+// A white halo around a label's glyphs (invisible on the blank label column) keeps it readable where it crosses something:
+// gridlines early in the replay, while the tips still grow toward the column, and another label as two swap places.
+const HALO = '0 0 1px white, 0 0 2px white, 0 0 2px white, 0 0 3px white, 0 0 4px white';
+// The opened card's zoom (a pinch, ⌘/ctrl + scroll, or two fingers on a touch screen) shows no fewer hands than this.
+const ZOOM_MIN = 20;
 
 // Pill centres, each as near its target as it can be: two pills whose spans overlap across x are
 // pushed apart (half each, the bounds taking the rest) until they are `gap` apart; pills apart
@@ -379,6 +385,12 @@ export default function CumulativeChart({
   const fxLayer = useRef<HTMLDivElement>(null);
   const fx = useRef<Fx>({ queue: [], timer: 0, last: -Infinity, n: 0, tips: new Map(), splashed: new Map() });
   const pillEls = useRef(new Map<string, HTMLElement>());
+  // The card's zoom gestures: a mouse drag panning it, the touch points on the plot, a two-finger pinch's start, and the
+  // latest zoom step (zoomBy) for the native wheel and Safari pinch listeners.
+  const drag = useRef<{ x: number; z: [number, number]; moved: boolean } | null>(null);
+  const fingers = useRef(new Map<number, [number, number]>());
+  const pinch = useRef<{ d: number; n: number; w: number } | null>(null);
+  const zoomStep = useRef<(cx: number, f: number) => void>(() => {});
   // Last frame's pill order and slots, for the swap slide.
   const slots = useRef({ order: [] as string[], ys: new Map<string, number>() });
   const clipId = useId();
@@ -416,6 +428,37 @@ export default function CumulativeChart({
     return () => io.disconnect();
   }, [race, reduce]);
 
+  // The wheel and Safari's pinch over the card's plot, as native listeners: React's wheel listener is passive, so it could
+  // not stop the browser's own page zoom. A plain scroll is left to the page (page.tsx pages it); only the tail of a zoom
+  // gesture (⌘ let go while it glides on, within 150 ms of its last step) is held, so a zoom never ends in a page turn.
+  useEffect(() => {
+    const el = plot.current;
+    if (!el || !race || mini) return;
+    let last = -Infinity, safari = false, scale = 1;
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) {
+        if (e.timeStamp - last < 150) { last = e.timeStamp; e.preventDefault(); }
+        return;
+      }
+      e.preventDefault();
+      last = e.timeStamp;
+      if (safari) return; // Safari's own pinch zooms through its gesture events
+      const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY; // Firefox counts a mouse notch in lines
+      zoomStep.current(e.clientX, Math.exp(Math.min(50, Math.max(-50, d)) / 100)); // a pinch sends deltaY = -100 ln(scale)
+    };
+    const gesture = (e: Event) => {
+      e.preventDefault(); // else Safari zooms the page
+      const g = e as Event & { scale: number; clientX: number };
+      if (e.type === 'gesturestart') [safari, scale] = [true, 1];
+      else if (e.type === 'gestureend') safari = false;
+      else if (!fingers.current.size) { zoomStep.current(g.clientX, scale / g.scale); scale = g.scale; } // iOS: the fingers zoom (pointer events)
+    };
+    const types = ['gesturestart', 'gesturechange', 'gestureend'];
+    el.addEventListener('wheel', wheel, { passive: false });
+    types.forEach(t => el.addEventListener(t, gesture));
+    return () => { el.removeEventListener('wheel', wheel); types.forEach(t => el.removeEventListener(t, gesture)); };
+  }, [race, mini]);
+
   // The hand under the pointer (or picked with the arrow keys) and the line nearest it.
   const [hover, setHover] = useState<{ n: number; name: string } | null>(null);
   const [range, setRange] = useState(0); // 0: every hand
@@ -427,6 +470,7 @@ export default function CumulativeChart({
   const [top, setTop] = useState(0); // 0: every model
   const [luck, setLuck] = useState(false); // all-in EV lines for every model (the highlighted one always shows its own)
   const [hidden, setHidden] = useState<string[]>([]); // lines switched off in the legend
+  const [zoomTo, setZoom] = useState<[number, number] | null>(null); // the card's zoom: the hands it shows (see fit)
 
   const metric: Metric = race ? metricPick : bigBlind ? 'chips' : 'bb';
   const rate = metric === 'bb100';
@@ -456,6 +500,17 @@ export default function CumulativeChart({
   const whole = !(win && win < lastHand);
   // The x axis starts where the first line does (hand 0), or at the window.
   const from = Math.max(whole ? 0 : lastHand - win, Math.min(lastHand - 1, ...listed.map(m => pts(m)[0][0])));
+  // A zoom window of w hands with hand n `at` (0..1) of the way across, kept inside [from, lastHand] and at least
+  // ZOOM_MIN hands wide; null once it is every hand. A zoom holds in the card at rest: the replay's camera owns the axis
+  // while it plays (a zoom gesture over it ends it, as Skip does), and the tile shows every hand (closing the card drops it).
+  const fit = (n: number, at: number, w: number): [number, number] | null => {
+    const all = lastHand - from, ww = Math.min(Math.max(w, Math.min(ZOOM_MIN, all)), all);
+    if (ww >= all - 1e-9) return null;
+    const x0 = Math.min(Math.max(n - at * ww, from), lastHand - ww);
+    return [x0, x0 + ww];
+  };
+  const zoom = interactive && !playing && zoomTo ? fit(zoomTo[0], 0, zoomTo[1] - zoomTo[0]) : null;
+  if (zoomTo && !zoom) setZoom(null);
   // The lines in the window (lines switched off or ended before it drop out), and the all-in EV lines.
   const on = listed.filter(m => !hidden.includes(m.name) && trace(pts(m), from, lastHand).length);
   const lines = new Map(on.map(m => [m.name, pts(m)]));
@@ -481,9 +536,10 @@ export default function CumulativeChart({
   // shows the Hands window.
   const span = whole ? Math.max(100, Math.round((lastHand - from) * 0.4)) : win;
   const fill = Math.min(span, Math.max(10, Math.round((lastHand - from) / 15)));
+  // Zooming in or out of a zoom is a new scene (an eased tween); a zoom step or a pan moves the window at once (below).
   const scene: Scene = {
-    key: [metric, playing ? 'camera' : from, lastHand, span, ...lines.keys(), '|', ...evs.keys()].join(),
-    camera: playing, span, x0: from, x1: lastHand, lines, evs,
+    key: [metric, playing ? 'camera' : from, lastHand, span, zoom ? 'zoom' : '', ...lines.keys(), '|', ...evs.keys()].join(),
+    camera: playing, span, x0: zoom?.[0] ?? from, x1: zoom?.[1] ?? lastHand, lines, evs,
   };
   // A scene's x window now: fixed, or following the farthest tip of its own lines.
   const windowOf = (sc: Scene): [number, number] => {
@@ -497,21 +553,21 @@ export default function CumulativeChart({
 
   // A filter, the data or the range changed: the x axis and the lines move to the new scene in one
   // tween (the scale, not just the paths); lines that leave fade out and lines that join fade in.
-  const [tr, setTr] = useState({ from: scene, to: scene });
+  const [tr, setTr] = useState({ from: scene, to: scene, s: TWEEN_S });
   const [mix, setMix] = useState(1);
   if (tr.to.key !== scene.key) {
     // Camera to camera (new data, a filter mid-replay): both keep following. Otherwise carry on from where the axis is now.
     const [a, b] = [windowOf(tr.from), windowOf(tr.to)];
     const now = tr.to.camera && scene.camera ? tr.to : { ...tr.to, camera: false, x0: lerp(a[0], b[0], mix), x1: lerp(a[1], b[1], mix) };
-    setTr({ from: now, to: scene });
+    // The replay's start (and a filter changed mid-replay) moves at the replay's speed, so a test run at 4x sees what visitors see.
+    setTr({ from: now, to: scene, s: TWEEN_S / (scene.camera ? replaySpeed() : 1) });
     setMix(0);
-  }
+  } else if (tr.to.x0 !== scene.x0 || tr.to.x1 !== scene.x1) setTr({ ...tr, to: scene }); // a zoom step or a pan: the window follows at once
   useEffect(() => {
     if (reduce) return;
-    // The replay's start (and a filter changed mid-replay) moves at the replay's speed, so a test run at 4x sees what visitors see.
-    const c = animate(0, 1, { duration: TWEEN_S / (tr.to.camera ? replaySpeed() : 1), ease: EASE, onUpdate: setMix });
+    const c = animate(0, 1, { duration: tr.s, ease: EASE, onUpdate: setMix });
     return () => c.stop();
-  }, [tr, reduce]);
+  }, [tr.from, tr.s, reduce]); // not tr.to: a zoom step swaps it without restarting the tween
   const k = reduce ? 1 : mix;
   const old = tr.from;
   const [wa, wb] = [windowOf(old), windowOf(scene)];
@@ -621,13 +677,14 @@ export default function CumulativeChart({
     .reduce<number[]>((kept, t) => (yTicks.some(u => near(u, t)) || kept.some(u => near(u, t)) ? kept : [...kept, t]), []);
   if (yStep !== ya.step || yTicks.join() !== ya.shown.join() || yGone.join() !== ya.gone.join()) setYa({ step: yStep, shown: yTicks, gone: yGone });
   const edge = (t: number) => Math.max(0, Math.min(1, (t - Y0) / ((Y1 - Y0) * 0.02 || 1), (Y1 - t) / ((Y1 - Y0) * 0.02 || 1)));
-  // Under the camera the ticks slide with history, fading in at the leading edge and out at the left.
-  // While the window widens, the finer step's ticks fade out as the coarser step takes over: no label pops.
+  // Under the camera (and while zoomed) the ticks slide with history, fading in at the leading edge and out at the left.
+  // While the replay's window widens, the finer step's ticks fade out as the coarser step takes over: no label pops. A
+  // zoom, which rests where the gesture leaves it, shows the round step alone.
   const st = steps(X1 - X0, 10);
   const fadeW = st.step * 0.35;
-  const xTicks = race && playing
+  const xTicks = race && (playing || zoom)
     ? Array.from({ length: Math.floor(X1 / st.finer) - Math.ceil(Math.max(X0, from) / st.finer) + 1 }, (_, i) => (Math.ceil(Math.max(X0, from) / st.finer) + i) * st.finer)
-        .map(t => ({ t, o: Math.min(t % st.step ? (st.step - st.s0) / (st.step - st.finer) : 1, (X1 - t) / fadeW, X0 > from ? (t - X0) / fadeW : 1) }))
+        .map(t => ({ t, o: Math.min(t % st.step ? (playing ? (st.step - st.s0) / (st.step - st.finer) : 0) : 1, (X1 - t) / fadeW, X0 > from ? (t - X0) / fadeW : 1) }))
         .filter(d => d.o > 0.01)
     : blend(xTicksOf(wa[0], wa[1]), xTicksOf(wb[0], wb[1]), X0, X1, k);
   const tick = (t: number) => (metric === 'chips' ? t.toLocaleString() : String(t)).replace('-', '−');
@@ -642,7 +699,7 @@ export default function CumulativeChart({
     const ty = Math.min(Math.max(raw, padTop), padTop + plotH);
     const grown = Math.min(1, Math.max(0, (tx - Math.max(left, x(pts(m)[0][0]))) / 24), Math.max(0, (tx - left) / 48));
     const val = rate ? signed(Math.round(v), 0) : fmt(v); // whole bb/100 in the pills, as Arena's scores
-    return { m, n, v, val, tx, ty, off: Math.sign(raw - ty), w: Math.min(pillRoom - 12 * u, (52 + (m.name.length + val.length) * 7.2) * u), o: fade(old.lines, lines, m.name) * grown };
+    return { m, n, v, val, tx, ty, off: Math.sign(raw - ty), w: Math.min(pillRoom - 12 * u, (38 + (m.name.length + val.length) * 7.2) * u), o: fade(old.lines, lines, m.name) * grown };
   });
   // The rank order, with a hair of hysteresis: a line passes another once it is half a pixel clear of
   // it, so two lines touching do not flicker the order, yet a pill's rank never disagrees with the
@@ -726,7 +783,9 @@ export default function CumulativeChart({
     ends.forEach((e, i) => {
       const was = sl.ys.get(e.m.name), el = pillEls.current.get(e.m.name);
       if (el && was != null && sl.order.indexOf(e.m.name) !== i && sl.order.includes(e.m.name) && Math.abs(was - pillYs[i]) > pillH / 2 && !reduce) {
-        el.animate([{ transform: `translateY(${was - pillYs[i]}px)` }, { transform: 'none' }], { duration: 300 / replaySpeed(), easing: 'cubic-bezier(0.22, 1, 0.36, 1)', id: 'pill-swap' });
+        // A label being passed (it slides down) dims as its passer crosses it, so two labels' text never reads as one.
+        const at = { transform: `translateY(${was - pillYs[i]}px)` };
+        el.animate(was < pillYs[i] ? [at, { opacity: 0.2, offset: 0.5 }, { transform: 'none' }] : [at, { transform: 'none' }], { duration: 300 / replaySpeed(), easing: 'cubic-bezier(0.22, 1, 0.36, 1)', id: 'pill-swap' });
       }
     });
     sl.order = ends.map(e => e.m.name);
@@ -781,13 +840,71 @@ export default function CumulativeChart({
     tip.style.left = `${Math.max(left, Math.min(want, lw - tw - 4))}px`;
   });
 
-  const step = Math.max(1, Math.round((lastHand - from) / 40));
+  // The arrows step through the hands in view (every hand, or the zoom's).
+  const [k0, k1] = [Math.ceil(Math.max(from, X0)), Math.floor(Math.min(lastHand, X1))];
+  const step = Math.max(1, Math.round((k1 - k0) / 40));
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') return setHover(null);
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
-    const n0 = hover?.n ?? (e.key === 'ArrowLeft' ? lastHand + step : from - step);
-    setHover({ n: Math.min(Math.max(n0 + (e.key === 'ArrowRight' ? step : -step), from), lastHand), name: hover?.name || sel?.name || '' });
+    const n0 = hover?.n ?? (e.key === 'ArrowLeft' ? k1 + step : k0 - step);
+    setHover({ n: Math.min(Math.max(n0 + (e.key === 'ArrowRight' ? step : -step), k0), k1), name: hover?.name || sel?.name || '' });
+  };
+
+  // Zoom. Where clientX falls across the plot's hands, 0..1 (the label column counts as the right end).
+  const across = (cx: number) => {
+    const r = plot.current!.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (((cx - r.left) / r.width) * lw - left) / leadW));
+  };
+  // A wheel step (a trackpad pinch in Chrome and Firefox, or ⌘/ctrl + scroll) or Safari's pinch: the window scales by f
+  // about the hand under the pointer, compounding on the zoom so quick notches add up. Over the replay it ends the replay
+  // instead (as Skip does) and the rest of the gesture zooms the resting chart.
+  const zoomBy = (cx: number, f: number) => {
+    if (playing) return skipReplay();
+    const at = across(cx);
+    setZoom(z => { const [a, b] = z ?? [X0, X1]; return fit(a + at * (b - a), at, (b - a) * f); });
+  };
+  useLayoutEffect(() => { zoomStep.current = zoomBy; });
+  // Two fingers on a touch screen: the hand between them stays between them while their spread scales the window.
+  const pinchTo = () => {
+    setHover(null);
+    if (playing) return skipReplay();
+    const [[ax, ay], [bx, by]] = [...fingers.current.values()];
+    const d = Math.max(24, Math.hypot(bx - ax, by - ay)), at = across((ax + bx) / 2);
+    const p = (pinch.current ??= { d, n: X0 + at * (X1 - X0), w: X1 - X0 });
+    setZoom(fit(p.n, at, (p.w * p.d) / d));
+  };
+  const onDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      fingers.current.set(e.pointerId, [e.clientX, e.clientY]);
+      if (fingers.current.size > 1) return setHover(null);
+    } else if (zoom && e.button === 0 && !(e.target as Element).closest('button')) {
+      drag.current = { x: e.clientX, z: zoom, moved: false };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    pick(e.clientX, e.clientY);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      if (!fingers.current.has(e.pointerId)) return;
+      fingers.current.set(e.pointerId, [e.clientX, e.clientY]);
+      if (fingers.current.size === 2) pinchTo();
+      return;
+    }
+    // Zoomed, a drag pans: the hands under the pointer stay under it.
+    if (!(e.buttons & 1)) drag.current = null; // its release was missed (outside the window)
+    const d = drag.current;
+    if (d && (d.moved ||= Math.abs(e.clientX - d.x) > 3)) {
+      setHover(null);
+      const w = d.z[1] - d.z[0], px = (leadW / lw) * plot.current!.getBoundingClientRect().width;
+      return setZoom(fit(d.z[0] - ((e.clientX - d.x) / px) * w, 0, w));
+    }
+    pick(e.clientX, e.clientY);
+  };
+  const onUp = (e: React.PointerEvent) => {
+    fingers.current.delete(e.pointerId);
+    if (fingers.current.size < 2) pinch.current = null;
+    drag.current = null;
   };
   const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter(s => s !== v) : [...list, v]);
   // The filters that are not at their defaults, in words, for the overview tile (the axis title says the unit).
@@ -817,7 +934,7 @@ export default function CumulativeChart({
               label="Hands shown"
               options={RANGES.map(r => ({ label: r.label, value: r.n, disabled: r.n > 0 && r.n >= lastHand }))}
               value={range && range < lastHand ? range : 0}
-              onChange={setRange}
+              onChange={n => { setRange(n); setZoom(null); }}
             />
           </Field>
           <Toggles
@@ -858,11 +975,15 @@ export default function CumulativeChart({
           layout={race}
           layoutDependency={`${mini}:${s}:${box.w}:${box.h}`}
           transition={GLIDE}
-          className="absolute outline-offset-2"
-          style={{ left: (box.w - lw * s) / 2, top: 0, width: lw * s, height: lh * s }}
-          onPointerMove={interactive ? e => e.pointerType !== 'touch' && pick(e.clientX, e.clientY) : undefined}
-          onPointerDown={interactive ? e => pick(e.clientX, e.clientY) : undefined}
+          // Zoomed, the plot pans by dragging. On a touch screen its own pinch replaces the browser's; one finger still scrolls.
+          className={`absolute outline-offset-2 ${zoom ? 'cursor-grab active:cursor-grabbing select-none' : ''}`}
+          style={{ left: (box.w - lw * s) / 2, top: 0, width: lw * s, height: lh * s, touchAction: interactive ? 'pan-y' : undefined }}
+          onPointerMove={interactive ? onMove : undefined}
+          onPointerDown={interactive ? onDown : undefined}
+          onPointerUp={interactive ? onUp : undefined}
+          onPointerCancel={interactive ? onUp : undefined}
           onPointerLeave={interactive ? e => e.pointerType !== 'touch' && setHover(null) : undefined} // a tap keeps its readout
+          onDoubleClick={interactive ? e => { if (!(e.target as Element).closest('button')) setZoom(null); } : undefined}
           // Focusable only where the chart is interactive (the Race screen).
           tabIndex={interactive && onSelect ? 0 : undefined}
           onKeyDown={interactive && onSelect ? onKey : undefined}
@@ -940,8 +1061,8 @@ export default function CumulativeChart({
               </p>
             )}
             {race && ends.map((e, i) => (
-              // A pill at each line's tip: logo and name in the line's colour; a click shades its 95% band.
-              // In the tile the same pills, with clicks passing through to open the card.
+              // A label at each line's tip: rank, logo, the name in the line's colour and the value; a click shades its
+              // 95% band (the name is underlined while it does). In the tile the same labels, clicks passing through.
               <button
                 key={e.m.name}
                 data-pill
@@ -959,19 +1080,17 @@ export default function CumulativeChart({
                 data-rank={i + 1}
                 data-emph={e.m.name === emphOn ? '' : undefined}
                 ref={el => { if (el) pillEls.current.set(e.m.name, el); else pillEls.current.delete(e.m.name); }}
-                className={`absolute flex items-center rounded-full border-[1.5px] leading-none text-left tabular-nums ${interactive ? '' : 'pointer-events-none'}`}
+                className={`absolute flex items-center leading-none text-left tabular-nums ${interactive ? '' : 'pointer-events-none'}`}
                 style={{
-                  left: e.tx + PILL_GAP, top: pillYs[i] - pillH / 2, height: pillH, maxWidth: pillRoom - 12 * u, color: TEXT, fontSize: ts, paddingInline: 6 * u,
-                  borderColor: modelColor(e.m.name),
+                  left: e.tx + PILL_GAP, top: pillYs[i] - pillH / 2, height: pillH, maxWidth: pillRoom - 12 * u, fontSize: ts, textShadow: HALO,
+                  color: modelColor(e.m.name), // the name's; the rank and the value set their own
                   opacity: (hot ? (hot !== e.m ? 0.45 : 1) : emphOn && e.m.name !== emphOn ? 1 - 0.3 * emph : 1) * e.o,
-                  background: selected === e.m.name ? `color-mix(in srgb, ${modelColor(e.m.name)} 16%, white)` : e.m.name === emphOn ? `color-mix(in srgb, ${modelColor(e.m.name)} ${Math.round(20 * emph)}%, white)` : 'white',
-                  boxShadow: e.m.name === emphOn ? `0 0 0 ${3 * emph}px color-mix(in srgb, ${modelColor(e.m.name)} 30%, transparent)` : undefined,
                 }}
               >
                 <span className="flex min-w-0 items-center gap-1">
                   <span data-pill-rank className="font-medium" style={{ color: MUTED }}>{i + 1}</span>
                   <LLMLogo model={e.m.name} size={Math.round(15 * u)} />
-                  <span data-pill-name className="min-w-0 truncate font-medium">{e.m.name}</span>
+                  <span data-pill-name className={`min-w-0 truncate py-0.5 font-medium ${selected === e.m.name ? 'underline underline-offset-2' : ''}`}>{e.m.name}</span>
                   <span data-pill-value className="ml-1 shrink-0 font-medium" style={{ color: netColor(e.v) }}>{e.val}</span>
                 </span>
               </button>
@@ -983,6 +1102,11 @@ export default function CumulativeChart({
                   <span data-race-clock>
                     Hand <b style={{ color: TEXT }}>{(handNow === null ? Math.round(head) : Math.floor(handNow)).toLocaleString()}</b> of {(handNow === null ? lastHand : timeline!.hands).toLocaleString()}
                   </span>
+                )}
+                {zoom && (
+                  <button data-zoom-reset onPointerMove={ev => ev.stopPropagation()} onPointerDown={ev => ev.stopPropagation()} onDoubleClick={ev => ev.stopPropagation()} onClick={() => setZoom(null)} className={CLOCK_BTN} style={CLOCK_BTN_STYLE}>
+                    Reset zoom
+                  </button>
                 )}
                 {interactive && (
                   <button onPointerMove={ev => ev.stopPropagation()} onPointerDown={ev => ev.stopPropagation()} onClick={playing ? skipReplay : playReplay} className={CLOCK_BTN} style={CLOCK_BTN_STYLE}>
