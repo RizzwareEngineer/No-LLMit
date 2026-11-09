@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
-import { ArrowDown, Brain, CircleNotch, GameController } from "@phosphor-icons/react";
+import { ArrowDown, CircleNotch, GameController } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
@@ -372,13 +372,6 @@ export default function Home() {
           >
             <GameController size={14} weight="bold" />
             Play vs. LLMs — (coming soon)!
-          </button>
-          <button
-            disabled
-            className="btn-brutal-disabled px-3 py-1 text-[14px] flex items-center gap-2"
-          >
-            <Brain size={14} weight="bold" />
-            Train an LLM to play like you (coming soon)!
           </button>
         </div>
 
