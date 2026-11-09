@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useReducedMotion } from "motion/react";
 import CornerBorders from "@/components/CornerBorders";
 import Player from "@/components/Player";
 import TableFelt, { FeltBet } from "@/components/TableFelt";
+import TableMotion, { DeckPhase, FLIGHT, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import { ModelStats } from "@/lib/stats";
 
@@ -128,6 +130,14 @@ export default function PokerTable({
   const shown = (p: PlayerState) => view.start
     ? view.acted.includes(p.id) || view.start[p.id] !== sig(p)
     : street === 'preflop' || p.currentBet > 0;
+
+  // The deal: a late joiner sees the hand already dealt; a hand dealt while watching shows each card as its flight
+  // lands (TableMotion), unless motion is reduced. The deck is shuffled on the felt between hands.
+  const reduce = useReducedMotion();
+  const [firstHand, setFirstHand] = useState(0);
+  if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
+  const dealt = !reduce && firstHand > 0 && handNumber !== firstHand;
+  const [deck, setDeck] = useState<DeckPhase | null>(null);
   
   if (players.length === 0) {
     return (
@@ -154,6 +164,9 @@ export default function PokerTable({
       isThinking={idx === thinkingPlayerIdx}
       stats={stats?.[players[idx].name]}
       showAction={shown(players[idx])}
+      seatIdx={idx}
+      handNumber={handNumber}
+      dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + FLIGHT) : undefined}
     />
   );
 
@@ -184,6 +197,7 @@ export default function PokerTable({
       onSkipCountdown={onSkipCountdown}
       buttonDetermination={buttonDetermination}
       notice={notice}
+      deck={deck}
     />
   );
 
@@ -196,6 +210,14 @@ export default function PokerTable({
 
   return (
     <>
+      <TableMotion
+        players={players}
+        handNumber={handNumber}
+        boardCount={communityCards.length}
+        winnerIdxs={Object.keys(winnersByIdx).map(Number)}
+        nextHandCountdown={street === 'complete' ? nextHandCountdown ?? null : null}
+        onDeck={setDeck}
+      />
       {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>

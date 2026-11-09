@@ -3,7 +3,11 @@
 // plays before the viewer has clicked or pressed a key on the page.
 
 // 'overtake' and 'lead': Trends' replay, one line passing another and a new #1.
-export type SoundKind = 'deal' | 'chip' | 'showdown' | 'overtake' | 'lead';
+export type SoundKind = 'deal' | 'chip' | 'showdown' | 'shuffle' | 'overtake' | 'lead';
+
+// The riffle between hands, in seconds, shared by its picture (TableMotion's Deck) and its sound: the deck splits,
+// `cards` cards fall together `gap` apart from `start`, it is squared at `square`, and it is done at `length`.
+export const RIFFLE = { start: 0.22, gap: 0.04, cards: 12, square: 0.8, length: 0.9 };
 
 const STORAGE_KEY = 'nollmit:sound';
 let ctx: AudioContext | null = null;
@@ -63,6 +67,30 @@ export function setSoundOn(on: boolean) {
   }
 }
 
+// 80 ms of fading noise: a card on felt (deal), a card edge (shuffle).
+function getNoise(c: AudioContext) {
+  if (!noise) {
+    noise = c.createBuffer(1, Math.ceil(c.sampleRate * 0.08), c.sampleRate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+  }
+  return noise;
+}
+
+// A band-passed burst of that noise, `length` s long, fading out.
+function flick(c: AudioContext, at: number, length: number, freq: number, peak: number) {
+  const src = c.createBufferSource();
+  const filter = c.createBiquadFilter();
+  const gain = c.createGain();
+  src.buffer = getNoise(c);
+  filter.type = 'bandpass';
+  filter.frequency.value = freq;
+  gain.gain.setValueAtTime(peak, at);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+  src.connect(filter).connect(gain).connect(c.destination);
+  src.start(at, 0, length);
+}
+
 function tone(c: AudioContext, freq: number, start: number, length: number, type: OscillatorType, peak: number) {
   const osc = c.createOscillator();
   const gain = c.createGain();
@@ -115,20 +143,23 @@ export function playSound(kind: SoundKind) {
   }
   if (kind === 'deal') {
     // A short band-passed noise burst: a card sliding on felt.
-    if (!noise) {
-      noise = c.createBuffer(1, Math.ceil(c.sampleRate * 0.08), c.sampleRate);
-      const data = noise.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
-    }
     const src = c.createBufferSource();
     const filter = c.createBiquadFilter();
     const gain = c.createGain();
-    src.buffer = noise;
+    src.buffer = getNoise(c);
     filter.type = 'bandpass';
     filter.frequency.value = 3000;
     gain.gain.value = 0.25;
     src.connect(filter).connect(gain).connect(c.destination);
     src.start(now);
+  } else if (kind === 'shuffle') {
+    // The riffle: card edges flicking past each other, three to each card drawn falling and a little uneven, then a
+    // soft, lower tap as the deck is squared.
+    const n = RIFFLE.cards * 3;
+    for (let i = 0; i < n; i++) {
+      flick(c, now + RIFFLE.start + (i / n) * RIFFLE.cards * RIFFLE.gap + Math.random() * 0.004, 0.01, 2800 + Math.random() * 2400, 0.06 + Math.random() * 0.08);
+    }
+    flick(c, now + RIFFLE.square, 0.05, 900, 0.2);
   } else if (kind === 'chip') {
     // Two quick clicks: chips landing on each other.
     tone(c, 2400, now, 0.05, 'triangle', 0.12);
