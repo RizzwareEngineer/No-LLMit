@@ -142,7 +142,7 @@ function Waitlist() {
     try {
       const r = await joinWaitlist(String(data.get('email')).trim());
       if (r === 'invalid') return setStatus('invalid');
-      setCount(r.count);
+      if (typeof r.count === 'number') setCount(r.count);
       setStatus(r.already ? 'already' : 'joined');
     } catch {
       setStatus('failed');
