@@ -2,49 +2,39 @@
 // Copies of llm/prompts.py: SYSTEM_PROMPT is its system_prompt and EXAMPLE_USER_PROMPT is a
 // real render of its user prompt. llm/tests/test_prompts.py fails when they drift.
 
-export const SYSTEM_PROMPT = `You are playing No-Limit Texas Hold'em, a 9-handed cash game.
+export const SYSTEM_PROMPT = `You are an expert No-Limit Texas Hold'em player in a 9-handed cash game.
 
-RULES
-- Amounts are chips, with big blinds (BB) in parentheses.
-- Cards: rank 2-9, T, J, Q, K, A, then suit h, d, c, s.
-- Seats are listed clockwise from the small blind.
-- Pot includes this street's bets.
-- "calls N" = chips added; "bets N", "raises to N", "all-in for N" = that player's street total.
-- A raise must be at least the size of the last bet or raise.
-- Short of a full call, CALL is all-in; you win from each opponent at most what you put in.
-- You see only this hand: no earlier hands, opponent notes or earlier reasoning.
-- An invalid reply comes back to you once with the reason; after a second, you check if free, else fold.
+Each message is one decision. It gives you, in order:
+1. The blinds and your opponents' stacks
+2. Your position, your stack and your hand
+3. The action so far, street by street, with the pot after each
+4. Your legal actions
 
 Reply in exactly three plain-text lines, no markdown:
-ACTION: one legal action (FOLD, CHECK, CALL, BET, RAISE, ALL_IN)
-AMOUNT: for BET or RAISE, your street total in chips, digits only; else 0
+ACTION: fold, check, call, bet, raise or all-in
+AMOUNT: for bet or raise, the total you make it; otherwise 0
 REASON: one or two sentences`;
 
-export const EXAMPLE_USER_PROMPT = `Blinds 5/10 (1 BB = 10 chips).
+export const EXAMPLE_USER_PROMPT = `Blinds 5/10.
 
-Seats, current stacks:
-Player 8 (SB): 1930 (193 BB)
-Player 9 (BB): 1970 (197 BB)
-Player 1 (UTG): 2057 (205.7 BB)
-Player 2 (UTG+1): 2000 (200 BB)
-Player 3 (MP): 2000 (200 BB)
-Player 4 (MP+1): 2000 (200 BB)
-Player 5 (HJ): 2000 (200 BB)
-Player 6 (CO): 1990 (199 BB)
-Player 7 (BTN): 1925 (192.5 BB)
+Opponents:
+Player 1 (SB): 1,075 (107.5 BB)
+Player 2 (BB): 970 (97 BB)
+Player 3 (UTG): 1,500 (150 BB)
+Player 5 (MP): 1,000 (100 BB)
+Player 6 (MP+1): 1,000 (100 BB)
+Player 7 (HJ): 1,000 (100 BB)
+Player 8 (CO): 1,000 (100 BB)
+Player 9 (BTN): 870 (87 BB)
 
-Preflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) folds, Player 4 (MP+1) folds, Player 5 (HJ) folds, Player 6 (CO) folds, Player 7 (BTN) raises to 30 (3 BB), Player 8 (SB) calls 25 (2.5 BB), Player 9 (BB) calls 20 (2 BB)
-Flop [Ah 7d 2c], pot 90 (9 BB): Player 8 (SB) checks, Player 9 (BB) checks, Player 7 (BTN) bets 40 (4 BB), Player 8 (SB) folds
+You are Player 4 (UTG+1), 1,130 (113 BB), holding As Kd.
 
-You are Player 9 (BB). Your hole cards: Ad Tc.
-Pot: 130 (13 BB). To call: 40 (4 BB). Your stack: 1970 (197 BB).
+Preflop: Player 1 (SB) posts 5, Player 2 (BB) posts 10, Player 3 (UTG) folds, Player 4 (UTG+1) raises to 30, Player 5 (MP) folds, Player 6 (MP+1) folds, Player 7 (HJ) folds, Player 8 (CO) folds, Player 9 (BTN) folds, Player 1 (SB) calls 25, Player 2 (BB) folds. Pot 70.
+Flop [Qh 7s 2c]: Player 1 (SB) checks, Player 4 (UTG+1) bets 40, Player 1 (SB) calls 40. Pot 150.
+Turn [Qh 7s 2c] [9d]: Player 1 (SB) bets 100. Pot 250.
 
-Legal actions:
-- FOLD
-- CALL 40 (4 BB)
-- RAISE 80 to 1970 (8 to 197 BB)
-- ALL_IN`;
+Legal actions: fold, call 100, raise to 200–1,130, raise all-in 1,130.`;
 
-export const EXAMPLE_REPLY = `ACTION: CALL
+export const EXAMPLE_REPLY = `ACTION: call
 AMOUNT: 0
-REASON: Top pair with a decent kicker against a button bet; calling keeps worse aces and bluffs in.`;
+REASON: Top pair top kicker is well ahead of a turn probe from the small blind; raising folds out worse and only gets action from better.`;

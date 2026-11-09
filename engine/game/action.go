@@ -35,8 +35,16 @@ func (gs *GameState) GetValidActions() []ValidAction {
 	} else if amountToCall > 0 && amountToCall < player.Stack {
 		actions = append(actions, ValidAction{Type: ActionCall, MinAmount: amountToCall})
 	}
+	// A raise needs an opponent who can respond. With everyone else in the hand all-in,
+	// the actor can only call (all-in when covered) or fold.
+	canRespond := false
+	for i := range gs.Players {
+		if p := &gs.Players[i]; i != gs.CurrentPlayerIdx && p.Status == PlayerActive && p.Stack > 0 {
+			canRespond = true
+		}
+	}
 	minRaiseTotal := gs.CurrentBet + gs.MinRaise
-	if player.Stack > amountToCall && !player.RaiseClosed {
+	if canRespond && player.Stack > amountToCall && !player.RaiseClosed {
 		if player.Stack >= minRaiseTotal-player.CurrentBet {
 			actions = append(actions, ValidAction{
 				Type:      ActionRaise,
@@ -46,7 +54,7 @@ func (gs *GameState) GetValidActions() []ValidAction {
 		}
 	}
 
-	if player.Stack > 0 && (!player.RaiseClosed || player.Stack <= amountToCall) {
+	if player.Stack > 0 && ((canRespond && !player.RaiseClosed) || player.Stack <= amountToCall) {
 		actions = append(actions, ValidAction{
 			Type:      ActionAllIn,
 			MinAmount: player.Stack + player.CurrentBet,

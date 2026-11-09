@@ -2,10 +2,12 @@
 
 import re
 
+# The rest of the ACTION line: "call", "raise all-in", "Raise to 200" are all read.
+ACTION_RE = re.compile(r"ACTION:\s*(.*)", re.I)
 # "ALL_IN", "ALL-IN", "ALL IN" and "ALLIN" are all the same action.
-ACTION_WORD = r"ALL[ _-]?IN|\w+"
-ACTION_RE = re.compile(rf"ACTION:\s*({ACTION_WORD})", re.I)
-AMOUNT_RE = re.compile(r"AMOUNT:\s*\$?([\d,]+)", re.I)
+ALL_IN_RE = re.compile(r"ALL[ _-]?IN", re.I)
+# The first number on the AMOUNT line: "200", "$1,130", "raise to 200" all give it.
+AMOUNT_RE = re.compile(r"AMOUNT:[^\n\d]*([\d,]+)", re.I)
 # REASON can be multiline: everything up to a blank line or another field.
 REASON_RE = re.compile(r"REASON:\s*(.+?)(?=\n\n|ACTION:|AMOUNT:|$)", re.I | re.S)
 
@@ -52,9 +54,14 @@ def parse_response(text: str) -> dict:
                     result["amount"] = int(match.group(2).replace(",", ""))
                 break
 
-    # Normalize action variants
-    action = re.sub(r"[ _-]", "", result["action"].upper())
-    if action == "ALLIN":
+    # Normalize: any all-in ("all-in", "raise all-in", "call all-in") is ALL_IN; otherwise
+    # the first word is the action, in either case.
+    if ALL_IN_RE.search(result["action"]):
+        action = "ALL_IN"
+    else:
+        word = re.match(r"\W*(\w+)", result["action"])
+        action = word.group(1).upper() if word else ""
+    if action == "ALL_IN":
         result["action"] = "ALL_IN"
     elif action == "BET":
         result["action"] = "RAISE"

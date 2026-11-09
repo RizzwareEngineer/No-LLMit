@@ -23,7 +23,7 @@ def test_usage_is_provider_and_spend(client):
 def test_prompt_endpoint(client):
     body = client.get("/prompt").json()
     assert body["prompt_version"] == prompt_version
-    assert body["system_prompt"].startswith("You are playing No-Limit Texas Hold'em")
+    assert body["system_prompt"].startswith("You are an expert No-Limit Texas Hold'em player")
 
 
 def test_decide_with_mock(client):

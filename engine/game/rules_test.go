@@ -2,7 +2,10 @@
 // standard (TDA) no-limit hold'em rules.
 package game
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // newTable seats players A, B, C... with the given stacks, button on seat 0, blinds 5/10.
 func newTable(stacks ...int) *GameState {
@@ -203,5 +206,44 @@ func TestShortCallBecomesAllInAndRunsOut(t *testing.T) {
 	after := gs.Players[0].Stack + gs.Players[1].Stack + gs.Players[2].Stack
 	if !gs.IsHandComplete() || before != after || len(gs.CommunityCards) != 5 {
 		t.Fatalf("run-out: complete=%v chips %d -> %d board %d", gs.IsHandComplete(), before, after, len(gs.CommunityCards))
+	}
+}
+
+func TestRaiseNeedsAnOpponentWhoCanRespond(t *testing.T) {
+	// Button A(0), SB B(1), BB C(2); A acts first preflop.
+	type step struct {
+		typ ActionType
+		amt int
+	}
+	cases := []struct {
+		name   string
+		stacks []int
+		play   []step
+		want   []ActionType
+	}{
+		{"covered by a lone all-in: fold or call all-in", []int{1000, 1000, 150},
+			[]step{{ActionAllIn, 0}, {ActionFold, 0}}, []ActionType{ActionFold, ActionAllIn}},
+		{"lone all-in opponent the actor covers: fold or call, no raise", []int{1000, 1000, 300},
+			[]step{{ActionRaise, 100}, {ActionFold, 0}, {ActionAllIn, 0}}, []ActionType{ActionFold, ActionCall}},
+		{"one all-in and one active opponent: raising stays open", []int{1000, 1000, 300},
+			[]step{{ActionRaise, 100}, {ActionCall, 0}, {ActionAllIn, 0}}, []ActionType{ActionFold, ActionCall, ActionRaise, ActionAllIn}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gs := newTable(c.stacks...)
+			if err := gs.StartHand(); err != nil {
+				t.Fatal(err)
+			}
+			for _, s := range c.play {
+				act(t, gs, s.typ, s.amt)
+			}
+			var got []ActionType
+			for _, va := range gs.GetValidActions() {
+				got = append(got, va.Type)
+			}
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("player %d is offered %v, want %v", gs.CurrentPlayerIdx, got, c.want)
+			}
+		})
 	}
 }

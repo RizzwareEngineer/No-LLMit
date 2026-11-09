@@ -6,7 +6,7 @@ import time
 import requests
 
 from parsing import parse_response
-from prompts import render_retry_prompt, render_user_prompt, system_prompt
+from prompts import bet_word, render_retry_prompt, render_user_prompt, system_prompt
 from providers.openrouter import ProviderError
 from schemas import DecisionRequest
 
@@ -24,28 +24,36 @@ SUM_FIELDS = ("prompt_tokens", "completion_tokens", "cost", "reasoning_tokens")
 
 def check_legal(parsed: dict, request: DecisionRequest) -> str:
     """Why the parsed reply cannot be played, or "" when it can. The engine's legal list
-    is the source of truth; the engine checks the move again before applying it."""
+    is the source of truth; the engine checks the move again before applying it. A reply
+    that names the same move as a legal all-in is rewritten to ALL_IN: "call" when the
+    bet covers the stack, or a raise to the all-in total when no raise is legal."""
     if parsed["status"] == "unparseable":
         return "no ACTION line was found"
     legal = {a.type.replace("-", "_"): a for a in request.legal_actions}
-    action, amount = parsed["action"], parsed["amount"]
+    action, amount, all_in = parsed["action"], parsed["amount"], legal.get("ALL_IN")
     if action == "RAISE":
-        sizing = legal.get("BET") or legal.get("RAISE")
-        kind = "BET" if "BET" in legal else "RAISE"
+        sizing, word = legal.get("BET") or legal.get("RAISE"), bet_word(request)
         if not sizing:
-            return f"{kind} is not legal here"
+            if all_in and amount == all_in.amount:
+                parsed["action"] = "ALL_IN"
+                return ""
+            return f"no {word} is legal here"
+        said = f"{word} to {amount:,}" if word == "raise" else f"{word} {amount:,}"
         if amount < sizing.min:
-            return f"{kind} {amount} is below the minimum {sizing.min}"
+            return f"{said} is below the minimum {sizing.min:,}"
         if amount > sizing.max:
-            return f"{kind} {amount} is above the maximum {sizing.max}"
+            return f"{said} is above the maximum {sizing.max:,}"
         return ""
     if action in legal:
         return ""
+    if action == "CALL" and all_in and request.to_call >= request.stack:
+        parsed["action"] = "ALL_IN"  # a call for the whole stack is the all-in
+        return ""
     if action == "CHECK":
-        return f"CHECK is not legal here: there is {request.to_call} to call"
+        return f"there is {request.to_call:,} to call, so check is not legal"
     if action == "CALL":
-        return "CALL is not legal here: there is nothing to call"
-    return f"{action} is not legal here"
+        return "there is nothing to call"
+    return f"{action.lower().replace('_', '-')} is not legal here"
 
 
 def ask(complete, request: DecisionRequest, messages: list[dict], deadline: float) -> dict:
