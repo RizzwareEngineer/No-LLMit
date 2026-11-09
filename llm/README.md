@@ -182,11 +182,19 @@ The reply format is ACTION, AMOUNT, REASON in that order for every model. Models
 reasoning channel think there before the first line; models without one commit first and
 explain after. Putting REASON first would turn it into a thinking dump that the site has to
 display, and a long one risks being cut off before the ACTION line, the worst failure. The
-parser takes the last ACTION line, strips markdown, reads either case and commas in
-amounts, and reads `raise all-in` or `call all-in` as the all-in. `bet` where the legal
-action is RAISE is a raise; `call` when only the all-in is legal and the bet covers the
-stack is that all-in; a raise to the all-in total is a raise when one is legal and the
-all-in otherwise. The retry message after a bad reply is `That reply wasn't legal: <reason>.
+parser reads a reply as the move it states or as a miss that gets the retry, never as a
+different move. It takes the last ACTION line, strips markdown, and reads either case. The
+action is the first word of that line: `fold`, `check`, `call`, `bet`, `raise`, or the
+all-in in any spelling, alone or as `raise all-in` / `bet all-in`. Anything else (`calling`,
+`shove`, prose) is `unparseable`. `call all-in` is a call, so `call the all-in` never shoves
+over a smaller bet; `call` when the bet covers the stack is that all-in. The amount is the
+first number on the AMOUNT line after that ACTION, else the number on the ACTION line itself
+(`raise to 200`); an earlier draft's AMOUNT and REASON are never borrowed. A bet or raise
+sized in anything but chips (`30 BB`, `3x`, `75%`) is `illegal`. With no ACTION label, only a
+first line that is the action alone counts (`RAISE: 150`). A reply the token limit cut off
+before its REASON is `unparseable`. `bet` where the legal action is RAISE is a raise; a raise
+to the all-in total is a raise when one is legal and the all-in otherwise. A parser error is
+also `unparseable`: the service never answers 500 for a reply. The retry message after a bad reply is `That reply wasn't legal: <reason>.
 Reply again in the three-line format with one of: <the legal-actions line>.`
 
 ## Budget and timeouts

@@ -1,6 +1,7 @@
 """One turn: render the prompts, ask the model, parse and check the reply, retry once on
 the model's own miss, retry provider failures while time remains, then fall back."""
 
+import logging
 import time
 
 import requests
@@ -21,6 +22,8 @@ MIN_REQUEST = 3.0  # not worth asking with less time than this left
 
 SUM_FIELDS = ("prompt_tokens", "completion_tokens", "cost", "reasoning_tokens")
 
+log = logging.getLogger(__name__)
+
 
 def check_legal(parsed: dict, request: DecisionRequest) -> str:
     """Why the parsed reply cannot be played, or "" when it can. The engine's legal list
@@ -28,15 +31,20 @@ def check_legal(parsed: dict, request: DecisionRequest) -> str:
     that names the same move as a legal all-in is rewritten to ALL_IN: "call" when the
     bet covers the stack, or a raise to the all-in total when no raise is legal."""
     if parsed["status"] == "unparseable":
-        return "no ACTION line was found"
+        return parsed.get("problem") or "no ACTION line was found"
     legal = {a.type.replace("-", "_"): a for a in request.legal_actions}
     action, amount, all_in = parsed["action"], parsed["amount"], legal.get("ALL_IN")
     if action == "RAISE":
         sizing, word = legal.get("BET") or legal.get("RAISE"), bet_word(request)
+        if parsed.get("unit"):
+            # "30 BB" played as 30 chips would be a different move from the one the model made.
+            return "AMOUNT must be in chips, not big blinds, a multiple or a percentage"
         if not sizing:
             if all_in and amount == all_in.amount:
                 parsed["action"] = "ALL_IN"
                 return ""
+            if all_in and request.to_call < request.stack:
+                return f"the only {word} here is all-in {all_in.amount:,}"
             return f"no {word} is legal here"
         said = f"{word} to {amount:,}" if word == "raise" else f"{word} {amount:,}"
         if amount < sizing.min:
@@ -95,7 +103,15 @@ def decide(request: DecisionRequest, complete) -> dict:
             break
         raws.append(reply["raw"])
         _merge(out, reply)
-        parsed = parse_response(reply["raw"])
+        try:
+            parsed = parse_response(reply["raw"])
+        except Exception:  # a reply the parser cannot read is the model's miss, never a 500
+            log.exception("the parser failed on a reply")
+            parsed = {"action": "FOLD", "amount": 0, "reason": "", "status": "unparseable",
+                      "problem": "the reply could not be read"}
+        # A reply the token limit cut off before its REASON is not an answer: "bet 12" may be half of 120.
+        if parsed["status"] == "ok" and reply.get("finish_reason") == "length" and not parsed["reason"]:
+            parsed["status"], parsed["problem"] = "unparseable", "the reply was cut off before it finished"
         out["reason"] = parsed["reason"]
         problem = check_legal(parsed, request)
         out.update(action=parsed["action"], amount=parsed["amount"])

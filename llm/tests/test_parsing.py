@@ -50,7 +50,7 @@ def test_commas_and_currency_in_amounts():
 
 
 @pytest.mark.parametrize("line,action", [
-    ("raise all-in", "ALL_IN"), ("call all-in", "ALL_IN"), ("bet all in", "ALL_IN"), ("Raise to 200", "RAISE"),
+    ("raise all-in", "ALL_IN"), ("call all-in", "CALL"), ("bet all in", "ALL_IN"), ("Raise to 200", "RAISE"),
     ("call", "CALL"), ("Check.", "CHECK"), ("fold (nothing to do)", "FOLD"),
 ])
 def test_action_line_wording(line, action):
