@@ -44,7 +44,7 @@ You are Player 4 (UTG+1), 1,130 (113 BB), holding As Kd.
 
 Preflop: Player 1 (SB) posts 5, Player 2 (BB) posts 10, Player 3 (UTG) folds, Player 4 (UTG+1) raises to 30, Player 5 (MP) folds, Player 6 (MP+1) folds, Player 7 (HJ) folds, Player 8 (CO) folds, Player 9 (BTN) folds, Player 1 (SB) calls 25, Player 2 (BB) folds. Pot 70.
 Flop [Qh 7s 2c]: Player 1 (SB) checks, Player 4 (UTG+1) bets 40, Player 1 (SB) calls 40. Pot 150.
-Turn [9d]: Player 1 (SB) bets 100. Pot 250.
+Turn [Qh 7s 2c] [9d]: Player 1 (SB) bets 100. Pot 250.
 
 Legal actions: fold, call 100, raise to 200–1,130, raise all-in 1,130."""
 
@@ -59,9 +59,16 @@ def test_turn_golden():
 
 def test_unopened_street_has_no_action_yet_and_bets():
     prompt = render_user_prompt(turn_check_request())
-    assert "Player 9 (BB) calls 40. Pot 170.\nTurn [Kc]: no action yet. Pot 170.\n" in prompt
+    assert "Player 9 (BB) calls 40. Pot 170.\nTurn [Ah 7d 2c] [Kc]: no action yet. Pot 170.\n" in prompt
     assert prompt.endswith("Legal actions: fold, check, bet 10–1,930, bet all-in 1,930.")
     assert "You are Player 9 (BB), 1,930 (193 BB), holding Ad Tc." in prompt
+
+
+def test_street_lines_show_the_board_so_far_then_the_new_card():
+    r = turn_check_request()
+    r = with_(r, streets=r.model_dump()["streets"] + [{"street": "river", "board": ["Ah", "7d", "2c", "Kc", "2s"], "pot": 170}])
+    assert "\nFlop [Ah 7d 2c]: " in render_user_prompt(r)
+    assert "\nTurn [Ah 7d 2c] [Kc]: no action yet. Pot 170.\nRiver [Ah 7d 2c Kc] [2s]: no action yet. Pot 170.\n" in render_user_prompt(r)
 
 
 def test_covered_call_is_one_move():

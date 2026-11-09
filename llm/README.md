@@ -164,8 +164,9 @@ when they drift.
 The system prompt says what each message holds and asks for the three-line reply. The user
 prompt is a hand history: the blinds, the opponents' current stacks (chips, BB in
 parentheses), one line for the player (`You are Player 4 (UTG+1), 1,130 (113 BB), holding
-As Kd.`), one line per street with the cards dealt on it, every action and the pot after
-them (`Turn [9d]: Player 1 (SB) bets 100. Pot 250.`), then one line of legal actions.
+As Kd.`), one line per street with the board so far and the cards dealt on it, every action
+and the pot after them (`Turn [Qh 7s 2c] [9d]: Player 1 (SB) bets 100. Pot 250.`), then one
+line of legal actions.
 Players are `Player N (POS)`, N the seat number. Action amounts follow hand-history
 convention: `calls N` is chips added; `bets N`, `raises to N` and `all-in for N` are the
 player's total on that street.

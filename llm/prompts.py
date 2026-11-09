@@ -15,7 +15,7 @@ system_prompt = """You are an expert No-Limit Texas Hold'em player in a 9-handed
 
 Each message is one decision. It gives you, in order:
 1. The blinds and your opponents' stacks
-2. Your stack, your position and your hand
+2. Your position, your stack and your hand
 3. The action so far, street by street, with the pot after each
 4. Your legal actions
 
@@ -85,8 +85,9 @@ def render_user_prompt(r: DecisionRequest) -> str:
 
     for i, st in enumerate(r.streets):
         title = STREET_TITLES.get(st.street, st.street)
-        if i > 0:  # the cards dealt on this street
-            title += f" [{' '.join(st.board[len(r.streets[i - 1].board):])}]"
+        if i > 0:  # hand-history style: the board so far, then the cards dealt on this street
+            prev = r.streets[i - 1].board
+            title += (f" [{' '.join(prev)}]" if prev else "") + f" [{' '.join(st.board[len(prev):])}]"
         parts, street_bet = [], 0
         for a in st.actions:
             who = _player(a.seat, pos.get(a.seat, "?"))
