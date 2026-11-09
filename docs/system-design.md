@@ -130,8 +130,66 @@ Then, outside the lock, a background uploader copies the hand's JSON to R2 (obje
 
 - **Humans** play at a separate challenge table so the benchmark table stays models only. A seat is a signed ticket; a move is a `POST` with the turn's `decision_id`, so a double-click or a retry cannot act twice (409 if a different move already landed for that turn, 410 if the turn has passed). Hole cards and reasoning are kept out of the stream until `hand_end`, so a spectator cannot feed a human player information.
 - **Chat** waits for accounts: without identity there is no moderation. When it comes, it is its own WebSocket endpoint; the game stream is unchanged.
-- **More tables** are more goroutines in the same process, each with its own event numbers, carried on the same per-viewer stream (`tables=main,t2`). The process is split only when a load test says it is full.
+- **More tables** are more goroutines in the same process, each with its own event numbers, carried on the same per-viewer stream (`tables=main,t2`). The process is split only when a load test says it is full. The full treatment is the next section.
 - **Relays** (footnote). If viewers ever pass what one box can serve (measured, not guessed; roughly 100,000 streams), the same binary runs with `--relay`: it subscribes to the game server's stream and fans it out, and the game server talks only to relays. A million viewers is 25 to 30 relays and about 100 TB a month of egress. The game server does not change.
+
+## Scaling to more tables
+
+Tables and viewers scale on different axes. Viewers cost bytes and sockets, and relays handle them. Tables cost model calls and money, and almost nothing else. This section is about the second axis.
+
+### What one table costs
+
+| | |
+|---|---|
+| CPU | nothing measurable; a hand is a few thousand instructions spread over minutes of waiting on models |
+| Memory | about 1 MB: the state, the two-hand resume buffer (around 300 events of a few hundred bytes), the open journal |
+| Bandwidth | only to the viewers watching that table (about 90 B/s each), plus one 200-byte summary per hand to anyone looking at the lobby |
+| Model calls | about 15 a hand, one in flight at a time (one seat acts at a time), about 2,250 a day |
+| Money | about $0.18 a day with today's open-source lineup |
+
+So a box that runs one table can run hundreds. What stops you is the wallet and, far later, the provider.
+
+### What the design already does for N tables
+
+- **Everything is per table.** Each table has its own goroutine, lock, event sequence, resume buffer, journal file and state file. Tables never wait on each other; a slow model at table 7 delays only table 7.
+- **One stream, any tables.** A viewer's stream names the tables it wants (`tables=main,t2`); events arrive tagged by table, and the cursor carries one sequence number per table. Watching two tables doubles that viewer's bytes, not the server's work.
+- **The lobby is the preview feed.** With `preview=1` the stream also carries one small summary per table per hand end (hand number, pot, stacks, who leads). A hundred tables is about a summary every three seconds, about 70 B/s per viewer. The lobby page is nothing but this feed; it never asks the server a question.
+- **Stats have one writer.** Hand ends from different tables can land in the same millisecond, and the stats version must be a single order (it is also the hand index the Trends chart walks along). So the stats are updated by one writer (a mutex or a goroutine fed by a channel) that assigns the version and emits the delta on the stats channel, which has its own sequence in the cursor. The per-table write order (journal, summary, state file) is unchanged; "update stats" becomes "hand the record to the stats writer."
+- **Seasons and stakes.** A season is one prompt version across every table. Tables can run different blinds; the stats are in big blinds per hundred hands, so they aggregate anyway. The same model may sit at several tables at once; its hands are independent and simply add up.
+- **Caps.** The daily call cap becomes a budget per table plus a global ceiling, so one new table cannot starve the others.
+- **The dataset** is the union of every table's hands, each record carrying its table id.
+
+### What fills up first
+
+1. **Money.** Fifty tables of cheap models is about $9 a day, $270 a month. Frontier models are 10 to 50 times that. This binds before anything technical does.
+2. **Model-call concurrency.** N tables means up to N calls in flight. OpenRouter rate-limits per key, so somewhere in the hundreds of tables you add keys or direct provider keys, and you run more than one copy of the Python service (it is stateless apart from its circuit breakers, and the engine de-duplicates by `decision_id`, so replicas are safe).
+3. **Blast radius.** One process means one crash abandons every table's hand in progress. Tolerable for a benchmark; not for human tables with money-like stakes. That, not load, is the usual reason to split.
+4. **Viewers.** Not a tables problem; relays (section 10).
+
+### If one box is not enough: shard by table
+
+**Idea.** A table lives on exactly one game server. Several game servers each run the whole design above for their tables. A thin, stateless layer in front merges them for viewers.
+
+**How.**
+- **A registry** (a config file, later a small Postgres table) maps `table id → game server`. Nothing else is shared between game servers.
+- **The epoch moves to the table.** Today the cursor has one process epoch; with several processes it becomes `main=epoch:seq;t2=epoch:seq`, so a restart of one server invalidates only its tables' cursors.
+- **Relays are the front door.** The same `--relay` binary that fans out one server's stream subscribes to all of them and serves the viewer's merged stream, so `tables=main,t2` works even when `main` and `t2` live on different servers. A human's `POST` move is routed by table id to the server that owns it.
+- **Stats become a service.** One stats process is a subscriber to every game server's `hand_end` events (the same stream mechanism, nothing new), stays the single writer, and publishes the deltas and the versioned bundles. Game servers stop holding stats.
+- **Tables can move.** The state file is written to R2 as well as disk. To move a table, drain it (finish the hand, write state, stop), update the registry, and the new server loads the state and resumes between hands. Deploys are per server, draining as before.
+- **The dataset** and the journals are unchanged: each hand is one object in R2 whatever server wrote it.
+
+**Why this split and not another.** Sharding by table keeps every hand's logic on one machine, so there is no distributed transaction anywhere: a hand is still one lock, one journal line, one commit point. The only cross-server concerns are read-only (viewers, stats, the lobby), and read-only fan-out is the easy kind.
+
+### The order of growth
+
+| Step | When | What changes |
+|---|---|---|
+| 1 table | now | nothing |
+| N tables, one process | whenever the wallet allows; hundreds fit | per-table budgets, the lobby feed, the stats writer |
+| Relays | viewers exceed one box (measured, around 100,000 streams) | a viewer-facing layer; the game server talks only to relays |
+| Several game servers | hundreds of tables, or isolation for human tables | the registry, per-table epochs, relays merging servers, stats as a service, state files in R2 |
+
+**The sound bite.** "A table is a goroutine with its own event log, so adding tables is adding goroutines until model-call concurrency or the budget says stop; viewers scale on a different axis, with relays. When a split is finally needed, it is by table id: every hand stays on one machine with one commit point, the epoch moves from the process to the table, relays merge servers for viewers, and stats stay a single writer, as a service."
 
 ## The numbers
 
@@ -190,7 +248,7 @@ What remains open, on purpose:
 
 - **How is it so cheap per viewer?** A viewer costs the bytes of the events (about 90 B/s) and one open socket (about 60 KB of memory). The game's work happens once regardless of the audience.
 - **How do you guarantee nothing is missed or shown twice?** Sequence numbers. The client applies `held + 1`, drops anything lower, reconnects on anything higher; the server resumes from the cursor or sends a snapshot.
-- **How does it scale?** More tables are more goroutines. More viewers are more sockets, up to what the box can hold; past that, relays fan out the same stream.
+- **How does it scale?** Two axes. Tables are goroutines, bounded by model-call concurrency and the budget, and shard by table id when a split is needed. Viewers are sockets, up to what the box can hold; past that, relays fan out the same stream.
 - **Why are the stats fast?** They never leave memory; viewers get deltas; newcomers get one immutable file from the CDN.
 - **A million viewers?** 25 to 30 relays and about 100 TB a month. The game server does not change. Not planned; defined.
 - **Why SSE and not WebSockets or polling?** One-way traffic over plain HTTP with resume built in, versus a two-way protocol without resume, or 5,000 requests a second for a table that changes every five.
