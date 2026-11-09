@@ -133,7 +133,7 @@ def test_the_size_on_the_action_line_is_read():
 def test_an_amount_that_is_not_chips_is_a_miss(amount):  # bet 10–1,930
     out = decide.decide(turn_check_request(), said(f"ACTION: bet\nAMOUNT: {amount}\nREASON: Value.", "ACTION: bet\nAMOUNT: 300"))
     assert (out["action"], out["amount"], out["status"], out["retried"]) == ("RAISE", 300, "ok", True)
-    assert "AMOUNT must be in chips" in out["retry_prompt"]
+    assert "AMOUNT must be" in out["retry_prompt"]
 
 
 def test_chips_with_a_note_are_chips():
@@ -160,3 +160,106 @@ def test_mock_only_picks_legal_actions(request_):
     random.seed(1)
     outs = [decide.decide(request_, mock.complete) for _ in range(500)]
     assert not [o for o in outs if o["retried"] or o["status"] != "ok"]
+
+
+# --- Second round (the verifiers' attacks on the first fix): a label counts only at the start
+# of a line, the ACTION line holds one move, and a size is one clean number of chips.
+
+@pytest.mark.parametrize("request_,reply,want", [
+    (turn_request(), "ACTION: fold\nAMOUNT: 0\nREASON: Facing this action: raise to 300 from a tight player, my hand is too weak.", ("FOLD", 0)),
+    (turn_request(), "ACTION: call\nAMOUNT: 0\nREASON: Odds.\nALTERNATIVE ACTION: raise to 300", ("CALL", 0)),
+    (turn_request(), "ACTION: fold\nAMOUNT: 0\nREASON: Weak.\n\nPlayer 1 (SB): ACTION: raise to 400", ("FOLD", 0)),
+    (turn_check_request(), "ACTION: check\nAMOUNT: 0\nREASON: Pot control after the flop action: bet 40, call.", ("CHECK", 0)),
+    (turn_request(), "ACTION: fold\nAMOUNT: 0\nREASON: Q-high cannot continue.\n\nSummary:\n- Villain action: all-in\n- My equity: about 20%", ("FOLD", 0)),
+    (short_stack_request(), "ACTION: fold\nAMOUNT: 0\nREASON: Q-high cannot continue.\n\nSummary:\n- Villain action: all-in", ("FOLD", 0)),
+    (turn_request(), "ACTION: raise\nAMOUNT: 300\nREASON: Value. If he shoves, next action: fold.", ("RAISE", 300)),
+    (turn_request(), "ACTION: raise to 300\nREASON: The call amount: 250 is poor value, so I raise instead.", ("RAISE", 300)),
+])
+def test_a_label_counts_only_at_the_start_of_a_line(request_, reply, want):
+    assert play(request_, reply) == (*want, "ok", False)
+
+
+@pytest.mark.parametrize("line", [
+    "call would be too loose here, so I fold.", "all in all, calling is fine", "all-in call", "Fold? No. Call.",
+    "fold, check, call, bet, raise or all-in", "check or bet small", "raise to 300 is tempting, but I will just call.",
+    "all-in, though a call is fine too",
+])
+def test_an_action_line_that_says_more_than_one_move_is_a_miss(line):
+    out = decide.decide(turn_request(), said(f"ACTION: {line}\nAMOUNT: 100\nREASON: x", CALL))
+    assert (out["action"], out["status"], out["retried"]) == ("CALL", "ok", True)
+    assert "one move" in out["retry_prompt"]
+
+
+@pytest.mark.parametrize("line", ["go all-in", "going all in", "raise to all-in", "raise (all-in)", "all-in for 1,130 chips", "ALL-IN!", "all in (1,130)"])
+def test_shove_wordings(line):
+    assert play(turn_request(), f"ACTION: {line}\nREASON: Max pressure.")[::2] == ("ALL_IN", "ok")
+
+
+@pytest.mark.parametrize("amount", [
+    "12.5 BB", "22.5BB", "12 BBs", "12bbs", "15 big-blinds", "30 blinds", "12×BB = 120", "2.5x = 250", "2*60 = 120", "2*60",
+    "170 * 0.7 = 119", "pot is 170, so 113 (two thirds)", "112,5", "200 more, 300 total", "half pot (85)", "1 200",
+])
+def test_a_size_that_is_not_one_number_of_chips_is_a_miss(amount):  # bet 10–1,930
+    out = decide.decide(turn_check_request(), said(f"ACTION: bet\nAMOUNT: {amount}\nREASON: Value.", "ACTION: bet\nAMOUNT: 300"))
+    assert (out["action"], out["amount"], out["status"], out["retried"]) == ("RAISE", 300, "ok", True)
+    assert "AMOUNT must be" in out["retry_prompt"]
+
+
+@pytest.mark.parametrize("amount,chips", [
+    ("300", 300), ("$1,130", 1130), ("raise to 300", 300), ("300 chips", 300), ("300 total", 300), ("300.", 300),
+    ("300.00", 300), ("300 (3x the bet)", 300), ("300,", 300),
+])
+def test_a_plain_size_is_read(amount, chips):
+    assert play(turn_request(), f"ACTION: raise\nAMOUNT: {amount}\nREASON: Value.") == ("RAISE", chips, "ok", False)
+
+
+def test_the_size_on_the_action_line_must_follow_the_word():
+    assert play(turn_request(), "ACTION: raise to $300\nREASON: Value.") == ("RAISE", 300, "ok", False)
+    for line in ["raise (min 200) to 300", "raise to 200–1,130", "raise"]:
+        out = decide.decide(turn_request(), said(f"ACTION: {line}\nREASON: Value.", CALL))
+        assert out["retried"] and "AMOUNT" in out["retry_prompt"], line
+    out = decide.decide(turn_request(), said("ACTION: raise\nREASON: The amount: 300 gives him 2 to 1.", CALL))
+    assert out["retried"] and "needs its size" in out["retry_prompt"]
+
+
+def test_amount_all_in_is_the_all_in():
+    assert play(turn_request(), "ACTION: raise\nAMOUNT: all-in\nREASON: Max pressure.")[::2] == ("ALL_IN", "ok")
+
+
+def test_a_label_alone_on_its_line_takes_the_next_line():
+    assert play(turn_request(), "**ACTION:**\ncall\n\n**AMOUNT:**\n0\n\n**REASON:**\nOdds.") == ("CALL", 0, "ok", False)
+    out = decide.decide(turn_request(), said("ACTION:\nraise\nAMOUNT:\n300\nREASON:\nValue."))
+    assert (out["action"], out["amount"], out["reason"], out["status"]) == ("RAISE", 300, "Value.", "ok")
+
+
+@pytest.mark.parametrize("reply", [
+    "ACTION: raise<br>AMOUNT: 300<br>REASON: Value.", "ACTION: raise, AMOUNT: 300, REASON: value",
+    "{ACTION: raise, AMOUNT: 300, REASON: value}", "ACTION: raise,\nAMOUNT: 300,\nREASON: value",
+    "1. ACTION: raise\n2. AMOUNT: 300\n3. REASON: value", "> ACTION: raise\n> AMOUNT: 300", "ACTION : raise\r\nAMOUNT : 300\r\n",
+])
+def test_dress_does_not_matter(reply):
+    assert play(turn_request(), reply) == ("RAISE", 300, "ok", False)
+
+
+def test_a_bare_move_may_carry_its_number_but_not_prose():
+    assert play(turn_request(), "Call 100\nREASON: Odds.") == ("CALL", 0, "ok", False)
+    assert play(turn_request(), "Raise 300 chips") == ("RAISE", 300, "ok", False)
+    for reply in ["Call. The pot odds are good.", "Fold - too weak to continue.", "Call me crazy but I am folding."]:
+        assert play(turn_request(), reply, CALL)[3], reply  # retried
+
+
+def test_cut_off_needs_the_reason_after_the_action():
+    reply = "REASON: Value bet.\nACTION: bet\nAMOUNT: 12"  # cut from 120
+    assert play(turn_check_request(), reply, reply, finish_reason="length")[2] == "unparseable"
+    assert play(turn_check_request(), reply) == ("RAISE", 12, "ok", False)  # whole: a lone answer may follow its reason
+
+
+def test_no_reply_makes_the_parser_slow():
+    import time
+    replies = ["ACTION: call" + " " * 50_000, "ACTION: call" + "\t" * 50_000 + "x", "\n" * 50_000, "call" + " " * 50_000 + "x",
+               "ACTION: raise\nAMOUNT: " + "9" * 50_000, "ACTION: " + "(" * 50_000, "- " * 25_000, "ACTION: call " + "!- " * 15_000,
+               "ACTION:" * 7_000, "REASON:" * 7_000, "*" * 50_000, "\r\n" * 25_000]
+    for reply in replies:
+        start = time.perf_counter()
+        parsing.parse_response(reply)
+        assert time.perf_counter() - start < 0.5, reply[:30]

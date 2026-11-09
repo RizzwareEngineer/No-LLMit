@@ -36,16 +36,16 @@ def check_legal(parsed: dict, request: DecisionRequest) -> str:
     action, amount, all_in = parsed["action"], parsed["amount"], legal.get("ALL_IN")
     if action == "RAISE":
         sizing, word = legal.get("BET") or legal.get("RAISE"), bet_word(request)
-        if parsed.get("unit"):
-            # "30 BB" played as 30 chips would be a different move from the one the model made.
-            return "AMOUNT must be in chips, not big blinds, a multiple or a percentage"
         if not sizing:
-            if all_in and amount == all_in.amount:
+            if all_in and amount == all_in.amount and not parsed.get("size_problem"):
                 parsed["action"] = "ALL_IN"
                 return ""
             if all_in and request.to_call < request.stack:
                 return f"the only {word} here is all-in {all_in.amount:,}"
             return f"no {word} is legal here"
+        if parsed.get("size_problem"):
+            # "30 BB" played as 30 chips, or the first number of a sum, would not be the model's bet.
+            return parsed["size_problem"]
         said = f"{word} to {amount:,}" if word == "raise" else f"{word} {amount:,}"
         if amount < sizing.min:
             return f"{said} is below the minimum {sizing.min:,}"
@@ -109,9 +109,10 @@ def decide(request: DecisionRequest, complete) -> dict:
             log.exception("the parser failed on a reply")
             parsed = {"action": "FOLD", "amount": 0, "reason": "", "status": "unparseable",
                       "problem": "the reply could not be read"}
-        # A reply the token limit cut off before its REASON is not an answer: "bet 12" may be half of 120.
-        if parsed["status"] == "ok" and reply.get("finish_reason") == "length" and not parsed["reason"]:
-            parsed["status"], parsed["problem"] = "unparseable", "the reply was cut off before it finished"
+        # A reply the token limit cut off before the end of its answer (the REASON comes last)
+        # is not an answer: "bet 12" may be half of 120.
+        if reply.get("finish_reason") == "length" and not parsed.get("complete"):
+            parsed.update(action="FOLD", amount=0, status="unparseable", problem="the reply was cut off before it finished")
         out["reason"] = parsed["reason"]
         problem = check_legal(parsed, request)
         out.update(action=parsed["action"], amount=parsed["amount"])
