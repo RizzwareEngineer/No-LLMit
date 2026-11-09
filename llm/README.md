@@ -116,15 +116,18 @@ Request (`schemas.py` `DecisionRequest`):
 `seats` run clockwise from the small blind with current stacks. Action amounts are chips
 added for `post` and `call` and the street total for `raise` and `all_in`; `pot` on a street
 is the pot when it began. When the bet covers the player's stack the engine lists `CALL`
-with the player's remaining chips, rendered as `CALL N (x BB), all-in`.
+with the player's remaining chips beside the `ALL-IN`; the prompt shows them as one move,
+`call all-in N`, and `call` or `all-in` in the reply both play as that all-in. A raise is
+only listed while an opponent can still respond: facing a lone all-in the list is fold and
+call (or fold and `call all-in N` when covered).
 
 Response (`DecisionResponse`):
 ```json
 {
   "action": "RAISE", "amount": 150, "reason": "Strong hand in position.",
-  "raw": "ACTION: RAISE\nAMOUNT: 150\nREASON: Strong hand in position.",
+  "raw": "ACTION: raise\nAMOUNT: 150\nREASON: Strong hand in position.",
   "latency_ms": 1234, "status": "ok", "retried": false, "error": null,
-  "prompt": "Blinds 5/10 (1 BB = 10 chips).\n\nSeats, current stacks:\n...",
+  "prompt": "Blinds 5/10.\n\nOpponents:\n...",
   "retry_prompt": null,
   "provider": "openrouter", "model": "microsoft/phi-4",
   "tokens_in": 812, "tokens_out": 41, "cost_usd": 0.00002, "prompt_version": "f605559",
@@ -158,11 +161,32 @@ go to every model; no model name, hand number or "still in the hand" list appear
 `web/src/lib/systemPrompt.ts` shows copies on the About page; `tests/test_prompts.py` fails
 when they drift.
 
+The system prompt says what each message holds and asks for the three-line reply. The user
+prompt is a hand history: the blinds, the opponents' current stacks (chips, BB in
+parentheses), one line for the player (`You are Player 4 (UTG+1), 1,130 (113 BB), holding
+As Kd.`), one line per street with the cards dealt on it, every action and the pot after
+them (`Turn [9d]: Player 1 (SB) bets 100. Pot 250.`), then one line of legal actions.
+Players are `Player N (POS)`, N the seat number. Action amounts follow hand-history
+convention: `calls N` is chips added; `bets N`, `raises to N` and `all-in for N` are the
+player's total on that street.
+
+The legal-actions line lists, in this order, `fold`, `check`, `call N`, `bet N–M` or
+`raise to N–M` (street totals; `bet` while nothing has been bet on the street, so the big
+blind's preflop option is a raise), then the all-in: `call all-in N` when the bet covers the
+stack (N the whole stack, the only way to call), `bet all-in N` or `raise all-in N` otherwise
+(N the street total). Facing a lone all-in the engine lists no raise, so the line is
+`fold, call 100`; too short to min-raise it is `fold, call 100, raise all-in 150`.
+
 The reply format is ACTION, AMOUNT, REASON in that order for every model. Models with a
 reasoning channel think there before the first line; models without one commit first and
 explain after. Putting REASON first would turn it into a thinking dump that the site has to
 display, and a long one risks being cut off before the ACTION line, the worst failure. The
-parser takes the last ACTION line, strips markdown and accepts commas in amounts.
+parser takes the last ACTION line, strips markdown, reads either case and commas in
+amounts, and reads `raise all-in` or `call all-in` as the all-in. `bet` where the legal
+action is RAISE is a raise; `call` when only the all-in is legal and the bet covers the
+stack is that all-in; a raise to the all-in total is a raise when one is legal and the
+all-in otherwise. The retry message after a bad reply is `That reply wasn't legal: <reason>.
+Reply again in the three-line format with one of: <the legal-actions line>.`
 
 ## Budget and timeouts
 

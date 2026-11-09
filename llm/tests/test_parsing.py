@@ -47,3 +47,17 @@ def test_last_action_line_wins():
 def test_commas_and_currency_in_amounts():
     assert parse_response("ACTION: RAISE\nAMOUNT: $2,057")["amount"] == 2057
     assert parse_response("RAISE: 1,500")["amount"] == 1500
+
+
+@pytest.mark.parametrize("line,action", [
+    ("raise all-in", "ALL_IN"), ("call all-in", "ALL_IN"), ("bet all in", "ALL_IN"), ("Raise to 200", "RAISE"),
+    ("call", "CALL"), ("Check.", "CHECK"), ("fold (nothing to do)", "FOLD"),
+])
+def test_action_line_wording(line, action):
+    assert parse_response(f"ACTION: {line}\nAMOUNT: 0")["action"] == action
+
+
+def test_amount_line_wording():
+    assert parse_response("ACTION: raise\nAMOUNT: raise to 1,130")["amount"] == 1130
+    assert parse_response("ACTION: raise\nAMOUNT: 200 chips")["amount"] == 200
+    assert parse_response("ACTION: call\nAMOUNT: 0 (a call)")["amount"] == 0

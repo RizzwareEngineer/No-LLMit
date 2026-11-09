@@ -26,7 +26,8 @@ running the mock provider, with its prompts alongside.
   `service_error` that the LLM service itself was unreachable. Exclude all of them from
   playing-style statistics; count only the first two against the model.
 - An `unparseable` or `illegal` reply is retried once: the model gets its own reply back
-  with the reason and the legal list as a follow-up message, and `retried` is true.
+  with the reason and the legal-actions line as a follow-up message (`That reply wasn't
+  legal: …`), and `retried` is true.
   `parsed` is then the retry's reply, the prompt's `raw_reply` holds both separated by
   `--- retry ---`, and `retry_prompt` is the follow-up. If the retry is also bad, the
   fallback is `CHECK` when checking is legal and `FOLD` otherwise. Provider failures are
@@ -37,6 +38,10 @@ running the mock provider, with its prompts alongside.
 - `result.net` is each seat's chips won or lost on the hand and sums to zero.
 - Amounts on `BET`, `RAISE` and `ALL_IN` are the player's total bet for that street; on
   `CALL` they are the chips added.
+- A call that covers the player's stack is offered as `call all-in N` and may come back as
+  `call` or `all-in`: `parsed` keeps the model's word, `applied` is `ALL_IN` with the street
+  total. A raise is only offered while an opponent can respond, so facing a lone all-in the
+  legal list is fold and call. The prompt format itself is described in `llm/README.md`.
 
 ## Where hands are saved
 

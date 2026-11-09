@@ -1,73 +1,92 @@
 import re
 from pathlib import Path
 
-from conftest import flop_request, preflop_request, short_stack_request, with_
-from prompts import prompt_version, render_retry_prompt, render_user_prompt, system_prompt
+from conftest import (
+    preflop_request, short_raise_request, short_stack_request, turn_check_request, turn_request, with_,
+)
+from prompts import prompt_version, render_legal_actions, render_retry_prompt, render_user_prompt, system_prompt
 from registry import MODELS
 
 WEB_PROMPTS = Path(__file__).resolve().parents[2] / "web" / "src" / "lib" / "systemPrompt.ts"
 
-PREFLOP = """Blinds 5/10 (1 BB = 10 chips).
+PREFLOP = """Blinds 5/10.
 
-Seats, current stacks:
-Player 8 (SB): 1953 (195.3 BB)
-Player 9 (BB): 1990 (199 BB)
-Player 1 (UTG): 2057 (205.7 BB)
-Player 2 (UTG+1): 2000 (200 BB)
-Player 3 (MP): 2000 (200 BB)
-Player 4 (MP+1): 2000 (200 BB)
-Player 5 (HJ): 2000 (200 BB)
-Player 6 (CO): 1990 (199 BB)
-Player 7 (BTN): 1995 (199.5 BB)
+Opponents:
+Player 8 (SB): 1,953 (195.3 BB)
+Player 9 (BB): 1,990 (199 BB)
+Player 2 (UTG+1): 2,000 (200 BB)
+Player 3 (MP): 2,000 (200 BB)
+Player 4 (MP+1): 2,000 (200 BB)
+Player 5 (HJ): 2,000 (200 BB)
+Player 6 (CO): 1,990 (199 BB)
+Player 7 (BTN): 1,995 (199.5 BB)
 
-Preflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB)
+You are Player 1 (UTG), 2,057 (205.7 BB), holding Ks 4d.
 
-You are Player 1 (UTG). Your hole cards: Ks 4d.
-Pot: 15 (1.5 BB). To call: 10 (1 BB). Your stack: 2057 (205.7 BB).
+Preflop: Player 8 (SB) posts 5, Player 9 (BB) posts 10. Pot 15.
 
-Legal actions:
-- FOLD
-- CALL 10 (1 BB)
-- RAISE 20 to 2057 (2 to 205.7 BB)
-- ALL_IN"""
+Legal actions: fold, call 10, raise to 20–2,057, raise all-in 2,057."""
 
-FLOP_TAIL = """Preflop: Player 8 (SB) posts small blind 5 (0.5 BB), Player 9 (BB) posts big blind 10 (1 BB), Player 1 (UTG) folds, Player 2 (UTG+1) folds, Player 3 (MP) folds, Player 4 (MP+1) folds, Player 5 (HJ) folds, Player 6 (CO) folds, Player 7 (BTN) raises to 30 (3 BB), Player 8 (SB) calls 25 (2.5 BB), Player 9 (BB) calls 20 (2 BB)
-Flop [Ah 7d 2c], pot 90 (9 BB): Player 8 (SB) checks, Player 9 (BB) checks, Player 7 (BTN) bets 40 (4 BB), Player 8 (SB) folds
+# The owner's spec example, word for word.
+TURN = """Blinds 5/10.
 
-You are Player 9 (BB). Your hole cards: Ad Tc.
-Pot: 130 (13 BB). To call: 40 (4 BB). Your stack: 1970 (197 BB).
+Opponents:
+Player 1 (SB): 1,075 (107.5 BB)
+Player 2 (BB): 970 (97 BB)
+Player 3 (UTG): 1,500 (150 BB)
+Player 5 (MP): 1,000 (100 BB)
+Player 6 (MP+1): 1,000 (100 BB)
+Player 7 (HJ): 1,000 (100 BB)
+Player 8 (CO): 1,000 (100 BB)
+Player 9 (BTN): 870 (87 BB)
 
-Legal actions:
-- FOLD
-- CALL 40 (4 BB)
-- RAISE 80 to 1970 (8 to 197 BB)
-- ALL_IN"""
+You are Player 4 (UTG+1), 1,130 (113 BB), holding As Kd.
+
+Preflop: Player 1 (SB) posts 5, Player 2 (BB) posts 10, Player 3 (UTG) folds, Player 4 (UTG+1) raises to 30, Player 5 (MP) folds, Player 6 (MP+1) folds, Player 7 (HJ) folds, Player 8 (CO) folds, Player 9 (BTN) folds, Player 1 (SB) calls 25, Player 2 (BB) folds. Pot 70.
+Flop [Qh 7s 2c]: Player 1 (SB) checks, Player 4 (UTG+1) bets 40, Player 1 (SB) calls 40. Pot 150.
+Turn [9d]: Player 1 (SB) bets 100. Pot 250.
+
+Legal actions: fold, call 100, raise to 200–1,130, raise all-in 1,130."""
 
 
 def test_preflop_golden():
     assert render_user_prompt(preflop_request()) == PREFLOP
 
 
-def test_flop_golden():
-    prompt = render_user_prompt(flop_request())
-    assert prompt.endswith(FLOP_TAIL)
-    assert "Player 8 (SB): 1930 (193 BB)" in prompt  # current stack, not the hand's start
+def test_turn_golden():
+    assert render_user_prompt(turn_request()) == TURN
 
 
-def test_all_in_call_is_marked():
-    prompt = render_user_prompt(short_stack_request())
-    assert "- CALL 60 (6 BB), all-in" in prompt
-    assert "Your stack: 60 (6 BB)" in prompt
+def test_unopened_street_has_no_action_yet_and_bets():
+    prompt = render_user_prompt(turn_check_request())
+    assert "Player 9 (BB) calls 40. Pot 170.\nTurn [Kc]: no action yet. Pot 170.\n" in prompt
+    assert prompt.endswith("Legal actions: fold, check, bet 10–1,930, bet all-in 1,930.")
+    assert "You are Player 9 (BB), 1,930 (193 BB), holding Ad Tc." in prompt
 
 
-def test_postflop_first_bet_street_has_no_action_yet():
-    r = flop_request()
-    r = with_(r, streets=r.model_dump()["streets"] + [{"street": "turn", "board": ["Ah", "7d", "2c", "Kc"], "pot": 170}])
-    assert "\nTurn [Ah 7d 2c Kc], pot 170 (17 BB): no action yet\n" in render_user_prompt(r)
+def test_covered_call_is_one_move():
+    """Whether the engine lists CALL beside the ALL-IN or the ALL-IN alone, the line reads the same."""
+    r = short_stack_request()
+    assert render_legal_actions(r) == "fold, call all-in 60"
+    assert render_legal_actions(with_(r, legal_actions=[{"type": "FOLD"}, {"type": "ALL-IN", "amount": 65}])) == "fold, call all-in 60"
+    assert "You are Player 8 (SB), 60 (6 BB), holding Qh Qs." in render_user_prompt(r)
+
+
+def test_all_in_is_the_only_raise_when_too_short_to_min_raise():
+    assert render_legal_actions(short_raise_request()) == "fold, call 100, raise all-in 150"
+
+
+def test_big_blind_option_raises_rather_than_bets():
+    """to_call is 0 but the blind is a bet: the option is a raise, as the action line says."""
+    actions = preflop_request().streets[0].actions + [{"seat": s, "action": "fold"} for s in range(7)] + [{"seat": 7, "action": "call", "amount": 5}]
+    r = preflop_request(streets=[{"street": "preflop", "actions": actions}], seat=8, position="BB", hole_cards=["7h", "2d"],
+                        pot=20, to_call=0, stack=1990,
+                        legal_actions=[{"type": "FOLD"}, {"type": "CHECK"}, {"type": "RAISE", "min": 20, "max": 1990}, {"type": "ALL-IN", "amount": 1990}])
+    assert render_legal_actions(r) == "fold, check, raise to 20–1,990, raise all-in 1,990"
 
 
 def test_no_model_name_or_hand_number_anywhere():
-    for text in (system_prompt, render_user_prompt(preflop_request()), render_user_prompt(flop_request())):
+    for text in (system_prompt, render_user_prompt(preflop_request()), render_user_prompt(turn_request())):
         assert "Hand #" not in text and "Still in the hand" not in text
         for name, slug in MODELS.items():
             assert name not in text and slug not in text
@@ -75,10 +94,10 @@ def test_no_model_name_or_hand_number_anywhere():
             assert word not in text
 
 
-def test_retry_prompt_names_the_problem_and_the_legal_list():
-    text = render_retry_prompt("CHECK is not legal here: there is 10 to call", preflop_request())
-    assert text.startswith("Your reply was invalid: CHECK is not legal here: there is 10 to call.")
-    assert "- CALL 10 (1 BB)\n- RAISE 20 to 2057 (2 to 205.7 BB)\n- ALL_IN" in text
+def test_retry_prompt_names_the_problem_and_the_legal_line():
+    text = render_retry_prompt("there is 10 to call, so check is not legal", preflop_request())
+    assert text == ("That reply wasn't legal: there is 10 to call, so check is not legal. "
+                    "Reply again in the three-line format with one of: fold, call 10, raise to 20–2,057, raise all-in 2,057.")
 
 
 def test_version_is_a_short_hash():
@@ -95,5 +114,5 @@ def _web_export(name: str) -> str:
 def test_web_copies_match():
     """The About page shows these; they must be what the models really get."""
     assert _web_export("SYSTEM_PROMPT") == system_prompt
-    assert _web_export("EXAMPLE_USER_PROMPT") == render_user_prompt(flop_request())
-    assert _web_export("EXAMPLE_REPLY").startswith("ACTION: ")
+    assert _web_export("EXAMPLE_USER_PROMPT") == render_user_prompt(turn_request())
+    assert re.fullmatch(r"ACTION: [a-z-]+\nAMOUNT: [\d,]+\nREASON: .+", _web_export("EXAMPLE_REPLY"))

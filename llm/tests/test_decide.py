@@ -1,7 +1,7 @@
 import requests
 
 import decide
-from conftest import flop_request, preflop_request, short_stack_request, with_
+from conftest import preflop_request, short_raise_request, short_stack_request, turn_check_request, with_
 from providers.openrouter import ProviderError
 
 
@@ -39,7 +39,8 @@ def test_illegal_reply_is_retried_once_then_played():
     assert (out["action"], out["status"], out["retried"]) == ("CALL", "ok", True)
     retry = complete.calls[1]["messages"]
     assert retry[2] == {"role": "assistant", "content": "ACTION: CHECK\nAMOUNT: 0\nREASON: Free card."}
-    assert retry[3]["content"].startswith("Your reply was invalid: CHECK is not legal here: there is 10 to call.")
+    assert retry[3]["content"] == ("That reply wasn't legal: there is 10 to call, so check is not legal. "
+                                   "Reply again in the three-line format with one of: fold, call 10, raise to 20–2,057, raise all-in 2,057.")
     assert out["retry_prompt"] == retry[3]["content"]
     assert "--- retry ---" in out["raw"]
     assert out["usage"] == {"prompt_tokens": 200, "completion_tokens": 20, "cost": 0.002}
@@ -54,17 +55,41 @@ def test_two_illegal_replies_fall_back_to_fold():
 
 
 def test_two_unreadable_replies_are_unparseable():
-    r = with_(flop_request(), to_call=0, legal_actions=[{"type": "FOLD"}, {"type": "CHECK"}, {"type": "BET", "min": 10, "max": 1970}])
-    out = decide.decide(r, scripted("hmm", "I would like to think about it"))
+    out = decide.decide(turn_check_request(), scripted("hmm", "I would like to think about it"))
     assert (out["action"], out["status"], out["retried"]) == ("FOLD", "unparseable", True)
 
 
-def test_all_in_call_and_bet_naming():
-    out = decide.decide(short_stack_request(), scripted("ACTION: CALL\nAMOUNT: 0\nREASON: Queens."))
+def test_problems_use_the_prompts_words():
+    r = turn_check_request()
+    assert decide.check_legal({"status": "ok", "action": "RAISE", "amount": 5}, r) == "bet 5 is below the minimum 10"
+    assert decide.check_legal({"status": "ok", "action": "RAISE", "amount": 5000}, r) == "bet 5,000 is above the maximum 1,930"
+    assert decide.check_legal({"status": "ok", "action": "RAISE", "amount": 15}, preflop_request()) == "raise to 15 is below the minimum 20"
+    assert decide.check_legal({"status": "ok", "action": "CALL", "amount": 0}, r) == "there is nothing to call"
+    assert decide.check_legal({"status": "ok", "action": "RAISE", "amount": 140}, short_raise_request()) == "no raise is legal here"
+    assert decide.check_legal({"status": "ok", "action": "ALL_IN", "amount": 0}, with_(r, legal_actions=r.legal_actions[:3])) == "all-in is not legal here"
+
+
+def test_covered_call_is_played_as_the_engine_lists_it():
+    # The engine lists CALL beside the ALL-IN: the call stays a call (the engine plays it all-in).
+    out = decide.decide(short_stack_request(), scripted("ACTION: call\nAMOUNT: 0\nREASON: Queens."))
     assert (out["action"], out["status"]) == ("CALL", "ok")
-    r = with_(flop_request(), to_call=0, legal_actions=[{"type": "FOLD"}, {"type": "CHECK"}, {"type": "BET", "min": 10, "max": 1970}])
-    assert decide.check_legal({"status": "ok", "action": "RAISE", "amount": 5}, r) == "BET 5 is below the minimum 10"
-    assert decide.check_legal({"status": "ok", "action": "CALL", "amount": 0}, r) == "CALL is not legal here: there is nothing to call"
+    # With the ALL-IN alone, "call" is that all-in: the model called for its whole stack.
+    r = with_(short_stack_request(), legal_actions=[{"type": "FOLD"}, {"type": "ALL-IN", "amount": 65}])
+    out = decide.decide(r, scripted("ACTION: call\nAMOUNT: 0\nREASON: Queens."))
+    assert (out["action"], out["status"]) == ("ALL_IN", "ok")
+    out = decide.decide(r, scripted("ACTION: call all-in\nAMOUNT: 0\nREASON: Queens."))
+    assert (out["action"], out["status"]) == ("ALL_IN", "ok")
+
+
+def test_raise_to_the_all_in_total_is_legal():
+    # No raise is legal, but a raise to the all-in total is the all-in.
+    out = decide.decide(short_raise_request(), scripted("ACTION: raise\nAMOUNT: 150\nREASON: Jam."))
+    assert (out["action"], out["amount"], out["status"]) == ("ALL_IN", 150, "ok")
+    # A raise is legal and its maximum is the all-in total: it stays a raise, which the engine plays all-in.
+    out = decide.decide(preflop_request(), scripted("ACTION: raise\nAMOUNT: 2,057\nREASON: Jam."))
+    assert (out["action"], out["amount"], out["status"]) == ("RAISE", 2057, "ok")
+    out = decide.decide(preflop_request(), scripted("ACTION: raise all-in\nAMOUNT: 2057\nREASON: Jam."))
+    assert (out["action"], out["status"]) == ("ALL_IN", "ok")
 
 
 def test_provider_failures_retry_then_fall_back(monkeypatch):
