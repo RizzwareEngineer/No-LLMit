@@ -54,7 +54,8 @@ Where it differs from a real PokerStars file:
 - Side pots are not itemized: each winner gets one `collected N from pot` line with their total,
   and the summary is `Total pot N | Rake 0` without `Main pot` / `Side pot` amounts.
 - Uncalled bets are derived from the actions and printed as `Uncalled bet (N) returned to X`, as PokerStars does.
-- When a short all-in wins because everyone else folds, the engine pays it the whole pot, unmatched chips included.
+- In hands recorded before 2026-11-09 a short all-in could win the whole pot, unmatched chips included, when the last
+  player with chips folded with nothing to call (the engine no longer gives that player a turn: the board runs out).
   Those hands follow the engine's payout (no uncalled-bet line) and end with a `#note <hand_id>: ...` line.
   `hh.py` never fails on a hand: one it cannot write is left out and named on stderr.
 

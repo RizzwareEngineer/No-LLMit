@@ -518,6 +518,8 @@ func (t *Table) playHand() {
 func (t *Table) saveHand() {
 	record, prompts := t.recorder.finish(t.gs)
 	t.recorder = nil
+	// shortcut: a hand with no decision is not saved; heads-up, a blind posted all-in makes
+	// such a hand and its chips go unrecorded. Save it once two-seat tables exist.
 	if len(record.Actions) == 0 {
 		return
 	}

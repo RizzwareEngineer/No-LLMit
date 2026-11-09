@@ -1,6 +1,7 @@
 """One turn: render the prompts, ask the model, parse and check the reply, retry once on
 the model's own miss, retry provider failures while time remains, then fall back."""
 
+import logging
 import time
 
 import requests
@@ -21,6 +22,8 @@ MIN_REQUEST = 3.0  # not worth asking with less time than this left
 
 SUM_FIELDS = ("prompt_tokens", "completion_tokens", "cost", "reasoning_tokens")
 
+log = logging.getLogger(__name__)
+
 
 def check_legal(parsed: dict, request: DecisionRequest) -> str:
     """Why the parsed reply cannot be played, or "" when it can. The engine's legal list
@@ -28,16 +31,21 @@ def check_legal(parsed: dict, request: DecisionRequest) -> str:
     that names the same move as a legal all-in is rewritten to ALL_IN: "call" when the
     bet covers the stack, or a raise to the all-in total when no raise is legal."""
     if parsed["status"] == "unparseable":
-        return "no ACTION line was found"
+        return parsed.get("problem") or "no ACTION line was found"
     legal = {a.type.replace("-", "_"): a for a in request.legal_actions}
     action, amount, all_in = parsed["action"], parsed["amount"], legal.get("ALL_IN")
     if action == "RAISE":
         sizing, word = legal.get("BET") or legal.get("RAISE"), bet_word(request)
         if not sizing:
-            if all_in and amount == all_in.amount:
+            if all_in and amount == all_in.amount and not parsed.get("size_problem"):
                 parsed["action"] = "ALL_IN"
                 return ""
+            if all_in and request.to_call < request.stack:
+                return f"the only {word} here is all-in {all_in.amount:,}"
             return f"no {word} is legal here"
+        if parsed.get("size_problem"):
+            # "30 BB" played as 30 chips, or the first number of a sum, would not be the model's bet.
+            return parsed["size_problem"]
         said = f"{word} to {amount:,}" if word == "raise" else f"{word} {amount:,}"
         if amount < sizing.min:
             return f"{said} is below the minimum {sizing.min:,}"
@@ -50,7 +58,7 @@ def check_legal(parsed: dict, request: DecisionRequest) -> str:
         parsed["action"] = "ALL_IN"  # a call for the whole stack is the all-in
         return ""
     if action == "CHECK":
-        return f"there is {request.to_call:,} to call, so check is not legal"
+        return f"there is {min(request.to_call, request.stack):,} to call, so check is not legal"
     if action == "CALL":
         return "there is nothing to call"
     return f"{action.lower().replace('_', '-')} is not legal here"
@@ -95,7 +103,16 @@ def decide(request: DecisionRequest, complete) -> dict:
             break
         raws.append(reply["raw"])
         _merge(out, reply)
-        parsed = parse_response(reply["raw"])
+        try:
+            parsed = parse_response(reply["raw"])
+        except Exception as e:  # our bug, not the model's miss: never a 500, never charged to the model
+            log.exception("the parser failed on a reply")
+            out.update(status="service_error", error=f"parser: {e}")
+            break
+        # A reply the token limit cut off before the end of its answer (the REASON comes last)
+        # is not an answer: "bet 12" may be half of 120.
+        if reply.get("finish_reason") == "length" and not parsed.get("complete"):
+            parsed.update(action="FOLD", amount=0, status="unparseable", problem="the reply was cut off before it finished")
         out["reason"] = parsed["reason"]
         problem = check_legal(parsed, request)
         out.update(action=parsed["action"], amount=parsed["amount"])

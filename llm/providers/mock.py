@@ -15,17 +15,10 @@ def complete(request: DecisionRequest, messages: list[dict], timeout: float) -> 
     by_type = {a.type.replace("-", "_"): a for a in request.legal_actions}
     sizing = by_type.get("BET") or by_type.get("RAISE")
 
-    if "CHECK" in by_type:
-        choices, weights = ["CHECK", "BET"], [70, 30]
-    else:
-        # A rare shove, so all-in spots (and all-in EV) show up in local data.
-        choices, weights = ["FOLD", "CALL", "RAISE", "ALL_IN"], [53, 32, 12, 3]
-
-    action = random.choices(choices, weights)[0]
-    if action in ("BET", "RAISE") and not sizing:
-        action = "CHECK" if "CHECK" in by_type else "FOLD"
-    if action == "CALL" and "CALL" not in by_type:
-        action = "ALL_IN" if random.random() < 0.2 else "FOLD"
+    # Only moves the engine listed; a rare shove, so all-in spots (and all-in EV) show up in local data.
+    options = [("CHECK", 70), ("BET", 30)] if "CHECK" in by_type else [("FOLD", 53), ("CALL", 32), ("RAISE", 12), ("ALL_IN", 3)]
+    legal = [(a, w) for a, w in options if (sizing if a in ("BET", "RAISE") else a in by_type)]
+    action = random.choices(*zip(*legal))[0] if legal else "FOLD"
 
     amount = 0
     if action in ("BET", "RAISE"):

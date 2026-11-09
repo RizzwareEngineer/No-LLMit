@@ -159,6 +159,9 @@ func (gs *GameState) StartHand() error {
 
 	gs.Street = StreetPreflop
 	gs.CurrentPlayerIdx = gs.GetFirstToAct()
+	if gs.IsBettingRoundComplete() {
+		gs.CurrentPlayerIdx = -1 // heads-up with a blind posted all-in: nothing to decide, the board runs out
+	}
 
 	return nil
 }
