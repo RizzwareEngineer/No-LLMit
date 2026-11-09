@@ -1982,7 +1982,9 @@ const bbText = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n) < 1000 ? M
 const bb100 = (v, bb) => (v.net_chips / bb / v.hands) * 100;
 // The models the Seated now lineup shows (lib/stats seatedModels): the seated with stats when two or more have them, else all.
 const seatedOf = stats => { const at = stats.models.filter(m => stats.seated?.includes(m.name)); return at.length >= 2 ? at : stats.models; };
-const cardCells = p => p.evaluate(() => [...document.querySelectorAll('#pairwise-card td[data-cell]')].map(td => ({ key: td.dataset.cell, hands: td.dataset.hands ?? null, text: td.querySelector('[aria-hidden]')?.textContent ?? td.textContent.trim() })));
+// A button in the Matchups card's header (the Trends card has an "All models" of its own in the page's order).
+const clickLineup = (p, t) => p.evaluate(t => { const b = [...document.querySelectorAll('#pairwise-card button')].find(e => e.textContent.trim() === t && e.getBoundingClientRect().width > 0); if (b) b.click(); return !!b; }, t);
+const cardCells = p => p.evaluate(() => [...document.querySelectorAll('#pairwise-card td[data-cell]')].map(td => ({ key: td.dataset.cell, hands: td.dataset.hands ?? null, text: td.querySelector('[aria-hidden]')?.textContent ?? '' }))); // the visible figure (the sr-only copy aside)
 group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/100: net_chips / big_blind / hands together x 100 from the engine, with those hands on it', async () => {
   const p = await pageAt(1440, 900, 'race');
   await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
@@ -2016,19 +2018,22 @@ group(() => check('matchups-all-models', 'The Matchups card\'s "All models" show
     const rows = [...card.querySelectorAll('tbody tr')], cell = rows[0]?.querySelectorAll('td')[1]?.getBoundingClientRect();
     const names = [...card.querySelectorAll('a [translate=no]')].map(e => e.textContent);
     const inBox = r => r.width > 0 && r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
-    const firstName = card.querySelector('a [translate=no]')?.getBoundingClientRect(), firstLogo = card.querySelector('thead th[scope=col]')?.getBoundingClientRect();
+    // Pinned: the first name stays in the box as the grid scrolls sideways; the logos' row stays at the top as it
+    // scrolls down (its columns scroll sideways with their cells, so the one over a visible column is in the box).
+    const firstName = card.querySelector('a [translate=no]')?.getBoundingClientRect();
+    const logos = [...card.querySelectorAll('thead th[scope=col]')].map(e => e.getBoundingClientRect()).filter(r => r.left >= box.left - 1 && r.right <= box.right + 1);
     const total = card.querySelector('[title^="Big blinds won"]')?.getBoundingClientRect();
-    return { rows: rows.length, names, cell: cell && [cell.width, cell.height], scrolls: [sc.scrollWidth - sc.clientWidth, sc.scrollHeight - sc.clientHeight], pinned: { name: firstName && inBox(firstName), logo: firstLogo && inBox(firstLogo), total: total && inBox(total) }, scrolled: [sc.scrollLeft, sc.scrollTop] };
+    return { rows: rows.length, names, cell: cell && [cell.width, cell.height], scrolls: [sc.scrollWidth - sc.clientWidth, sc.scrollHeight - sc.clientHeight], pinned: { name: firstName && inBox(firstName), logo: logos.length > 0 && logos.every(inBox), total: total && inBox(total) }, scrolled: [sc.scrollLeft, sc.scrollTop] };
   });
   const before = await state();
-  if (!(await clickText(p, 'All models'))) { await p.close(); return { pass: false, detail: 'no "All models" button on the Matchups card' }; }
+  if (!(await clickLineup(p, 'All models'))) { await p.close(); return { pass: false, detail: 'no "All models" button on the Matchups card' }; }
   await sleep(900);
   const after = await state();
   // Scroll the card's box half way across and down, then look for the first name, the first logo and the Total header.
   await p.evaluate(() => { const sc = document.querySelector('#pairwise-card .panel-scroll'); sc.scrollLeft = (sc.scrollWidth - sc.clientWidth) / 2; sc.scrollTop = (sc.scrollHeight - sc.clientHeight) / 2; });
   await sleep(500);
   const scrolled = await state();
-  await clickText(p, 'Seated now'); await sleep(900);
+  await clickLineup(p, 'Seated now'); await sleep(900);
   const back = await state();
   await p.close();
   const bad = [];
@@ -2050,8 +2055,8 @@ group(() => check('matchups-never-met', 'A pair with no hands together is an emp
     if (!/\/api\/stats(\?|$)/.test(req.url()) || req.method() !== 'GET') return req.continue();
     try {
       const stats = await (await fetch(req.url())).json();
-      const [a, b] = seatedOf(stats).map(m => m.name);
-      pair = [a, b];
+      pair ??= seatedOf(stats).slice(0, 2).map(m => m.name); // the first response picks the pair; every response (a session's too) loses it
+      const [a, b] = pair;
       for (const m of stats.models) if (m.name === a || m.name === b) delete m.vs[m.name === a ? b : a];
       await req.respond({ status: 200, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' }, body: JSON.stringify(stats) });
     } catch (e) { req.continue(); }
@@ -2083,7 +2088,7 @@ group(() => check('leader-bb100', 'The Leader line is the best bb/100 among the 
   const want = ms => ms.filter(m => m.hands >= 500).sort((a, b) => b.bb100 - a.bb100)[0] ?? null;
   const bad = [], seen = [];
   for (const [label, ms] of [['Seated now', seatedOf(e.stats)], ['All models', e.stats.models]]) {
-    if (label === 'All models' && !(await clickText(p, 'All models'))) { bad.push('no "All models" button'); break; }
+    if (label === 'All models' && !(await clickLineup(p, 'All models'))) { bad.push('no "All models" button'); break; }
     await sleep(900);
     const got = await read(), top = want(ms);
     seen.push(`${label}: ${got?.text}`);

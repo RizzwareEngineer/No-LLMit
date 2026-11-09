@@ -180,7 +180,7 @@ export default memo(function HeadToHead({
   const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
   const pin = mini ? '' : 'sticky bg-white'; // the card scrolls a grid bigger than its box: headers pinned
   return (
-    <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : 'w-fit max-w-none'}`}>
+    <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : 'w-max'}`}>{/* w-max: as wide as the grid, so the pinned names can follow a sideways scroll */}
       {/* On the tile, a size container: the matrix takes what its names leave. No scroller of its own. */}
       {/* Centred, but never past the left edge: a card that scrolls (a phone, All models) keeps the names pinned. */}
       <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : ''}`} style={{ containerType: mini ? 'size' : undefined, fontSize: px }} onMouseLeave={() => setTip(null)}>
@@ -244,7 +244,8 @@ export default memo(function HeadToHead({
           </table>
         </motion.div>
         {/* The row's bb/100 against the models shown, bold in its colour. The card only. */}
-        {!mini && <div className={`shrink-0 flex flex-col font-bold ${pin} right-0 z-[2]`} style={{ width: totals }}>
+        {/* Pinned at the right from md; a phone's card is too narrow to give it a lane of its own (scroll to it, as before). */}
+        {!mini && <div className="shrink-0 flex flex-col font-bold md:sticky md:right-0 md:bg-white z-[2]" style={{ width: totals }}>
           {/* A column header: 13px muted, like Profiles'. */}
           <span style={{ height: strip, color: MUTED }} className={`shrink-0 flex items-end pl-2 text-[13px] leading-none font-medium ${pin} top-0`} title={TOTAL_TITLE}>Total</span>
           {sorted.map(row => {
