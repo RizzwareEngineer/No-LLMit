@@ -62,6 +62,7 @@ type Model struct {
 	FoldCheckFree  *float64            `json:"fold_when_check_free"`
 	ErrorRate      *float64            `json:"error_rate"`
 	RetryRate      *float64            `json:"retry_rate"`
+	MissRate       *float64            `json:"miss_rate"`
 	AvgLatencyMs   int                 `json:"avg_latency_ms"`
 	CostUSD        float64             `json:"cost_usd"`
 	CostPerHandUSD float64             `json:"cost_per_hand_usd"`
@@ -134,6 +135,7 @@ type acc struct {
 	net                               int
 	vpip, pfr, threeBet, cbet, ftc    count
 	wtsd, wsd, checkFree, errs, retry count
+	miss                              count
 	aggr, calls                       float64
 	betPct                            count // n is the sum of bet/pot, d the number of bets
 	latency                           float64
@@ -294,6 +296,9 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 
 		a.errs.add(!ok)
 		a.retry.add(act.Retried)
+		// The model's own miss: its reply was still illegal or unreadable after its one retry, so the
+		// engine checked or folded for it. Provider failures (timeouts, API errors) have statuses of their own.
+		a.miss.add(act.Status == "illegal" || act.Status == "unparseable")
 		a.latency += float64(act.LatencyMs)
 		if act.CostUSD != nil {
 			a.cost += *act.CostUSD
@@ -513,7 +518,7 @@ func (a *acc) result() Model {
 		VPIP: a.vpip.rate(), PFR: a.pfr.rate(), AF: a.af(), ThreeBet: a.threeBet.rate(),
 		CBet: a.cbet.rate(), FoldToCBet: a.ftc.rate(), WTSD: a.wtsd.rate(), WSD: a.wsd.rate(),
 		AvgBetPctPot: a.betPct.rate(), FoldCheckFree: a.checkFree.rate(),
-		ErrorRate: a.errs.rate(), RetryRate: a.retry.rate(),
+		ErrorRate: a.errs.rate(), RetryRate: a.retry.rate(), MissRate: a.miss.rate(),
 		CostUSD: a.cost, BiggestPotWon: a.potWon, BiggestPotLost: a.potLost,
 		ByPosition: map[string]Position{}, CumulativeBB: curve(a.bbs), CumulativeAIEVBB: curve(a.aievBBs), Vs: map[string]Vs{},
 		ByPlayersToFlop: map[string]FlopBucket{}, HeadsUpVs: map[string]Vs{},

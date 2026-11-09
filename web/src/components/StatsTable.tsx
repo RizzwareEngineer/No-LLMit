@@ -1,10 +1,9 @@
 'use client';
 
-import { memo, useEffect, useId, useState } from 'react';
+import { Fragment, memo, useEffect, useId, useState } from 'react';
 import { motion, type Transition } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
-import LLMLogo, { modelColor } from '@/components/LLMLogo';
-import { RATE_FROM } from '@/components/CumulativeChart';
+import LLMLogo from '@/components/LLMLogo';
 import { GLIDE, GLIDE_MS } from '@/components/Section';
 import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
@@ -19,24 +18,8 @@ interface Column {
 
 // bb/100 renders separately (its cell carries the 95% range as a tooltip).
 const BB100: Column = { key: 'bb100', label: 'bb/100', value: m => m.bb100, render: () => null };
-// The sparkline renders separately (every row shares one y-scale); it sorts by bb/100 within the window.
-const TREND: Column = { key: 'trend', label: 'Last 50 hands', value: m => recent(m).rate, render: () => null };
-
-// Running bb/100 at each of the model's points in its last 50 hands (from cumulative_bb), plus the
-// bb/100 won within them. Starts at the point at or before the window, so a series the engine thinned
-// (past 200 hands it keeps every nth point) still draws a line; hands before RATE_FROM are skipped,
-// as in the Race, since a rate over a handful of hands is noise.
-// shortcut: the line coarsens once the engine thins cumulative_bb; add a recent-hands field to the API if that matters.
-function recent(m: ModelStats) {
-  const pts = m.cumulative_bb.filter(([h]) => h >= RATE_FROM);
-  if (pts.length < 2) return { line: [] as [number, number][], rate: null };
-  const last = pts.at(-1)!;
-  const first = pts[Math.max(0, pts.findLastIndex(([h]) => h <= last[0] - 50))];
-  return {
-    line: pts.slice(pts.indexOf(first)).map(([h, bb]) => [h, (bb / h) * 100] as [number, number]),
-    rate: ((last[1] - first[1]) / (last[0] - first[0])) * 100,
-  };
-}
+// Misses are rare, so one decimal: a whole percent would show 0.4% as 0%. A dash from an engine without them.
+export const missPct = (m: ModelStats) => (m.miss_rate == null ? DASH : `${(m.miss_rate * 100).toFixed(1)}%`);
 
 // A row's slide to its new place when the order changes, like Profits & Losses' rows.
 const SLIDE = { duration: 0.3 } as const;
@@ -49,33 +32,13 @@ function Glides({ at, move, children }: { at: string | boolean; move: Transition
   return <motion.span layout="position" layoutDependency={at} transition={move} className="inline-block max-w-full align-middle">{children}</motion.span>;
 }
 
-// The model's recent running bb/100 in its colour, on the y-scale [lo, hi] every row shares; a dot at now.
-// 96px wide, or its column's width in a wide card (see WIDE): it stretches sideways, its stroke and dot as drawn.
-function Spark({ m, lo, hi }: { m: ModelStats; lo: number; hi: number }) {
-  const { line } = recent(m);
-  if (line.length < 2) return <span style={{ color: MUTED }} title={`Draws from hand ${RATE_FROM}`}>{DASH}</span>;
-  const [W, H, P] = [96, 20, 3];
-  const [h0, h1] = [line[0][0], line.at(-1)![0]];
-  const pts = line.map(([h, v]) => [((h - h0) / (h1 - h0 || 1)) * W, P + (1 - (v - lo) / (hi - lo || 1)) * (H - 2 * P)]);
-  const end = pts.at(-1)!;
-  const c = modelColor(m.name);
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="inline-block align-middle overflow-visible @4xl:w-full" role="img" aria-label={`${m.name}: running bb/100 over its last 50 hands, now ${signedBrief(line.at(-1)![1])}`}>
-      <polyline points={pts.map(p => p.join(',')).join(' ')} fill="none" stroke={c} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-      {/* The dot: a round cap on a zero-length stroke, so stretching never makes it an oval. */}
-      <path d={`M${end[0]},${end[1]}h0`} stroke={c} strokeWidth={5} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
-
-// "All stats" shows every group; the default view only the core columns.
+// The card shows every group, under a row of group headers; the overview tile its compact columns (MINI).
 const GROUPS: { label: string; columns: Column[] }[] = [
   {
     label: 'Results',
     columns: [
-      BB100,
-      TREND,
       { key: 'hands', label: 'Hands', value: m => m.hands, render: m => m.hands.toLocaleString() },
+      BB100,
       { key: 'aiev_bb100', label: 'All-in adj.', value: m => m.aiev_bb100, render: m => signedBrief(m.aiev_bb100) },
     ],
   },
@@ -95,46 +58,50 @@ const GROUPS: { label: string; columns: Column[] }[] = [
       { key: 'fold_to_cbet', label: 'Fold to c-bet', value: m => m.fold_to_cbet, render: m => pct(m.fold_to_cbet) },
       { key: 'wtsd', label: 'WTSD', value: m => m.wtsd, render: m => pct(m.wtsd) },
       { key: 'wsd', label: 'W$SD', value: m => m.wsd, render: m => pct(m.wsd) },
-      { key: 'fold_when_check_free', label: 'Fold when check free', value: m => m.fold_when_check_free, render: m => pct(m.fold_when_check_free), lowerIsBetter: true },
     ],
   },
   {
-    label: 'LLM',
+    label: 'Mistakes',
     columns: [
-      { key: 'error_rate', label: 'Errors', value: m => m.error_rate, render: m => pct(m.error_rate), lowerIsBetter: true },
-      { key: 'avg_latency_ms', label: 'Latency', value: m => m.avg_latency_ms, render: m => `${(m.avg_latency_ms / 1000).toFixed(1)} s`, lowerIsBetter: true },
-      { key: 'cost_per_hand_usd', label: 'Cost / hand', value: m => m.cost_per_hand_usd, render: m => `$${m.cost_per_hand_usd.toFixed(4)}`, lowerIsBetter: true },
+      { key: 'fold_when_check_free', label: 'Fold when check free', value: m => m.fold_when_check_free, render: m => pct(m.fold_when_check_free), lowerIsBetter: true },
+      { key: 'miss_rate', label: 'Misses', value: m => m.miss_rate ?? null, render: m => missPct(m), lowerIsBetter: true },
     ],
   },
 ];
 const COLUMNS = GROUPS.flatMap(g => g.columns);
-// The default view: hands first, then the style stats, then the recent trend. No bb/100: History
-// above already shows it (rows stay in bb/100 order). The overview tile drops the sparkline.
+// The overview tile: hands, then three style stats. No bb/100: Trends beside it shows it (rows stay in bb/100 order).
 const byKey = (k: string) => COLUMNS.find(c => c.key === k)!;
-const CORE = [{ label: 'Core', columns: [byKey('hands'), byKey('vpip'), byKey('pfr'), byKey('af'), TREND] }];
-const MINI = [{ label: 'Core', columns: CORE[0].columns.filter(c => c !== TREND) }];
+const MINI = [{ label: 'Core', columns: [byKey('hands'), byKey('vpip'), byKey('pfr'), byKey('af')] }];
 // Profiles' tile around its longest name, at its widest: the logo and its gap (24), the name's padding (16),
 // the number columns (204) and the tile's padding (32). StatsSections sizes the tile with it.
 export const MINI_CHROME = 24 + 16 + 204 + 32;
-// WIDE: the card's default view in a wide card (a desktop's, its table 56rem and up, the @4xl: classes): the Model
-// column hugs the names, the figures keep compact columns beside them, and the trend takes the rest of the width
-// (no hole before Hands).
 
 // A column header with its definition on hover or focus. Without `onSort` it is a plain label
 // (a fixed-order table); `sort` then only marks the column the rows are ordered by.
 // `mini` set (Profiles' tile and card): the header glides between the two, the tile's being the label alone.
-export function HeaderCell({ col, sort, onSort, className = 'p-2', wrap = false, mini }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string; wrap?: boolean; mini?: boolean }) {
+// The label flows inline: a long one wraps between its words, never inside one (C-bet at its hyphen), the sort mark
+// stays on its last word, and the info button sits beside it when there is room, else under it.
+export function HeaderCell({ col, sort, onSort, className = 'p-2', mini }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string; mini?: boolean }) {
   const [open, setOpen] = useState(false);
   const tipId = useId();
   const active = sort.key === col.key;
+  const mark = { size: 12, className: 'inline ml-0.5 align-[-1px]', 'aria-hidden': true } as const;
+  const words = col.label.split(' ');
   const label = (
-    <span className="inline-flex flex-wrap items-end justify-end gap-0.5">
+    <>
       {onSort ? (
-        <button onClick={onSort} className={`inline-flex items-center gap-0.5 hover:underline text-right ${wrap ? '' : 'whitespace-nowrap'}`}>
-          {col.label}
-          {active ? (sort.desc ? <CaretDown size={12} weight="bold" aria-hidden /> : <CaretUp size={12} weight="bold" aria-hidden />) : <CaretUpDown size={12} className="opacity-40" aria-hidden />}
+        <button onClick={onSort} className="hover:underline text-right">
+          {words.map((w, i) => (
+            <Fragment key={i}>
+              {i > 0 && ' '}
+              <span className="whitespace-nowrap">
+                {w}
+                {i === words.length - 1 && (active ? (sort.desc ? <CaretDown {...mark} weight="bold" /> : <CaretUp {...mark} weight="bold" />) : <CaretUpDown {...mark} className={`${mark.className} opacity-40`} />)}
+              </span>
+            </Fragment>
+          ))}
         </button>
-      ) : col.label}
+      ) : col.label}{' '}
       <button
         onClick={() => setOpen(true)} // not a toggle: hover and focus already opened it
         onFocus={() => setOpen(true)}
@@ -143,11 +110,11 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', wrap = false,
         aria-label={`What ${col.label} means`}
         aria-expanded={open}
         aria-describedby={tipId}
-        className="p-1.5 -m-1 opacity-60 hover:opacity-100"
+        className="inline-block p-1.5 -m-1 align-middle opacity-60 hover:opacity-100"
       >
         <Info size={12} aria-hidden />
       </button>
-    </span>
+    </>
   );
   return (
     <th
@@ -175,16 +142,14 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', wrap = false,
   );
 }
 
-// The seated models' stats, sortable, never wider than its panel; "All models" appends everyone
-// else below a divider. Collapsed to the core columns until "All stats" is pressed, which shows
-// every group as one wide table, or one table per group in a narrow panel.
+// The seated models' stats, every stat at once, sortable; "All models" appends everyone else below a
+// divider. A card too narrow for every column (a phone) scrolls it sideways under the names.
 // Memoized: the stats screens re-render on the History zoom, and the table only changes with its data.
 // `pending`: models in range with no hands yet at the hand History is replaying, shown as dash rows.
 // `mini`: the overview tile, the same table with fewer columns, fixed short rows and no controls;
 // opening the card keeps this table and adds the rest around it.
 export default memo(function StatsTable({ models, seated, pending = [], mini = false }: { models: ModelStats[]; seated?: string[]; pending?: string[]; mini?: boolean }) {
   const [sort, setSort] = useState({ key: 'bb100', desc: true });
-  const [expanded, setAll] = useState(false);
   const [everyone, setEveryone] = useState(false);
   // Rows clicked to compare: the rest fade (Sports-Reference's row isolation).
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -208,27 +173,14 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
   const atTable = seated ? sorted.filter(m => seated.includes(m.name)) : sorted;
   const rest = seated ? sorted.filter(m => !seated.includes(m.name)) : [];
   const more = rest.length + unseated.length;
-  const grid = (groups: typeof GROUPS, grouped: boolean, caption: string, last = true) => (
-    <Grid groups={groups} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={last && !mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} grouped={grouped} picked={picked} onPick={isolate} caption={caption} mini={mini} />
-  );
   const toggle = 'text-[14px] font-medium hover:underline'; // controls: 14px medium, like Open ↓ and the segmented buttons
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className={`@container relative min-w-0 ${mini ? '' : 'max-md:overflow-x-auto'}`}>
-        {mini ? grid(MINI, false, 'Profiles per model.') : !expanded ? grid(CORE, false, 'Profiles per model.') : (
-          <>
-            <div className="hidden @3xl:flex flex-1 flex-col">{grid(GROUPS, true, 'Every stat per model.')}</div>
-            <div className="@3xl:hidden flex flex-col gap-4">
-              {GROUPS.map((g, i) => <div key={g.label}>{grid([g], true, `${g.label} stats per model.`, i === GROUPS.length - 1)}</div>)}
-            </div>
-          </>
-        )}
+        <Grid groups={mini ? MINI : GROUPS} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={!mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} picked={picked} onPick={isolate} mini={mini} />
       </div>
       {!mini && <div className="add-in mt-2 flex flex-wrap gap-x-5 gap-y-1">
-        <button onClick={() => setAll(v => !v)} aria-expanded={expanded} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>
-          {expanded ? 'Fewer stats' : `All stats (${COLUMNS.length - CORE[0].columns.length} more)`}
-        </button>
         {seated && more > 0 && (
           <button onClick={() => setEveryone(v => !v)} aria-expanded={everyone} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>
             {everyone ? 'Seated models only' : `All models (${more} more)`}
@@ -240,11 +192,11 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
   );
 });
 
-// bb/100 in its colour, one number; hovering it shows the 95% range.
+// bb/100 in its colour, one number at the other figures' weight; hovering it shows the 95% range.
 export function Bb100({ m }: { m: ModelStats }) {
   const ci = ciTitle(m);
   return (
-    <span className="group/ci relative inline-block font-bold" style={{ color: netColor(m.bb100) }}>
+    <span className="group/ci relative inline-block" style={{ color: netColor(m.bb100) }}>
       {signedBrief(m.bb100)}
       {ci && <span role="tooltip" className="pointer-events-none absolute right-0 top-full z-20 mt-1 hidden whitespace-nowrap rounded bg-white px-2 py-1 text-[13px] font-normal group-hover/ci:block" style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}>{ci}</span>}
     </span>
@@ -252,10 +204,11 @@ export function Bb100({ m }: { m: ModelStats }) {
 }
 
 // A row's model: logo and name, a link to its drawer (plain text on the tile, which opens the card).
-// The overview tile keeps names down to a 288px table (truncated), so a short window still says who's who; the
-// card keeps them on a phone too (its table scrolls sideways there), logos only in All stats' narrow grids.
-function Name({ href, name, mini = false, grouped = false, children }: { href?: string; name: string; mini?: boolean; grouped?: boolean; children?: React.ReactNode }) {
-  const inner = <><LLMLogo model={name} size={16} /><span translate="no" className={`truncate ${mini ? '@max-2xs:sr-only max-w-[calc(100cqw-9.5rem)]' : grouped ? '@max-md:sr-only' : ''}`}>{name}</span>{children}</>;
+// The overview tile keeps names down to a 288px table (truncated), so a short window still says who's who; a phone's
+// card keeps 6.5rem of each (its table scrolls sideways under them); a wider card shows them whole.
+const nameFit = (mini: boolean) => (mini ? '@max-2xs:sr-only max-w-[calc(100cqw-9.5rem)]' : '@max-md:max-w-[6.5rem]');
+function Name({ href, name, mini = false, children }: { href?: string; name: string; mini?: boolean; children?: React.ReactNode }) {
+  const inner = <><LLMLogo model={name} size={16} /><span translate="no" className={`truncate ${nameFit(mini)}`}>{name}</span>{children}</>;
   return href
     ? <a href={href} className="flex items-center gap-2 min-w-0 hover:underline" style={{ color: TEXT }} title={name}>{inner}</a>
     : <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>{inner}</span>;
@@ -269,10 +222,8 @@ function Grid({
   waiting,
   sort,
   onSort,
-  grouped,
   picked,
   onPick,
-  caption,
   mini,
 }: {
   groups: typeof GROUPS;
@@ -282,10 +233,8 @@ function Grid({
   waiting: string[]; // on the roster, not seated: a muted group below the rows
   sort: { key: string; desc: boolean };
   onSort: (c: Column) => void;
-  grouped: boolean; // a group header row above the column headers
   picked: Set<string>; // rows clicked to compare; the others fade
   onPick: (name: string) => void;
-  caption: string;
   mini: boolean; // the overview tile: plain headers, short rows, names as text (the tile opens the card)
 }) {
   const columns = groups.flatMap(g => g.columns);
@@ -299,9 +248,6 @@ function Grid({
     const t = setTimeout(() => setGliding(false), GLIDE_MS + 50);
     return () => clearTimeout(t);
   }, [gliding]);
-  // One y-scale for every row's sparkline.
-  const lines = [...rows, ...rest].flatMap(m => recent(m).line.map(([, v]) => v));
-  const [lo, hi] = [Math.min(...lines), Math.max(...lines)];
   // The sorted column is painted strong at the top row and faint at the bottom; VPIP, PFR and AF
   // mark their highest and lowest value.
   const sortedCol = columns.find(c => c.key === sort.key);
@@ -324,18 +270,17 @@ function Grid({
     const hi = v === e.hi;
     return <span className="mr-1 text-[13px] @max-md:hidden" style={{ color: MUTED }} title={hi ? 'Highest' : 'Lowest'} aria-label={hi ? 'highest' : 'lowest'}>{hi ? '▲' : '▼'}</span>;
   };
-  // Every column of All stats shares the width, so its cells pad less.
   // Sticky: the header stays put while the card scrolls the rows under it.
-  const head = `sticky top-0 z-10 bg-white text-[13px] ${mini ? 'px-1 @sm:px-2 py-0' : grouped ? 'p-1' : 'px-1.5 py-1.5 md:px-3'}`; // column headers: 13px muted, tile and card
-  // The card's default view has five columns and room to spare, so its rows breathe; All stats packs them.
-  // The tile's rows split its height evenly from md; a phone's tile is as tall as its rows.
-  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px]' : grouped ? 'h-6' : 'h-10';
+  const head = `sticky top-0 z-10 bg-white text-[13px] ${mini ? 'px-1 @sm:px-2 py-0' : 'px-2 py-1.5'}`; // column headers: 13px muted, tile and card
+  // The card's rows breathe; the tile's split its height evenly from md (a phone's tile is as tall as its rows).
+  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px]' : 'h-10';
   // Columns the card adds to the tile's fade in as it opens.
-  const added = (c: Column) => (!mini && c === TREND ? 'add-in' : '');
-  // The tile pads by its own width (a narrow tile keeps every header whole); the card by the window's.
-  const cell = grouped ? 'px-1' : mini ? 'px-1 @sm:px-2' : 'px-1.5 md:px-3';
-  // The card's default view on a narrow card (a phone): names stay, the table scrolls sideways under a sticky Model column.
-  const pin = !mini && !grouped ? '@max-md:sticky @max-md:left-0 @max-md:bg-white' : '';
+  const added = (c: Column) => (!mini && !MINI[0].columns.includes(c) ? 'add-in' : '');
+  // The tile pads by its own width (a narrow tile keeps every header whole).
+  const cell = mini ? 'px-1 @sm:px-2' : 'px-2';
+  // Under md the card scrolls sideways (a phone, or a laptop at 200% zoom): the names stay, in a sticky Model column.
+  const pin = mini ? '' : 'max-md:sticky max-md:left-0 max-md:bg-white';
+  const nameCell = `${cell} ${pin} ${pin && 'max-md:z-[1]'} w-px whitespace-nowrap text-left font-bold`;
   const row = (m: ModelStats, i: number | null) => {
     // What moves the row's content: the glide, a re-sort, or the row changing place.
     const at = `${mini}|${sort.key}|${sort.desc}|${i}`;
@@ -350,9 +295,9 @@ function Grid({
       onKeyDown={mini ? undefined : e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), onPick(m.name))}
       style={{ opacity: picked.size && !picked.has(m.name) ? 0.35 : 1, background: picked.has(m.name) ? 'rgba(35, 131, 226, 0.08)' : undefined }}
     >
-      <th scope="row" className={`${cell} ${pin} ${pin && '@max-md:z-[1]'} ${mini ? 'w-px whitespace-nowrap' : grouped ? '' : '@4xl:whitespace-nowrap'} text-left font-bold`}>
+      <th scope="row" className={nameCell}>
         <Glides at={at} move={move}>
-          <Name href={mini ? undefined : modelHref(m.name)} name={m.name} mini={mini} grouped={grouped}>
+          <Name href={mini ? undefined : modelHref(m.name)} name={m.name} mini={mini}>
             {m.hands < MIN_HANDS && !mini && (
               <Warning size={14} weight="bold" className="shrink-0 @max-md:hidden" style={{ color: 'rgb(140, 95, 20)' }} aria-label={`Fewer than ${MIN_HANDS} hands`} />
             )}
@@ -360,53 +305,40 @@ function Grid({
         </Glides>
       </th>
       {columns.map(c => (
-        <td key={c.key} className={`${cell} ${added(c)} ${c === TREND && !grouped ? '@4xl:*:w-full' : ''} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
-          <Glides at={at} move={move}>{c === BB100 ? <Bb100 m={m} /> : c === TREND ? <Spark m={m} lo={lo} hi={hi} /> : <>{i !== null && mark(c, m)}{c.render(m)}</>}</Glides>
+        <td key={c.key} className={`${cell} ${added(c)} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
+          <Glides at={at} move={move}>{c === BB100 ? <Bb100 m={m} /> : <>{i !== null && mark(c, m)}{c.render(m)}</>}</Glides>
         </td>
       ))}
     </tr>
     );
   };
   return (
-    // Fixed layout: the table takes its panel's width and the cells truncate, so nothing scrolls sideways (but a
-    // phone's card, at least 480px wide so every column keeps its figures). The tile, and the card's default view
-    // when WIDE, size the Model column to its names instead.
-    <table className={`w-full ${mini ? 'table-auto' : grouped ? 'table-fixed' : 'table-fixed @4xl:table-auto'} tabular-nums text-[14px] ${!mini && !grouped ? '@max-md:min-w-[480px]' : ''}`}>
-      <caption className="sr-only">{caption} Column headers sort the table; the info buttons explain each stat.</caption>
-      <colgroup>
-        {/* Narrow panels show logos only; wider ones give names the room they need. */}
-        <col className={grouped ? 'w-[44px] @md:w-[30%] @4xl:w-[15%]' : mini ? '' : 'w-[140px] @md:w-[32%] @4xl:w-px'} />
-        {/* On the tile the number columns share whatever the Model column (sized to its names) leaves: even spacing, no gap before Hands.
-            A wide card's figures keep 104px columns, room for a header and its buttons on one line, and the trend takes the rest. */}
-        {columns.map(c => <col key={c.key} className={mini ? '' : c === BB100 ? 'w-[80px]' : c === TREND ? (grouped ? 'w-[112px]' : 'w-[112px] @4xl:w-auto') : grouped ? '' : '@4xl:w-26'} />)}
-      </colgroup>
+    // Auto layout: the Model column hugs the names (w-px) and the figures share the rest, each column at least as
+    // wide as its figures and its header's longest word (headers wrap), so nothing is clipped. Where that is wider
+    // than the card (a phone), the table scrolls sideways.
+    <table className="w-full table-auto tabular-nums text-[14px]">
+      <caption className="sr-only">Profiles per model. Column headers sort the table; the info buttons explain each stat.</caption>
       <thead>
-        {grouped && (
-          <tr>
-            <td />
+        {!mini && (
+          <tr className="add-in">
+            <td className={pin} />
             {groups.map(g => (
-              <th key={g.label} scope="colgroup" colSpan={g.columns.length} className="px-2 pt-1 pb-0.5 text-left font-bold text-[13px] border-b border-notion" style={{ color: TEXT }}>
+              <th key={g.label} scope="colgroup" colSpan={g.columns.length} className="px-2 pt-1 pb-0.5 text-left font-medium text-[13px] border-b border-notion" style={{ color: TEXT }}>
                 {g.label}
               </th>
             ))}
           </tr>
         )}
         <tr className={`border-b border-notion ${mini ? rowH : ''}`}>
-          <th scope="col" className={`${head} ${pin} text-left font-medium align-bottom`} style={{ color: MUTED }}><Glides at={mini} move={GLIDE}><span className={mini ? '@max-2xs:sr-only' : grouped ? '@max-md:sr-only' : ''}>Model</span></Glides></th>
-          {/* The trend's label wraps: its 112px column cannot hold it, its sort mark and its info button on one line. */}
-          {columns.map(c => <HeaderCell key={c.key} col={c} sort={sort} onSort={mini ? undefined : () => onSort(c)} className={`${head} ${added(c)}`} wrap={grouped || c === TREND} mini={mini} />)}
+          <th scope="col" className={`${head} ${pin} text-left font-medium align-bottom`} style={{ color: MUTED }}><Glides at={mini} move={GLIDE}><span className={mini ? '@max-2xs:sr-only' : ''}>Model</span></Glides></th>
+          {columns.map(c => <HeaderCell key={c.key} col={c} sort={sort} onSort={mini ? undefined : () => onSort(c)} className={`${head} ${added(c)}`} mini={mini} />)}
         </tr>
       </thead>
       <tbody className="divide-y divide-black/10">
         {rows.map((m, i) => row(m, i))}
         {noHands.map(name => (
           <tr key={name} className={rowH}>
-            <th scope="row" className={`${cell} ${pin} ${pin && '@max-md:z-[1]'} ${mini ? 'w-px whitespace-nowrap' : grouped ? '' : '@4xl:whitespace-nowrap'} text-left font-bold`}>
-              <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>
-                <LLMLogo model={name} size={16} />
-                <span translate="no" className={`truncate ${mini ? '@max-2xs:sr-only max-w-[calc(100cqw-9.5rem)]' : grouped ? '@max-md:sr-only' : ''}`}>{name}</span>
-              </span>
-            </th>
+            <th scope="row" className={nameCell}><Name name={name} mini={mini} /></th>
             {columns.map(c => <td key={c.key} className={`${cell} ${added(c)} text-right`} style={{ color: MUTED }}>{DASH}</td>)}
           </tr>
         ))}

@@ -1280,14 +1280,104 @@ main(() => check('matchups-tile-numbers', 'The Matchups tile shows a number in i
   return { pass: r.withNum >= r.cells * 0.5 && r.fs >= 10, detail: `${r.withNum}/${r.cells} cells with numbers, ${r.fs}px text` };
 }));
 
-// Owner's rules from 2026-11-07: Profiles leads with Hands (no bb/100, no rank spread); no scope line,
-// session picker or Bars view on the cards; Matchups gets the wider tile; tiles never scroll.
-main(() => check('profiles-columns', 'Profiles columns are Model, Hands, VPIP, PFR, AF (tile), then the trend (card)', async () => {
-  const heads = sel => pg.evaluate(sel => [...document.querySelectorAll(`${sel} thead th`)].map(e => e.textContent.trim()).filter(Boolean), sel);
-  await goto(pg, 'stats'); await sleep(1500); const tile = (await heads('#stats-panel')).join(',');
-  // A card header also holds its tooltip's text: judge it by how it starts.
-  await goto(pg, 'stats-table'); await sleep(1500); const card = (await heads('#stats-card')).map(h => ['Model', 'Hands', 'VPIP', 'PFR', 'AF', 'Last 50 hands', 'bb/100', 'Rank spread'].find(l => h.startsWith(l)) ?? h.slice(0, 12)).join(',');
-  return { pass: tile === 'Model,Hands,VPIP,PFR,AF' && card === 'Model,Hands,VPIP,PFR,AF,Last 50 hands', detail: `tile ${tile} | card ${card}` };
+// Owner's rules from 2026-11-07: Profiles leads with Hands (no bb/100 on the tile, no rank spread); no scope line,
+// session picker or Bars view on the cards; Matchups gets the wider tile; tiles never scroll. 2026-11-08: the card
+// shows every stat at once, the "Last 50 hands" sparkline gone (see profiles-all-stats, profiles-no-sparkline).
+const PROFILE_STATS = ['Hands', 'bb/100', 'All-in adj.', 'VPIP', 'PFR', '3-bet', 'AF', 'C-bet', 'Fold to c-bet', 'WTSD', 'W$SD', 'Fold when check free', 'Misses'];
+// A header's label: its sort button's text (the th also holds its tooltip's), or the th's own (the tile, Model).
+const headLabels = (p, sel) => p.evaluate(sel => [...document.querySelectorAll(`${sel} thead tr:last-child th`)].map(th => (th.querySelector('button') ?? th).textContent.trim()), sel);
+main(() => check('profiles-columns', 'Profiles columns are Model, Hands, VPIP, PFR, AF (tile), then Model and every stat in order (card)', async () => {
+  await goto(pg, 'stats'); await sleep(1500); const tile = (await headLabels(pg, '#stats-panel')).join(',');
+  await goto(pg, 'stats-table'); await sleep(1500); const card = (await headLabels(pg, '#stats-card')).join(',');
+  return { pass: tile === 'Model,Hands,VPIP,PFR,AF' && card === ['Model', ...PROFILE_STATS].join(','), detail: `tile ${tile} | card ${card}` };
+}));
+// Owner, 2026-11-08: "the last 50 hands in profiles just sucks. they look like straight lines. plus we don't need a
+// line graph considering trends covers that."
+main(() => check('profiles-no-sparkline', 'The opened Profiles card has no Last 50 hands column and no sparkline', async () => {
+  await goto(pg, 'stats-table'); await sleep(1500);
+  const r = await pg.evaluate(() => ({ head: [...document.querySelectorAll('#stats-card thead th')].some(th => th.textContent.trim().startsWith('Last 50')), lines: document.querySelectorAll('#stats-card tbody svg polyline').length }));
+  return { pass: !r.head && !r.lines, detail: `${r.head ? 'a Last 50 hands column' : 'no trend column'}, ${r.lines} sparklines` };
+}));
+// Owner, 2026-11-08: "when I click into profiles we should include c bet, fold to cbet and all the other stats
+// outright." Every stat at once (no "All stats" link), all in view without a sideways scroll at his two laptop
+// windows; names whole, the Model column hugging them (no band before Hands), no figure clipped.
+main(() => check('profiles-all-stats', 'The opened Profiles card shows all 13 stats at once at 1440x900 and 1728x1117: no All stats link, no sideways scroll, names whole and hugged, figures unclipped', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
+    const p2 = await sharedAt(w, h, 'stats-table');
+    const r = await p2.evaluate(() => {
+      const card = document.getElementById('stats-card'), sc = card.querySelector('.panel-scroll'), box = sc.getBoundingClientRect();
+      const ths = [...card.querySelectorAll('thead tr:last-child th')].slice(1);
+      const shown = ths.filter(th => { const b = th.getBoundingClientRect(); return b.width >= 20 && b.left >= box.left - 1 && b.right <= box.right + 1; }).map(th => (th.querySelector('button') ?? th).textContent.trim());
+      const names = [...card.querySelectorAll('tbody th [translate=no]')].filter(n => n.getBoundingClientRect().width > 0);
+      // The Model column's room after its widest name (and its warning mark): the cell's padding, nothing more.
+      const slack = Math.min(...[...card.querySelectorAll('tbody th[scope=row]')].filter(t => t.getBoundingClientRect().height > 4).map(t => t.getBoundingClientRect().right - t.firstElementChild.getBoundingClientRect().right));
+      return {
+        shown, sideways: sc.scrollWidth - sc.clientWidth, slack,
+        cut: names.filter(n => n.scrollWidth > n.clientWidth + 1).map(n => n.textContent),
+        clipped: [...card.querySelectorAll('tbody td')].filter(td => td.scrollWidth > td.clientWidth + 1).map(td => td.textContent.trim()),
+        link: [...card.querySelectorAll('button')].some(b => /^(All stats|Fewer stats)/.test(b.textContent.trim())),
+      };
+    });
+    const missing = PROFILE_STATS.filter(l => !r.shown.includes(l));
+    seen.push(`${w}x${h}: ${r.shown.length} stats in view, ${Math.round(r.slack)}px after the widest name`);
+    if (missing.length) bad.push(`${w}x${h}: not in view: ${missing.join(', ')}`);
+    if (r.sideways > 1) bad.push(`${w}x${h}: scrolls ${r.sideways}px sideways`);
+    if (r.link) bad.push(`${w}x${h}: an All stats link`);
+    if (r.cut.length) bad.push(`${w}x${h}: names cut: ${r.cut.join(', ')}`);
+    if (r.clipped.length) bad.push(`${w}x${h}: figures clipped: ${r.clipped.slice(0, 4).join(', ')}`);
+    if (r.slack > 24) bad.push(`${w}x${h}: ${Math.round(r.slack)}px empty after the widest name`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// Owner, 2026-11-08: "we shouldn't care about errors, latency and cost per hand considering it's all coming from
+// openrouter." No Errors, Latency or Cost column in the card (with All stats opened, where an older build kept them),
+// and no error rate, retry rate, latency or cost in the model drawer.
+main(() => check('profiles-no-llm-cost', 'No Errors, Latency or Cost columns in the Profiles card, and no error, retry, latency or cost figures in the model drawer', async () => {
+  await goto(pg, 'stats-table'); await sleep(1500);
+  const more = await clickPrefix(pg, 'All stats'); if (more) await sleep(800);
+  const heads = await headLabels(pg, '#stats-card');
+  if (more) { await clickPrefix(pg, 'Fewer stats'); await sleep(500); }
+  const opened = await pg.evaluate(() => { const a = document.querySelector('#stats-card tbody th a[href^="#model="]'); a?.click(); return !!a; });
+  await sleep(1200);
+  const drawer = await pg.evaluate(() => { const d = document.querySelector('dialog[open]'); return d && [...d.querySelectorAll('h3, dt')].map(e => e.textContent.trim()); });
+  if (drawer) { await pg.keyboard.press('Escape'); await sleep(800); }
+  const bad = [...heads.filter(t => /^(Errors|Latency|Cost)/.test(t)).map(t => `card column ${t}`), ...(drawer ?? []).filter(t => /error|retry|latency|cost/i.test(t)).map(t => `drawer ${t}`)];
+  if (!opened || !drawer) bad.push('the drawer did not open');
+  return { pass: !bad.length, detail: bad.join(', ') || `card: ${heads.length - 1} stat columns; drawer: ${drawer.join(', ')}` };
+}));
+// Owner, 2026-11-08, on errors that are the model's own (an illegal or unreadable reply, played as a fold): "oh okay
+// that'd be great to track". The card's Misses column shows the engine's miss_rate for each row (one decimal; a dash
+// from an engine without it), its header says what it counts, and it sorts lowest first (lower is better).
+main(() => check('profiles-misses', 'The Profiles card\'s Misses column shows the engine\'s miss_rate per model, defines it, and sorts lowest first', async () => {
+  await goto(pg, 'stats-table'); await sleep(1500);
+  const r = await pg.evaluate(async () => {
+    // The all-time stats the page fetched, from the engine its build points at.
+    const url = performance.getEntriesByType('resource').map(e => e.name).find(u => /\/api\/stats$/.test(u)) ?? 'http://localhost:8080/api/stats';
+    const models = (await (await fetch(url)).json()).models;
+    const ths = [...document.querySelectorAll('#stats-card thead tr:last-child th')];
+    const i = ths.findIndex(th => th.querySelector('button')?.textContent.trim() === 'Misses');
+    if (i < 0) return { err: 'no Misses column' };
+    const rows = [...document.querySelectorAll('#stats-card tbody tr')].filter(tr => tr.querySelector('th a'))
+      .map(tr => { const name = tr.querySelector('th [translate=no]').textContent; return { name, cell: tr.children[i].textContent.trim(), rate: models.find(m => m.name === name)?.miss_rate }; });
+    return { url, rows, tip: ths[i].querySelector('[role=tooltip]')?.textContent ?? '' };
+  });
+  if (r.err) return { pass: false, detail: r.err };
+  const sortBy = label => pg.evaluate(label => {
+    const th = [...document.querySelectorAll('#stats-card thead tr:last-child th')].find(t => t.querySelector('button')?.textContent.trim() === label);
+    th?.querySelector('button').click();
+  }, label);
+  const ariaSort = label => pg.evaluate(label => [...document.querySelectorAll('#stats-card thead tr:last-child th')].find(t => t.querySelector('button')?.textContent.trim() === label)?.getAttribute('aria-sort'), label);
+  await sortBy('Misses'); await sleep(600); const order = await ariaSort('Misses');
+  await sortBy('bb/100'); await sleep(600); // back to the default order
+  const off = r.rows.filter(({ cell, rate }) => (rate == null ? cell !== '—' : !/^\d+\.\d%$/.test(cell) || Math.abs(parseFloat(cell) - rate * 100) > 0.1));
+  const bad = [];
+  if (!r.rows.length) bad.push('no rows');
+  if (off.length) bad.push(`cells off the engine: ${off.slice(0, 3).map(o => `${o.name} ${o.cell} vs ${o.rate}`).join(', ')}`);
+  if (!/illegal or unreadable/.test(r.tip)) bad.push(`header says "${r.tip.slice(0, 60)}"`);
+  if (order !== 'ascending') bad.push(`first sort ${order}, not ascending`);
+  const shown = r.rows.filter(o => o.rate != null).map(o => `${o.name} ${o.cell}`);
+  return { pass: !bad.length, detail: bad.join('; ') || `${r.rows.length} rows match ${r.url}${shown.length ? ` (${shown.slice(0, 3).join(', ')}…)` : ' (no miss_rate from this engine: dashes)'}; sorts lowest first` };
 }));
 // The Profiles tile names its models (truncated if need be) at every overview size, not logos alone.
 main(() => check('profiles-tile-names', 'The Profiles tile shows model names at 1440x900 and 1728x1117', async () => {

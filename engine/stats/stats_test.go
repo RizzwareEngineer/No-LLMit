@@ -152,3 +152,35 @@ func TestComputeIsPartialUntilWarmed(t *testing.T) {
 		t.Errorf("curves: aiev %v (want end %v), actual %v (want end 10)", ev, wantA/100, actual)
 	}
 }
+
+func TestMissRateCountsOnlyTheModelsOwnMisses(t *testing.T) {
+	// A decides once per row. Only a reply still illegal or unreadable after its retry is its own miss:
+	// one fixed on its retry is ok, and provider failures (a retry that timed out included) are not.
+	var acts []history.ActionRecord
+	for _, d := range []struct {
+		status  string
+		retried bool
+	}{{"ok", false}, {"ok", true}, {"illegal", true}, {"unparseable", true}, {"timeout", false}, {"timeout", true}, {"api_error", false}, {"service_error", false}} {
+		acts = append(acts, history.ActionRecord{Street: "flop", Seat: 0, Status: d.status, Retried: d.retried, Applied: history.AppliedAction{Type: "CHECK"}})
+	}
+	acts = append(acts, history.ActionRecord{Street: "flop", Seat: 1, Status: "ok", Applied: history.AppliedAction{Type: "CHECK"}})
+	h := history.HandRecord{
+		HandID: "misses", TableID: "t", Config: history.HandConfig{BigBlind: 10},
+		Seats:   []history.SeatRecord{{Seat: 0, Name: "A"}, {Seat: 1, Name: "B"}, {Seat: 2, Name: "C"}},
+		Actions: acts,
+		Result:  history.HandResult{Net: map[string]int{"0": 0, "1": 0, "2": 0}},
+	}
+	m := map[string]Model{}
+	for _, x := range Compute([]history.HandRecord{h}).Models {
+		m[x.Name] = x
+	}
+	if r := m["A"].MissRate; r == nil || !near(*r, 2.0/8) {
+		t.Errorf("A miss_rate = %v, want 2/8", r)
+	}
+	if r := m["B"].MissRate; r == nil || *r != 0 {
+		t.Errorf("B miss_rate = %v, want 0", r)
+	}
+	if m["C"].MissRate != nil {
+		t.Errorf("C made no decision: miss_rate %v, want null", *m["C"].MissRate)
+	}
+}
