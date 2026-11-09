@@ -2018,12 +2018,13 @@ group(() => check('matchups-all-models', 'The Matchups card\'s "All models" show
     const rows = [...card.querySelectorAll('tbody tr')], cell = rows[0]?.querySelectorAll('td')[1]?.getBoundingClientRect();
     const names = [...card.querySelectorAll('a [translate=no]')].map(e => e.textContent);
     const inBox = r => r.width > 0 && r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
-    // Pinned: the first name stays in the box as the grid scrolls sideways; the logos' row stays at the top as it
-    // scrolls down (its columns scroll sideways with their cells, so the one over a visible column is in the box).
-    const firstName = card.querySelector('a [translate=no]')?.getBoundingClientRect();
+    // Pinned like a spreadsheet's headers: the names stay in the box as the grid scrolls sideways (their rows scroll
+    // up and down with their cells, so the names of the rows in view are in the box); the logos' row stays at the
+    // top as it scrolls down (its columns scroll sideways, so the logos over the columns in view are in the box).
+    const inRows = [...card.querySelectorAll('a [translate=no]')].map(e => e.getBoundingClientRect()).filter(r => r.top >= box.top - 1 && r.bottom <= box.bottom + 1);
     const logos = [...card.querySelectorAll('thead th[scope=col]')].map(e => e.getBoundingClientRect()).filter(r => r.left >= box.left - 1 && r.right <= box.right + 1);
     const total = card.querySelector('[title^="Big blinds won"]')?.getBoundingClientRect();
-    return { rows: rows.length, names, cell: cell && [cell.width, cell.height], scrolls: [sc.scrollWidth - sc.clientWidth, sc.scrollHeight - sc.clientHeight], pinned: { name: firstName && inBox(firstName), logo: logos.length > 0 && logos.every(inBox), total: total && inBox(total) }, scrolled: [sc.scrollLeft, sc.scrollTop] };
+    return { rows: rows.length, names, cell: cell && [cell.width, cell.height], scrolls: [sc.scrollWidth - sc.clientWidth, sc.scrollHeight - sc.clientHeight], pinned: { names: inRows.length > 0 && inRows.every(inBox), logos: logos.length > 0 && logos.every(inBox), total: total && inBox(total) }, scrolled: [sc.scrollLeft, sc.scrollTop] };
   });
   const before = await state();
   if (!(await clickLineup(p, 'All models'))) { await p.close(); return { pass: false, detail: 'no "All models" button on the Matchups card' }; }
@@ -2042,7 +2043,7 @@ group(() => check('matchups-all-models', 'The Matchups card\'s "All models" show
   if (!before.cell || !after.cell || Math.abs(before.cell[0] - after.cell[0]) > 1.5 || Math.abs(before.cell[1] - after.cell[1]) > 1.5) bad.push(`cell ${before.cell?.map(Math.round)} -> ${after.cell?.map(Math.round)}: All models changed the cell size`);
   if (all > seated && after.scrolls[0] < 10 && after.scrolls[1] < 10) bad.push(`All models: the grid does not outgrow the card (${after.scrolls.join('x')} px to scroll)`);
   if (scrolled.scrolled[0] + scrolled.scrolled[1] < 10) bad.push('the card did not scroll');
-  for (const [k, v] of Object.entries(scrolled.pinned)) if (!v) bad.push(`scrolled ${scrolled.scrolled.map(Math.round)}: the first ${k} is out of view`);
+  for (const [k, v] of Object.entries(scrolled.pinned)) if (!v) bad.push(`scrolled ${scrolled.scrolled.map(Math.round)}: the ${k} in view are not pinned`);
   if (back.rows !== seated) bad.push(`back to Seated now: ${back.rows} rows`);
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${seated} seated -> ${all} models at ${after.cell.map(Math.round).join('x')}px cells, ${after.scrolls.join('x')}px of scroll; names, logos and Total pinned at ${scrolled.scrolled.map(Math.round)}` };
 }));
