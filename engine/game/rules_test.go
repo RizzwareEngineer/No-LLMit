@@ -247,3 +247,103 @@ func TestRaiseNeedsAnOpponentWhoCanRespond(t *testing.T) {
 		})
 	}
 }
+
+// Short all-ins that together make a full raise reopen raising for a player who already acted
+// (TDA 43); one that does not leaves it closed.
+func TestCumulativeShortAllInsReopenRaising(t *testing.T) {
+	// Button A(0) 200, SB B(1), BB C(2), D(3), E(4) 150. Preflop order: D, E, A, B, C.
+	gs := newTable(200, 1000, 1000, 1000, 150)
+	if err := gs.StartHand(); err != nil {
+		t.Fatal(err)
+	}
+	act(t, gs, ActionRaise, 100) // D raises to 100: a raise of 90
+	act(t, gs, ActionAllIn, 0)   // E all-in 150: 50 more, short
+	if d := gs.Players[3]; !d.RaiseClosed {
+		t.Fatal("D faces 50 more after one short all-in: raising should be closed")
+	}
+	act(t, gs, ActionAllIn, 0) // A all-in 200: 50 more again, 100 over D's bet in all
+	act(t, gs, ActionFold, 0)  // B
+	act(t, gs, ActionCall, 0)  // C calls 200 with 800 behind, so a raise can be answered
+	if gs.CurrentPlayerIdx != 3 {
+		t.Fatalf("expected D to act, got %d", gs.CurrentPlayerIdx)
+	}
+	var raise *ValidAction
+	for _, va := range gs.GetValidActions() {
+		if va.Type == ActionRaise {
+			raise = &va
+		}
+	}
+	// D faces 100 more, a full raise (90): the minimum re-raise is 200 + 90.
+	if raise == nil || raise.MinAmount != 290 || raise.MaxAmount != 1000 {
+		t.Fatalf("D should be offered a raise from 290 to 1000; got %+v", gs.GetValidActions())
+	}
+	if err := gs.CheckAction(Action{Type: ActionRaise, Amount: 289, PlayerIdx: 3}); err == nil {
+		t.Error("engine accepted a re-raise below the minimum")
+	}
+	if err := gs.CheckAction(Action{Type: ActionRaise, Amount: 400, PlayerIdx: 3}); err != nil {
+		t.Errorf("engine refused D's re-raise to 400: %v", err)
+	}
+}
+
+// Once nothing is owed and every opponent is all-in or folded, the last player with chips is
+// not asked: the board runs out, and no fold can hand an all-in player chips it never covered.
+func TestLoneStackWithNothingToCallIsNotAsked(t *testing.T) {
+	total := func(gs *GameState) (n int) {
+		for _, p := range gs.Players {
+			n += p.Stack
+		}
+		return n
+	}
+	t.Run("a short shove folded round to the big blind", func(t *testing.T) {
+		// Button A(0), SB B(1), BB C(2), D(3) with 7 chips.
+		gs := newTable(1000, 1000, 1000, 7)
+		if err := gs.StartHand(); err != nil {
+			t.Fatal(err)
+		}
+		act(t, gs, ActionAllIn, 0) // D all-in for 7, less than the big blind
+		act(t, gs, ActionFold, 0)  // A
+		act(t, gs, ActionFold, 0)  // B
+		if gs.IsWaitingForAction() || !gs.NeedToAdvanceStreet() {
+			t.Fatalf("the big blind has nothing to call and nobody to bet into, yet player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
+		}
+		gs.AdvanceStreet()
+		// D can win 19: his 7, 7 of the big blind and the small blind's 5. The big blind's other 3 were never called.
+		c, d := gs.Players[2].Stack, gs.Players[3].Stack
+		if !gs.IsHandComplete() || d > 19 || c+d != 1012 || total(gs) != 3007 {
+			t.Errorf("complete=%v, D has %d (at most 19), big blind %d (1012 between them), %d chips in all (3007)", gs.IsHandComplete(), d, c, total(gs))
+		}
+	})
+	t.Run("a free fold leaves one stack against an all-in", func(t *testing.T) {
+		// Button A(0), SB B(1), BB C(2) with 30 chips.
+		gs := newTable(1000, 1000, 30)
+		if err := gs.StartHand(); err != nil {
+			t.Fatal(err)
+		}
+		act(t, gs, ActionRaise, 100) // A raises to 100
+		act(t, gs, ActionCall, 0)    // B calls
+		act(t, gs, ActionCall, 0)    // C calls all-in for 30 in all
+		gs.AdvanceStreet()           // flop: main pot 90, side pot 140 between A and B
+		act(t, gs, ActionFold, 0)    // B folds with nothing to call
+		if gs.IsWaitingForAction() || !gs.NeedToAdvanceStreet() {
+			t.Fatalf("A is the only player with chips and owes nothing, yet player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
+		}
+		gs.AdvanceStreet()
+		// C put in 30 and can win 90; the side pot is A's whatever the cards.
+		a, c := gs.Players[0].Stack, gs.Players[2].Stack
+		if !gs.IsHandComplete() || c > 90 || a < 1040 || total(gs) != 2030 {
+			t.Errorf("complete=%v, C has %d (at most 90), A %d (at least 1040), %d chips in all (2030)", gs.IsHandComplete(), c, a, total(gs))
+		}
+	})
+	t.Run("a stack that still owes a call is asked", func(t *testing.T) {
+		gs := newTable(1000, 1000, 300)
+		if err := gs.StartHand(); err != nil {
+			t.Fatal(err)
+		}
+		act(t, gs, ActionRaise, 100) // A
+		act(t, gs, ActionFold, 0)    // B
+		act(t, gs, ActionAllIn, 0)   // C all-in for 300
+		if gs.CurrentPlayerIdx != 0 || !offers(gs, ActionCall) || !offers(gs, ActionFold) {
+			t.Errorf("A owes 200 and must be asked; player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
+		}
+	})
+}

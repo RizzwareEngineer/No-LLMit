@@ -215,11 +215,14 @@ func (gs *GameState) processAllIn(player *Player, action Action) error {
 			gs.MinRaise = raiseAmount
 			gs.reopenRaising()
 		} else {
-			// Incomplete raise: players who already acted may only call or fold (TDA).
+			// Incomplete raise: a player who already acted may only call or fold, until the
+			// short all-ins since that action add up to a full raise (TDA 43). CurrentBet is
+			// the level they acted at; RaiseClosed remembers they acted once the round's
+			// acted flags are reset below.
 			for i := range gs.Players {
 				p := &gs.Players[i]
-				if i != action.PlayerIdx && p.Status == PlayerActive && p.HasActedThisRound {
-					p.RaiseClosed = true
+				if i != action.PlayerIdx && p.Status == PlayerActive && (p.HasActedThisRound || p.RaiseClosed) {
+					p.RaiseClosed = totalBet-p.CurrentBet < gs.MinRaise
 				}
 			}
 		}
@@ -272,20 +275,28 @@ func (gs *GameState) advanceToNextPlayer() {
 }
 
 func (gs *GameState) IsBettingRoundComplete() bool {
-	playersToAct := 0
-	playersInHand := 0
+	playersToAct, playersInHand, withChips, owing := 0, 0, 0, 0
 
 	for i := range gs.Players {
 		player := &gs.Players[i]
 		if player.Status == PlayerActive || player.Status == PlayerAllIn {
 			playersInHand++
 		}
-		if player.Status == PlayerActive && (!player.HasActedThisRound || player.CurrentBet < gs.CurrentBet) {
+		if player.Status != PlayerActive {
+			continue
+		}
+		withChips++
+		if player.CurrentBet < gs.CurrentBet {
+			owing++
+		}
+		if !player.HasActedThisRound || player.CurrentBet < gs.CurrentBet {
 			playersToAct++
 		}
 	}
 
-	return playersInHand <= 1 || playersToAct == 0
+	// The last player with chips, owing nothing, has no decision left: nobody could answer
+	// a bet, and a fold would hand an all-in player chips it never covered. The board runs out.
+	return playersInHand <= 1 || playersToAct == 0 || (withChips == 1 && owing == 0)
 }
 
 func (gs *GameState) CountActivePlayers() int {
