@@ -433,7 +433,7 @@ group(async () => {
     const p = await scriptedTable(1440, 900, reduced);
     try {
       await p.evaluate(() => {
-        const t = window.__t = { flights: [], deck: [], spread: 0, squared: null, early: null, done: null };
+        const t = window.__t = { flights: [], deck: [], spread: 0, squared: null, early: null, done: null, landed: {} };
         // Each visible hole card: its name and whether it is drawn (its own and its wrapper's opacity).
         window.__cards = () => [...document.querySelectorAll('[data-seat] [data-hole] > *')].filter(e => e.getBoundingClientRect().width > 0)
           .map(e => ({ label: e.querySelector('[role=img]')?.getAttribute('aria-label') ?? e.getAttribute('aria-label'), on: +getComputedStyle(e).opacity * +getComputedStyle(e.firstElementChild ?? e).opacity > 0.95 }));
@@ -451,8 +451,13 @@ group(async () => {
             for (const n of m.addedNodes) {
               if (!(n instanceof Element)) continue;
               if (n.dataset.flight) t.flights.push({ kind: n.dataset.flight, t: now });
-              // The cards shown 0.1 s into the deal (the first lands at 0.4 s) and 1.5 s into it (the last lands at 1.1 s).
-              if (n.dataset.flight === 'card' && !t.early) { t.early = []; setTimeout(() => { t.early = window.__cards(); }, 100); setTimeout(() => { t.done = window.__cards(); }, 1500); }
+              // The cards shown 0.1 s into the deal (the first lands at 0.28 s) and 3.3 s into it (the last of 18 lands at
+              // 2.66 s); in between, each frame, when each card first shows (its landing, for the deal's pace).
+              if (n.dataset.flight === 'card' && !t.early) {
+                t.early = []; setTimeout(() => { t.early = window.__cards(); }, 100); setTimeout(() => { t.done = window.__cards(); }, 3300);
+                const watch = () => { const at = performance.now(); for (const c of window.__cards()) if (c.on && !(c.label in t.landed)) t.landed[c.label] = at; if (!t.done) requestAnimationFrame(watch); };
+                requestAnimationFrame(watch);
+              }
               const d = n.matches('[data-deck]') ? n : n.querySelector('[data-deck]');
               if (d && d.getBoundingClientRect().width > 0) { t.deck.push({ phase: d.dataset.deck, t: now }); sample(d); }
             }
@@ -464,7 +469,7 @@ group(async () => {
       const dealt = await p.evaluate(() => window.__sock.deal());
       await sleep(600);
       const soon = await p.evaluate(() => window.__cards()); // reduced motion: all there
-      await sleep(1900); // the deal's samples are in, and the deck is put away
+      await sleep(3200); // the deal's samples are in, and the deck is put away
       const t = await p.evaluate(() => ({ ...window.__t, seats: window.__sock.last.players.length, deckNow: [...document.querySelectorAll('[data-deck]')].some(d => d.getBoundingClientRect().width > 0) }));
       return { ...t, ended, dealt, soon };
     } finally { await p.close(); }
@@ -476,16 +481,28 @@ group(async () => {
   const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => `${NAMES[r] ?? r} of ${SUITS[x]}`));
   const fresh = (r, list) => (list ?? []).filter(c => deck.indexOf(c.label) >= 0 && deck.indexOf(c.label) < 2 * r.seats);
   const showing = (r, list) => fresh(r, list).filter(c => c.on).length;
-  await check('table-deal-motion', 'A new hand is dealt on the felt: a card flies to every seat, twice, starting at once and all within 1 s, and each seat\'s cards show as they land; with reduced motion nothing flies and the cards are there at once', async () => {
+  // The pace (owner 2026-11-09: "the dealing speed is too fast, which causes the sound effects to sound like smacks"): a
+  // dealer pitching cards, one landing every 0.1-0.2 s (median), the first about 0.3 s after the new hand (its flight),
+  // a nine-seat deal done in 2.5-3 s.
+  await check('table-deal-motion', 'A new hand is dealt on the felt: a card flies to every seat, twice, starting at once, at a dealer\'s pace (one landing every 0.1-0.2 s, the first after a flight of about 0.3 s, the whole deal about 0.15 s a card), and each seat\'s cards show as they land; with reduced motion nothing flies and the cards are there at once', async () => {
     const bad = [];
     const c = cards(full), first = c.length ? c[0].t - full.dealt : null;
+    const lands = fresh(full, Object.keys(full.landed).map(label => ({ label }))).map(x => full.landed[x.label] - full.dealt).sort((a, b) => a - b);
+    const gaps = lands.slice(1).map((v, i) => v - lands[i]).sort((a, b) => a - b), gap = gaps[gaps.length >> 1];
+    const last = lands[lands.length - 1], n = 2 * full.seats;
+    if (lands.length !== n) bad.push(`${lands.length} of ${n} landings seen`);
+    else {
+      if (lands[0] < 200 || lands[0] > 600) bad.push(`the first card landed ${lands[0].toFixed(0)} ms after the new hand`);
+      if (!(gap >= 100 && gap <= 200)) bad.push(`a card landed every ${gap?.toFixed(0)} ms (median)`);
+      if (last < (n - 1) * 0.1 * 1000 || last > (n - 1) * 0.2 * 1000 + 700) bad.push(`the last of ${n} cards landed ${last.toFixed(0)} ms after the new hand`);
+    }
     if (c.length !== 2 * full.seats) bad.push(`${c.length} card flights for ${full.seats} seats`);
     if (first === null || first > 600) bad.push(`the first flight ${first === null ? 'never came' : `came ${first.toFixed(0)} ms after the new hand`}`);
     if (!full.early || showing(full, full.early) > full.seats) bad.push(`${full.early ? showing(full, full.early) : '?'} of the new cards already showing 0.1 s into the deal (they do not wait for their flights)`);
-    if (showing(full, full.done) !== 2 * full.seats) bad.push(`${showing(full, full.done)} of ${2 * full.seats} new cards showing 1.5 s into the deal`);
+    if (showing(full, full.done) !== 2 * full.seats) bad.push(`${showing(full, full.done)} of ${2 * full.seats} new cards showing 3.3 s into the deal`);
     if (reduced.flights.length) bad.push(`reduced motion: ${reduced.flights.length} flights`);
     if (showing(reduced, reduced.soon) !== 2 * reduced.seats) bad.push(`reduced motion: ${showing(reduced, reduced.soon)} of ${2 * reduced.seats} new cards showing 0.6 s after the deal`);
-    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${c.length} cards dealt to ${full.seats} seats from ${first.toFixed(0)} ms after the new hand, ${showing(full, full.early)} showing at 0.1 s, all ${showing(full, full.done)} at 1.5 s; reduced motion: no flights, all ${showing(reduced, reduced.soon)} cards at 0.6 s` };
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${c.length} cards dealt to ${full.seats} seats from ${first.toFixed(0)} ms after the new hand, ${showing(full, full.early)} showing at 0.1 s, landing from ${lands[0].toFixed(0)} ms every ${gap.toFixed(0)} ms (median) to ${last.toFixed(0)} ms, all ${showing(full, full.done)} at 3.3 s; reduced motion: no flights, all ${showing(reduced, reduced.soon)} cards at 0.6 s` };
   });
   await check('table-shuffle', 'Between hands the deck is riffled on the felt (the cards spread and come back together) and is squared before the next hand is due and before the first card is dealt from it; with reduced motion there is no deck', async () => {
     const bad = [];
@@ -497,7 +514,7 @@ group(async () => {
     else if (ready.t > full.dealt || (first && ready.t > first.t)) bad.push(`squared at ${at(ready.t)}, after the deal at ${at(full.dealt)}`);
     if (riffle && ready && ready.t - riffle.t < 500) bad.push(`riffle took ${(ready.t - riffle.t).toFixed(0)} ms`);
     if (full.spread < 20 || full.squared === null || full.squared > 1) bad.push(`cards spread ${full.spread.toFixed(0)}px, ${full.squared === null ? 'never squared' : `squared to ${full.squared.toFixed(1)}px`}`);
-    if (full.deckNow) bad.push('the deck is still on the felt 2.5 s after the deal');
+    if (full.deckNow) bad.push('the deck is still on the felt 3.8 s after the deal');
     if (reduced.deck.length) bad.push('reduced motion: a deck');
     return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `hand over at 0 s: riffle ${at(riffle.t)}, cards spread ${full.spread.toFixed(0)}px, squared ${at(ready.t)}; deal due and dealt at ${at(full.dealt)}, first card ${at(first?.t)}; reduced motion: no deck` };
   });
