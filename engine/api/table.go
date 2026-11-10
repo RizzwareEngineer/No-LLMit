@@ -1,7 +1,8 @@
-// The shared spectator table: one game that the server starts at boot and plays forever.
-// The server owns the clock, releasing each LLM turn on a timer and broadcasting it to
-// every connected spectator, so everyone watches the same moment and late joiners get
-// the current state. Spectators are read-only. Started by server.go.
+// The shared spectator table: one game that the server starts at boot and plays forever,
+// watched or not, inside its opening hours and daily call cap. The server owns the clock,
+// releasing each LLM turn on a timer and broadcasting it to every connected spectator, so
+// everyone watches the same moment and late joiners get the current state. Spectators are
+// read-only. Started by server.go.
 package api
 
 import (
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 // Display pacing. Mirrors what the frontend used to do on its own clock.
@@ -31,8 +34,9 @@ const (
 	nextHandDelay     = 7 * time.Second
 )
 
-// Seat names. Each must have a model in llm/registry.py.
-var tablePlayers = []string{
+// Seats the table when the LLM service cannot say who is seated (llm/registry.py
+// DEFAULT_LINEUP). The real lineup comes from GET /models at startup; see lineup.
+var defaultPlayers = []string{
 	"GPT-OSS 20B", "Claude Haiku 5.5", "Gemma 3 12B", "Llama 3.1 8B", "Mistral Nemo",
 	"DeepSeek V4 Flash", "Phi-4", "Qwen 3.7 Flash", "Cohere Command R7B",
 }
@@ -75,19 +79,23 @@ type Table struct {
 	openHour  int
 	closeHour int
 	hoursZone *time.Location
+
+	seated []string // the lineup, from lineup(); set before Run
 }
 
-func NewTable() *Table {
+// onSaved, if set, is called with each hand once it is saved.
+func NewTable(onSaved func(history.HandRecord)) *Table {
 	idBytes := make([]byte, 3)
 	rand.Read(idBytes)
 	t := &Table{
 		id:           "tbl_" + hex.EncodeToString(idBytes),
-		store:        NewHandStore(),
+		store:        NewHandStore(onSaved),
 		spectators:   make(map[*websocket.Conn]*spectator),
 		dailyCallCap: envInt("DAILY_CALL_CAP", 5000),
 		pace:         envFloat("TABLE_PACE", 1),
 		openHour:     envInt("TABLE_OPEN_HOUR", 0),
 		closeHour:    envInt("TABLE_CLOSE_HOUR", 24),
+		seated:       defaultPlayers,
 	}
 	if zone := os.Getenv("TABLE_TIMEZONE"); zone != "" && t.closeHour > t.openHour {
 		loc, err := time.LoadLocation(zone)
@@ -309,7 +317,7 @@ func (t *Table) broadcast(msg ServerMessage) {
 }
 
 func (t *Table) stateMessage() ServerMessage {
-	payload := ConvertGameState(t.gs, false)
+	payload := ConvertGameState(t.gs)
 	if t.gs.IsHandComplete() {
 		if ms := int(time.Until(t.nextHandAt).Milliseconds()); ms > 0 {
 			payload.NextHandInMs = ms
@@ -339,27 +347,6 @@ func (t *Table) sendSnapshot(sp *spectator) {
 
 func (t *Table) sleep(d time.Duration) {
 	time.Sleep(time.Duration(float64(d) * t.pace))
-}
-
-// waitForSpectators blocks while nobody is watching, so an empty table makes no LLM calls.
-func (t *Table) waitForSpectators() {
-	logged := false
-	for {
-		t.mu.Lock()
-		n := len(t.spectators)
-		t.mu.Unlock()
-		if n > 0 {
-			if logged {
-				log.Printf("Table resumed")
-			}
-			return
-		}
-		if !logged {
-			log.Printf("Table idle: no spectators")
-			logged = true
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
 }
 
 // waitForBudget blocks once the day's LLM call cap is reached, until the next UTC day.
@@ -407,17 +394,14 @@ func (t *Table) Run() {
 func (t *Table) startGame() {
 	t.mu.Lock()
 	t.gs = game.NewGame(game.GameConfig{
-		PlayerNames:   tablePlayers,
+		PlayerNames:   t.seated,
 		StartingStack: tableStartingStack,
 		Stakes:        game.Stakes{SmallBlind: tableSmallBlind, BigBlind: tableBigBlind},
-		Mode:          game.ModeSimulate,
 	})
 	cards := t.gs.DetermineButton()
 	log.Printf("Shared table created: %s", t.gs.ID)
 	t.broadcast(t.stateMessage())
 	t.mu.Unlock()
-
-	t.waitForSpectators()
 
 	for _, bc := range cards {
 		t.mu.Lock()
@@ -436,12 +420,60 @@ func (t *Table) startGame() {
 	t.sleep(buttonWinnerDelay)
 }
 
+// lineup asks the LLM service who is seated: LINEUP in production, a rotation over the
+// whole roster with the mock provider. The session index it sends is the number of
+// sessions already in the local hand log (0 when hands go to Supabase).
+func (t *Table) lineup() []string {
+	session := 0
+	if fs, ok := t.store.saver.(*fileSaver); ok {
+		// shortcut: parses the whole local log once at startup; fine for dev-sized files.
+		hands, err := loadHandFile(filepath.Join(fs.dir, "hands.jsonl"))
+		if err != nil {
+			log.Printf("Lineup: reading local hands: %v", err)
+		}
+		ids := map[string]bool{}
+		for _, h := range hands {
+			ids[h.TableID] = true
+		}
+		session = len(ids)
+	}
+	return seatedPlayers(func() ([]string, error) { return client.GetSeated(session) }, lineupTries, lineupWait)
+}
+
+// About a minute: long enough for the LLM service to boot after the engine, so a custom
+// LINEUP is not silently replaced by the default nine.
+const (
+	lineupTries = 12
+	lineupWait  = 5 * time.Second
+)
+
+// seatedPlayers returns what fetch reports, asking up to tries times wait apart, or
+// defaultPlayers when every attempt fails.
+func seatedPlayers(fetch func() ([]string, error), tries int, wait time.Duration) []string {
+	var err error
+	for i := 0; i < tries; i++ {
+		if i > 0 {
+			time.Sleep(wait)
+		}
+		var names []string
+		if names, err = fetch(); err == nil && len(names) < 2 {
+			err = fmt.Errorf("only %d seated", len(names))
+		}
+		if err == nil {
+			log.Printf("Lineup: %v", names)
+			return names
+		}
+	}
+	log.Printf("!!! Lineup unavailable after %d tries (%v); seating the default nine, LINEUP is ignored until restart", tries, err)
+	return defaultPlayers
+}
+
 func (t *Table) playHand() {
 	t.waitForOpenHours()
-	t.waitForSpectators()
 
 	t.mu.Lock()
 	rebought := t.gs.RebuyBrokePlayers(tableStartingStack)
+	start := startOf(t.gs)
 	if err := t.gs.StartHand(); err != nil {
 		t.mu.Unlock()
 		log.Printf("Could not start hand: %v", err)
@@ -465,34 +497,96 @@ func (t *Table) playHand() {
 		if done {
 			break
 		}
-		t.waitForSpectators()
 		t.waitForBudget()
 		t.playTurn()
 	}
 
 	t.mu.Lock()
+	voided := false
 	if !t.gs.IsHandComplete() {
 		log.Printf("Hand #%d stalled on %s with nobody to act; dealing a new hand", t.gs.HandNumber, t.gs.Street)
 	} else {
-		t.saveHand()
+		voided = t.saveHand(start)
 	}
 	wait := time.Until(t.nextHandAt)
+	if voided {
+		// An outage: wait before the next hand, which is the probe; it clears the notice if the models answer.
+		wait = time.Duration(float64(outagePause) * t.pace)
+		t.setNotice(TableNoticePayload{
+			Kind:      "outage",
+			Message:   "The models can't be reached, so that hand doesn't count.",
+			ReopensAt: time.Now().Add(wait).UTC().Format(time.RFC3339),
+		})
+		t.broadcast(t.stateMessage())
+	} else if t.notice.Kind == "outage" {
+		t.setNotice(TableNoticePayload{})
+	}
 	t.mu.Unlock()
 	if wait > 0 {
 		time.Sleep(wait)
 	}
 }
 
+// outagePause is how long the table waits after a voided hand before dealing the next one.
+const outagePause = 5 * time.Minute
+
+// handStart is what a voided hand puts back: every stack and the button, as they were
+// before the blinds, so the next hand is dealt as if the voided one never was.
+type handStart struct {
+	stacks []int
+	button int
+}
+
+func startOf(gs *game.GameState) handStart {
+	s := handStart{button: gs.ButtonIdx}
+	for _, p := range gs.Players {
+		s.stacks = append(s.stacks, p.Stack)
+	}
+	return s
+}
+
+func (s handStart) restore(gs *game.GameState) {
+	for i := range gs.Players {
+		gs.Players[i].Stack = s.stacks[i]
+	}
+	gs.ButtonIdx = s.button
+}
+
+// outage reports whether a hand had no model decision at all because the calls failed: not
+// one reply was played, and at least one turn failed at the provider or the LLM service.
+// Such a hand measures nothing about the models; a hand of the models' own misses does.
+func outage(r history.HandRecord) bool {
+	failed := false
+	for _, a := range r.Actions {
+		switch a.Status {
+		case "ok":
+			return false
+		case "timeout", "api_error", "service_error":
+			failed = true
+		}
+	}
+	return failed
+}
+
 // saveHand hands the finished hand to the store. Hands played by the mock provider are
-// only kept locally; they are not real model decisions. Callers hold t.mu.
-func (t *Table) saveHand() {
+// only kept locally; they are not real model decisions. A hand that was an outage (see
+// outage) is voided instead: not saved, and every stack and the button go back to start.
+// Callers hold t.mu.
+func (t *Table) saveHand(start handStart) (voided bool) {
 	record, prompts := t.recorder.finish(t.gs)
 	t.recorder = nil
+	if outage(record) {
+		start.restore(t.gs)
+		log.Printf("Hand #%d voided: no model call succeeded", t.gs.HandNumber)
+		return true
+	}
+	// shortcut: a hand with no decision is not saved; heads-up, a blind posted all-in makes
+	// such a hand and its chips go unrecorded. Save it once two-seat tables exist.
 	if len(record.Actions) == 0 {
-		return
+		return false
 	}
 	if _, toSupabase := t.store.saver.(*supabaseSaver); toSupabase && record.Config.Provider == "mock" {
-		return
+		return false
 	}
 
 	if record.Config.PromptVersion != t.promptVer {
@@ -508,6 +602,7 @@ func (t *Table) saveHand() {
 		systemPrompt = t.systemPrompt
 	}
 	t.store.Save(savedHand{Record: record, Prompts: prompts, SystemPrompt: systemPrompt})
+	return false
 }
 
 // settleStreets advances past any street where the betting is already finished.
@@ -540,22 +635,19 @@ func (t *Table) playTurn() {
 	playerIdx := t.gs.CurrentPlayerIdx
 	playerName := t.gs.Players[playerIdx].Name
 	validActions := buildLLMValidActions(t.gs)
-	prompt := t.gs.GetLLMPrompt(playerName, validActions)
-	t.recorder.beginDecision(t.gs, validActions, prompt)
+	req := buildDecisionRequest(t.gs, validActions)
+	t.recorder.beginDecision(t.gs, validActions)
 	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{PlayerIdx: playerIdx, PlayerName: playerName}}
 	t.turn = &thinking
 	t.broadcast(thinking)
 	t.mu.Unlock()
 
 	start := time.Now()
-	ask := func(prompt string) (*client.LLMDecisionResponse, error) {
-		t.mu.Lock()
-		t.calls++
-		t.mu.Unlock()
-		return client.GetLLMDecision(playerName, prompt, validActions, game.ModeSimulate.String())
-	}
+	t.mu.Lock()
+	t.calls++
+	t.mu.Unlock()
 	// Reading t.gs without the lock is safe here: only this goroutine changes it.
-	turn := decideLLMTurn(t.gs, prompt, ask)
+	turn := decideLLMTurn(t.gs, func() (*client.LLMDecisionResponse, error) { return client.GetLLMDecision(req) })
 	decision := turn.decision
 	log.Printf("%s: %s %d (%dms)", playerName, decision.Action, decision.Amount, time.Since(start).Milliseconds())
 	if remaining := time.Duration(float64(thinkingDuration)*t.pace) - time.Since(start); remaining > 0 {
@@ -601,55 +693,46 @@ func (t *Table) playTurn() {
 
 // llmTurn is one model decision and the move the engine will apply for it.
 type llmTurn struct {
-	decision   *client.LLMDecisionResponse // the reply to record (the retry's, if there was one)
+	decision   *client.LLMDecisionResponse // the service's reply: the model's move, or its fallback
 	action     game.Action
 	serviceErr bool // the LLM service could not be reached
-	retried    bool // the first reply was unparseable or illegal, so the model was asked again
-	fallback   bool // no usable reply: action is CHECK when legal, otherwise FOLD
+	fallback   bool // action is not the model's own choice: CHECK when legal, otherwise FOLD
 }
 
-// decideLLMTurn asks the current player's model for a move. An unparseable or illegal
-// reply is retried once with the engine's reason appended to the prompt; if the retry is
-// bad too, the player checks when checking is legal and folds otherwise. It only reads gs.
-func decideLLMTurn(gs *game.GameState, prompt string, ask func(prompt string) (*client.LLMDecisionResponse, error)) llmTurn {
+// decideLLMTurn asks the LLM service for the current player's move. The service owns the
+// prompts, parsing and retries and reports a status; the engine checks the move against
+// the rules anyway and falls back (check when legal, else fold) if it cannot be applied.
+func decideLLMTurn(gs *game.GameState, ask func() (*client.LLMDecisionResponse, error)) llmTurn {
 	idx := gs.CurrentPlayerIdx
 	name := gs.Players[idx].Name
-	d, err := ask(prompt)
+	d, err := ask()
 	if err != nil {
 		log.Printf("❌ LLM ERROR for %s: %v", name, err)
 		return llmTurn{
-			decision:   &client.LLMDecisionResponse{Action: "FOLD", Reason: "LLM service error"},
+			decision:   &client.LLMDecisionResponse{Action: "FOLD", Status: "service_error"},
 			action:     fallbackAction(gs, idx),
 			serviceErr: true,
 			fallback:   true,
 		}
 	}
-
-	turn := llmTurn{}
+	turn := llmTurn{decision: d}
 	action, reason := checkLLMDecision(gs, idx, d)
-	if reason != "" {
-		log.Printf("%s: invalid reply (%s), asking again", name, reason)
-		turn.retried = true
-		if retry, err := ask(prompt + "\n\nYour previous reply was invalid: " + reason + ". Reply again."); err != nil {
-			log.Printf("❌ LLM ERROR for %s on retry: %v", name, err)
-		} else {
-			d = combineRetry(d, retry)
-			action, reason = checkLLMDecision(gs, idx, d)
-		}
+	switch {
+	case d.Status != "ok":
+		log.Printf("%s: %s (%s), falling back", name, d.Status, d.Error)
+	case reason != "":
+		// Not expected: the service checked the reply against the legal list the engine sent.
+		log.Printf("%s: service returned an unplayable move (%s), falling back", name, reason)
 	}
-	if reason != "" {
-		log.Printf("%s: invalid reply again (%s), falling back", name, reason)
+	if d.Status != "ok" || reason != "" {
 		action, turn.fallback = fallbackAction(gs, idx), true
 	}
-	turn.decision, turn.action = d, action
+	turn.action = action
 	return turn
 }
 
 // checkLLMDecision turns a reply into an action, or says why the engine cannot apply it.
 func checkLLMDecision(gs *game.GameState, idx int, d *client.LLMDecisionResponse) (game.Action, string) {
-	if d.Status == "unparseable" {
-		return game.Action{}, "no ACTION line was found"
-	}
 	actionType, ok := ParseActionType(d.Action)
 	if !ok {
 		return game.Action{}, fmt.Sprintf("%q is not a legal action", d.Action)
@@ -670,24 +753,49 @@ func fallbackAction(gs *game.GameState, idx int) game.Action {
 	return game.Action{Type: game.ActionFold, PlayerIdx: idx}
 }
 
-// combineRetry keeps the retry's reply, with both raw replies and the cost of both calls.
-func combineRetry(first, retry *client.LLMDecisionResponse) *client.LLMDecisionResponse {
-	d := *retry
-	d.Raw = first.Raw + "\n\n--- retry ---\n" + retry.Raw
-	d.LatencyMs += first.LatencyMs
-	d.TokensIn = addPtr(first.TokensIn, retry.TokensIn)
-	d.TokensOut = addPtr(first.TokensOut, retry.TokensOut)
-	d.CostUSD = addPtr(first.CostUSD, retry.CostUSD)
-	return &d
-}
+// buildLLMValidActions converts game valid actions to LLM-friendly format
+func buildLLMValidActions(gs *game.GameState) []game.LLMValidAction {
+	validActions := gs.GetValidActions()
+	var llmActions []game.LLMValidAction
+	player := gs.Players[gs.CurrentPlayerIdx]
 
-func addPtr[T int | float64](a, b *T) *T {
-	if a == nil {
-		return b
+	for _, va := range validActions {
+		actionType := va.Type.String()
+
+		if va.Type == game.ActionRaise {
+			if gs.CurrentBet == 0 {
+				actionType = "BET"
+			} else {
+				actionType = "RAISE"
+			}
+		}
+
+		llmAction := game.LLMValidAction{
+			Type: actionType,
+		}
+		if va.Type == game.ActionCall {
+			llmAction.Amount = va.MinAmount
+			llmAction.Description = fmt.Sprintf("match the current bet of %d", va.MinAmount)
+		} else if va.Type == game.ActionRaise {
+			llmAction.Min = va.MinAmount
+			llmAction.Max = va.MaxAmount
+			llmAction.Description = fmt.Sprintf("choose ANY amount between %d and %d", va.MinAmount, va.MaxAmount)
+		} else if va.Type == game.ActionAllIn {
+			if toCall := gs.CurrentBet - player.CurrentBet; toCall >= player.Stack {
+				// The bet covers the stack: the engine plays CALL as an all-in, so offer it.
+				llmActions = append(llmActions, game.LLMValidAction{
+					Type: "CALL", Amount: player.Stack, Description: fmt.Sprintf("call all-in for your last %d", player.Stack),
+				})
+			}
+			llmAction.Amount = va.MaxAmount
+			llmAction.Description = fmt.Sprintf("put all %d chips in", va.MaxAmount)
+		} else if va.Type == game.ActionFold {
+			llmAction.Description = "give up your hand"
+		} else if va.Type == game.ActionCheck {
+			llmAction.Description = "pass without betting"
+		}
+		llmActions = append(llmActions, llmAction)
 	}
-	if b == nil {
-		return a
-	}
-	sum := *a + *b
-	return &sum
+
+	return llmActions
 }

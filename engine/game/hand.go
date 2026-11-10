@@ -4,10 +4,7 @@
 // returns human-readable text like "Full House, Kings over Aces". Called by game.go at showdown.
 package game
 
-import (
-	"fmt"
-	"sort"
-)
+import "sort"
 
 type HandType int
 
@@ -46,8 +43,6 @@ type HandResult struct {
 	BestCards []Card   `json:"bestCards"` // The 5 cards that make the hand
 	PlayerIdx int      `json:"playerIdx"`
 }
-
-var EvaluatorDebug = false
 
 // Base values ensure any higher hand type always beats any lower type
 const (
@@ -192,16 +187,6 @@ func FindWinners(players []Player, communityCards []Card, eligibleIndices []int)
 		return nil
 	}
 
-	if EvaluatorDebug {
-		fmt.Println("\n========== SHOWDOWN DEBUG ==========")
-		fmt.Printf("Community cards: ")
-		for _, c := range communityCards {
-			fmt.Printf("%s ", c.String())
-		}
-		fmt.Println()
-		fmt.Printf("Eligible players: %v\n", eligibleIndices)
-	}
-
 	type playerHand struct {
 		idx    int
 		result HandResult
@@ -210,35 +195,13 @@ func FindWinners(players []Player, communityCards []Card, eligibleIndices []int)
 	var hands []playerHand
 	for _, idx := range eligibleIndices {
 		if players[idx].Status == PlayerFolded || players[idx].Status == PlayerEliminated {
-			if EvaluatorDebug {
-				fmt.Printf("Player %d (%s) - SKIPPED (status: %s)\n", idx, players[idx].Name, players[idx].Status)
-			}
 			continue
 		}
 		allCards := append([]Card{}, players[idx].HoleCards...)
 		allCards = append(allCards, communityCards...)
 
-		if EvaluatorDebug {
-			fmt.Printf("\nPlayer %d (%s):\n", idx, players[idx].Name)
-			fmt.Printf("  Hole cards: ")
-			for _, c := range players[idx].HoleCards {
-				fmt.Printf("%s ", c.String())
-			}
-			fmt.Println()
-			fmt.Printf("  All 7 cards: ")
-			for _, c := range allCards {
-				fmt.Printf("%s ", c.String())
-			}
-			fmt.Println()
-		}
-
 		result := EvaluateHand(allCards)
 		result.PlayerIdx = idx
-
-		if EvaluatorDebug {
-			fmt.Printf("  Hand: %s (rank: %d)\n", result.HandType.String(), result.HandRank)
-			fmt.Printf("  Kickers: %v\n", result.Kickers)
-		}
 
 		hands = append(hands, playerHand{idx: idx, result: result})
 	}
@@ -252,13 +215,6 @@ func FindWinners(players []Player, communityCards []Card, eligibleIndices []int)
 		return CompareHands(hands[i].result, hands[j].result) > 0
 	})
 
-	if EvaluatorDebug {
-		fmt.Println("\nRanked hands:")
-		for i, h := range hands {
-			fmt.Printf("  %d. Player %d (%s): %s (rank: %d)\n", i+1, h.idx, players[h.idx].Name, h.result.HandType.String(), h.result.HandRank)
-		}
-	}
-
 	winners := []int{hands[0].idx}
 	for i := 1; i < len(hands); i++ {
 		if CompareHands(hands[i].result, hands[0].result) == 0 {
@@ -266,11 +222,6 @@ func FindWinners(players []Player, communityCards []Card, eligibleIndices []int)
 		} else {
 			break
 		}
-	}
-
-	if EvaluatorDebug {
-		fmt.Printf("\nWinners: %v\n", winners)
-		fmt.Print("=====================================\n\n")
 	}
 
 	return winners

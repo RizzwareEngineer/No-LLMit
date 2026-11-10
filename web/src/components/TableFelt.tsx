@@ -3,9 +3,13 @@
 import Card from "@/components/Card";
 import NumberFlow from '@number-flow/react';
 import { CircleNotch, Moon } from "@phosphor-icons/react";
+import ChipStack from "@/components/ChipStack";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
+import { AnimatePresence } from "motion/react";
+import { Deck, DeckPhase } from "@/components/TableMotion";
 import { TableNoticePayload } from "@/lib/api";
+import { amountParts, formatAmount, useBigBlind } from "@/lib/amounts";
 import { formatDuration, formatLocalTime } from "@/lib/time";
 
 interface WinnerDisplay {
@@ -27,14 +31,25 @@ interface ButtonDetermination {
   isComplete: boolean;
 }
 
+// A bet in front of a seat, on the felt's edge facing it. `at` is 0..1 along that edge.
+export interface FeltBet {
+  seat: number;
+  side: 'top' | 'bottom' | 'left' | 'right';
+  at: number;
+  amount: number;
+}
+
 interface TableFeltProps {
   cards: string[];
-  pot: number;
+  pot: number; // the engine's pot, which already includes the bets still in front of the seats
+  betsOut?: number; // sum of those bets
+  bets?: FeltBet[]; // desktop only: placed on the felt's edges
   winners?: WinnerDisplay[];
   nextHandCountdown?: number | null;
   onSkipCountdown?: () => void;
   buttonDetermination?: ButtonDetermination | null;
   notice?: TableNoticePayload | null;
+  deck?: DeckPhase | null; // the deck between hands, in the board's place (TableMotion)
 }
 
 // Shown on the felt while the table is closed or at its daily call cap.
@@ -69,20 +84,46 @@ function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
   );
 }
 
+// A small chip stack and the amount, like CoinPoker: each street's bets sit in front of the seats.
+function BetStack({ seat, amount, style }: { seat: number; amount: number; style: CSSProperties }) {
+  const bb = useBigBlind();
+  if (amount <= 0) return null;
+  return (
+    <div data-bet={seat} className="absolute flex items-center gap-1.5" style={style} title={`Bet ${formatAmount(amount, bb)}`}>
+      <ChipStack amount={amount} />
+      <span data-chips={amount} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(amount, bb)}</span>
+    </div>
+  );
+}
+
+const EDGE: Record<FeltBet['side'], (at: number) => CSSProperties> = {
+  top: at => ({ top: 8, left: `${at * 100}%`, transform: 'translateX(-50%)' }),
+  bottom: at => ({ bottom: 8, left: `${at * 100}%`, transform: 'translateX(-50%)' }),
+  left: at => ({ left: 10, top: `${at * 100}%`, transform: 'translateY(-50%)' }),
+  right: at => ({ right: 10, top: `${at * 100}%`, transform: 'translateY(-50%)' }),
+};
+
 export default function TableFelt({ 
   cards, 
   pot, 
+  betsOut = 0,
+  bets,
   winners = [],
   nextHandCountdown,
   onSkipCountdown,
   buttonDetermination,
   notice,
+  deck,
 }: TableFeltProps) {
+  const bb = useBigBlind();
+  const potIn = amountParts(pot, bb);
+  const collected = Math.max(0, pot - betsOut);
   // Show button determination if in progress
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
   return (
     <div 
-      className="flex flex-col items-center justify-center gap-3 w-full h-full py-2"
+      data-felt
+      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'pt-[44px] pb-3' : 'py-2'}`}
       style={{
         backgroundImage: `
           linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
@@ -91,14 +132,16 @@ export default function TableFelt({
         backgroundSize: '20px 20px',
       }}
     >
+      {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} />)}
+
       {/* Winner announcement or Pot */}
-      <div className="h-[44px] w-full flex items-center justify-center">
+      <div className="h-[74px] w-full flex items-start justify-center">
         {winners.length > 0 ? (
-          <div className="flex flex-col items-center bg-green-50 p-2 px-3 border border-green-500 max-w-full overflow-hidden">
+          <div data-pot className="flex flex-col items-center bg-green-50 p-2 px-3 border border-green-500 max-w-full overflow-hidden">
             {winners.slice(0, 1).map((w, i) => (
               <div key={i} className="text-center">
                 <span className="text-green-700 font-bold text-xs">{w.name}</span>
-                <span className="text-green-700 text-xs"> +¤{w.amount.toLocaleString()}</span>
+                <span data-chips={w.amount} className="text-green-700 text-xs whitespace-nowrap"> +{formatAmount(w.amount, bb)}</span>
                 <div className="text-green-700 text-[11px] truncate">{w.handDesc}</div>
               </div>
             ))}
@@ -107,17 +150,29 @@ export default function TableFelt({
             )}
           </div>
         ) : (
-          <div className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm">
-            <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>
-            <div className="text-lg text-gray-700 font-bold tabular-nums">
-              ¤<NumberFlow value={pot} />
+          // Three counters, like CoinPoker: bets in front of the seats, the chips already collected
+          // in the middle (POT), and both together above it (TOTAL POT).
+          // One labelled number, as the big rooms do it: POT is the whole pot, bets out included
+          // (the number pot odds need). The chips already collected are drawn under it as a chip
+          // stack with a bare amount, like the stacks in front of the seats; no second label.
+          <div className="flex flex-col items-center gap-3">
+            <div data-chips={pot} className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm" aria-label={`Pot ${formatAmount(pot, bb)}`}>
+              <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>
+              <div className="text-lg text-gray-700 font-bold tabular-nums">
+                <NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} />
+              </div>
+            </div>
+            {/* data-pot: where TableMotion's chips land */}
+            <div data-pot className={`flex items-center gap-1.5 h-[18px] ${collected > 0 ? '' : 'invisible'}`} aria-hidden={collected <= 0} title="Chips collected so far">
+              <ChipStack amount={collected} />
+              <span data-chips={collected} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(collected, bb)}</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Community cards or Button Determination */}
-      <div className="flex gap-2 min-h-[70px] items-center">
+      {/* Community cards or Button Determination; between hands, the deck being shuffled in the board's place */}
+      <div data-felt-cards className="flex gap-2 min-h-[70px] items-center">
         {notice ? (
           <TableNoticeCard notice={notice} />
         ) : showButtonDetermination ? (
@@ -138,19 +193,24 @@ export default function TableFelt({
               </div>
             )}
           </div>
-        ) : cards.length > 0 ? (
-          cards.map((card, i) => (
-            <Card key={`${card}-${i}`} value={card} className="w-11 h-16" />
-          ))
         ) : (
-          <div className="text-[11px] text-gray-600 uppercase">No cards dealt</div>
+          <>
+            {!deck && cards.map((card, i) => (
+              <Card key={`${card}-${i}`} value={card} className="w-11 h-16" />
+            ))}
+            <AnimatePresence>{deck && <Deck key="deck" phase={deck} />}</AnimatePresence>
+          </>
         )}
       </div>
 
-      {/* Next hand countdown - displayed on the felt */}
+      {/* Next hand countdown. Its slot is always there, so the felt (and the seat rows) never
+          change height when it appears: 44+74+12+70+12+32+12 = 256px, two 128px rows. The top
+          padding keeps the POT box 16px clear of the top seats' bets; the countdown shares the
+          bottom edge with the bottom seats' bets, which are gone by the time it shows. */}
+      <div className="h-[32px] flex items-center">
       {nextHandCountdown !== null && nextHandCountdown !== undefined && nextHandCountdown > 0 && (
         <div 
-          className="flex items-center gap-2 bg-white px-4 py-2 rounded"
+          className="flex items-center gap-2 bg-white px-4 py-1.5 rounded"
           style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
         >
           <CircleNotch size={14} className="animate-spin" style={{ color: 'rgb(35, 131, 226)' }} />
@@ -168,6 +228,7 @@ export default function TableFelt({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

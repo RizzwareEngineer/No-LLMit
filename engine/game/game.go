@@ -1,7 +1,7 @@
 // This file is the heart of the poker engine. It holds the GameState struct which tracks
 // everything: players, cards, pots, betting state. NewGame creates a table, StartHand deals
 // cards and posts blinds, AdvanceStreet moves through flop/turn/river, and resolveShowdown
-// determines winners. Called by api/game_handlers.go and api/llm_handlers.go.
+// determines winners. Driven by api/table.go.
 package game
 
 import (
@@ -24,18 +24,6 @@ func (s Street) String() string {
 	return []string{"preflop", "flop", "turn", "river", "showdown", "complete"}[s]
 }
 
-type GameMode int
-
-const (
-	ModeSimulate GameMode = iota // All LLMs
-	ModePlay                     // User plays one seat
-	ModeTest                     // User controls all seats (for debugging)
-)
-
-func (gm GameMode) String() string {
-	return []string{"simulate", "play", "test"}[gm]
-}
-
 type Stakes struct {
 	SmallBlind int `json:"smallBlind"`
 	BigBlind   int `json:"bigBlind"`
@@ -45,45 +33,35 @@ type GameConfig struct {
 	PlayerNames   []string `json:"playerNames"`
 	StartingStack int      `json:"startingStack"`
 	Stakes        Stakes   `json:"stakes"`
-	Mode          GameMode `json:"mode"`
-	UserSeatIdx   int      `json:"userSeatIdx"` // Only relevant in ModePlay
 }
 
 type GameState struct {
-	ID                 string            `json:"id"`
-	Players            []Player          `json:"players"`
-	CommunityCards     []Card            `json:"communityCards"`
-	Pots               []Pot             `json:"pots"`
-	Street             Street            `json:"street"`
-	ButtonIdx          int               `json:"buttonIdx"`
-	CurrentPlayerIdx   int               `json:"currentPlayerIdx"`
-	CurrentBet         int               `json:"currentBet"`
-	MinRaise           int               `json:"minRaise"`
-	LastRaiseAmount    int               `json:"lastRaiseAmount"`
-	Stakes             Stakes            `json:"stakes"`
-	Mode               GameMode          `json:"mode"`
-	UserSeatIdx        int               `json:"userSeatIdx"`
-	HandNumber         int               `json:"handNumber"`
-	Winners            []Winner          `json:"winners,omitempty"`
-	GameStartTime      time.Time         `json:"gameStartTime"`
-	deck               *Deck             `json:"-"`
-	actionsThisRound   int               `json:"-"`
-	LLMActionsThisHand []LLMAction       `json:"-"`
-	LLMPreviousHands   []LLMPreviousHand `json:"-"`
+	ID                 string      `json:"id"`
+	Players            []Player    `json:"players"`
+	CommunityCards     []Card      `json:"communityCards"`
+	Pots               []Pot       `json:"pots"`
+	Street             Street      `json:"street"`
+	ButtonIdx          int         `json:"buttonIdx"`
+	CurrentPlayerIdx   int         `json:"currentPlayerIdx"`
+	CurrentBet         int         `json:"currentBet"`
+	MinRaise           int         `json:"minRaise"`
+	Stakes             Stakes      `json:"stakes"`
+	HandNumber         int         `json:"handNumber"`
+	Winners            []Winner    `json:"winners,omitempty"`
+	GameStartTime      time.Time   `json:"gameStartTime"`
+	deck               *Deck       `json:"-"`
+	LLMActionsThisHand []LLMAction `json:"-"`
 }
-
-type WinnerFinder func(players []Player, communityCards []Card, eligibleIndices []int) []int
 
 func NewGame(config GameConfig) *GameState {
 	players := make([]Player, len(config.PlayerNames))
 	for i, name := range config.PlayerNames {
 		players[i] = Player{
-			ID:           fmt.Sprintf("%d", i+1),
-			Name:         name,
-			Stack:        config.StartingStack,
-			HoleCards:    []Card{},
-			Status:       PlayerActive,
-			SeatPosition: i,
+			ID:        fmt.Sprintf("%d", i+1),
+			Name:      name,
+			Stack:     config.StartingStack,
+			HoleCards: []Card{},
+			Status:    PlayerActive,
 		}
 	}
 
@@ -96,13 +74,10 @@ func NewGame(config GameConfig) *GameState {
 		ButtonIdx:          0, // Will be rotated before first hand
 		CurrentPlayerIdx:   -1,
 		Stakes:             config.Stakes,
-		Mode:               config.Mode,
-		UserSeatIdx:        config.UserSeatIdx,
 		HandNumber:         0,
 		GameStartTime:      time.Now(), // Server timestamp for game start
 		deck:               NewDeck(),
 		LLMActionsThisHand: []LLMAction{},
-		LLMPreviousHands:   []LLMPreviousHand{},
 	}
 
 	return gs
@@ -118,7 +93,7 @@ type ButtonCard struct {
 // Also sets ButtonIdx to the player with the highest card.
 // Caller should display these one at a time with delays.
 func (gs *GameState) DetermineButton() []ButtonCard {
-	gs.deck.Reset()
+	gs.deck.Shuffle()
 	cards := make([]ButtonCard, len(gs.Players))
 
 	highestIdx := 0
@@ -139,14 +114,9 @@ func (gs *GameState) DetermineButton() []ButtonCard {
 	}
 
 	gs.ButtonIdx = highestIdx
-	gs.deck.Reset() // Reset deck for actual play
+	gs.deck.Shuffle() // Reset deck for actual play
 
 	return cards
-}
-
-// GetButtonWinner returns the index of the player who won the button
-func (gs *GameState) GetButtonWinner() int {
-	return gs.ButtonIdx
 }
 
 func (gs *GameState) StartHand() error {
@@ -163,7 +133,7 @@ func (gs *GameState) StartHand() error {
 	}
 
 	gs.HandNumber++
-	gs.deck.Reset()
+	gs.deck.Shuffle()
 	gs.CommunityCards = []Card{}
 	gs.Winners = nil
 	gs.ResetPotsForNewHand()
@@ -189,6 +159,9 @@ func (gs *GameState) StartHand() error {
 
 	gs.Street = StreetPreflop
 	gs.CurrentPlayerIdx = gs.GetFirstToAct()
+	if gs.IsBettingRoundComplete() {
+		gs.CurrentPlayerIdx = -1 // heads-up with a blind posted all-in: nothing to decide, the board runs out
+	}
 
 	return nil
 }
@@ -227,7 +200,6 @@ func (gs *GameState) postBlinds() error {
 
 	gs.CurrentBet = gs.Stakes.BigBlind
 	gs.MinRaise = gs.Stakes.BigBlind
-	gs.LastRaiseAmount = gs.Stakes.BigBlind
 
 	gs.RecordActionForLLMs(sbPlayer.Name, "post", sbAmount)
 	gs.RecordActionForLLMs(bbPlayer.Name, "post", bbAmount)
@@ -252,16 +224,13 @@ func (gs *GameState) getNextActivePlayer(fromIdx int) int {
 func (gs *GameState) dealHoleCards() {
 	startIdx := (gs.ButtonIdx + 1) % len(gs.Players) // Start left of button
 
-	for i := 0; i < len(gs.Players); i++ {
-		idx := (startIdx + i) % len(gs.Players)
-		if gs.Players[idx].Status != PlayerEliminated {
-			gs.Players[idx].HoleCards = append(gs.Players[idx].HoleCards, gs.deck.Deal(1)[0])
-		}
-	}
-	for i := 0; i < len(gs.Players); i++ {
-		idx := (startIdx + i) % len(gs.Players)
-		if gs.Players[idx].Status != PlayerEliminated {
-			gs.Players[idx].HoleCards = append(gs.Players[idx].HoleCards, gs.deck.Deal(1)[0])
+	// One card at a time around the table, twice.
+	for round := 0; round < 2; round++ {
+		for i := 0; i < len(gs.Players); i++ {
+			idx := (startIdx + i) % len(gs.Players)
+			if gs.Players[idx].Status != PlayerEliminated {
+				gs.Players[idx].HoleCards = append(gs.Players[idx].HoleCards, gs.deck.Deal(1)[0])
+			}
 		}
 	}
 }
@@ -282,10 +251,10 @@ func (gs *GameState) AdvanceStreet() error {
 		gs.dealFlop()
 	case StreetFlop:
 		gs.Street = StreetTurn
-		gs.dealTurn()
+		gs.dealOne()
 	case StreetTurn:
 		gs.Street = StreetRiver
-		gs.dealRiver()
+		gs.dealOne()
 	case StreetRiver:
 		gs.Street = StreetShowdown
 		return gs.resolveShowdown()
@@ -305,20 +274,15 @@ func (gs *GameState) dealFlop() {
 	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(3)...)
 }
 
-func (gs *GameState) dealTurn() {
-	gs.deck.Burn()
-	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(1)[0])
-}
-
-func (gs *GameState) dealRiver() {
+// dealOne burns a card and deals the turn or river.
+func (gs *GameState) dealOne() {
 	gs.deck.Burn()
 	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(1)[0])
 }
 
 func (gs *GameState) runOutBoard() error {
 	for len(gs.CommunityCards) < 5 {
-		gs.deck.Burn()
-		gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(1)[0])
+		gs.dealOne()
 	}
 	gs.Street = StreetShowdown
 	return gs.resolveShowdown()
@@ -330,7 +294,7 @@ func (gs *GameState) finishHandOnePlayerRemains() error {
 		gs.Winners = []Winner{*winner}
 	}
 	gs.Street = StreetComplete
-	gs.ArchiveHandForLLMs()
+	gs.LLMActionsThisHand = []LLMAction{}
 	return nil
 }
 
@@ -348,7 +312,7 @@ func (gs *GameState) resolveShowdown() error {
 	}
 
 	gs.Street = StreetComplete
-	gs.ArchiveHandForLLMs()
+	gs.LLMActionsThisHand = []LLMAction{}
 	return nil
 }
 
@@ -399,11 +363,7 @@ func (gs *GameState) RebuyBrokePlayers(stack int) []int {
 
 // DeckOrder returns this hand's full shuffled deck, in the order cards are dealt.
 func (gs *GameState) DeckOrder() []string {
-	order := make([]string, len(gs.deck.cards))
-	for i, c := range gs.deck.cards {
-		order[i] = c.String()
-	}
-	return order
+	return CardStrings(gs.deck.cards)
 }
 
 // PositionName returns a player's position this hand (BTN, SB, BB, UTG, ...).
@@ -423,51 +383,6 @@ func (gs *GameState) RecordActionForLLMs(playerName, action string, amount int) 
 		Street: street.String(),
 		Pot:    gs.SimplifiedPotCalculation(),
 	})
-}
-
-func (gs *GameState) ArchiveHandForLLMs() {
-	showdown := []map[string]any{}
-	if gs.Street == StreetShowdown || gs.Street == StreetComplete {
-		for i, p := range gs.Players {
-			if p.Status == PlayerActive || p.Status == PlayerAllIn {
-				showdown = append(showdown, map[string]any{
-					"player": p.Name,
-					"cards":  gs.GetLLMHoleCards(i),
-				})
-			}
-		}
-	}
-
-	winners := make([]map[string]any, len(gs.Winners))
-	for i, w := range gs.Winners {
-		winners[i] = map[string]any{
-			"player": gs.Players[w.PlayerIdx].Name,
-			"amount": w.Amount,
-		}
-	}
-
-	hand := LLMPreviousHand{
-		Players:        gs.GetLLMPlayers(),
-		CommunityCards: gs.GetLLMCommunityCards(),
-		Actions:        gs.LLMActionsThisHand,
-		Showdown:       showdown,
-		Winners:        winners,
-	}
-	gs.LLMPreviousHands = append(gs.LLMPreviousHands, hand)
-	gs.LLMActionsThisHand = []LLMAction{}
-}
-
-func (gs *GameState) GetLLMPlayers() []LLMPlayer {
-	players := make([]LLMPlayer, len(gs.Players))
-	for i, p := range gs.Players {
-		players[i] = LLMPlayer{
-			Name:     p.Name,
-			Seat:     p.SeatPosition,
-			Stack:    p.Stack,
-			Position: gs.getPositionName(i),
-		}
-	}
-	return players
 }
 
 func (gs *GameState) getPositionName(playerIdx int) string {
@@ -505,19 +420,11 @@ func (gs *GameState) getPositionName(playerIdx int) string {
 }
 
 func (gs *GameState) GetLLMCommunityCards() []string {
-	cards := make([]string, len(gs.CommunityCards))
-	for i, c := range gs.CommunityCards {
-		cards[i] = c.String()
-	}
-	return cards
+	return CardStrings(gs.CommunityCards)
 }
 
 func (gs *GameState) GetLLMHoleCards(playerIdx int) []string {
-	cards := make([]string, len(gs.Players[playerIdx].HoleCards))
-	for i, c := range gs.Players[playerIdx].HoleCards {
-		cards[i] = c.String()
-	}
-	return cards
+	return CardStrings(gs.Players[playerIdx].HoleCards)
 }
 
 func generateGameID() string {

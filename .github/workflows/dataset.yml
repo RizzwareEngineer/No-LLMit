@@ -1,0 +1,76 @@
+# Nightly open-dataset export from Supabase to Hugging Face: yesterday (America/New_York day)
+# plus the three days before it, so hands saved late or a failed night are picked up.
+# Secrets: SUPABASE_URL, SUPABASE_SERVICE_KEY, HF_TOKEN (write access), HF_REPO (e.g. user/no-llmit-hands).
+# Each secret is visible only to the step that needs it. Until all four are set the job only logs that it skipped.
+name: Dataset export
+
+on:
+  schedule:
+    - cron: "17 9 * * *" # 04:17 or 05:17 ET
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "ET day to export (YYYY-MM-DD), or 'yesterday'"
+        default: yesterday
+      back:
+        description: "Also re-export this many days before it"
+        default: "3"
+
+permissions:
+  contents: read
+
+# Never two runs at once: a later run's card must be built from the earlier run's upload.
+concurrency:
+  group: dataset-export
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: dataset
+    steps:
+      - id: check
+        working-directory: .
+        env:
+          HAS_SUPABASE: ${{ secrets.SUPABASE_URL != '' && secrets.SUPABASE_SERVICE_KEY != '' }}
+          HAS_HF: ${{ secrets.HF_TOKEN != '' && secrets.HF_REPO != '' }}
+        run: |
+          if [ "$HAS_SUPABASE" = true ] && [ "$HAS_HF" = true ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Dataset secrets are not set; skipping the export."
+          fi
+      - if: steps.check.outputs.ready == 'true'
+        uses: actions/checkout@v4
+      - if: steps.check.outputs.ready == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: dataset/requirements.txt
+      - if: steps.check.outputs.ready == 'true'
+        run: pip install -r requirements.txt
+      # GitHub Actions has no job-level retry, so each network step tries up to 3 times (2 retries).
+      - if: steps.check.outputs.ready == 'true'
+        name: Pull published tables (for a card that covers every day)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: ${{ secrets.HF_REPO }}
+        run: for i in 1 2 3; do python upload.py --out out --pull && break; [ $i = 3 ] && exit 1; sleep 60; done
+      - if: steps.check.outputs.ready == 'true'
+        name: Export
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          DAY: ${{ inputs.day || 'yesterday' }}
+          BACK: ${{ inputs.back || '3' }}
+        run: for i in 1 2 3; do python export.py --out out --day "$DAY" --back "$BACK" && break; [ $i = 3 ] && exit 1; sleep 60; done
+      - if: steps.check.outputs.ready == 'true'
+        name: Upload
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: ${{ secrets.HF_REPO }}
+        run: for i in 1 2 3; do python upload.py --out out && break; [ $i = 3 ] && exit 1; sleep 60; done

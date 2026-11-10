@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Play, ArrowLeft, ChartBar } from "@phosphor-icons/react";
-import CornerBorders from "@/components/CornerBorders";
 import LLMLogo from "@/components/LLMLogo";
 import { ALL_LLMS } from "@/lib/constants";
 
@@ -24,9 +23,7 @@ export default function PlayPage() {
       alert('Please select exactly 8 LLM opponents');
       return;
     }
-    // Store selected LLMs and redirect to game
-    sessionStorage.setItem('playMode', 'true');
-    sessionStorage.setItem('selectedLLMs', JSON.stringify(selectedLLMs));
+    // shortcut: play mode is not built yet, so this only returns to the shared table.
     router.push('/');
   };
 
@@ -53,7 +50,6 @@ export default function PlayPage() {
           
           {/* Opponent Selection */}
           <div className="bg-white p-6 relative rounded" style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}>
-            <CornerBorders />
             <h2 className="text-sm font-bold uppercase tracking-wider mb-1">Select Your Opponents</h2>
             <p className="text-[10px] text-gray-500 mb-4">Choose 8 LLMs to play against</p>
             
@@ -92,7 +88,6 @@ export default function PlayPage() {
 
           {/* Stats Section (placeholder) */}
           <div className="bg-white p-6 relative rounded" style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}>
-            <CornerBorders />
             <div className="flex items-center gap-2 mb-1">
               <ChartBar size={16} weight="bold" className="text-gray-400" />
               <h2 className="text-sm font-bold uppercase tracking-wider">LLM Performance Stats</h2>

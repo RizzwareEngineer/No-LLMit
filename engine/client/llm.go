@@ -1,5 +1,5 @@
-// Called by engine/api/llm_handlers.go during an LLM's turn.
-// Then sends an HTTP request to llm/app.py to get an LLM's decision/action given the current game state.
+// Called by engine/api/table.go during an LLM's turn: posts the game state as data to
+// llm/app.py, which renders the prompts, asks the seat's model and returns the move.
 package client
 
 import (
@@ -13,7 +13,8 @@ import (
 
 var (
 	llmServiceURL = getEnv("LLM_SERVICE_URL", "http://localhost:5001")
-	llmTimeout    = 30 * time.Second
+	// The service's whole-turn budget (llm/decide.py TURN_BUDGET, 45s) plus slack.
+	llmTimeout = 50 * time.Second
 )
 
 func getEnv(key, fallback string) string {
@@ -23,11 +24,48 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-type LLMDecisionRequest struct {
-	PlayerName   string      `json:"player_name"`
-	Prompt       string      `json:"prompt"`
-	ValidActions interface{} `json:"valid_actions"`
-	Mode         string      `json:"mode,omitempty"`
+// DecisionRequest is the game state one decision is made from. Mirrors llm/schemas.py.
+type DecisionRequest struct {
+	PlayerName   string        `json:"player_name"` // roster name of the seat's model; never shown to it
+	SmallBlind   int           `json:"small_blind"`
+	BigBlind     int           `json:"big_blind"`
+	Seats        []Seat        `json:"seats"`   // clockwise from the small blind
+	Streets      []Street      `json:"streets"` // preflop first, up to the current street
+	Seat         int           `json:"seat"`    // the acting player
+	Position     string        `json:"position"`
+	HoleCards    []string      `json:"hole_cards"`
+	Pot          int           `json:"pot"`
+	ToCall       int           `json:"to_call"`
+	Stack        int           `json:"stack"`
+	LegalActions []LegalAction `json:"legal_actions"`
+}
+
+type Seat struct {
+	Seat     int    `json:"seat"`
+	Position string `json:"position"`
+	Stack    int    `json:"stack"` // current stack
+}
+
+type Street struct {
+	Street  string         `json:"street"`
+	Board   []string       `json:"board"`
+	Pot     int            `json:"pot"` // pot when the street began
+	Actions []StreetAction `json:"actions"`
+}
+
+// StreetAction is one action: post, fold, check, call, raise or all_in. Amount is chips
+// added for post and call, the street total for raise and all_in.
+type StreetAction struct {
+	Seat   int    `json:"seat"`
+	Action string `json:"action"`
+	Amount int    `json:"amount,omitempty"`
+}
+
+type LegalAction struct {
+	Type   string `json:"type"`
+	Amount int    `json:"amount,omitempty"`
+	Min    int    `json:"min,omitempty"`
+	Max    int    `json:"max,omitempty"`
 }
 
 type LLMDecisionResponse struct {
@@ -37,26 +75,28 @@ type LLMDecisionResponse struct {
 	Raw       string `json:"raw"`
 	LatencyMs int    `json:"latency_ms"`
 
-	// Status is ok, unparseable, timeout or api_error. Anything but ok means the
-	// action is a fallback fold, not the model's choice.
-	Status        string   `json:"status"`
-	Provider      string   `json:"provider"`
-	Model         string   `json:"model"`
-	TokensIn      *int     `json:"tokens_in"`
-	TokensOut     *int     `json:"tokens_out"`
-	CostUSD       *float64 `json:"cost_usd"`
-	PromptVersion string   `json:"prompt_version"`
+	// Status is ok; unparseable or illegal (the model's own miss, twice); timeout or
+	// api_error (the provider failed). Anything but ok means Action is the service's
+	// fallback (CHECK when legal, else FOLD), not the model's choice.
+	Status      string `json:"status"`
+	Retried     bool   `json:"retried"`
+	Error       string `json:"error"`
+	Prompt      string `json:"prompt"`       // the user prompt the model saw
+	RetryPrompt string `json:"retry_prompt"` // the follow-up after an invalid reply, when retried
+
+	Provider         string   `json:"provider"`
+	Model            string   `json:"model"`
+	TokensIn         *int     `json:"tokens_in"`
+	TokensOut        *int     `json:"tokens_out"`
+	CostUSD          *float64 `json:"cost_usd"`
+	PromptVersion    string   `json:"prompt_version"`
+	ReasoningTokens  *int     `json:"reasoning_tokens"`
+	FinishReason     string   `json:"finish_reason"`
+	UpstreamProvider string   `json:"upstream_provider"`
 }
 
-func GetLLMDecision(playerName, prompt string, validActions interface{}, mode string) (*LLMDecisionResponse, error) {
-	reqBody := LLMDecisionRequest{
-		PlayerName:   playerName,
-		Prompt:       prompt,
-		ValidActions: validActions,
-		Mode:         mode,
-	}
-
-	jsonBody, err := json.Marshal(reqBody)
+func GetLLMDecision(req DecisionRequest) (*LLMDecisionResponse, error) {
+	jsonBody, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -140,4 +180,28 @@ func GetSystemPrompt() (version, prompt string, err error) {
 		return "", "", fmt.Errorf("failed to decode response: %w", err)
 	}
 	return body.PromptVersion, body.SystemPrompt, nil
+}
+
+// GetSeated returns the names the LLM service seats at the table, in seat order. session
+// is how many sessions the local hand log holds; only the mock provider uses it, to rotate
+// the lineup over the whole roster.
+func GetSeated(session int) ([]string, error) {
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	resp, err := httpClient.Get(fmt.Sprintf("%s/models?session=%d", llmServiceURL, session))
+	if err != nil {
+		return nil, fmt.Errorf("LLM service not reachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("LLM service returned status %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Seated []string `json:"seated"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return body.Seated, nil
 }

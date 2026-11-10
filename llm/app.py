@@ -1,10 +1,10 @@
-"""FastAPI server for querying LLM APIs for their decisions/action given the current game state."""
+"""FastAPI server: the engine posts the game state, the service asks the seat's model and
+returns the move. All prompt, parsing and retry logic lives here (decide.py)."""
 
 import os
 import json
 import time
 import logging
-import requests
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from schemas import DecisionRequest, DecisionResponse
 from prompts import system_prompt, prompt_version
+import decide
+import registry
 
 load_dotenv()
 
@@ -23,16 +25,16 @@ PROVIDER = os.getenv("LLM_PROVIDER", "auto")
 if PROVIDER == "auto":
     PROVIDER = "openrouter" if os.getenv("OPENROUTER_API_KEY") else "mock"
 if PROVIDER == "openrouter":
-    from providers.openrouter import get_decision, get_spend
+    from providers.openrouter import complete, get_spend
 elif PROVIDER == "mock":
-    from providers.mock import get_decision, get_spend
+    from providers.mock import complete, get_spend
 else:
     raise RuntimeError(f"Unknown LLM_PROVIDER: {PROVIDER}")
 
 # Every prompt and response is appended here, one JSON object per line.
 DECISION_LOG = Path(__file__).parent / "logs" / "decisions.jsonl"
 
-EXTRA_FIELDS = ("reasoning", "reasoning_tokens", "finish_reason", "upstream_provider", "generation_id", "temperature")
+EXTRA_FIELDS = ("reasoning", "finish_reason", "upstream_provider", "generation_id", "temperature")
 
 
 def log_decision(record: dict):
@@ -77,74 +79,64 @@ def get_prompt():
     return {"prompt_version": prompt_version, "system_prompt": system_prompt}
 
 
+@app.get("/models")
+def get_models(session: int = 0):
+    """The roster, each with its slug, price and whether it is seated. With the mock
+    provider the lineup rotates by session index so every roster model gets hands locally;
+    otherwise it is LINEUP (the default nine when unset)."""
+    seated = registry.rotated_lineup(session) if PROVIDER == "mock" else registry.LINEUP
+    return {
+        "provider": PROVIDER,
+        "seated": seated,
+        "models": [
+            {
+                "name": name,
+                "slug": slug,
+                "price_per_mtok": dict(zip(("prompt", "completion"), registry.PRICES[name])),
+                "seated": name in seated,
+            }
+            for name, slug in registry.MODELS.items()
+        ],
+    }
+
+
 @app.post("/decide", response_model=DecisionResponse)
-def decide(request: DecisionRequest):
-    """Get LLM decision for the current game state."""
+def decide_turn(request: DecisionRequest):
+    """The seat's move for the game state sent."""
     logger.info("")
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info(f"🎯 {request.player_name}")
-    
+    logger.info(f"🎯 {request.player_name} (Player {request.seat + 1}, {request.position})")
+
     start = time.time()
-
-    try:
-        result = get_decision(request.player_name, request.prompt, request.valid_actions, request.retry_note)
-    except Exception as e:
-        logger.error(f"❌ Error: {e}")
-        return DecisionResponse(
-            action="FOLD",
-            amount=0,
-            reason=f"Error: {str(e)}",
-            raw="",
-            latency_ms=int((time.time() - start) * 1000),
-            status="timeout" if isinstance(e, requests.Timeout) else "api_error",
-            provider=PROVIDER,
-            prompt_version=prompt_version,
-        )
-    
+    result = decide.decide(request, complete)
     latency_ms = int((time.time() - start) * 1000)
-    usage = result.get("usage") or {}
-    # Provider extras; the mock provider returns none of them.
-    extras = {k: result.get(k) for k in EXTRA_FIELDS}
-
-    log_decision({
-        "time": datetime.now().isoformat(timespec="seconds"),
-        "provider": PROVIDER,
-        "model": result.get("model"),
-        "usage": result.get("usage"),
-        "player": request.player_name,
-        "prompt": request.prompt,
-        "retry_note": request.retry_note,
-        "raw": result["raw"],
-        "action": result["action"],
-        "amount": result["amount"],
-        "reason": result["reason"],
-        "status": result.get("status", "ok"),
-        "latency_ms": latency_ms,
-        **extras,
-    })
-    
-    # Log result
-    emoji = {"FOLD": "🃏", "CHECK": "✋", "CALL": "📞", "RAISE": "⬆️", "ALL_IN": "🔥"}.get(result["action"], "❓")
-    logger.info(f"{emoji} {result['action']}" + (f" ¤{result['amount']}" if result["amount"] else ""))
-    logger.info(f"   {result['reason']}")
-    logger.info(f"   ⏱️ {latency_ms}ms | 📊 {usage.get('total_tokens')} tok")
-    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    
-    return DecisionResponse(
-        action=result["action"],
-        amount=result["amount"],
-        reason=result["reason"],
-        raw=result["raw"],
+    usage = result.pop("usage")
+    response = DecisionResponse(
+        **{k: v for k, v in result.items() if k in DecisionResponse.model_fields},
         latency_ms=latency_ms,
-        status=result.get("status", "ok"),
         provider=PROVIDER,
-        model=result.get("model"),
         tokens_in=usage.get("prompt_tokens"),
         tokens_out=usage.get("completion_tokens"),
         cost_usd=usage.get("cost"),
+        reasoning_tokens=usage.get("reasoning_tokens"),
         prompt_version=prompt_version,
-        **extras,
     )
+
+    log_decision({
+        "time": datetime.now().isoformat(timespec="seconds"),
+        "player": request.player_name,
+        "request": request.model_dump(),
+        **response.model_dump(),
+    })
+
+    if response.status != "ok":
+        logger.warning(f"⚠️ {response.status}: {response.error or 'fell back to ' + response.action}")
+    emoji = {"FOLD": "🃏", "CHECK": "✋", "CALL": "📞", "RAISE": "⬆️", "ALL_IN": "🔥"}.get(response.action, "❓")
+    logger.info(f"{emoji} {response.action}" + (f" ¤{response.amount}" if response.amount else ""))
+    logger.info(f"   {response.reason}")
+    logger.info(f"   ⏱️ {latency_ms}ms | 📊 {(usage.get('prompt_tokens') or 0) + (usage.get('completion_tokens') or 0)} tok")
+    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    return response
 
 
 if __name__ == "__main__":

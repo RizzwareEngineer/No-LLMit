@@ -2,6 +2,85 @@
 
 :root {
   color-scheme: light;
+  /* The page: one off-white behind every screen of the home page and /about, so the table's panels and the stats and
+     About cards (all white, ringed) read as cards on it. */
+  --page: #FAFAF9;
+}
+
+html {
+  scrollbar-gutter: stable; /* the open drawer locks scrolling without the page jumping sideways */
+}
+/* The canvas too (side margins, a classic scrollbar's gutter, overscroll): over the root layout's inline white. */
+html:has([data-page]) {
+  background: var(--page) !important;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+html:has(dialog[open]) {
+  overflow: hidden;
+}
+
+/* Quiet hover lift for table rows, grid cells and leaderboard rows. */
+.lift {
+  transition: transform 150ms ease-out, background-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+.lift:hover {
+  transform: translateY(-1px);
+  background-color: #f9f9f8;
+  box-shadow: 0 2px 6px rgba(15, 15, 15, 0.08);
+}
+/* Opaque, so the sticky first cell (bg-white) matches the rest of the row. */
+tr.lift:hover > th {
+  background-color: #f9f9f8;
+}
+/* Keep the focus ring when a focused row is also hovered. */
+.lift:focus-visible {
+  outline: none;
+  box-shadow: rgb(35, 131, 226) 0 0 0 2px;
+}
+
+/* Model detail: a drawer from the right on desktop, a bottom sheet on phones. */
+dialog.drawer {
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 0;
+  width: min(460px, 100vw);
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  background: #fff;
+  color: rgb(55, 53, 47);
+  box-shadow: rgba(15, 15, 15, 0.1) 0 0 0 1px, rgba(15, 15, 15, 0.2) 0 8px 24px;
+  animation: drawer-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+dialog.drawer::backdrop {
+  background: rgba(15, 15, 15, 0.3);
+  animation: fade-in 200ms ease-out;
+}
+@media (max-width: 767px) {
+  dialog.drawer {
+    margin: auto 0 0 0;
+    width: 100vw;
+    height: auto;
+    max-height: 85dvh;
+    padding-bottom: env(safe-area-inset-bottom);
+    border-radius: 12px 12px 0 0;
+    animation-name: sheet-in;
+  }
+}
+@keyframes drawer-in {
+  from { transform: translateX(100%); }
+}
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
 }
 
 @theme {
@@ -35,30 +114,34 @@
 
 /* Active player - More prominent blue highlight using outline (no layout shift) */
 .border-animation {
-  outline: 3px solid rgb(35, 131, 226) !important;
+  outline: 3px solid rgb(35, 131, 226);
   outline-offset: -3px;
-  animation: notion-pulse 1.2s ease-in-out infinite;
+  background-color: rgba(35, 131, 226, 0.06);
+  /* Slow radiating glow so the seat to act is obvious; one cycle every 6s, never a blink. */
+  animation: seat-glow 6s ease-in-out infinite;
   position: relative;
   z-index: 10;
 }
 
-@keyframes notion-pulse {
-  0%, 100% { 
-    outline-color: rgb(35, 131, 226);
-    background-color: rgba(35, 131, 226, 0.04);
-  }
-  50% { 
-    outline-color: rgb(55, 131, 226);
-    background-color: rgba(35, 131, 226, 0.08);
-  }
+@keyframes seat-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(35, 131, 226, 0.0); }
+  50% { box-shadow: 0 0 22px 6px rgba(35, 131, 226, 0.35); }
 }
+
 
 /* Respect reduced motion: no pulsing seat, pulse dots, or spinners */
 @media (prefers-reduced-motion: reduce) {
   .border-animation,
   .animate-pulse,
-  .animate-spin {
+  .animate-spin,
+  dialog.drawer,
+  dialog.drawer::backdrop {
     animation: none !important;
+  }
+  .lift,
+  .lift:hover {
+    transform: none;
+    transition: none;
   }
 }
 
@@ -205,4 +288,89 @@ input[type="number"] {
 
 .input-brutal:focus {
   background: #ffffff;
+}
+
+/* The home page pages between whole screens: each [data-screen] is a snap point. Phones
+   swipe with mandatory snapping; wider screens page by wheel and keys (page.tsx), so
+   proximity only tidies a scrollbar drag that stops near a screen edge. */
+html:has([data-screen]) {
+  scroll-snap-type: y mandatory;
+}
+@media (min-width: 768px) {
+  html:has([data-screen]) { scroll-snap-type: y proximity; }
+}
+
+/* The stats block's page above it (--top) and the "About ↓" band below it (--below), StatsSections. A short window
+   gets a 16px top and the compact pill in a 42px band, so Matchups' tile cells keep 32px at 1440x900; from 960px
+   tall the pill is full size, identical to "Stats ↓", with at least 8px clear above and below. */
+.stats-room { --top: 16px; --below: 42px; }
+@media (min-height: 960px) {
+  .stats-room { --top: max(24px, 10svh - 66px); --below: max(57px, var(--top) + 34px); }
+}
+
+/* Stats panels scroll inside themselves with a scrollbar that stays visible. */
+.panel-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.panel-scroll::-webkit-scrollbar-thumb { background: rgba(55, 53, 47, 0.2); border-radius: 4px; }
+.panel-scroll::-webkit-scrollbar-track { background: transparent; }
+@supports not selector(::-webkit-scrollbar) {
+  .panel-scroll { scrollbar-width: thin; }
+}
+
+/* Stacked cards (StatsSections): each card after Race slides up over the one before it, which
+   shrinks a little and dims, pinned. Driven by the incoming screen's view timeline (named on its
+   snap point, scoped on the stats wrapper), so it tracks the scroll exactly both ways.
+   The receding layer has no box of its own: --dim inherits down to each card's chrome, whose
+   ::after darkens just the card. Browsers without scroll-driven animations use motion's useScroll. */
+@property --dim {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+.card-chrome::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: rgb(15, 15, 15);
+  opacity: var(--dim, 0);
+}
+/* The card underneath shrinks and dims, then fades out before the next one lands: cards differ in size,
+   so one left showing would peek out around the new card. Only the opened card is ever visible.
+   The fade spans the whole range, evenly, so scrolling back up brings the card back exactly as scrolling
+   down took it away (a fade in the range's last 40% ran in the paged scroll's slow tail going down but in
+   its fast start going up, where the card popped back in about three times faster). */
+@keyframes recede { to { transform: scale(0.94); --dim: 0.14; opacity: 0; } }
+@keyframes recede-hide { to { opacity: 0; } }
+/* What a card adds to its overview tile's content (Profiles' extra columns and controls) fades in once, on mount. */
+@keyframes add-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .add-in { animation: add-in 0.3s 0.08s ease-out both; }
+}
+/* Only where scroll timelines exist: elsewhere a time-based run would fill straight to the end state. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) and (timeline-scope: --a) {
+  .recede {
+    animation: recede linear both;
+    animation-timeline: var(--recede-by);
+    animation-range: entry 0% entry 100%;
+  }
+  }
+}
+/* Under reduced motion the card underneath does not shrink, but still hides behind the new one. */
+@media (prefers-reduced-motion: reduce) {
+  @supports (animation-timeline: view()) and (timeline-scope: --a) {
+  .recede {
+    animation: recede-hide linear both;
+    animation-timeline: var(--recede-by);
+    animation-range: entry 0% entry 100%;
+  }
+  }
+}
+
+/* Phones (StatsSections' PHONE): the opened Matchups card's matrix keeps 14px figures readable (about 46px cells
+   for nine models), its card scrolling sideways under the sticky names; the desktop size (--card-m, set inline on
+   the stats block) follows the window. */
+@media (max-width: 767px) {
+  .stats-room { --card-m-phone: 420px; }
 }

@@ -1,6 +1,6 @@
 // This file handles all betting logic. When a player needs to act, GetValidActions tells them
 // what they can do (fold, check, call, raise, all-in). When they choose, ProcessAction validates
-// and executes it. Called by api/game_handlers.go for human actions and api/llm_handlers.go for LLMs.
+// and executes it. Called by api/table.go for each model's move.
 package game
 
 import "fmt"
@@ -35,8 +35,16 @@ func (gs *GameState) GetValidActions() []ValidAction {
 	} else if amountToCall > 0 && amountToCall < player.Stack {
 		actions = append(actions, ValidAction{Type: ActionCall, MinAmount: amountToCall})
 	}
+	// A raise needs an opponent who can respond. With everyone else in the hand all-in,
+	// the actor can only call (all-in when covered) or fold.
+	canRespond := false
+	for i := range gs.Players {
+		if p := &gs.Players[i]; i != gs.CurrentPlayerIdx && p.Status == PlayerActive && p.Stack > 0 {
+			canRespond = true
+		}
+	}
 	minRaiseTotal := gs.CurrentBet + gs.MinRaise
-	if player.Stack > amountToCall && !player.RaiseClosed {
+	if canRespond && player.Stack > amountToCall && !player.RaiseClosed {
 		if player.Stack >= minRaiseTotal-player.CurrentBet {
 			actions = append(actions, ValidAction{
 				Type:      ActionRaise,
@@ -46,7 +54,7 @@ func (gs *GameState) GetValidActions() []ValidAction {
 		}
 	}
 
-	if player.Stack > 0 && (!player.RaiseClosed || player.Stack <= amountToCall) {
+	if player.Stack > 0 && ((canRespond && !player.RaiseClosed) || player.Stack <= amountToCall) {
 		actions = append(actions, ValidAction{
 			Type:      ActionAllIn,
 			MinAmount: player.Stack + player.CurrentBet,
@@ -110,7 +118,6 @@ func (gs *GameState) CheckAction(action Action) error {
 func (gs *GameState) processFold(player *Player, action Action) error {
 	player.Status = PlayerFolded
 	player.LastAction = &action
-	gs.actionsThisRound++
 	gs.advanceToNextPlayer()
 	return nil
 }
@@ -123,7 +130,6 @@ func (gs *GameState) processCheck(player *Player, action Action) error {
 
 	player.HasActedThisRound = true
 	player.LastAction = &action
-	gs.actionsThisRound++
 	gs.advanceToNextPlayer()
 	return nil
 }
@@ -144,7 +150,6 @@ func (gs *GameState) processCall(player *Player, action Action) error {
 	player.TotalBetThisHand += amountToCall
 	player.HasActedThisRound = true
 	player.LastAction = &Action{Type: ActionCall, Amount: amountToCall, PlayerIdx: action.PlayerIdx}
-	gs.actionsThisRound++
 	gs.advanceToNextPlayer()
 	return nil
 }
@@ -181,10 +186,8 @@ func (gs *GameState) processRaise(player *Player, action Action) error {
 	player.LastAction = &Action{Type: ActionRaise, Amount: raiseToAmount, PlayerIdx: action.PlayerIdx}
 
 	// Update game state
-	gs.LastRaiseAmount = raiseAmount
 	gs.MinRaise = raiseAmount
 	gs.CurrentBet = raiseToAmount
-	gs.actionsThisRound++
 	gs.reopenRaising()
 	gs.resetActedExcept(action.PlayerIdx)
 	gs.advanceToNextPlayer()
@@ -210,14 +213,16 @@ func (gs *GameState) processAllIn(player *Player, action Action) error {
 		raiseAmount := totalBet - gs.CurrentBet
 		if raiseAmount >= gs.MinRaise {
 			gs.MinRaise = raiseAmount
-			gs.LastRaiseAmount = raiseAmount
 			gs.reopenRaising()
 		} else {
-			// Incomplete raise: players who already acted may only call or fold (TDA).
+			// Incomplete raise: a player who already acted may only call or fold, until the
+			// short all-ins since that action add up to a full raise (TDA 43). CurrentBet is
+			// the level they acted at; RaiseClosed remembers they acted once the round's
+			// acted flags are reset below.
 			for i := range gs.Players {
 				p := &gs.Players[i]
-				if i != action.PlayerIdx && p.Status == PlayerActive && p.HasActedThisRound {
-					p.RaiseClosed = true
+				if i != action.PlayerIdx && p.Status == PlayerActive && (p.HasActedThisRound || p.RaiseClosed) {
+					p.RaiseClosed = totalBet-p.CurrentBet < gs.MinRaise
 				}
 			}
 		}
@@ -225,7 +230,6 @@ func (gs *GameState) processAllIn(player *Player, action Action) error {
 		gs.resetActedExcept(action.PlayerIdx)
 	}
 
-	gs.actionsThisRound++
 	gs.advanceToNextPlayer()
 	return nil
 }
@@ -271,31 +275,37 @@ func (gs *GameState) advanceToNextPlayer() {
 }
 
 func (gs *GameState) IsBettingRoundComplete() bool {
-	activePlayers := 0
-	playersToAct := 0
-	playersInHand := 0
+	playersToAct, playersInHand, withChips, last := 0, 0, 0, -1
 
 	for i := range gs.Players {
 		player := &gs.Players[i]
 		if player.Status == PlayerActive || player.Status == PlayerAllIn {
 			playersInHand++
 		}
-		if player.Status == PlayerActive {
-			activePlayers++
-			if !player.HasActedThisRound || player.CurrentBet < gs.CurrentBet {
-				playersToAct++
-			}
+		if player.Status != PlayerActive {
+			continue
+		}
+		withChips++
+		last = i
+		if !player.HasActedThisRound || player.CurrentBet < gs.CurrentBet {
+			playersToAct++
 		}
 	}
-
-	if playersInHand <= 1 {
+	if playersInHand <= 1 || playersToAct == 0 {
 		return true
 	}
-
-	if playersToAct > 0 {
+	if withChips != 1 {
 		return false
 	}
-
+	// The last player with chips has no decision left once no opponent has more in than it
+	// has: nobody could answer a bet, and a fold would hand an all-in player chips it never
+	// covered. The board runs out. (Measured against the opponents' bets, not CurrentBet:
+	// a big blind all-in for less still sets CurrentBet to the full blind.)
+	for i := range gs.Players {
+		if p := &gs.Players[i]; p.Status == PlayerAllIn && p.CurrentBet > gs.Players[last].CurrentBet {
+			return false
+		}
+	}
 	return true
 }
 
@@ -327,8 +337,6 @@ func (gs *GameState) ResetBettingRound() {
 	}
 	gs.CurrentBet = 0
 	gs.MinRaise = gs.Stakes.BigBlind
-	gs.LastRaiseAmount = gs.Stakes.BigBlind
-	gs.actionsThisRound = 0
 }
 
 func (gs *GameState) GetFirstToAct() int {

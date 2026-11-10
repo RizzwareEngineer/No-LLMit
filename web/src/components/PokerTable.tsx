@@ -1,9 +1,13 @@
 "use client";
 
+import { useState } from "react";
+import { useReducedMotion } from "motion/react";
 import CornerBorders from "@/components/CornerBorders";
 import Player from "@/components/Player";
-import TableFelt from "@/components/TableFelt";
+import TableFelt, { FeltBet } from "@/components/TableFelt";
+import TableMotion, { DeckPhase, FLIGHT, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
+import { ModelStats } from "@/lib/stats";
 
 interface PlayerLayout {
   top: number[];
@@ -44,6 +48,9 @@ interface PokerTableProps {
   buttonDetermination?: ButtonDetermination | null;
   hidePositions?: boolean;
   notice?: TableNoticePayload | null;
+  street: string;
+  handNumber: number;
+  stats?: Record<string, ModelStats>; // by model name, for the hover stats on each seat
 }
 
 // Calculate position name based on seat relative to button
@@ -101,8 +108,36 @@ export default function PokerTable({
   buttonDetermination,
   hidePositions = false,
   notice,
+  street,
+  handNumber,
+  stats,
 }: PokerTableProps) {
   const totalPlayers = players.length;
+
+  // The engine keeps each seat's last action until the hand ends. A seat shows it only once it has
+  // acted on the current street: its action, amount or stack changed since the street started, or
+  // it was on the clock during this street (that catches a second CHECK in a row).
+  const sig = (p: PlayerState) => `${p.lastAction}|${p.lastAmount}|${p.stack}`;
+  const streetKey = `${handNumber}:${street}`;
+  const [view, setView] = useState({ key: '', start: null as Record<string, string> | null, acted: [] as string[] });
+  if (players.length && view.key !== streetKey) {
+    // The first street seen (a late joiner) has no starting point: see `shown`.
+    setView({ key: streetKey, start: view.key ? Object.fromEntries(players.map(p => [p.id, sig(p)])) : null, acted: [] });
+  }
+  const onClock = thinkingPlayerIdx !== undefined ? players[thinkingPlayerIdx]?.id : undefined;
+  if (onClock && view.key === streetKey && !view.acted.includes(onClock)) setView({ ...view, acted: [...view.acted, onClock] });
+  // Without a starting point, after the flop only seats with chips in this street have surely acted.
+  const shown = (p: PlayerState) => view.start
+    ? view.acted.includes(p.id) || view.start[p.id] !== sig(p)
+    : street === 'preflop' || p.currentBet > 0;
+
+  // The deal: a late joiner sees the hand already dealt; a hand dealt while watching shows each card as its flight
+  // lands (TableMotion), unless motion is reduced. The deck is shuffled on the felt between hands.
+  const reduce = useReducedMotion();
+  const [firstHand, setFirstHand] = useState(0);
+  if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
+  const dealt = !reduce && firstHand > 0 && handNumber !== firstHand;
+  const [deck, setDeck] = useState<DeckPhase | null>(null);
   
   if (players.length === 0) {
     return (
@@ -127,13 +162,32 @@ export default function PokerTable({
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
+      stats={stats?.[players[idx].name]}
+      showAction={shown(players[idx])}
+      seatIdx={idx}
+      handNumber={handNumber}
+      dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + FLIGHT) : undefined}
     />
   );
+
+  // Each seat's bet sits on the felt edge it faces, centred on the seat's column or row.
+  const rows = Math.max(layout.left.length, layout.right.length); // left/right seats per side
+  const betsOut = players.reduce((sum, p) => sum + p.currentBet, 0);
+  const edge = (side: FeltBet['side'], seats: number[], n: number) =>
+    seats.map((seat, i) => ({ seat, side, at: (i + 0.5) / n, amount: players[seat]?.currentBet ?? 0 }));
+  const feltBets: FeltBet[] = [
+    ...edge('top', layout.top, layout.top.length),
+    ...edge('bottom', layout.bottom, layout.bottom.length),
+    ...edge('left', layout.left, rows),
+    ...edge('right', layout.right, rows),
+  ];
 
   const felt = (
     <TableFelt
       cards={communityCards}
       pot={pot}
+      betsOut={betsOut}
+      bets={feltBets}
       winners={Object.entries(winnersByIdx).map(([idx, info]) => ({
         name: players[Number(idx)]?.name || `Player ${idx}`,
         amount: info.amount,
@@ -143,6 +197,7 @@ export default function PokerTable({
       onSkipCountdown={onSkipCountdown}
       buttonDetermination={buttonDetermination}
       notice={notice}
+      deck={deck}
     />
   );
 
@@ -152,10 +207,17 @@ export default function PokerTable({
   const numCols = layout.top.length + (layout.left.length > 0 ? 1 : 0) + (layout.right.length > 0 ? 1 : 0);
   const tableWidth = numCols * 200;
   const line = '1px solid rgba(55, 53, 47, 0.09)';
-  const rows = Math.max(layout.left.length, layout.right.length);
 
   return (
     <>
+      <TableMotion
+        players={players}
+        handNumber={handNumber}
+        boardCount={communityCards.length}
+        winnerIdxs={Object.keys(winnersByIdx).map(Number)}
+        nextHandCountdown={street === 'complete' ? nextHandCountdown ?? null : null}
+        onDeck={setDeck}
+      />
       {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
@@ -180,19 +242,19 @@ export default function PokerTable({
             {/* TOP ROW */}
             <tr>
               {layout.left.length > 0 && (
-                <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }} />
+                <td className="w-[200px] h-[128px]" style={{ borderRight: line, borderBottom: line }} />
               )}
               {layout.top.map((idx, i) => (
                 <td
                   key={`top-${idx}`}
-                  className="w-[200px] h-[100px]"
+                  className="w-[200px] h-[128px]"
                   style={{ borderBottom: line, borderRight: i < layout.top.length - 1 ? line : undefined }}
                 >
                   {seat(idx)}
                 </td>
               ))}
               {layout.right.length > 0 && (
-                <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }} />
+                <td className="w-[200px] h-[128px]" style={{ borderLeft: line, borderBottom: line }} />
               )}
             </tr>
 
@@ -200,7 +262,7 @@ export default function PokerTable({
             {Array.from({ length: rows }).map((_, rowIdx) => (
               <tr key={`middle-${rowIdx}`}>
                 {layout.left.length > 0 && (
-                  <td className="w-[200px] h-[100px]" style={{ borderRight: line, borderBottom: line }}>
+                  <td className="w-[200px] h-[128px]" style={{ borderRight: line, borderBottom: line }}>
                     <div className="flex justify-end h-full">
                       {layout.left[rowIdx] !== undefined && seat(layout.left[rowIdx])}
                     </div>
@@ -214,7 +276,7 @@ export default function PokerTable({
                 )}
 
                 {layout.right.length > 0 && (
-                  <td className="w-[200px] h-[100px]" style={{ borderLeft: line, borderBottom: line }}>
+                  <td className="w-[200px] h-[128px]" style={{ borderLeft: line, borderBottom: line }}>
                     <div className="flex justify-start h-full">
                       {layout.right[rowIdx] !== undefined && seat(layout.right[rowIdx])}
                     </div>
@@ -226,9 +288,9 @@ export default function PokerTable({
             {/* BOTTOM ROW */}
             <tr>
               {layout.left.length > 0 && (
-                <td className="w-[200px] h-[100px]" style={{ borderRight: line }} />
+                <td className="w-[200px] h-[128px]" style={{ borderRight: line }} />
               )}
-              <td colSpan={layout.top.length} className="h-[100px] p-0">
+              <td colSpan={layout.top.length} className="h-[128px] p-0">
                 <div className="flex h-full">
                   {layout.bottom.map((playerIdx, i) => (
                     <div
@@ -242,7 +304,7 @@ export default function PokerTable({
                 </div>
               </td>
               {layout.right.length > 0 && (
-                <td className="w-[200px] h-[100px]" style={{ borderLeft: line }} />
+                <td className="w-[200px] h-[128px]" style={{ borderLeft: line }} />
               )}
             </tr>
           </tbody>

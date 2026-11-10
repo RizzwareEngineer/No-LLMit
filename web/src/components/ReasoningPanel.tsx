@@ -1,7 +1,9 @@
 "use client";
 
 import CornerBorders from "@/components/CornerBorders";
+import LLMLogo from "@/components/LLMLogo";
 import TypewriterText from "@/components/TypewriterText";
+import { formatAmount, useBigBlind } from "@/lib/amounts";
 
 type DisplayPhase = 'idle' | 'waiting' | 'thinking' | 'reasoning' | 'revealed';
 
@@ -26,23 +28,7 @@ export default function ReasoningPanel({
   shotClockRemaining,
   isPaused = false,
 }: ReasoningPanelProps) {
-
-  // Format action for display
-  const formatAction = (action: string, amount: number) => {
-    const actionMap: Record<string, string> = {
-      'FOLD': '🃏 Fold',
-      'CHECK': '✋ Check',
-      'CALL': '📞 Call',
-      'RAISE': '⬆️ Raise',
-      'BET': '💰 Bet',
-      'ALL_IN': '🔥 All-In',
-    };
-    const formatted = actionMap[action] || action;
-    if (amount > 0 && (action === 'RAISE' || action === 'BET' || action === 'CALL' || action === 'ALL_IN')) {
-      return `${formatted} ¤${amount.toLocaleString()}`;
-    }
-    return formatted;
-  };
+  const bb = useBigBlind(); // the action's amount follows the Chips/BB switch; the model's own words stay as written
 
   const phase = displayState?.phase || 'idle';
   const playerName = displayState?.playerName || '—';
@@ -66,7 +52,7 @@ export default function ReasoningPanel({
   };
   const reasonFontSize = getReasonFontSize(reason);
   // Full text for screen readers, announced once per action (not the typewriter partials)
-  const spokenAction = action ? `${action.toLowerCase().replace('_', '-')}${amount > 0 ? ` ${amount}` : ''}` : '';
+  const spokenAction = action ? `${action.toLowerCase().replace('_', '-')}${amount > 0 ? ` ${formatAmount(amount, bb)}` : ''}` : '';
   const announcement = showReason && reason ? `${playerName}: ${spokenAction}. ${reason}` : '';
 
   return (
@@ -79,20 +65,22 @@ export default function ReasoningPanel({
       <div className="flex h-full">
         {/* Left section - Player name + countdown */}
         <div 
-          className={`w-[120px] shrink-0 flex flex-col items-center justify-center border-r border-notion`}
+          className={`w-[200px] shrink-0 flex flex-col items-center justify-center border-r border-notion`}
           style={{ 
             background: isPaused ? 'rgba(203, 145, 47, 0.1)' : 
                         !isIdle ? 'rgba(35, 131, 226, 0.06)' :
                         'rgba(55, 53, 47, 0.02)'
           }}
         >
-          <span className="text-xs font-bold truncate max-w-[100px] px-2" style={{ color: 'rgb(55, 53, 47)' }}>
-            {playerName}
-          </span>
+          <div className="flex items-center justify-center gap-2 w-full px-2">
+            {!isIdle && <LLMLogo model={playerName} size={18} />}
+            <span className="text-sm font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }}>{playerName}</span>
+          </div>
           
-          {/* Shot clock countdown - visible during thinking and reasoning only */}
-          {showShotClock && (
-            <div className="flex items-center gap-1 mt-1">
+          {/* Shot clock countdown - visible during thinking and reasoning only. Its line is always
+              reserved, so the name does not jump when the clock goes. */}
+          {(
+            <div className={`flex items-center gap-1 mt-1 ${showShotClock ? '' : 'invisible'}`}>
               <span 
                 className="font-mono text-lg font-bold"
                 style={{ 
@@ -119,12 +107,17 @@ export default function ReasoningPanel({
           
           {showReason && reason && (
             <>
-              {/* Reasoning label with action */}
-              <div className="flex items-center gap-2 mb-1">
+              {/* Reasoning label with action. A narrow phone puts the action (in big blinds, longer) under the label
+                  rather than cutting it off. */}
+              <div className="flex flex-wrap items-center gap-x-2 mb-1">
                 <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
                 {action && (
-                  <span className="text-[11px] font-bold" style={{ color: 'rgb(15, 123, 108)' }}>
-                    → {formatAction(action, amount)}
+                  // The same look as the action on each seat: mono, uppercase, bold, the amount muted.
+                  <span className="flex flex-row items-center gap-1">
+                    <span className="text-[11px] font-mono uppercase font-bold tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>{action.replace('_', '-')}</span>
+                    {amount > 0 && action !== 'FOLD' && action !== 'CHECK' && (
+                      <span data-chips={amount} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{formatAmount(amount, bb)}</span>
+                    )}
                   </span>
                 )}
               </div>

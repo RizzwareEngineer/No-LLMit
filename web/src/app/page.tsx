@@ -1,16 +1,56 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
-import { CircleNotch, ArrowClockwise, GameController, Television, Wrench, Bug, Timer } from "@phosphor-icons/react";
+import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
 import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
-import ActionPanel from "@/components/ActionPanel";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
+import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
+import StatsSections from "@/components/StatsSections";
+import PlaySoonButton from "@/components/PlaySoonButton";
+import ModelDrawer from "@/components/ModelDrawer";
+import StickyBar from "@/components/StickyBar";
+import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
-import { ALL_LLMS, DEFAULT_GAME_CONFIG } from "@/lib/constants";
+import { useStats } from "@/lib/stats";
+import { NEXT_BUTTON, NEXT_STYLE, isPaging, pageBy, pageTo, resnap, scrollsInside } from "@/components/Section";
+
+// The URL hash: #model=<slug> opens the model drawer, and Back closes it.
+// openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
+// closing it should step back instead of leaving an extra entry behind.
+const isModelHash = (h: string) => h.startsWith("#model=");
+let lastHash = "";
+let openedInPage = false;
+let goingBack = false; // history.back() is async: ignore a second close until the hash changes
+const subscribeHash = (cb: () => void) => {
+  lastHash = window.location.hash;
+  openedInPage = false;
+  const onChange = () => {
+    const h = window.location.hash;
+    if (isModelHash(h) && !isModelHash(lastHash)) openedInPage = true;
+    lastHash = h;
+    goingBack = false;
+    cb();
+  };
+  window.addEventListener("hashchange", onChange);
+  return () => window.removeEventListener("hashchange", onChange);
+};
+const closeModel = () => {
+  if (!isModelHash(window.location.hash) || goingBack) return; // Back already left the drawer's entry
+  if (openedInPage) {
+    openedInPage = false;
+    goingBack = true;
+    history.back();
+    return;
+  }
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
+};
+
+const PAGE_KEYS: Record<string, 1 | -1> = { ArrowDown: 1, ArrowRight: 1, PageDown: 1, ArrowUp: -1, ArrowLeft: -1, PageUp: -1 };
 
 export default function Home() {
   const {
@@ -20,56 +60,26 @@ export default function Home() {
     tableNotice,
     isLoading,
     error,
-    actionRequired,
     lastHandResult,
     displayState,
-    isPaused,
     shotClockRemaining,
     buttonDetermination,
     connect,
     retry,
-    newGame,
-    startHand,
-    submitAction,
     clearError,
-    pause,
-    resume,
   } = useGameState();
 
-  const [gameMode, setGameMode] = useState<'spectate' | 'play' | 'test'>('spectate');
-  const [selectedLLMs, setSelectedLLMs] = useState<string[]>([]);
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
   const [usageRefreshTrigger, setUsageRefreshTrigger] = useState(0);
-  const { usage, error: usageError } = useUsage(usageRefreshTrigger, isPaused);
+  const { usage, error: usageError } = useUsage(usageRefreshTrigger);
   const watching = usageError ? undefined : usage?.table?.spectators;
   const isLive = isConnected && !tableNotice;
   
-  // Check for test mode via URL param (?test=true) or play mode via sessionStorage
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('test') === 'true') {
-        setGameMode('test');
-      } else if (sessionStorage.getItem('playMode') === 'true') {
-        setGameMode('play');
-        const stored = sessionStorage.getItem('selectedLLMs');
-        if (stored) {
-          setSelectedLLMs(JSON.parse(stored));
-        }
-        // Clear after reading
-        sessionStorage.removeItem('playMode');
-        sessionStorage.removeItem('selectedLLMs');
-      }
-    }
-  }, []);
-
-  // Auto-connect and auto-start game on mount
+  // Auto-connect on mount
   useEffect(() => {
     if (!isConnected && !isLoading) {
-      connect().then(() => {
-        // Connection successful, game will auto-start
-      }).catch(err => {
+      connect().catch(err => {
         console.error('Failed to auto-connect:', err);
       });
     }
@@ -77,50 +87,11 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Spectators just watch the shared table the server is running. Only the private
-  // play/test modes create a game of their own.
-  useEffect(() => {
-    if (gameMode === 'spectate') return;
-    if (isConnected && !gameState?.id && !isLoading) {
-      if (gameMode === 'play' && selectedLLMs.length === 8) {
-        // Play mode: user vs selected LLMs
-        newGame({
-          playerNames: ['You', ...selectedLLMs],
-          ...DEFAULT_GAME_CONFIG,
-          mode: 'play',
-        });
-      } else {
-        // Test mode: all LLM seats, controlled by hand
-        newGame({
-          playerNames: [...ALL_LLMS],
-          ...DEFAULT_GAME_CONFIG,
-          mode: 'test',
-        });
-      }
-    }
-  }, [isConnected, gameState?.id, isLoading, gameMode, selectedLLMs]);
-
-  // Auto-start first hand when game is created AND button determination is complete
-  useEffect(() => {
-    if (gameMode === 'spectate') return; // the server deals the shared table
-    if (isConnected && gameState?.id && gameState?.handNumber === 0 && !isLoading) {
-      // If button determination is in progress, wait for it to complete
-      if (buttonDetermination && !buttonDetermination.isComplete) {
-        return; // Still determining button
-      }
-      // If button determination is complete, wait 5 seconds so user can read who got the button
-      if (buttonDetermination?.isComplete) {
-        const timer = setTimeout(() => {
-          startHand();
-        }, 5000);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [isConnected, gameState?.id, gameState?.handNumber, isLoading, buttonDetermination, startHand, gameMode]);
-
   // Refresh usage stats when an LLM action is revealed
   useEffect(() => {
     if (displayState?.phase === 'revealed') {
+      // Mirrors a server event (an action revealed) into a refetch key; runs once per reveal.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUsageRefreshTrigger(prev => prev + 1);
     }
   }, [displayState?.phase]);
@@ -152,87 +123,211 @@ export default function Home() {
   // Derived state
   const players = gameState?.players || [];
   const layout = getPlayerLayout(players.length || 9);
-  const currentBet = gameState?.currentBet || 0;
-  const minRaise = gameState?.minRaise || 10;
   const pot = gameState?.pot || 0;
   const communityCards = gameState?.communityCards || [];
   const street = gameState?.street || 'preflop';
+  const buttonIdx = gameState?.buttonIdx ?? -1;
   // Use displayState.playerIdx for highlight when actively displaying a player's turn
   // This keeps the highlight on the current player during reasoning + 5s wait
   const currentPlayerIdx = displayState?.playerIdx ?? (gameState?.currentPlayerIdx ?? -1);
-  const validActions = gameState?.validActions || [];
   const stakes = gameState?.stakes || { smallBlind: 5, bigBlind: 10 };
   const handNumber = gameState?.handNumber || 0;
-  const buttonIdx = gameState?.buttonIdx ?? -1;
   const winners = gameState?.winners || lastHandResult?.winners || [];
   const isHandComplete = street === 'complete';
 
-  // Next hand countdown. On the shared table the server deals the next hand and tells
-  // us how long is left; in private modes we count down and start it ourselves.
+  // All-time stats feed the leaderboard, the drawer and the stats sections; they refetch as each hand finishes.
+  const all = useStats(undefined, true, handNumber);
+  // Profits & Losses covers the live table session (the one not ended yet: the table the engine
+  // is playing). Until that session has a saved hand, the panel shows this game's winnings.
+  const liveId = all.data?.sessions.find(s => !s.ended_at)?.id;
+  const live = useStats(liveId, !!liveId, handNumber);
+  // Who is at the table now: the engine's lineup, else (an older engine) the live session's models.
+  const seated = all.data?.seated ?? live.data?.models.map(m => m.name);
+  // Hover stats on the seats: all-time, from the same fetch; the bundled dev sample never feeds them.
+  const seatStats = useMemo(() => (all.data && !all.sample ? Object.fromEntries(all.data.models.map(m => [m.name, m])) : undefined), [all.data, all.sample]);
+
+  const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
+  // The URL names no stats screen: an old #stats, #race or #pairwise link opens the page at its top.
+  useEffect(() => {
+    if (!window.location.hash || isModelHash(window.location.hash)) return;
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    const top = () => window.scrollTo({ top: 0, behavior: "instant" });
+    top();
+    // A production build hydrates before the load event, and the browser still scrolls to the old anchor until then.
+    if (document.readyState !== "complete") window.addEventListener("load", top, { once: true });
+  }, []);
+  const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
+
+  const tableRef = useRef<HTMLDivElement>(null);
+  // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
+  // starts out of view (a reload below the table).
+  const [tableInView, setTableInView] = useState(true);
+  useEffect(() => {
+    // The top 44px sit under the bar itself, so they do not count as visible.
+    const io = new IntersectionObserver(([e]) => setTableInView(e.isIntersecting), { rootMargin: '-44px 0px 0px 0px' });
+    if (tableRef.current) io.observe(tableRef.current);
+    return () => io.disconnect();
+  }, []);
+
+  // Fit-to-screen: the stage (table, sidebar, reasoning) takes one uniform zoom so the whole
+  // table screen fits the window, up to 125% (the size the owner chose) and down to 75%; below
+  // that the screen scrolls instead of shrinking further. Browser zoom shrinks the CSS viewport,
+  // so it lowers this scale and is never fought. Phones (< 768px) reflow to the list layout at 1.
+  // The stage's width as drawn (at most the screen's, where it scrolls at the floor) is --stage-w on the root: the
+  // stats overview, its cards, About and the sticky bar take that column (StatsSections), so every screen has its margins.
+  const stageRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const stage = stageRef.current, screen = stage?.closest('section');
+    if (!stage || !screen) return;
+    const fit = () => {
+      if (window.innerWidth < 768) stage.style.zoom = '';
+      else {
+        const cs = getComputedStyle(screen);
+        const kids = [...screen.children];
+        // Everything on the screen but the stage: header, gaps, Stats button and padding.
+        const chrome = kids[kids.length - 1].getBoundingClientRect().bottom - kids[0].getBoundingClientRect().top
+          - stage.getBoundingClientRect().height + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+        // offsetWidth/offsetHeight are the stage's unzoomed size.
+        const s = Math.min(screen.clientWidth / stage.offsetWidth, (document.documentElement.clientHeight - chrome) / stage.offsetHeight);
+        stage.style.zoom = String(Math.floor(Math.min(1.25, Math.max(0.75, s)) * 1000) / 1000);
+      }
+      document.documentElement.style.setProperty('--stage-w', `${Math.min(stage.getBoundingClientRect().width, screen.clientWidth)}px`);
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(stage);
+    ro.observe(screen);
+    window.addEventListener('resize', fit);
+    return () => { ro.disconnect(); window.removeEventListener('resize', fit); };
+  }, []);
+
+  // ↑ ↓ ← →, PageUp/PageDown and Space page between screens, unless a field, the drawer or a panel
+  // that can still scroll that way has the keys. Down on the last screen goes back to the overview (pageBy).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Space and Shift+Space page like PageDown and PageUp (the browser's own Space scroll stopped wherever proximity snap left it).
+      const space = e.key === ' ';
+      const dir = space ? (e.shiftKey ? -1 : 1) : PAGE_KEYS[e.key];
+      if (!dir || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || (e.shiftKey && !space)) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest('input, select, textarea, [contenteditable], dialog')) return;
+      if (space && t?.closest('button, a, summary, [role=button], [role=checkbox], [role=switch]')) return; // Space presses those
+      const sideways = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+      if (sideways ? t?.closest('.panel-scroll') : scrollsInside(t, dir)) return;
+      e.preventDefault();
+      pageBy(dir);
+    };
+    // One wheel or trackpad gesture moves exactly one screen. Wheel inside a panel scrolls the
+    // panel until it reaches its end. Events in the paged direction keep the lock alive, so
+    // momentum after a flick never pages twice; a reversal is a new gesture and pages at once.
+    // Only a page that moved arms the lock: scrolling into either end of the page must not
+    // swallow the reversal that follows (the trap on the last screen).
+    let lockUntil = 0;
+    let lockDir = 0;
+    let insideUntil = 0; // the gesture scrolled a panel: its rest never pages
+    let lastAbs = 0;
+    let rises = 0; // events in a row with a growing |deltaY|: momentum only decays, a new swipe ramps up
+    let lastT = 0;
+    let riseAt = -1; // when the current ramp began, if it began from rest (a gap or a near-zero delta): a new touch
+    let armedAt = 0; // when the lock or the panel guard was last armed
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.defaultPrevented) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest('dialog')) return;
+      const now = e.timeStamp; // when the input happened, so main-thread jank never reads as a pause
+      // Chrome lets a page cancel a wheel gesture only from its first event: one left alone makes the rest of the
+      // gesture uncancelable, and the browser then scrolls it natively alongside pageBy (mid-way landings, skips).
+      // So a gesture's start that is not clearly sideways (no delta, a finger's diagonal jitter) is claimed too,
+      // as is anything sideways mid-gesture; a clear sideways swipe stays the browser's (back/forward, a wide table).
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) {
+        if (Math.abs(e.deltaX) < 3 || now < lockUntil) e.preventDefault();
+        return;
+      }
+      const dir = e.deltaY > 0 ? 1 : -1;
+      // A reversal pages only when it is deliberate: one small opposite event in a noisy
+      // momentum tail just extends the lock. The lock comes before the panel check: the tail of a
+      // flick that paged onto a card must not scroll that card's panel, then page again at its end.
+      const abs = Math.abs(e.deltaY);
+      if (abs > lastAbs) {
+        // From rest: after a real pause, or from a near-zero delta. 120 ms, not less: when the main thread is busy
+        // Chrome coalesces a steady swipe's events, so gaps of 30-60 ms with growing deltas arrive mid-gesture,
+        // which read as a new touch and paged a second screen in one gesture.
+        if (!rises) riseAt = now - lastT > 120 || lastAbs <= 2 ? now : -1;
+        rises++;
+      } else rises = 0;
+      lastAbs = abs;
+      lastT = now;
+      const fresh = rises >= 3 && abs >= 8 && riseAt > armedAt; // fingers down again after this gesture was handled (3 rises: a coalescing spike in a momentum tail gives 2)
+      if (now < lockUntil && !fresh && (dir === lockDir || abs < 10)) {
+        e.preventDefault();
+        lockUntil = Math.max(lockUntil, now + 200);
+        return;
+      }
+      // A gesture that scrolls a panel stops at the panel's end; only a new one pages on.
+      if (scrollsInside(t, dir)) {
+        if (now >= insideUntil) armedAt = now;
+        insideUntil = now + 200;
+        return;
+      }
+      e.preventDefault();
+      if (now < insideUntil && !fresh) {
+        insideUntil = now + 200;
+        return;
+      }
+      if (Math.abs(e.deltaY) < 4) return;
+      lockUntil = pageBy(dir) ? now + 700 : 0;
+      armedAt = now;
+      lockDir = dir;
+    };
+    // Keyboard focus scrolls the focused element into view, which can stop between screens;
+    // focus inside the stats stage lands on the overview at least. A resize moves every screen
+    // edge; phones skip this (their URL bar resizes constantly, and mandatory snap re-snaps).
+    const onFocus = (e: FocusEvent) => {
+      const t = e.target instanceof Element ? e.target : null;
+      if (!t?.matches(':focus-visible') || t.closest('dialog')) return;
+      const stats = document.getElementById('stats');
+      const min = stats && t.closest('[data-stage]') ? stats.getBoundingClientRect().top + window.scrollY : 0;
+      requestAnimationFrame(() => !isPaging() && resnap(min)); // a click-to-jump focuses its destination as it pages
+    };
+    const onResize = () => window.innerWidth >= 768 && resnap();
+    // A scrollbar drag, Home/End or autoscroll can stop between screens; put the page back on one
+    // (desktop only, like onResize). A paged scroll ends on an edge by itself.
+    const onScrollEnd = () => window.innerWidth >= 768 && !isPaging() && resnap();
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('focusin', onFocus);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('scrollend', onScrollEnd);
+    return () => {
+      window.removeEventListener('scrollend', onScrollEnd);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('focusin', onFocus);
+      window.removeEventListener('resize', onResize);
+    };
+  }, []);
+
+  // Next hand countdown: the server deals the next hand and tells us how long is left.
   const nextHandInMs = gameState?.nextHandInMs;
   useEffect(() => {
     if (!isHandComplete) {
+      // Mirrors the server's next-hand timer into the local countdown.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNextHandCountdown(null);
-    } else if (gameMode === 'spectate') {
-      if (nextHandInMs) setNextHandCountdown(Math.ceil(nextHandInMs / 1000));
-    } else if (nextHandCountdown === null) {
-      setNextHandCountdown(7);
+    } else if (nextHandInMs) {
+      setNextHandCountdown(Math.ceil(nextHandInMs / 1000));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHandComplete, nextHandInMs, gameMode]);
+  }, [isHandComplete, nextHandInMs]);
 
   useEffect(() => {
-    if (nextHandCountdown === null) return;
-
-    if (nextHandCountdown <= 0) {
-      if (gameMode === 'spectate') return; // wait for the server's next hand
-      // Start next hand
-      setNextHandCountdown(null);
-      clearError(); // Clear any previous errors
-      startHand();
-      return;
-    }
+    if (nextHandCountdown === null || nextHandCountdown <= 0) return;
 
     const timer = setTimeout(() => {
       setNextHandCountdown(prev => prev !== null ? prev - 1 : null);
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [nextHandCountdown, startHand, clearError, gameMode]);
-
-  const handleStartHand = () => {
-    clearError();
-    startHand();
-  };
-
-  const handleAction = (action: 'fold' | 'check' | 'call' | 'raise' | 'all-in', amount?: number) => {
-    submitAction(action, amount);
-  };
-
-  const handleBackToSpectate = () => {
-    setGameMode('spectate');
-    setSelectedLLMs([]);
-    newGame({
-      playerNames: [...ALL_LLMS],
-      ...DEFAULT_GAME_CONFIG,
-      mode: 'simulate',
-    });
-  };
-
-  // Determine if action panel should be shown
-  const showActionPanel = (() => {
-    // Test mode: always show action panel (for dev testing all players)
-    if (gameMode === 'test') return true;
-    
-    // Play mode: always show action panel (user plays against LLMs)
-    if (gameMode === 'play') return true;
-    
-    // Spectate mode: never show action panel
-    return false;
-  })();
-  
-  // Determine if actions are currently available (for disabling buttons)
-  const canAct = currentPlayerIdx >= 0 && !isHandComplete && !!players[currentPlayerIdx];
+  }, [nextHandCountdown]);
 
   // Calculate winners by player index for display on player cards
   const winnersByIdx = isHandComplete && winners.length > 0
@@ -247,103 +342,73 @@ export default function Home() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <div className="flex flex-col min-h-screen p-3 lg:p-4 overflow-auto" style={{ background: '#FFFFFF' }}>
-      <main className="flex-1 flex flex-col items-center-safe">
-        
+    {/* --bar-h: room the connection bar takes at the bottom, so it never covers a screen's edge. data-page: the page's
+        one background (globals.css) behind every screen. */}
+    <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: !isConnected || error ? '40px' : '0px' }}>
+      <main className="flex flex-col items-center-safe">
+      {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
+      <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-auto flex flex-col items-center-safe justify-center-safe pt-3 pb-[calc(1rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
-        <div className="mb-2 text-center">
-          <h1 className="text-[24px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.2 }}>No-LLMit</h1>
-          <p className="text-[15px] mt-1" style={{ color: 'rgb(55, 53, 47)' }}>
-            9 LLMs play No Limit Hold&apos;em against each other, live. Watch each one explain its move.{' '}
-            <Link 
-              href="/about" 
-              className="hover:underline whitespace-nowrap"
+        <div className="mb-1 text-center">
+          <h1 className="text-[28px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
+          <p className="text-[14px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+            Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
+            {/* The home page's last screen; /about stays its own page (a new tab, a shared link). */}
+            <Link
+              href="/about"
+              onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about'); } }}
+              className="hover:underline"
               style={{ color: 'rgb(35, 131, 226)' }}
             >
-              About
+              ⓘ About
             </Link>
           </p>
         </div>
 
-        {/* Play mode: way back to the shared table */}
-        {gameMode === 'play' && (
-          <div className="mb-2 flex items-center justify-center gap-3">
-            <button
-              onClick={handleBackToSpectate}
-              className="btn-brutal px-3 py-1 text-[11px] flex items-center gap-2"
-            >
-              <Television size={12} weight="bold" />
-              Back to Spectate
-            </button>
-          </div>
-        )}
+        {/* Action buttons row */}
+        <div className="mb-1.5 flex items-center justify-center gap-3">
+          <PlaySoonButton />
+        </div>
 
-        {/* Status row - Mode indicator, hand counter, blinds, timer */}
-        <div className="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
-          {/* Mode indicator */}
+        {/* Status row - live indicator, hand counter, blinds, timer */}
+        <div className="mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+          {/* Live indicator */}
           <div className="flex items-center gap-2">
-            {gameMode === 'spectate' && (
-              <>
-                <span
-                  aria-hidden
-                  className={`inline-block w-2 h-2 rounded-full ${isLive ? 'animate-pulse' : ''}`}
-                  style={{ background: isLive ? 'rgb(220, 38, 38)' : 'rgba(55, 53, 47, 0.65)' }}
-                />
-                <span className="text-[12px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
-                  {!isConnected ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
-                  {watching !== undefined && ` · ${watching.toLocaleString()} watching`}
-                </span>
-              </>
-            )}
-            {gameMode === 'play' && (
-              <>
-                <GameController size={14} weight="bold" style={{ color: 'rgb(15, 123, 108)' }} />
-                <span className="text-[12px] font-medium" style={{ color: 'rgb(15, 123, 108)' }}>Playing</span>
-              </>
-            )}
-            {gameMode === 'test' && (
-              <>
-                <Wrench size={14} weight="bold" style={{ color: 'rgb(203, 145, 47)' }} />
-                <span className="text-[12px] font-medium" style={{ color: 'rgb(203, 145, 47)' }}>Test Mode</span>
-              </>
-            )}
+            <span
+              aria-hidden
+              className="inline-block w-2.5 h-2.5 rounded-full"
+              style={{ background: isLive ? 'rgb(220, 38, 38)' : 'rgba(55, 53, 47, 0.65)' }}
+            />
+            <span className="text-[14px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
+              {!isConnected ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+              {watching !== undefined && ` · ${watching.toLocaleString()} watching`}
+            </span>
           </div>
 
           {/* Hand counter, blinds, timer */}
           {handNumber > 0 && (
             <>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[12px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber}</span>
+              <span className="text-[14px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber}</span>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[12px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>¤{stakes.smallBlind}/{stakes.bigBlind}</span>
+              <span className="text-[14px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
               <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[12px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
+              <span className="text-[14px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
             </>
           )}
-
-          {/* Next hand button (countdown now shown on felt) */}
-          {gameMode !== 'spectate' && isHandComplete && nextHandCountdown !== null && nextHandCountdown <= 0 && (
-            <>
-              <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <button
-                onClick={handleStartHand}
-                disabled={isLoading}
-                className="btn-brutal px-3 py-1 text-[12px] flex items-center gap-2"
-              >
-                {isLoading ? <CircleNotch size={12} className="animate-spin" /> : <ArrowClockwise size={12} weight="bold" />}
-                Next Hand
-              </button>
-            </>
-          )}
+          <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+          <UnitToggle bigBlind={stakes.bigBlind} />
+          <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+          <SoundToggle />
         </div>
 
+        <SessionProgress table={usageError ? undefined : usage?.table} />
 
-
-        {/* Main content */}
-        <div className="flex-1 flex items-center-safe justify-center-safe w-full md:w-auto">
-          <div className="flex flex-col w-full md:w-auto">
+        {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
+        <div className="mt-6 flex items-center-safe justify-center-safe w-full md:w-auto">
+          <div ref={stageRef} className="stage-zoom flex flex-col w-full md:w-auto">
             {/* Row 1: Table + Winnings (stacked on phones) */}
-            <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
+            <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
               {/* Main game grid */}
               <PokerTable
                 players={players}
@@ -354,14 +419,13 @@ export default function Home() {
                 pot={pot}
                 winnersByIdx={winnersByIdx}
                 nextHandCountdown={nextHandCountdown}
-                onSkipCountdown={gameMode === 'spectate' ? undefined : () => {
-                  setNextHandCountdown(null);
-                  startHand();
-                }}
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
                 buttonDetermination={buttonDetermination}
                 hidePositions={!!buttonDetermination}
                 notice={tableNotice}
+                street={street}
+                handNumber={handNumber}
+                stats={seatStats}
               />
 
               {/* Right sidebar column - leaderboard, then API usage */}
@@ -375,84 +439,30 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Reasoning Panel - LLM thinking + reasoning (always visible in spectate) */}
-            {gameMode === 'spectate' && (
-              <div className="mt-4 w-full">
-                <ReasoningPanel
-                  displayState={displayState}
-                  shotClockRemaining={shotClockRemaining}
-                  isPaused={isPaused}
-                />
-              </div>
-            )}
-
-            {/* Action Panel - shown in play/test modes */}
-            {showActionPanel && (
-              <div className="mt-4 flex w-full justify-start">
-                <ActionPanel
-                  currentPlayer={canAct ? players[currentPlayerIdx] : null}
-                  currentBet={currentBet}
-                  minRaise={minRaise}
-                  validActions={canAct ? validActions : []}
-                  stakes={stakes}
-                  actionRequired={!!actionRequired && canAct}
-                  onAction={handleAction}
-                  disabled={!canAct}
-                />
-              </div>
-            )}
+            {/* Reasoning Panel - LLM thinking + reasoning */}
+            <div className="mt-4 w-full">
+              <ReasoningPanel
+                displayState={displayState}
+                shotClockRemaining={shotClockRemaining}
+              />
+            </div>
           </div>
         </div>
+
+        <button onClick={() => pageBy(1)} className={`mt-6 ${NEXT_BUTTON}`} style={NEXT_STYLE}>
+          Stats <ArrowDown size={16} weight="bold" aria-hidden />
+        </button>
+      </section>
+
+      {/* Screens 2-5: the overview, then race, stats and pairwise one at a time. */}
+      <StatsSections
+        all={all}
+        seated={seated}
+      />
       </main>
 
-      {/* Dev controls - top left */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="fixed top-4 left-4 flex flex-col gap-2 z-50">
-          {/* Pause/Resume button */}
-          {gameMode !== 'spectate' && !isHandComplete && (
-            <button
-              onClick={() => isPaused ? resume() : pause()}
-              className={`${
-                isPaused ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 hover:bg-gray-600'
-              } text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold`}
-              title={isPaused ? 'Resume Game' : 'Pause Game'}
-            >
-              {isPaused ? (
-                <>
-                  <ArrowClockwise size={14} weight="bold" />
-                  RESUME
-                </>
-              ) : (
-                <>
-                  <Timer size={14} weight="bold" />
-                  PAUSE
-                </>
-              )}
-            </button>
-          )}
-
-          {/* Test mode toggle */}
-          {gameMode !== 'test' ? (
-            <button
-              onClick={() => { window.location.href = '/?test=true'; }}
-              className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold"
-              title="Enter Test Mode (dev only, needs the engine started with PRIVATE_GAMES=1)"
-            >
-              <Bug size={14} weight="bold" />
-              TEST MODE
-            </button>
-          ) : (
-            <button
-              onClick={() => { window.location.href = '/'; }}
-              className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded shadow-lg flex items-center gap-2 text-xs font-bold"
-              title="Exit Test Mode"
-            >
-              <Bug size={14} weight="bold" />
-              EXIT TEST
-            </button>
-          )}
-        </div>
-      )}
+      <StickyBar show={!tableInView && players.length > 0} pot={pot} handNumber={handNumber} display={displayState} />
+      <ModelDrawer models={all.data?.models ?? []} error={all.error} loading={all.loading} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status/errors */}
       {(!isConnected || error) && (
