@@ -15,6 +15,7 @@ let noise: AudioBuffer | null = null;
 let whooshNoise: AudioBuffer | null = null;
 let enabled: boolean | null = null; // null until read from storage
 let raceUntil = 0; // when the race sound now playing ends, in AudioContext time: they never overlap
+let dealUntil = 0; // the same for the deal's card sounds: two never land together as one loud smack
 const listeners = new Set<() => void>();
 
 // Called only from gesture handlers. Throws where Web Audio is missing.
@@ -142,16 +143,23 @@ export function playSound(kind: SoundKind) {
     return;
   }
   if (kind === 'deal') {
-    // A short band-passed noise burst: a card sliding on felt.
+    // A card landing on felt: 60 ms of soft, eased-in noise (no click at its start), a little higher or lower each time
+    // so a deal of eighteen is not one sound repeated. Queued after the one before if two come together.
+    const at = Math.max(now, dealUntil);
     const src = c.createBufferSource();
     const filter = c.createBiquadFilter();
     const gain = c.createGain();
     src.buffer = getNoise(c);
+    src.playbackRate.value = 0.9 + Math.random() * 0.2;
     filter.type = 'bandpass';
-    filter.frequency.value = 3000;
-    gain.gain.value = 0.25;
+    filter.frequency.value = 1900 + Math.random() * 600;
+    filter.Q.value = 0.8;
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(0.07, at + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.06);
     src.connect(filter).connect(gain).connect(c.destination);
-    src.start(now);
+    src.start(at, 0, 0.065);
+    dealUntil = at + 0.065;
   } else if (kind === 'shuffle') {
     // The riffle: card edges flicking past each other, three to each card drawn falling and a little uneven, then a
     // soft, lower tap as the deck is squared.

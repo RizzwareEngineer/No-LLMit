@@ -5,7 +5,8 @@ import { useReducedMotion } from "motion/react";
 import CornerBorders from "@/components/CornerBorders";
 import Player from "@/components/Player";
 import TableFelt, { FeltBet } from "@/components/TableFelt";
-import TableMotion, { DeckPhase, FLIGHT, dealStart } from "@/components/TableMotion";
+import { CardBackSwitcher } from "@/components/Card";
+import TableMotion, { CARD_FLIGHT, DeckPhase, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import { ModelStats } from "@/lib/stats";
 
@@ -156,7 +157,7 @@ export default function PokerTable({
       showAction={shown(players[idx])}
       seatIdx={idx}
       handNumber={handNumber}
-      dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + FLIGHT) : undefined}
+      dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + CARD_FLIGHT) : undefined}
     />
   );
 
@@ -226,6 +227,8 @@ export default function PokerTable({
         style={{ width: tableWidth, ...cardStyle }}
       >
         <CornerBorders />
+        {/* Card back drafts, over the gap above the table (it keeps its size). */}
+        {!blank && <CardBackSwitcher className="absolute bottom-full left-0 mb-2" />}
         <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
           <tbody>
             {/* TOP ROW */}

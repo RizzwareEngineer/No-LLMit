@@ -6,8 +6,10 @@ import { animate, motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { RIFFLE, playSound } from "@/lib/sound";
 
-// Seconds. Two rounds of cards to nine seats land in about 1.1 s, inside the first turn's thinking.
-export const DEAL_STAGGER = 0.04;
+// Seconds. A dealer pitching cards (owner 2026-11-09: the old 0.04 s deal "sounds like smacks"): a card leaves the deck
+// every DEAL_STAGGER and slides for CARD_FLIGHT, so two rounds to nine seats land in about 2.7 s. Chips fly for FLIGHT.
+export const DEAL_STAGGER = 0.14;
+export const CARD_FLIGHT = 0.28;
 export const FLIGHT = 0.4;
 
 // Deal order: the seat left of the button gets the first card.
@@ -52,9 +54,8 @@ function onScreen() {
   return !document.hidden && !!r && r.bottom > 0 && r.top < window.innerHeight;
 }
 
-// Card backs as on Card's face-down side: the deck, and the cards dealt from it.
-const BACK = 'rounded bg-gradient-to-br from-blue-800 to-blue-600 flex items-center justify-center shadow-[0_0_0_1px_rgba(255,255,255,0.85),0_1px_2px_rgba(15,15,15,0.25)]';
-const BACK_INNER = 'w-3/4 h-3/4 border-2 border-blue-300 rounded opacity-50';
+// Card backs as on Card's face-down side (.card-back, globals.css): the deck, and the cards dealt from it.
+const BACK = 'rounded card-back shadow-[0_0_0_1px_rgba(255,255,255,0.85),0_1px_2px_rgba(15,15,15,0.25)]';
 const FLIGHT_CLASS = {
   // A hole card (w-7 h-10) that leaves the deck at the board's size (w-11 h-16) and shrinks on the way.
   card: `absolute left-0 top-0 -ml-3.5 -mt-5 w-7 h-10 opacity-0 will-change-transform ${BACK}`,
@@ -74,13 +75,12 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: Box | null, to: Bo
   const el = document.createElement('div');
   el.className = FLIGHT_CLASS[kind];
   el.dataset.flight = kind;
-  if (kind === 'card') el.innerHTML = `<div class="${BACK_INNER}"></div>`;
   layer.appendChild(el);
   const [x0, y0] = [from.left + from.width / 2, from.top + from.height / 2];
   const [x1, y1] = [to.left + to.width / 2, to.top + to.height / 2];
   if (kind === 'card') {
     // Slides flat across the felt; the seat's own card shows as it lands (Player's dealDelays).
-    animate(el, { x: [x0, x1], y: [y0, y1], scale: [(44 / 28) * z, z], opacity: [1, 1] }, { duration: FLIGHT, delay, ease: 'easeOut' }).then(() => el.remove());
+    animate(el, { x: [x0, x1], y: [y0, y1], scale: [(44 / 28) * z, z], opacity: [1, 1] }, { duration: CARD_FLIGHT, delay, ease: 'easeOut' }).then(() => el.remove());
     return;
   }
   // Chips are tossed in a low arc and fade in the last fifth, once they have reached the pot or seat.
@@ -123,9 +123,7 @@ const RiffleCard = memo(function RiffleCard({ k }: { k: number }) {
       style={{ zIndex: k, y: -k * 0.5 }}
       animate={{ x: [0, side * 34, side * 34, 0, 0, 0], rotate: [0, side * 8, side * 8, lean, lean, 0] }}
       transition={{ duration: RIFFLE.length, times: [0, at(RIFFLE.start - 0.04), at(fall), at(fall + 0.08), at(RIFFLE.square), 1], ease: 'easeInOut' }}
-    >
-      <div className={BACK_INNER} />
-    </motion.div>
+    />
   );
 });
 
@@ -194,9 +192,10 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
         players.forEach((p, idx) => {
           p.holeCards?.forEach((_, round) => {
             const delay = dealStart(players, idx, round);
-            done = Math.max(done, delay + FLIGHT);
+            done = Math.max(done, delay + CARD_FLIGHT);
             if (layer) fly(layer, 'card', from, visibleRect(`[data-seat="${idx}"] [data-hole] > :nth-child(${round + 1})`), delay, z);
-            timers.current.push(setTimeout(() => playSound('deal'), delay * 1000));
+            // The sound is the card landing on the felt, not leaving the deck.
+            timers.current.push(setTimeout(() => playSound('deal'), (delay + CARD_FLIGHT) * 1000));
           });
         });
         if (deck.current) timers.current.push(setTimeout(() => showDeck(null), done * 1000));
