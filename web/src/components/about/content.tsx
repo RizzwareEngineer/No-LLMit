@@ -11,8 +11,8 @@ import { MIN_HANDS, MUTED, ModelStats, TEXT, netColor, seatedModels, signed, use
 import { EXAMPLE_REPLY, EXAMPLE_USER_PROMPT, SYSTEM_PROMPT } from '@/lib/systemPrompt';
 import { joinWaitlist, waitlistCount } from '@/lib/waitlist';
 
-// The About copy and its parts, shared by both drafts so each says exactly the same things (about-content-complete);
-// a draft only arranges them. Every line is one sentence that fits its line at the drafts' widths (one sentence per line).
+// The About copy and its parts (about-content-complete); SpecSheet arranges them. Every line is one sentence that fits its
+// line at About's widths (one sentence per line).
 
 const BLUE = 'rgb(35, 131, 226)';
 export const RULE = 'rgba(55, 53, 47, 0.16)'; // hairlines between sections
@@ -33,8 +33,8 @@ export function Eyebrow() {
   return <p className={LABEL} style={{ color: MUTED }}>About No-LLMit</p>;
 }
 
-// The thesis: the drafts' first heading, at the site title's size (a little smaller in a phone-narrow draft, so it keeps to
-// its line).
+// The thesis: About's first heading, at the site title's size (a little smaller where About is phone-narrow, so it keeps
+// to its line).
 export function Thesis({ as: H }: { as: Heading }) {
   return <H className="text-[24px] @md:text-[28px] leading-[1.15] font-bold tracking-[-0.01em]">A pseudo benchmark for LLMs.</H>;
 }
@@ -48,9 +48,8 @@ export function Intro() {
   );
 }
 
-// The hours and the volume.
-export const HOURS = '9am–9pm ET';
-export const HANDS_A_DAY = 150;
+// The volume.
+const HANDS_A_DAY = 150;
 
 // How it works: the same two prompts for every model (each opens in the dialog below), and the reply.
 export function How() {
@@ -74,7 +73,7 @@ const CAVEATS: [string, string][] = [
   ['An illegal or unreadable reply gets one retry.', 'If that fails too, it checks if it can, otherwise folds.'],
 ];
 
-// The hours and why donations matter, one sentence a line (Draft A shows HOURS and HANDS_A_DAY as tiles above them too).
+// The hours and why donations matter, one sentence a line.
 export function Hours() {
   return (
     <div className="flex flex-col gap-0.5">
@@ -202,11 +201,10 @@ function Out({ href, children }: { href: string; children: React.ReactNode }) {
   return <a href={href} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: BLUE }}>{children}</a>;
 }
 
-// The last row: the repo and the handle, centred; the draft switcher (About.tsx) sits at its right end, so the row is at
-// least as tall as the switcher.
-export function Footer({ className = '' }: { className?: string }) {
+// The last row: the repo and the handle, centred, in a 29px row (its height when the owner picked this layout).
+export function Footer() {
   return (
-    <footer className={`text-[13px] ${className}`} style={{ color: MUTED }}>
+    <footer className="text-[13px]" style={{ color: MUTED }}>
       <p className="min-h-[29px] flex items-center justify-center text-center">
         <span>
           <Out href="https://github.com/RizzwareEngineer/No-LLMit">Open source on GitHub</Out>
@@ -395,7 +393,7 @@ export function Race({ art, className = '' }: { art: string; className?: string 
       <figcaption className="flex flex-col gap-1">
         <Label>{failed ? 'The race isn’t available right now.' : 'Running bb/100 of each LLM at the table, best on top.'}</Label>
         {/* LLMLogo is a div: no <p> around it. Empty until the stats arrive, at the same height; the hands count only where
-            the line has room for the full name (a phone-narrow draft drops it). */}
+            the line has room for the full name (a phone-narrow About drops it). */}
         <div className="flex items-center gap-1.5 min-w-0 min-h-[22px] whitespace-nowrap">
           {leader ? (
             <>

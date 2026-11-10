@@ -3,9 +3,9 @@
 import { MUTED, TEXT } from '@/lib/stats';
 import { Caveats, Eyebrow, Footer, Hours, How, Intro, LABEL, Next, RULE, Race, Support, Thesis } from '@/components/about/content';
 
-// Draft B, "spec sheet": the thesis, then one row per topic, its name in a gutter on the left (Arena's labelled rules);
-// the ask and the race in a column of their own on the right. On a phone: the thesis, the ask, the race, then the rows.
-// Laid out by its own width (container queries).
+// About's layout, a "spec sheet": the thesis, then one row per topic, its name in a gutter on the left (Arena's
+// labelled rules); the ask and the race in a column of their own on the right. On a phone: the thesis, the ask, the
+// race, then the rows. Laid out by its own width (container queries).
 
 function Row({ as: H, title, children }: { as: 'h2' | 'h3'; title: string; children: React.ReactNode }) {
   return (
@@ -19,7 +19,7 @@ function Row({ as: H, title, children }: { as: 'h2' | 'h3'; title: string; child
 export default function SpecSheet({ heading }: { heading: 'h1' | 'h2' }) {
   const Sub = heading === 'h1' ? 'h2' : 'h3';
   return (
-    <article data-layout="spec-sheet" className="@container flex flex-col gap-6 text-[14px] leading-snug" style={{ color: TEXT }}>
+    <article data-about className="@container flex flex-col gap-6 text-[14px] leading-snug" style={{ color: TEXT }}>
       <div className="flex flex-col gap-6 @4xl:grid @4xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] @4xl:gap-x-14">
         {/* Each column's parts join one stack on a phone (display: contents), in reading order there. */}
         <div className="contents @4xl:flex @4xl:flex-col @4xl:min-w-0">
