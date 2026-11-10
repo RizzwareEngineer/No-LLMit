@@ -139,21 +139,11 @@ export default function PokerTable({
   const dealt = !reduce && firstHand > 0 && handNumber !== firstHand;
   const [deck, setDeck] = useState<DeckPhase | null>(null);
   
-  if (players.length === 0) {
-    return (
-      <div 
-        className="relative bg-white rounded overflow-hidden"
-        style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
-      >
-        <CornerBorders />
-        <div className="w-full md:w-[600px] h-[300px] flex items-center justify-center text-sm italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
-          Connecting to the table…
-        </div>
-      </div>
-    );
-  }
-
-  const seat = (idx: number) => players[idx] && (
+  const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
+  // Until the first state arrives (`players` empty) the table stands in blank: the same grid, a blank seat box in every
+  // seat of the default lineup (the page's layout for 9) and the felt with nothing on it, so nothing moves when it fills.
+  const blank = players.length === 0;
+  const seat = (idx: number) => blank ? <div data-seat={idx} className="h-full w-full rounded bg-white" style={cardStyle} /> : players[idx] && (
     <Player
       player={players[idx]}
       active={idx === currentPlayerIdx}
@@ -198,10 +188,9 @@ export default function PokerTable({
       buttonDetermination={buttonDetermination}
       notice={notice}
       deck={deck}
+      blank={blank}
     />
   );
-
-  const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
 
   // Calculate fixed width based on layout
   const numCols = layout.top.length + (layout.left.length > 0 ? 1 : 0) + (layout.right.length > 0 ? 1 : 0);
@@ -210,14 +199,14 @@ export default function PokerTable({
 
   return (
     <>
-      <TableMotion
+      {!blank && <TableMotion
         players={players}
         handNumber={handNumber}
         boardCount={communityCards.length}
         winnerIdxs={Object.keys(winnersByIdx).map(Number)}
         nextHandCountdown={street === 'complete' ? nextHandCountdown ?? null : null}
         onDeck={setDeck}
-      />
+      />}
       {/* Phones: felt on top, seats in a 3-column grid in seat order */}
       <div className="md:hidden flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
@@ -225,8 +214,8 @@ export default function PokerTable({
           {felt}
         </div>
         <div className="grid grid-cols-3 gap-2">
-          {players.map((p, idx) => (
-            <div key={p.id} className="h-[150px]">{seat(idx)}</div>
+          {(blank ? Object.values(layout).flat().sort((a, b) => a - b) : players.map((_, i) => i)).map(idx => (
+            <div key={players[idx]?.id ?? idx} className="h-[150px]">{seat(idx)}</div>
           ))}
         </div>
       </div>

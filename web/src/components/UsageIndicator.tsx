@@ -5,6 +5,7 @@ import { Lightning, Heart, Warning } from "@phosphor-icons/react";
 import CornerBorders from "@/components/CornerBorders";
 import { API_URL } from "@/lib/api";
 import { localHoursLabel } from "@/lib/time";
+import { useRememberedBox } from "@/lib/boxes";
 
 // What the engine's /api/usage reports
 export interface UsageData {
@@ -71,11 +72,15 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
   const barColor = error ? MUTED : isCritical ? 'rgb(235, 87, 87)' : isLow ? 'rgb(203, 145, 47)' : 'rgb(15, 123, 108)';
   const hours = localHoursLabel(table);
   const calls = error || !table ? '???' : `${table.callsToday.toLocaleString()} / ${table.dailyCallCap.toLocaleString()}`;
+  // Until the first answer: a blank box as tall as its lines were (remembered).
+  const [box, size, attrs] = useRememberedBox<HTMLDivElement>('usage', !!usage);
 
   return (
     <div
-      className="relative bg-white rounded overflow-hidden"
-      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
+      ref={box}
+      {...attrs}
+      className={`relative bg-white rounded overflow-hidden ${usage || error ? '' : '[&>*]:invisible'}`}
+      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', ...size }}
     >
       <CornerBorders />
       <div className="px-3 py-2">

@@ -57,6 +57,7 @@ const COVERS = [
   [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges)/],
   [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|page-edges|main-scroll|no-stats-hash|scroll-consistency)/],
   [/components\/StickyBar\.tsx|lib\/amounts\./, /^(sticky-|table-bb-toggle)/],
+  [/components\/(PokerTable|Player|TableFelt|WinningsPanel|UsageIndicator|ReasoningPanel|StickyBar|StatsTable|HeadToHead|CumulativeChart|About)\.tsx|lib\/boxes\./, /^skeleton-/],
   [/(^|\/)AGENTS\.md$/, /(?!)/], // the file next dev writes: no check covers it
 ];
 function changedChecks() { // a Set of ids, or null for every check
@@ -501,6 +502,81 @@ group(async () => {
     return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `hand over at 0 s: riffle ${at(riffle.t)}, cards spread ${full.spread.toFixed(0)}px, squared ${at(ready.t)}; deal due and dealt at ${at(full.dealt)}, first card ${at(first?.t)}; reduced motion: no deck` };
   });
 });
+
+// Owner, 2026-11-09: "Any time I refresh the site, the loading skeleton is so much different compared to the shapes that
+// actually load in. When stuff is loading, there should just be blank squares that are the same size as all the squares
+// that are currently on the site." While the table's state and the stats load, every box (the table, its seats and felt,
+// Profits & Losses, API usage, the reasoning bar, the sticky bar, the Trends, Profiles and Matchups tiles and cards,
+// About, whose text is no data and stays) stands in blank at exactly the place and size it has once its data is in; the
+// data fills it in place. A refresh:
+// one visit first (what lib/boxes remembers), then a reload with the table's socket and every /api/ answer held back while
+// the placeholders are measured at each screen, then let through and the same boxes measured again.
+const SKELETON = {
+  stage: '.stage-zoom', grid: '.stage-zoom table', seat: '[data-seat]', felt: '[data-felt]', reasoning: '.stage-zoom .h-\\[100px\\]',
+  tile: '#race-panel, #stats-panel, #pairwise-panel', card: '#stats-card .card-chrome, #pairwise-card .card-chrome',
+  about: '[data-about], [data-about] section', sticky: 'div.fixed.top-0',
+};
+group(() => check('skeleton-matches', 'While the page loads, every box (table, seats, felt, Profits & Losses, API usage, reasoning bar, sticky bar, the Trends, Profiles and Matchups tiles and cards, About) stands in blank at the place and size its data fills, at 1440x900, 1728x1117 and 390x844: nothing moves or resizes by more than 1px when the data arrives', async () => {
+  const bad = [], seen = [];
+  const SCREENS = ['', 'stats', 'about', 'race', 'stats-table', 'pairwise'];
+  // Every box on screen at every screen, in window coordinates (what the viewer sees there), with its visible text. A box
+  // under a card (hidden: opacity 0) or slid off the window is not on screen.
+  const measure = async p => {
+    const out = {};
+    for (const id of SCREENS) {
+      await p.evaluate(id => window.scrollTo({ top: id ? document.getElementById(id).getBoundingClientRect().top + scrollY : 0, behavior: 'instant' }), id);
+      await sleep(1500);
+      Object.assign(out, await p.evaluate((SKELETON, at) => {
+        const els = Object.entries(SKELETON).flatMap(([k, s]) => [...document.querySelectorAll(s)].map((e, i) => [`${k}${i}`, e]));
+        // The table screen's sidebar boxes, by what they hold; its header rows by their top and height only (text grows sideways).
+        const side = (k, e) => e && els.push([k, e.closest('.rounded')]);
+        side('pnl', [...document.querySelectorAll('#table h2')].find(e => /Profits/.test(e.textContent)));
+        side('usage', document.querySelector('#table a[href*="sponsors"]'));
+        const rows = [...document.querySelector('section[data-screen]').children].map((e, i) => [`row${i}`, e]);
+        const shown = e => { const r = e.getBoundingClientRect(); if (r.right <= 0 || r.left >= innerWidth || r.bottom <= 0 || r.top >= innerHeight) return false; for (let a = e; a; a = a.parentElement) if (+getComputedStyle(a).opacity === 0) return false; return getComputedStyle(e).visibility !== 'hidden'; };
+        const box = e => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(v => Math.round(v * 10) / 10); };
+        return Object.fromEntries([
+          ...els.filter(([, e]) => e.getBoundingClientRect().width > 0 && shown(e)).map(([k, e]) => [`${at || 'table'} ${k}`, { box: box(e), text: e.innerText.trim() }]),
+          ...rows.map(([k, e]) => [`${at || 'table'} ${k}`, { box: [null, box(e)[1], null, box(e)[3]] }]),
+        ]);
+      }, SKELETON, id));
+    }
+    await p.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(500);
+    return out;
+  };
+  for (const [w, h, d] of [[1440, 900, 1], [1728, 1117, 1], [390, 844, 2]]) {
+    const size = `${w}x${h}`;
+    const p = await newPage(); await p.setViewport({ width: w, height: h, deviceScaleFactor: d });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p); await sleep(3000);
+    await measure(p); // the visit: every screen seen once with its data
+    await p.evaluateOnNewDocument(() => {
+      let open; const held = new Promise(r => (open = r)); window.__release = () => open();
+      const fetch0 = window.fetch;
+      window.fetch = async (...a) => { if (String(a[0]?.url ?? a[0]).includes('/api/')) await held; return fetch0(...a); };
+      const Real = window.WebSocket;
+      window.WebSocket = class extends Real { set onmessage(fn) { super.onmessage = e => held.then(() => fn(e)); } get onmessage() { return super.onmessage; } };
+    });
+    await p.reload({ waitUntil: 'domcontentloaded', timeout: 120000 }); await sleep(2500);
+    const ske = await measure(p);
+    await p.evaluate(() => window.__release());
+    await waitStats(p); await p.waitForFunction(() => document.querySelector('[data-seat] [data-hole]'), { timeout: 60000 }).catch(() => {});
+    await sleep(3000);
+    const got = await measure(p);
+    await p.close();
+    const moved = [], shown = [];
+    for (const k of new Set([...Object.keys(ske), ...Object.keys(got)])) {
+      const a = ske[k]?.box, b = got[k]?.box;
+      if (!a || !b) { moved.push(`${k} ${a ? 'gone' : 'missing while loading'}`); continue; }
+      const dv = Math.max(...a.map((v, i) => (v === null ? 0 : Math.abs(v - b[i]))));
+      if (dv > 1) moved.push(`${k} ${a.map(v => v ?? '·').join(',')} → ${b.map(v => v ?? '·').join(',')}`);
+      if (ske[k].text && !k.includes(' about')) shown.push(`${k} "${ske[k].text.slice(0, 20)}"`);
+    }
+    seen.push(`${size}: ${Object.keys(got).length} boxes in place`);
+    if (moved.length) bad.push(`${size}: ${moved.length} moved or resized (${moved.slice(0, 12).join('; ')})`);
+    if (shown.length) bad.push(`${size}: ${shown.length} placeholders not blank (${shown.slice(0, 4).join('; ')})`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
 
 // --- Trends (overview tile, then the card) ---
 main(async () => { await goto(pg, 'stats'); await sleep(2500); });
@@ -1347,11 +1423,43 @@ main(() => check('matchups-cells-still', 'Matchups cells never move or scale whe
   return { pass: r.changed > 0 && r.off === 0 && r.worst <= 0.5, detail: r.changed ? `${r.changed} value changes; ${r.off} cell frames off their grid slot, worst size change ${r.worst.toFixed(1)}px` : 'no value changed in 4s (is the replay running?)' };
 }));
 
+// Owner, 2026-11-09: "It looks like we for-loop over each cell rather than update each cell at once" (the Trends replay).
+// Each changed cell's flash started 20 ms after the one before (a ripple), a frame after its figure changed. Every cell a
+// replay step changes shows its new figure and starts its flash in one frame, none delayed.
+main(() => check('matchups-cells-together', 'During the Trends replay, every Matchups cell a step changes shows its new figure and starts its flash in the same frame, none delayed (no ripple)', async () => {
+  await goto(pg, 'stats'); await sleep(800);
+  const r = await pg.evaluate(() => new Promise(res => {
+    const fig = new Map(), seen = new WeakSet(); const t0 = performance.now();
+    let steps = 0, cells = 0, late = 0, delayed = 0, flashes = 0;
+    const loop = () => {
+      let changed = 0;
+      for (const c of document.querySelectorAll('#pairwise-panel td[data-cell]')) {
+        const t = c.querySelector('[aria-hidden]')?.textContent ?? '';
+        const was = fig.get(c.dataset.cell); fig.set(c.dataset.cell, t);
+        // A pair's first figure (it had none: they had not met) is no change of value: it does not flash.
+        const fresh = c.getAnimations().filter(a => !seen.has(a)); fresh.forEach(a => seen.add(a));
+        flashes += fresh.length; delayed += fresh.filter(a => a.effect.getTiming().delay > 0).length;
+        if (!was || !t || was === t) continue;
+        changed++; if (!fresh.length) late++; // its figure changed this frame, its flash did not start with it
+      }
+      if (changed) { steps++; cells += changed; }
+      if (performance.now() - t0 < 4000) requestAnimationFrame(loop); else res({ steps, cells, late, delayed, flashes });
+    };
+    requestAnimationFrame(loop);
+  }));
+  return { pass: r.steps > 0 && !r.late && !r.delayed, detail: r.steps ? `${r.steps} steps, ${r.cells} cell changes, ${r.flashes} flashes: ${r.late} flashes a frame late, ${r.delayed} delayed` : 'no figure changed in 4s (is the replay running?)' };
+}));
+
 // Owner, 2026-11-07: "Trends ... pretty smooth. For profiles, it's not as smooth" (the tile's text
 // shrank to ~45% on the first frame of the glide and grew back, as the card's table replaced it scaled
 // down), and the card took over from the gliding tile with a jump in size. While a tile glides to its
 // card, Profiles' figures stay at their size, and the card takes over exactly where the tile ends.
-main(() => check('glide-smooth', 'Opening Profiles and Matchups: no jump at the hand-over, Profiles text never shrinks', async () => {
+// Owner, 2026-11-09: "When I click into and out of Matchups it snaps, whereas the other two graphs expand and minimize
+// naturally." Opening, Matchups' figures showed the card's size scaled down into the tile (smaller than the tile's) and
+// its names and Total column jumped to the card's layout; closing, its matrix kept a glide begun while the stage was
+// hidden under the card and drew far off its tile. Both ways each tile's figures never shrink below the tile's size and
+// its table stays inside the tile; the card takes over when the tile has landed (not on a timer a busy machine outruns).
+main(() => check('glide-smooth', 'Opening and closing Profiles and Matchups: no jump at the hand-over, their figures never drawn smaller than on the tile, the table inside its tile in every frame', async () => {
   const bad = [], seen = [];
   for (const [tile, card, id] of [['#stats-panel', '#stats-card', 'stats-table'], ['#pairwise-panel', '#pairwise-card', 'pairwise']]) {
     await goto(pg, 'stats'); await sleep(1500);
@@ -1366,22 +1474,54 @@ main(() => check('glide-smooth', 'Opening Profiles and Matchups: no jump at the 
         const td = [...el.querySelectorAll('tbody td')].find(e => /^\d/.test(e.textContent.trim()));
         const text = td && [...td.querySelectorAll('*'), td].flatMap(e => [...e.childNodes]).find(n => n.nodeType === 3 && /\d/.test(n.textContent));
         let s = 0; if (text) { const r = document.createRange(); r.selectNodeContents(text); s = r.getBoundingClientRect().height; }
-        out.push({ on, b: [b.left, b.top, b.right, b.bottom], s });
-        if (performance.now() - t0 < 1200) requestAnimationFrame(loop); else res(out);
+        const t = el.querySelector('table')?.getBoundingClientRect();
+        out.push({ on, b: [b.left, b.top, b.right, b.bottom], s, t: t && [t.left, t.top, t.right, t.bottom], t0: performance.now() - t0 });
+        // Until 300 ms after the card took over (it waits for the tile to land: longer on a busy machine), 3 s at most.
+        const over = out.findIndex(x => !x.on);
+        if (performance.now() - t0 < 3000 && (over < 0 || performance.now() - t0 < out[over].t0 + 300)) requestAnimationFrame(loop); else res(out);
       };
       requestAnimationFrame(loop);
     }), [tile, card]);
+    // The tile's figure size at rest, before it opens.
+    const at = await pg.evaluate(s => { const e = [...document.querySelectorAll(`${s} tbody td`)].map(td => [...td.querySelectorAll('*'), td].flatMap(x => [...x.childNodes]).find(n => n.nodeType === 3 && /\d/.test(n.textContent))).find(Boolean); if (!e) return 0; const r = document.createRange(); r.selectNodeContents(e); return r.getBoundingClientRect().height; }, tile);
+    // Frames of the tile on screen whose table leaves the tile, or whose figures are drawn under 90% of the tile's size.
+    const off = fr => fr.filter(x => x.on && x.t && (x.t[0] < x.b[0] - 2 || x.t[1] < x.b[1] - 2 || x.t[2] > x.b[2] + 2 || x.t[3] > x.b[3] + 2)).length;
+    const small = fr => fr.filter(x => x.on && x.s && at && x.s < at * 0.9).length;
     await pg.mouse.click(pt[0], pt[1]);
     const f = await run;
+    if (off(f)) bad.push(`${id}: the table off its tile in ${off(f)} frames opening`);
+    if (small(f)) bad.push(`${id}: figures drawn under the tile's size in ${small(f)} frames opening`);
     const i = f.findIndex(x => !x.on);
-    if (i < 1) { bad.push(`${id}: never reached its card`); continue; }
+    if (i < 1) {
+      bad.push(`${id}: ${i < 0 ? 'never reached its card in 3 s' : 'the card took over before the tile had been drawn gliding'}`);
+      await sleep(1500); await clickPrefix(pg, 'Back to overview'); await sleep(1500); // leave the page on the overview for the checks after
+      continue;
+    }
     const jump = Math.max(...f[i].b.map((v, k) => Math.abs(v - f[i - 1].b[k])));
     const rest = f.at(-1).s || 1; // the text's height once the card has landed
     const lo = Math.min(...f.map(x => x.s / rest)), hi = Math.max(...f.map(x => x.s / rest));
     seen.push(`${id} hand-over ${jump.toFixed(1)}px${id === 'stats-table' ? `, text ×${lo.toFixed(2)}–${hi.toFixed(2)}` : ''}`);
     if (jump > 2) bad.push(`${id}: the card takes over ${jump.toFixed(0)}px off the tile`);
     if (id === 'stats-table' && (lo < 0.85 || hi > 1.15)) bad.push(`Profiles text drawn at ×${lo.toFixed(2)}–${hi.toFixed(2)} of its size mid-glide`);
-    await clickPrefix(pg, 'Back to overview'); await sleep(1200);
+    // Closing: the tile on screen once the page is back on the overview (opacity: not under the card).
+    const back = pg.evaluate(([tile]) => new Promise(res => {
+      const out = [], t0 = performance.now();
+      const op = e => { let v = 1; for (; e; e = e.parentElement) v *= +getComputedStyle(e).opacity; return v; };
+      const loop = () => {
+        const el = document.querySelector(tile), b = el.getBoundingClientRect(), t = el.querySelector('table')?.getBoundingClientRect();
+        const td = [...el.querySelectorAll('tbody td')].find(e => /^\d|^[+−]/.test(e.textContent.trim()));
+        const text = td && [...td.querySelectorAll('*'), td].flatMap(e => [...e.childNodes]).find(n => n.nodeType === 3 && /\d/.test(n.textContent));
+        let s = 0; if (text) { const r = document.createRange(); r.selectNodeContents(text); s = r.getBoundingClientRect().height; }
+        out.push({ on: op(el) > 0.5, b: [b.left, b.top, b.right, b.bottom], s, t: t && [t.left, t.top, t.right, t.bottom] });
+        if (performance.now() - t0 < 1000) requestAnimationFrame(loop); else res(out);
+      };
+      requestAnimationFrame(loop);
+    }), [tile]);
+    await clickPrefix(pg, 'Back to overview');
+    const g = await back;
+    if (off(g)) bad.push(`${id}: the table off its tile in ${off(g)} frames closing`);
+    if (small(g)) bad.push(`${id}: figures drawn under the tile's size in ${small(g)} frames closing`);
+    await sleep(1200);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
@@ -1611,10 +1751,26 @@ main(() => check('matchups-bigger', 'On the overview the Matchups tile is wider 
 // Trends' row cannot give more without its chart's text dropping under 13px, history-type). Since the overview took the
 // table stage's width (2026-11-08, page-edges-match) the cells widen with the column instead (66px at 1440x900, 106px at
 // 1728x1117): every figure shows in full (never +1.1k), and the height Trends' dominance leaves is at least 32.5px / 37.5px.
-group(() => check('matchups-cells-roomy', 'Matchups tile cells show every figure in full, at least 32.5px (1440x900) / 37.5px (1728x1117) tall, one figure size, never edge to edge or blank', async () => {
+group(() => check('matchups-cells-roomy', 'Matchups tile cells show every figure in full (the replay\'s four-digit ones too), at least 32.5px (1440x900) / 37.5px (1728x1117) tall, one figure size, never edge to edge or blank', async () => {
   const bad = [], seen = [];
   for (const [w, h, min] of [[1440, 900, 32.5], [1728, 1117, 37.5]]) {
     const p = await pageAt(w, h);
+    // The replay's first seconds: pairs with few hands together reach four digits (owner, 2026-11-09: "+1k", "+2.4k").
+    // Skip, then the tile's Replay restarts it from the first hand.
+    await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(300); await clickPrefix(p, 'Back to overview'); await sleep(2500);
+    await p.evaluate(() => document.querySelector('#race-panel [data-tile-replay]')?.click());
+    const play = await p.evaluate(() => new Promise(res => {
+      const short = new Set(), long = new Set(), t0 = performance.now();
+      const loop = () => {
+        for (const e of document.querySelectorAll('#pairwise-panel td[data-cell] [aria-hidden]')) {
+          const t = e.textContent;
+          if (/k$/.test(t)) short.add(t); else if (/\d{4}/.test(t)) long.add(t);
+        }
+        if (performance.now() - t0 < 5000) requestAnimationFrame(loop); else res({ short: [...short], long: [...long] });
+      };
+      requestAnimationFrame(loop);
+    }));
+    if (play.short.length) bad.push(`${w}x${h}: replay figures shortened (${play.short.slice(0, 3).join(', ')})`);
     // Skip the replay: the final figures are the widest.
     await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(800); await goto(p, 'stats'); await sleep(1500);
     const r = await p.evaluate(() => {
@@ -1633,7 +1789,7 @@ group(() => check('matchups-cells-roomy', 'Matchups tile cells show every figure
     const blank = fig.filter(c => !c.text);
     const short = fig.filter(c => c.text && /k$/.test(c.text)); // shortened to +1.1k / +1k
     const sizes = new Set([...fig.map(c => c.size), ...r.totals]);
-    seen.push(`${w}x${h}: cells ${wide.toFixed(1)}x${side.toFixed(1)}px, figures ${[...sizes].join('/')}, least clearance ${Math.min(...fig.filter(c => c.text).map(c => (c.w - c.tw) / 2)).toFixed(1)}px`);
+    seen.push(`${w}x${h}: ${play.long.length} four-digit figures in full in the replay, cells ${wide.toFixed(1)}x${side.toFixed(1)}px, figures ${[...sizes].join('/')}, least clearance ${Math.min(...fig.filter(c => c.text).map(c => (c.w - c.tw) / 2)).toFixed(1)}px`);
     if (!r.cells.length) bad.push(`${w}x${h}: no cells`);
     if (side < min) bad.push(`${w}x${h}: cells ${side.toFixed(1)}px tall (< ${min})`);
     if (short.length) bad.push(`${w}x${h}: ${short.length} figures shortened (${short.slice(0, 3).map(c => c.text).join(', ')})`);

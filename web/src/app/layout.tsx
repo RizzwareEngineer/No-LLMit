@@ -30,7 +30,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" style={{ background: '#FFFFFF' }}>
+    // suppressHydrationWarning: the home page's inline script (page.tsx) sets --stage-w here before React hydrates.
+    <html lang="en" style={{ background: '#FFFFFF' }} suppressHydrationWarning>
       <body
         className={`h-full ${jetbrainsMono.variable} flex flex-col`}
         style={{ 

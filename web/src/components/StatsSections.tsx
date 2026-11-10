@@ -11,6 +11,7 @@ import StatsTable, { MINI_CHROME } from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, useStats } from '@/lib/stats';
+import { remember, remembered, useRememberedBox } from '@/lib/boxes';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
 
 type Stats = ReturnType<typeof useStats>;
@@ -71,6 +72,8 @@ export default memo(function StatsSections({
   const pairwiseScreen = useRef<HTMLDivElement>(null);
   // A failed refetch keeps the last good data on screen, with the problem as a status line.
   const ready = !!data && current;
+  // Still loading (not failed): every tile and card stands in blank at its place and size.
+  const blank = !ready && !(current && error);
   // The Trends card's height: its tile's, plus the filter bar and the legend the card adds, so the
   // chart keeps its size (the stage's height at most: past that the chart shrinks a little, evenly).
   // Phones (PHONE): the tile and the card are what is around the chart plus the chart at their full width,
@@ -89,6 +92,13 @@ export default memo(function StatsSections({
       const box = kids.reduce<HTMLElement | null>((a, c) => (!a || c.offsetHeight > a.offsetHeight ? c : a), null);
       const keep = (h: number) => (f: number | undefined) => (f !== undefined && Math.abs(f - h) < 1 ? f : h);
       if (innerWidth < 768) {
+        const name = zoomedNow ? 'race-fit' : 'race-tile';
+        // No chart yet (a blank tile or card): the height it last had with its chart (lib/boxes).
+        if (!root?.lastElementChild) {
+          const h = remembered(name)?.[1];
+          if (h) (zoomedNow ? setRaceFit : setRaceTile)(keep(h));
+          return;
+        }
         // Everything above the chart's box (padding, header, the card's filter bar), whatever the section's height now.
         // The box is the chart's last child (a phone's filter bar can be taller).
         let above = 0;
@@ -100,10 +110,13 @@ export default memo(function StatsSections({
         const under = Math.max(0, ...parts.map(k => k.offsetTop + k.offsetHeight)) - (parts[0]?.offsetHeight ?? 0);
         const legend = zoomedNow ? Math.max(LEGEND, under) : 0;
         const h = Math.ceil(above + ((sec.clientWidth - 32) * H) / W + legend + 16);
+        remember(name, 0, h);
         (zoomedNow ? setRaceFit : setRaceTile)(keep(h));
         return;
       }
-      const bar = zoomedNow && root && box ? root.clientHeight - box.offsetHeight : 64 + 8;
+      // The card's filter bar, measured over the chart; before the chart is in (a blank card), the height it last had.
+      const bar = zoomedNow && root && box ? root.clientHeight - box.offsetHeight : (remembered('race-bar')?.[1] ?? 64 + 8);
+      if (zoomedNow && root && box) remember('race-bar', 0, bar);
       setRaceFit(keep(Math.ceil(tile.offsetHeight + bar + LEGEND)));
     };
     fit();
@@ -122,9 +135,12 @@ export default memo(function StatsSections({
   const room = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const measure = () => {
+      // Before the names are in, the widths they last had (lib/boxes), so the blank tiles take their places.
       const widest = (sel: string, plus: number, v: string) => {
         const names = [...document.querySelectorAll<HTMLElement>(sel)];
-        if (names.length) room.current?.style.setProperty(v, `${Math.max(...names.map(e => e.scrollWidth)) + plus}px`);
+        const w = names.length ? Math.max(...names.map(e => e.scrollWidth)) + plus : remembered(v)?.[0];
+        if (names.length) remember(v, w!, 0);
+        if (w) room.current?.style.setProperty(v, `${w}px`);
       };
       widest('#stats-panel tbody th [translate=no]', MINI_CHROME, '--prof-w');
       widest('#pairwise-panel a [translate=no]', 5, '--mu-names');
@@ -196,14 +212,23 @@ export default memo(function StatsSections({
     const open = (tile: Tile) => {
       if (busy) return;
       busy = true;
-      hold(glide());
+      // The card takes over once the tile has landed (Panel's glideend). A timer fired before a busy machine's glide had
+      // ended (it starts when React commits), and the card took over off the tile; a late one stays as the fallback.
+      const late = glide() && glide() + 1500;
+      hold(late);
       pin(true); // before the jump into the loop (on the overview pinned or not looks the same)
       put(tile);
-      setTimeout(() => {
+      const land = (e?: Event) => {
+        if (!busy || (e && (e as CustomEvent<string>).detail !== TILES[tile].panel)) return;
         busy = false;
+        clearTimeout(timer);
+        window.removeEventListener('glideend', land);
+        hold(0);
         jump(tile);
         document.getElementById(TILES[tile].land)?.focus({ preventScroll: true });
-      }, glide());
+      };
+      window.addEventListener('glideend', land);
+      const timer = setTimeout(land, late);
     };
     const back = () => {
       const at = currentScreen();
@@ -306,11 +331,11 @@ export default memo(function StatsSections({
       <SyncedProfiles tl={tl} models={models} seated={seated} mini={!card} />
     </>
   );
-  const pairwiseBody = (card: boolean) => !ready ? message : (
+  const pairwiseBody = (card: boolean, snap = false) => !ready ? message : (
     <AtHand tl={tl} models={card ? muModels : field}>
       {(ms, hand) => (
         <div {...syncAttrs(tl, hand)} className="contents">
-          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} fitTo={field.length} leader={leaderAt(tl, ms, hand)?.m.name} />
+          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} snap={snap} fitTo={field.length} leader={leaderAt(tl, ms, hand)?.m.name} />
         </div>
       )}
     </AtHand>
@@ -365,7 +390,7 @@ export default memo(function StatsSections({
                 '--mu-h': `calc(max(${27 * field.length + 2}px, 100cqw - ${32 + NAMES}px) + ${MU_V}px)`,
               } as React.CSSProperties}
             >
-              <Panel id="race-panel" title="Trends" away={{ y: -1 }} className="row-start-1 md:col-span-2 max-md:h-(--race-tile)" aside={lead} fit={raceFit} {...tile('race')}>
+              <Panel id="race-panel" title="Trends" away={{ y: -1 }} className="row-start-1 md:col-span-2 max-md:h-(--race-tile)" aside={lead} fit={raceFit} blank={blank} {...tile('race')}>
                 {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
@@ -380,6 +405,7 @@ export default memo(function StatsSections({
                 className="row-start-2 md:col-start-1"
                 extra={on === 'stats-table' && <div className={ASIDE}>{lead}</div>}
                 fit="content"
+                blank={blank}
                 {...tile('stats-table')}
               >
                 {statsBody(on === 'stats-table', !snap)}
@@ -392,9 +418,10 @@ export default memo(function StatsSections({
                 className="row-start-3 md:row-start-2 md:col-start-2 max-md:h-(--mu-h)"
                 extra={on === 'pairwise' && <div className={ASIDE}>{lead}</div>}
                 fit="hug"
+                blank={blank}
                 {...tile('pairwise')}
               >
-                {pairwiseBody(on === 'pairwise')}
+                {pairwiseBody(on === 'pairwise', snap)}
               </Panel>
             </div>
           </div>
@@ -428,11 +455,11 @@ export default memo(function StatsSections({
         {/* The History screen's scroll range: the stage stays as it is. */}
         <div className="h-svh" aria-hidden />
 
-        <Card id="stats-card" title={<>Profiles {sample && <SampleBadge />}</>} aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit>
+        <Card id="stats-card" title={<>Profiles {sample && <SampleBadge />}</>} aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit blank={blank}>
           {statsBody(true)}
         </Card>
 
-        <Card id="pairwise-card" title="Matchups" aside={muAside} z="z-20" fit="hug">
+        <Card id="pairwise-card" title="Matchups" aside={muAside} z="z-20" fit="hug" blank={blank} record={muLineup === 'seated'}>
           {pairwiseBody(true)}
         </Card>
       </div>
@@ -608,6 +635,8 @@ function Card({
   ref,
   z,
   fit = false,
+  blank = false,
+  record = true,
   children,
 }: {
   id: string;
@@ -618,15 +647,18 @@ function Card({
   ref?: React.Ref<HTMLElement>;
   z: string;
   fit?: boolean | 'hug'; // as tall as its content (centred, at most the overview's height), not the overview's box; 'hug': as wide too
+  blank?: boolean; // its data is still loading: blank, at the size it last had with its data (lib/boxes)
+  record?: boolean; // its size now is the one to stand in at (the Matchups card's default lineup)
   children: React.ReactNode;
 }) {
+  const [chrome, size, attrs] = useRememberedBox<HTMLDivElement>(id, !blank && record, fit === 'hug' ? 'wh' : 'h');
   return (
     <section ref={ref} id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className={`sticky top-0 h-svh outline-none ${z}`}>
       <Recede by={by} timeline={timeline} className="h-full">
         <div className={`@container ${BLOCK} ${PAD}`} style={BLOCK_VARS}>
           {/* The overview's box, where its tile stands in for this card. */}
           <div className="relative h-full md:h-(--block-h)">
-          <div className={`${CARD} absolute ${fit === 'hug' ? HUG : `inset-x-0 inset-y-0 my-auto max-h-full ${fit ? 'h-fit' : ''}`}`} style={{ boxShadow: CARD_SHADOW }}>
+          <div ref={chrome} {...attrs} className={`${CARD} absolute ${fit === 'hug' ? HUG : `inset-x-0 inset-y-0 my-auto max-h-full ${fit ? 'h-fit' : ''}`} ${blank ? '[&>*]:invisible' : ''}`} style={{ boxShadow: CARD_SHADOW, ...size }}>
             <div className={HEADER}>
               <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
               {aside && <div className={ASIDE}>{aside}</div>}
