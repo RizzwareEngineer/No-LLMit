@@ -5,6 +5,7 @@ import { ArrowUp, SquaresFour } from '@phosphor-icons/react';
 import NumberFlow from '@number-flow/react';
 import LLMLogo from '@/components/LLMLogo';
 import type { DisplayState } from '@/hooks/useGameState';
+import { amountParts, useBigBlind } from '@/lib/amounts';
 import { MUTED, TEXT } from '@/lib/stats';
 import { backToOverview, useScreen } from '@/components/Section';
 import SoundToggle from '@/components/SoundToggle';
@@ -25,6 +26,7 @@ function acting(d: DisplayState | null) {
 export default function StickyBar({ show, pot, handNumber, display }: { show: boolean; pot: number; handNumber: number; display: DisplayState | null }) {
   const doing = acting(display);
   const screen = useScreen();
+  const potIn = amountParts(pot, useBigBlind()); // the Chips/BB switch, as the felt's pot
   const detail = screen === 'race' || screen === 'stats-table' || screen === 'pairwise';
   return (
     <AnimatePresence>
@@ -43,7 +45,7 @@ export default function StickyBar({ show, pot, handNumber, display }: { show: bo
             {handNumber > 0 && <span className="tabular-nums hidden sm:inline" style={{ color: MUTED }}>#{handNumber}</span>}
             <span className="tabular-nums shrink-0">
               <span style={{ color: MUTED }}>Pot </span>
-              <span className="font-bold"><NumberFlow value={pot} /></span>
+              <span className="font-bold"><NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} /></span>
             </span>
             {display && doing && (
               <div className="flex items-center gap-1.5 min-w-0">

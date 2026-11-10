@@ -385,6 +385,40 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
   }
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 6).join(' | ') : seen.join(' | ') };
 }));
+// The sticky bar's pot is a table amount too, so it follows the same switch: in big blinds it reads as the felt's pot does,
+// back in chips it reads in chips, and only its text changes (same height and place; its width moves by the text's alone).
+// Read as a screen reader hears it (NumberFlow's accessible name), once its roll has settled. Bets out are scripted (pot 50).
+group(() => check('sticky-pot-bb', 'The sticky bar\'s pot follows the Chips/BB switch: in BB it reads in big blinds, the same as the felt\'s pot; back in Chips it reads in chips; its box changes size by no more than its text', async () => {
+  const p = await scriptedTable(1440, 900);
+  try {
+    await p.evaluate(() => window.__sock.bets());
+    await goto(p, 'stats');
+    await p.waitForFunction(() => { const bar = [...document.querySelectorAll('div.fixed')].find(d => d.textContent.includes('Back to table')); return bar && Math.abs(bar.getBoundingClientRect().top) < 0.5; }, { timeout: 10000, polling: 100 }).catch(() => {});
+    // The switch as table-bb-toggle drives it, then the bar's pot: what it says, its box, its text's box, the bar, the felt's pot.
+    const read = async t => {
+      const clicked = await p.evaluate(t => { const b = [...document.querySelectorAll('[role=group][aria-label="Amounts in"] button')].find(b => b.textContent.trim() === t); b?.click(); return !!b; }, t);
+      await sleep(1200); // NumberFlow rolls for 900 ms
+      const flow = (await p.evaluateHandle(() => [...document.querySelectorAll('div.fixed')].find(d => d.textContent.includes('Back to table'))?.querySelector('number-flow-react'))).asElement();
+      if (!clicked || !flow) return null;
+      const said = (await p.accessibility.snapshot({ root: flow }))?.name ?? '';
+      return { said, ...(await flow.evaluate(f => {
+        const box = e => { const r = e.getBoundingClientRect(); return { l: r.left, w: r.width, h: r.height }; };
+        const felt = document.querySelector('[data-felt] [aria-label^="Pot "]');
+        return { box: box(f.parentElement.parentElement), text: box(f), bar: box(f.closest('div.fixed')), felt: felt?.getAttribute('aria-label').replace(/^Pot /, ''), pot: +felt?.dataset.chips };
+      })) };
+    };
+    const chips = await read('Chips'), big = await read('BB'), back = await read('Chips');
+    if (!chips || !big || !back) return { pass: false, detail: 'no Chips/BB switch, or no pot in the sticky bar once the table scrolled away' };
+    const bad = [], want = chips.pot.toLocaleString('en-US'), px = b => `${b.w.toFixed(1)}x${b.h.toFixed(1)} at ${b.l.toFixed(1)}`;
+    if (chips.said !== want) bad.push(`Chips: the bar's pot reads "${chips.said}", not "${want}"`);
+    if (!big.said.endsWith(' BB') || big.said !== big.felt) bad.push(`BB: the bar's pot reads "${big.said}", the felt's "${big.felt}"`);
+    if (back.said !== want) bad.push(`back in Chips: the bar's pot reads "${back.said}", not "${want}"`);
+    const more = (big.box.w - chips.box.w) - (big.text.w - chips.text.w);
+    if (Math.abs(more) > 1 || Math.abs(big.box.h - chips.box.h) > 0.5 || Math.abs(big.box.l - chips.box.l) > 0.5 || Math.abs(big.bar.h - chips.bar.h) > 0.5)
+      bad.push(`the pot's box went ${px(chips.box)} to ${px(big.box)} (bar ${chips.bar.h.toFixed(1)} to ${big.bar.h.toFixed(1)}px tall) for text ${chips.text.w.toFixed(1)} to ${big.text.w.toFixed(1)}px wide`);
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `pot ${chips.pot}: "${chips.said}" in chips, "${big.said}" in BB (the felt's "${big.felt}"), "${back.said}" back in chips; box ${px(chips.box)} to ${px(big.box)}, by its text alone` };
+  } finally { await p.close(); }
+}));
 
 // The deal and the shuffle (owner 2026-11-08: "what happened to the shuffling process and the sound effects? ... let's try
 // the dealing animation, the dealing sounds, the shuffle animation, and the shuffle sounds"). Scripted (scriptSocket): a
