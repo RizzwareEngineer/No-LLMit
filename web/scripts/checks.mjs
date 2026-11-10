@@ -2559,6 +2559,48 @@ group(() => check('about-race-fill', 'Every ridge area in About\'s race is fille
   const off = fills.filter(([, f]) => f !== 'var(--page)');
   return { pass: !off.length, detail: off.length ? off.map(([m, f]) => `${m} filled ${f || 'none'}`).join(', ') : `${fills.length} ridges on var(--page)` };
 }));
+// Owner, 2026-11-09: "when I hover over the end graph in the About page I expect to see the names of the models." Hovering a
+// ridge (its wide invisible hit area) or its logo shows a tooltip naming that LLM with its bb/100 and hands; focusing a logo
+// does too; leaving clears it; nothing on the page moves or resizes meanwhile (the tooltip floats).
+group(() => check('about-race-hover', 'Hovering each ridge\'s hit area and each logo in About\'s race, or focusing a logo, shows a tooltip naming that LLM with its bb/100 and hands; leaving clears it; nothing else moves or resizes', async () => {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  await p.goto(`${BASE}/about`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await aboutReady(p);
+  await p.waitForFunction(() => document.querySelector('[data-about] figure [data-race-hit]'), { timeout: 60000, polling: 250 }).catch(() => {});
+  await sleep(2200); // the reveal and the logos' fade
+  // Every element's box now, to compare while hovered (the tooltip and the front line are new, so not among them).
+  const boxes = () => p.evaluate(() => { window.__els ??= [...document.querySelectorAll('body *')]; return window.__els.map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(','); }); });
+  const tip = () => p.evaluate(() => document.querySelector('[data-about] [data-race-tip]')?.innerText.replace(/\s+/g, ' ').trim() ?? '');
+  const base = await boxes();
+  const moved = async () => { const now = await boxes(); return now.filter((b, i) => b !== base[i]).length; };
+  // A point on each hit area that the hit area itself gets (ridges cross): along its path, in screen pixels.
+  const targets = await p.evaluate(() => [...document.querySelectorAll('[data-about] figure [data-race-hit]')].map(e => {
+    const m = e.getScreenCTM(), L = e.getTotalLength();
+    for (let k = 0.5; k < 1; k += 0.02) for (const dy of [0, 4, -4]) {
+      const q = e.getPointAtLength(L * k), x = m.a * q.x + m.e, y = m.d * q.y + m.f + dy;
+      if (document.elementFromPoint(x, y) === e) return [e.dataset.raceHit, x, y];
+    }
+    return [e.dataset.raceHit, null, null];
+  }));
+  const logos = await p.evaluate(() => [...document.querySelectorAll('[data-about] figure [data-race-row]')].map(e => { const r = e.getBoundingClientRect(); return [e.dataset.raceRow, r.left + r.width / 2, r.top + r.height / 2]; }));
+  const bad = [];
+  if (!targets.length) bad.push('no hit areas');
+  for (const [kind, list] of [['line', targets], ['logo', logos]]) for (const [name, x, y] of list) {
+    if (x === null) { bad.push(`${name}'s line has no point it gets hovered at`); continue; }
+    await p.mouse.move(x, y); await sleep(200);
+    const t = await tip(), n = await moved();
+    if (!t.includes(name) || !/bb\/100 over [\d,]+ hands/.test(t)) bad.push(`${kind} ${name}: tooltip "${t}"`);
+    if (n) bad.push(`${kind} ${name}: ${n} elements moved or resized`);
+    await p.mouse.move(5, 5); await sleep(150);
+    if (await tip()) bad.push(`${kind} ${name}: the tooltip stays after leaving`);
+  }
+  for (const [name] of logos) {
+    await p.evaluate(n => document.querySelector(`[data-about] [data-race-row="${CSS.escape(n)}"]`).focus(), name); await sleep(100);
+    if (!(await tip()).includes(name)) bad.push(`focused logo ${name}: tooltip "${await tip()}"`);
+  }
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${targets.length} lines and ${logos.length} logos each name their LLM; nothing moved` };
+}));
 // Opens a card from the overview the way a visitor does (a click on its tile), and waits for the glide.
 const median = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return Math.round(b[b.length >> 1]); };
 const openTile = async (p, tile) => { await goto(p, 'stats'); await sleep(900); await clickCenter(p, tile); await sleep(1300); await p.mouse.move(p.viewport().width / 2, p.viewport().height / 2); };
