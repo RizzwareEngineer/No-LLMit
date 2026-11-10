@@ -1,7 +1,8 @@
 // Serves GET /api/stats and GET /api/stats/timeline (each optionally ?session=<id>). Hands
 // are loaded from Supabase, or from HAND_LOG_DIR/hands.jsonl when Supabase is not
-// configured; every 5 minutes they are reloaded, and each newly saved hand is added as it
-// lands. The JSON for the whole table and for each session, and its gzip, is precomputed,
+// configured, once on start; each hand this engine saves is added as it lands, and every 5
+// minutes only hands newer than the newest one held are fetched from Supabase (another
+// writer's: an overlapping deploy, a spill replayed elsewhere), never the whole table again. The JSON for the whole table and for each session, and its gzip, is precomputed,
 // so a request only copies bytes.
 package api
 
@@ -13,6 +14,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,13 +28,15 @@ import (
 )
 
 const (
-	statsReloadEvery = 5 * time.Minute
-	statsRetryEvery  = 15 * time.Second // after a failed load, until one succeeds
-	aievPerPass      = 8                // all-ins worked out per recompute, so serving never waits long
+	statsPollEvery  = 5 * time.Minute
+	statsRetryEvery = 15 * time.Second // after a failed load, until one succeeds
+	aievPerPass     = 8                // all-ins worked out per recompute, so serving never waits long
 )
 
 type statsCache struct {
 	load      func() ([]history.HandRecord, error)
+	loadSince func(since time.Time) ([]history.HandRecord, error) // nil: nothing to poll (the hand file has one writer)
+	pollEvery time.Duration                                       // 0: statsPollEvery
 	dirty     chan struct{}
 	retryWait time.Duration
 
@@ -71,7 +75,9 @@ func newPayload(v any) payload {
 func newStatsCache() *statsCache {
 	c := &statsCache{dirty: make(chan struct{}, 1), retryWait: statsRetryEvery, seen: map[string]bool{}, changed: map[string]bool{}}
 	if url, key := os.Getenv("SUPABASE_URL"), os.Getenv("SUPABASE_SERVICE_KEY"); url != "" && key != "" {
-		c.load = func() ([]history.HandRecord, error) { return loadSupabaseHands(strings.TrimRight(url, "/"), key) }
+		base := strings.TrimRight(url, "/")
+		c.load = func() ([]history.HandRecord, error) { return loadSupabaseHands(base, key, time.Time{}) }
+		c.loadSince = func(since time.Time) ([]history.HandRecord, error) { return loadSupabaseHands(base, key, since) }
 	} else {
 		dir := os.Getenv("HAND_LOG_DIR")
 		if dir == "" {
@@ -82,22 +88,34 @@ func newStatsCache() *statsCache {
 	return c // the caller sets seated, then starts run
 }
 
-// run loads every hand on start and every statsReloadEvery, and recomputes whenever a
-// saved hand was added. Nothing is served until a load succeeds; a failed first load is
-// retried every retryWait. While all-ins are still being worked out it keeps going, a
-// batch at a time, serving partial stats in between.
+// run loads every hand once, then adds the hands this engine saves and, every pollEvery,
+// the hands newer than the newest one held, recomputing whenever one was added. Nothing is
+// served until the first load succeeds; it is retried every retryWait. While all-ins are
+// still being worked out it keeps going, a batch at a time, serving partial stats in between.
 func (c *statsCache) run() {
-	tick := time.NewTicker(statsReloadEvery)
+	every := c.pollEvery
+	if every <= 0 {
+		every = statsPollEvery
+	}
+	tick := time.NewTicker(every)
 	defer tick.Stop()
-	loaded := false
-	for reload := true; ; {
+	loaded, try, poll := false, true, false // try: the first load, or its retry once retryWait passes
+	for {
 		full := false
-		if reload {
+		if !loaded && try {
 			if hands, err := c.load(); err != nil {
 				log.Printf("!!! Stats: loading hands failed: %v", err)
 			} else {
 				c.replace(hands)
 				loaded, full = true, true
+			}
+		} else if loaded && poll && c.loadSince != nil {
+			if hands, err := c.loadSince(c.newest()); err != nil {
+				log.Printf("!!! Stats: loading new hands failed: %v", err)
+			} else {
+				for _, h := range hands {
+					c.add(h) // the newest one held comes back too: add skips hands it has
+				}
 			}
 		}
 		var again <-chan time.Time
@@ -108,13 +126,23 @@ func (c *statsCache) run() {
 		}
 		select {
 		case <-tick.C:
-			reload = true
+			try, poll = false, true
 		case <-c.dirty:
-			reload = false
+			try, poll = false, false
 		case <-again:
-			reload = !loaded
+			try, poll = !loaded, false
 		}
 	}
+}
+
+// newest is when the latest hand held started (zero when none is).
+func (c *statsCache) newest() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.hands) == 0 {
+		return time.Time{}
+	}
+	return c.hands[len(c.hands)-1].StartedAt
 }
 
 // Add records a hand that was just saved and schedules a recompute.
@@ -272,15 +300,20 @@ func (c *statsCache) serve(w http.ResponseWriter, r *http.Request, timeline bool
 	w.Write(body.json)
 }
 
-// loadSupabaseHands reads every saved hand in the order played, asking for 1000 rows at a
-// time with a Range header. It moves on by the rows actually returned and stops at an
-// empty page, so a server row cap below 1000 cannot cut the history short.
-func loadSupabaseHands(url, key string) ([]history.HandRecord, error) {
+// loadSupabaseHands reads the saved hands that started at or after since (every hand when
+// since is zero) in the order played, asking for 1000 rows at a time with a Range header.
+// It moves on by the rows actually returned and stops at an empty page, so a server row
+// cap below 1000 cannot cut the history short.
+func loadSupabaseHands(base, key string, since time.Time) ([]history.HandRecord, error) {
+	query := "/rest/v1/hands?select=doc&order=started_at,hand_id"
+	if !since.IsZero() {
+		query += "&started_at=gte." + url.QueryEscape(since.UTC().Format(time.RFC3339Nano))
+	}
 	client := &http.Client{Timeout: 60 * time.Second}
 	const page = 1000
 	var out []history.HandRecord
 	for offset := 0; ; {
-		req, err := http.NewRequest("GET", url+"/rest/v1/hands?select=doc&order=started_at,hand_id", nil)
+		req, err := http.NewRequest("GET", base+query, nil)
 		if err != nil {
 			return nil, err
 		}

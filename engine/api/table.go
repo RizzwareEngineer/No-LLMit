@@ -473,6 +473,7 @@ func (t *Table) playHand() {
 
 	t.mu.Lock()
 	rebought := t.gs.RebuyBrokePlayers(tableStartingStack)
+	start := startOf(t.gs)
 	if err := t.gs.StartHand(); err != nil {
 		t.mu.Unlock()
 		log.Printf("Could not start hand: %v", err)
@@ -501,30 +502,91 @@ func (t *Table) playHand() {
 	}
 
 	t.mu.Lock()
+	voided := false
 	if !t.gs.IsHandComplete() {
 		log.Printf("Hand #%d stalled on %s with nobody to act; dealing a new hand", t.gs.HandNumber, t.gs.Street)
 	} else {
-		t.saveHand()
+		voided = t.saveHand(start)
 	}
 	wait := time.Until(t.nextHandAt)
+	if voided {
+		// An outage: wait before the next hand, which is the probe; it clears the notice if the models answer.
+		wait = time.Duration(float64(outagePause) * t.pace)
+		t.setNotice(TableNoticePayload{
+			Kind:      "outage",
+			Message:   "The models can't be reached, so that hand doesn't count.",
+			ReopensAt: time.Now().Add(wait).UTC().Format(time.RFC3339),
+		})
+		t.broadcast(t.stateMessage())
+	} else if t.notice.Kind == "outage" {
+		t.setNotice(TableNoticePayload{})
+	}
 	t.mu.Unlock()
 	if wait > 0 {
 		time.Sleep(wait)
 	}
 }
 
+// outagePause is how long the table waits after a voided hand before dealing the next one.
+const outagePause = 5 * time.Minute
+
+// handStart is what a voided hand puts back: every stack and the button, as they were
+// before the blinds, so the next hand is dealt as if the voided one never was.
+type handStart struct {
+	stacks []int
+	button int
+}
+
+func startOf(gs *game.GameState) handStart {
+	s := handStart{button: gs.ButtonIdx}
+	for _, p := range gs.Players {
+		s.stacks = append(s.stacks, p.Stack)
+	}
+	return s
+}
+
+func (s handStart) restore(gs *game.GameState) {
+	for i := range gs.Players {
+		gs.Players[i].Stack = s.stacks[i]
+	}
+	gs.ButtonIdx = s.button
+}
+
+// outage reports whether a hand had no model decision at all because the calls failed: not
+// one reply was played, and at least one turn failed at the provider or the LLM service.
+// Such a hand measures nothing about the models; a hand of the models' own misses does.
+func outage(r history.HandRecord) bool {
+	failed := false
+	for _, a := range r.Actions {
+		switch a.Status {
+		case "ok":
+			return false
+		case "timeout", "api_error", "service_error":
+			failed = true
+		}
+	}
+	return failed
+}
+
 // saveHand hands the finished hand to the store. Hands played by the mock provider are
-// only kept locally; they are not real model decisions. Callers hold t.mu.
-func (t *Table) saveHand() {
+// only kept locally; they are not real model decisions. A hand that was an outage (see
+// outage) is voided instead: not saved, and every stack and the button go back to start.
+// Callers hold t.mu.
+func (t *Table) saveHand(start handStart) (voided bool) {
 	record, prompts := t.recorder.finish(t.gs)
 	t.recorder = nil
+	if outage(record) {
+		start.restore(t.gs)
+		log.Printf("Hand #%d voided: no model call succeeded", t.gs.HandNumber)
+		return true
+	}
 	// shortcut: a hand with no decision is not saved; heads-up, a blind posted all-in makes
 	// such a hand and its chips go unrecorded. Save it once two-seat tables exist.
 	if len(record.Actions) == 0 {
-		return
+		return false
 	}
 	if _, toSupabase := t.store.saver.(*supabaseSaver); toSupabase && record.Config.Provider == "mock" {
-		return
+		return false
 	}
 
 	if record.Config.PromptVersion != t.promptVer {
@@ -540,6 +602,7 @@ func (t *Table) saveHand() {
 		systemPrompt = t.systemPrompt
 	}
 	t.store.Save(savedHand{Record: record, Prompts: prompts, SystemPrompt: systemPrompt})
+	return false
 }
 
 // settleStreets advances past any street where the betting is already finished.
