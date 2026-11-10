@@ -5,7 +5,7 @@ import { ArrowLeft } from '@phosphor-icons/react';
 import About from '@/components/About';
 
 // About on the page's background (data-page), as wide as the home page's About screen on a large window (its block's
-// 1264px when no table stage sets it), so a draft lays out as it does there.
+// 1264px when no table stage sets it), so About lays out as it does there.
 export default function AboutPage() {
   return (
     <div data-page className="min-h-screen">

@@ -5,17 +5,18 @@ import { ArrowUp, SquaresFour } from '@phosphor-icons/react';
 import NumberFlow from '@number-flow/react';
 import LLMLogo from '@/components/LLMLogo';
 import type { DisplayState } from '@/hooks/useGameState';
+import { amountParts, formatAmount, useBigBlind } from '@/lib/amounts';
 import { MUTED, TEXT } from '@/lib/stats';
 import { backToOverview, useScreen } from '@/components/Section';
 import SoundToggle from '@/components/SoundToggle';
 
 const ACTIONS: Record<string, string> = { FOLD: 'folds', CHECK: 'checks', CALL: 'calls', RAISE: 'raises to', BET: 'bets', ALL_IN: 'all-in' };
 
-// What the seat to act is doing, in a few words.
-function acting(d: DisplayState | null) {
+// What the seat to act is doing, in a few words; an amount in the unit of the Chips/BB switch (bb null: chips).
+function acting(d: DisplayState | null, bb: number | null) {
   if (!d || d.phase === 'idle' || d.phase === 'waiting') return null;
   if (d.phase === 'revealed' && d.action) {
-    const amount = d.amount > 0 && d.action !== 'FOLD' && d.action !== 'CHECK' ? ` ${d.amount.toLocaleString()}` : '';
+    const amount = d.amount > 0 && d.action !== 'FOLD' && d.action !== 'CHECK' ? ` ${formatAmount(d.amount, bb)}` : '';
     return `${ACTIONS[d.action] ?? d.action.toLowerCase()}${amount}`;
   }
   return 'thinking…';
@@ -23,8 +24,10 @@ function acting(d: DisplayState | null) {
 
 // One-line bar fixed to the top once the live table has scrolled out of view.
 export default function StickyBar({ show, pot, handNumber, display }: { show: boolean; pot: number; handNumber: number; display: DisplayState | null }) {
-  const doing = acting(display);
+  const bb = useBigBlind(); // the Chips/BB switch, as the felt's
+  const doing = acting(display, bb);
   const screen = useScreen();
+  const potIn = amountParts(pot, bb);
   const detail = screen === 'race' || screen === 'stats-table' || screen === 'pairwise';
   return (
     <AnimatePresence>
@@ -43,7 +46,7 @@ export default function StickyBar({ show, pot, handNumber, display }: { show: bo
             {handNumber > 0 && <span className="tabular-nums hidden sm:inline" style={{ color: MUTED }}>#{handNumber}</span>}
             <span className="tabular-nums shrink-0">
               <span style={{ color: MUTED }}>Pot </span>
-              <span className="font-bold"><NumberFlow value={pot} /></span>
+              <span className="font-bold"><NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} /></span>
             </span>
             {display && doing && (
               <div className="flex items-center gap-1.5 min-w-0">

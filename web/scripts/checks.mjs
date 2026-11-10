@@ -56,6 +56,8 @@ const COVERS = [
   [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],
   [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges)/],
   [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|page-edges|main-scroll|no-stats-hash|scroll-consistency)/],
+  [/components\/StickyBar\.tsx|lib\/amounts\./, /^(sticky-|table-bb-toggle)/],
+  [/(^|\/)AGENTS\.md$/, /(?!)/], // the file next dev writes: no check covers it
 ];
 function changedChecks() { // a Set of ids, or null for every check
   const git = c => execSync(c, { cwd: new URL('../..', import.meta.url), encoding: 'utf8' }).split('\n').filter(Boolean);
@@ -384,6 +386,40 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 6).join(' | ') : seen.join(' | ') };
+}));
+// The sticky bar's pot is a table amount too, so it follows the same switch: in big blinds it reads as the felt's pot does,
+// back in chips it reads in chips, and only its text changes (same height and place; its width moves by the text's alone).
+// Read as a screen reader hears it (NumberFlow's accessible name), once its roll has settled. Bets out are scripted (pot 50).
+group(() => check('sticky-pot-bb', 'The sticky bar\'s pot follows the Chips/BB switch: in BB it reads in big blinds, the same as the felt\'s pot; back in Chips it reads in chips; its box changes size by no more than its text', async () => {
+  const p = await scriptedTable(1440, 900);
+  try {
+    await p.evaluate(() => window.__sock.bets());
+    await goto(p, 'stats');
+    await p.waitForFunction(() => { const bar = [...document.querySelectorAll('div.fixed')].find(d => d.textContent.includes('Back to table')); return bar && Math.abs(bar.getBoundingClientRect().top) < 0.5; }, { timeout: 10000, polling: 100 }).catch(() => {});
+    // The switch as table-bb-toggle drives it, then the bar's pot: what it says, its box, its text's box, the bar, the felt's pot.
+    const read = async t => {
+      const clicked = await p.evaluate(t => { const b = [...document.querySelectorAll('[role=group][aria-label="Amounts in"] button')].find(b => b.textContent.trim() === t); b?.click(); return !!b; }, t);
+      await sleep(1200); // NumberFlow rolls for 900 ms
+      const flow = (await p.evaluateHandle(() => [...document.querySelectorAll('div.fixed')].find(d => d.textContent.includes('Back to table'))?.querySelector('number-flow-react'))).asElement();
+      if (!clicked || !flow) return null;
+      const said = (await p.accessibility.snapshot({ root: flow }))?.name ?? '';
+      return { said, ...(await flow.evaluate(f => {
+        const box = e => { const r = e.getBoundingClientRect(); return { l: r.left, w: r.width, h: r.height }; };
+        const felt = document.querySelector('[data-felt] [aria-label^="Pot "]');
+        return { box: box(f.parentElement.parentElement), text: box(f), bar: box(f.closest('div.fixed')), felt: felt?.getAttribute('aria-label').replace(/^Pot /, ''), pot: +felt?.dataset.chips };
+      })) };
+    };
+    const chips = await read('Chips'), big = await read('BB'), back = await read('Chips');
+    if (!chips || !big || !back) return { pass: false, detail: 'no Chips/BB switch, or no pot in the sticky bar once the table scrolled away' };
+    const bad = [], want = chips.pot.toLocaleString('en-US'), px = b => `${b.w.toFixed(1)}x${b.h.toFixed(1)} at ${b.l.toFixed(1)}`;
+    if (chips.said !== want) bad.push(`Chips: the bar's pot reads "${chips.said}", not "${want}"`);
+    if (!big.said.endsWith(' BB') || big.said !== big.felt) bad.push(`BB: the bar's pot reads "${big.said}", the felt's "${big.felt}"`);
+    if (back.said !== want) bad.push(`back in Chips: the bar's pot reads "${back.said}", not "${want}"`);
+    const more = (big.box.w - chips.box.w) - (big.text.w - chips.text.w);
+    if (Math.abs(more) > 1 || Math.abs(big.box.h - chips.box.h) > 0.5 || Math.abs(big.box.l - chips.box.l) > 0.5 || Math.abs(big.bar.h - chips.bar.h) > 0.5)
+      bad.push(`the pot's box went ${px(chips.box)} to ${px(big.box)} (bar ${chips.bar.h.toFixed(1)} to ${big.bar.h.toFixed(1)}px tall) for text ${chips.text.w.toFixed(1)} to ${big.text.w.toFixed(1)}px wide`);
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `pot ${chips.pot}: "${chips.said}" in chips, "${big.said}" in BB (the felt's "${big.felt}"), "${back.said}" back in chips; box ${px(chips.box)} to ${px(big.box)}, by its text alone` };
+  } finally { await p.close(); }
 }));
 
 // The deal and the shuffle (owner 2026-11-08: "what happened to the shuffling process and the sound effects? ... let's try
@@ -2039,21 +2075,16 @@ late(() => check('pages-move', 'The main screens move like pages: table → over
 }));
 // Owner, 2026-11-08: "the About page in general just doesn't look like it belongs, so we need to change the UX/UI of the
 // About page to fit in with the rest." Then, 2026-11-09: "we're not just changing the content we're changing the layout cuz
-// right now it's just......bad", so About has two layout drafts (about-drafts-switcher), each held to the same rules here. Its
-// text is on the stats type scale: the thesis at the site title's 28px bold, card titles 20px bold, section labels 13px muted
+// right now it's just......bad"; of two layout drafts he picked the spec sheet (about/SpecSheet.tsx), held to the rules here.
+// Its text is on the stats type scale: the thesis at the site title's 28px bold, card titles 20px bold, section labels 13px muted
 // uppercase, figures 20px bold, body 14px, labels 13px muted, links and buttons blue (the donate button white on its blue fill,
 // about-support-prominent), a number may take the stats' gain or loss colour, all in the body's sans (the code aside). Any card
 // in it is a stats card (radius, ring and shadow, padding, white); a disabled control (the home page's Play button,
-// about-play-soon) keeps its own muted look. No heading carries an emoji, and every draft fits one window
-// at the overview's width and centre (not wall to wall) at 1440x900 and 1728x1117. The draft switcher is a temporary control
-// and is left out.
-const ABOUT_DRAFTS = [['a', 'Draft A'], ['b', 'Draft B']];
-const ABOUT_DEFAULT = readFileSync(new URL('../src/components/About.tsx', import.meta.url), 'utf8').match(/const DEFAULT: Draft = '(\w+)'/)?.[1];
-const ABOUT_DEFAULT_LABEL = Object.fromEntries(ABOUT_DRAFTS)[ABOUT_DEFAULT];
-const pickDraft = (p, label) => p.evaluate(t => [...document.querySelectorAll('[data-draft-switcher] button')].find(b => b.textContent.trim() === t)?.click(), label);
-// React has taken over the page (its props are on the switcher): the server's HTML shows the default draft and ignores clicks until then.
-const aboutReady = p => p.waitForFunction(() => { const b = document.querySelector('[data-draft-switcher] button'); return !!b && Object.keys(b).some(k => k.startsWith('__react')); }, { timeout: 60000, polling: 100 }).catch(() => {});
-main(() => check('about-fits', 'Every About draft (A, B) is on the stats type scale (thesis 28px bold, titles and figures 20px bold, section labels 13px muted uppercase, body 14px, labels 13px muted, the filled donate button white, body sans), any card in it is a stats card, no heading has an emoji, and it fits one window at the overview\'s width and centre at 1440x900 and 1728x1117', async () => {
+// about-play-soon) keeps its own muted look. No heading carries an emoji, and About fits one window at the overview's width
+// and centre (not wall to wall) at 1440x900 and 1728x1117.
+// React has taken over the page (its props are on About's first button): the server's HTML ignores clicks until then.
+const aboutReady = p => p.waitForFunction(() => { const b = document.querySelector('[data-about] button'); return !!b && Object.keys(b).some(k => k.startsWith('__react')); }, { timeout: 60000, polling: 100 }).catch(() => {});
+main(() => check('about-fits', 'About is on the stats type scale (thesis 28px bold, titles and figures 20px bold, section labels 13px muted uppercase, body 14px, labels 13px muted, the filled donate button white, body sans), any card in it is a stats card, no heading has an emoji, and it fits one window at the overview\'s width and centre at 1440x900 and 1728x1117', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await sharedAt(w, h, 'about');
@@ -2062,112 +2093,63 @@ main(() => check('about-fits', 'Every About draft (A, B) is on the stats type sc
     // most), polling on a timer: a shared page can be its window's background tab, which draws no frames.
     const clear = await p.waitForFunction(() => getComputedStyle(document.querySelector('[data-page]')).getPropertyValue('--bar-h').trim() === '0px', { timeout: 30000, polling: 200 }).then(() => true, () => false);
     if (!clear) bad.push(`${w}x${h}: the connection bar never cleared (measured with it)`);
-    for (const [draft, label] of ABOUT_DRAFTS) {
-      await pickDraft(p, label);
-      const on = await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 5000, polling: 100 }, draft).then(() => true, () => false);
-      if (!on) { bad.push(`${w}x${h}: the switcher did not show ${label}`); continue; }
-      await sleep(500);
-      const r = await p.evaluate(() => {
-        const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)', WHITE = 'rgb(255, 255, 255)', NET = ['rgb(15, 123, 108)', 'rgb(200, 50, 50)'];
-        const about = document.querySelector('section[aria-label=About]'), race = document.getElementById('race-panel');
-        const root = about.querySelector('[data-about-draft]'), view = root.firstElementChild;
-        const why = new Set();
-        // Cards: the stats cards' chrome, computed exactly as an overview tile's.
-        const ref = getComputedStyle(race), KEYS = ['borderTopLeftRadius', 'boxShadow', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'backgroundColor'];
-        const cards = [...view.querySelectorAll('.card-chrome')].filter(c => c.getBoundingClientRect().width > 0);
-        for (const c of cards) { const s = getComputedStyle(c); for (const k of KEYS) if (s[k] !== ref[k]) why.add(`card ${k} ${s[k]}, not ${ref[k]}`); }
-        // Every visible piece of text by its role.
-        const body = getComputedStyle(document.body).fontFamily;
-        const texts = [...view.querySelectorAll('*')].filter(e => !e.closest('pre, code, svg, .sr-only, button:disabled') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
-        for (const e of texts) {
-          const s = getComputedStyle(e), size = parseFloat(s.fontSize), bold = +s.fontWeight >= 700, name = `"${e.textContent.trim().slice(0, 20)}"`;
-          const control = e.closest('a, button'), number = /^[+−-]?[\d,.]+$/.test(e.textContent.trim());
-          const filled = !!control && getComputedStyle(control).backgroundColor === BLUE;
-          if (s.fontFamily !== body) why.add(`${name} in ${s.fontFamily.split(',')[0]}`);
-          const ok = e.closest('h1, h2, h3, h4, h5, h6')
-            ? ((size === 28 || size === 20) && bold && s.color === TEXT) || (size === 13 && s.color === MUTED && s.textTransform === 'uppercase')
-            : size === 20 ? bold && s.color === TEXT
-            : size === 14 ? s.color === TEXT || (control && s.color === BLUE) || (filled && s.color === WHITE) || (number && NET.includes(s.color))
-            : size === 13 ? s.color === MUTED || (control && s.color === BLUE)
-            : false;
-          if (!ok) why.add(`${e.closest('h1, h2, h3, h4, h5, h6') ? 'heading ' : ''}${name} ${size}px ${s.fontWeight} ${s.color}${s.textTransform === 'none' ? '' : ` ${s.textTransform}`}`);
-        }
-        const emoji = [...view.querySelectorAll('h1, h2, h3, h4, h5, h6')].map(e => e.textContent.trim()).filter(t => /\p{Extended_Pictographic}/u.test(t));
-        // One window: nothing to scroll, the draft and its switcher under the sticky bar and above the window's edge, at the
-        // overview's edges.
-        const scroller = about.querySelector('.panel-scroll') ?? about;
-        const b = view.getBoundingClientRect(), sw = root.querySelector('[data-draft-switcher]')?.getBoundingClientRect() ?? b, o = race.getBoundingClientRect();
-        return { why: [...why], emoji, over: scroller.scrollHeight - scroller.clientHeight, T: Math.min(b.top, sw.top), B: Math.max(b.bottom, sw.bottom), L: b.left, R: b.right, oL: o.left, oR: o.right, h: innerHeight, n: cards.length };
-      });
-      seen.push(`${w}x${h} ${label}: ${r.n} cards ${r.L.toFixed(0)}..${r.R.toFixed(0)} x ${r.T.toFixed(0)}..${r.B.toFixed(0)}`);
-      const why = [...r.why];
-      if (r.emoji.length) why.push(`emoji in ${r.emoji.join(', ')}`);
-      if (r.over > 1 || r.T < 44 || r.B > r.h) why.push(`does not fit the window (${r.over > 1 ? `scrolls ${r.over}px, ` : ''}${r.T.toFixed(0)}..${r.B.toFixed(0)} of ${r.h})`);
-      if (Math.abs(r.L - r.oL) > 2 || Math.abs(r.R - r.oR) > 2) why.push(`${r.L.toFixed(0)}..${r.R.toFixed(0)} wide, not the overview's ${r.oL.toFixed(0)}..${r.oR.toFixed(0)}`);
-      if (why.length) bad.push(`${w}x${h} ${label}: ${why.slice(0, 8).join('; ')}`);
-    }
-    await pickDraft(p, ABOUT_DEFAULT_LABEL); // the shared page as the other checks expect it
+    const r = await p.evaluate(() => {
+      const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)', WHITE = 'rgb(255, 255, 255)', NET = ['rgb(15, 123, 108)', 'rgb(200, 50, 50)'];
+      const about = document.querySelector('section[aria-label=About]'), race = document.getElementById('race-panel');
+      const view = about.querySelector('[data-about]');
+      const why = new Set();
+      // Cards: the stats cards' chrome, computed exactly as an overview tile's.
+      const ref = getComputedStyle(race), KEYS = ['borderTopLeftRadius', 'boxShadow', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'backgroundColor'];
+      const cards = [...view.querySelectorAll('.card-chrome')].filter(c => c.getBoundingClientRect().width > 0);
+      for (const c of cards) { const s = getComputedStyle(c); for (const k of KEYS) if (s[k] !== ref[k]) why.add(`card ${k} ${s[k]}, not ${ref[k]}`); }
+      // Every visible piece of text by its role.
+      const body = getComputedStyle(document.body).fontFamily;
+      const texts = [...view.querySelectorAll('*')].filter(e => !e.closest('pre, code, svg, .sr-only, button:disabled') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+      for (const e of texts) {
+        const s = getComputedStyle(e), size = parseFloat(s.fontSize), bold = +s.fontWeight >= 700, name = `"${e.textContent.trim().slice(0, 20)}"`;
+        const control = e.closest('a, button'), number = /^[+−-]?[\d,.]+$/.test(e.textContent.trim());
+        const filled = !!control && getComputedStyle(control).backgroundColor === BLUE;
+        if (s.fontFamily !== body) why.add(`${name} in ${s.fontFamily.split(',')[0]}`);
+        const ok = e.closest('h1, h2, h3, h4, h5, h6')
+          ? ((size === 28 || size === 20) && bold && s.color === TEXT) || (size === 13 && s.color === MUTED && s.textTransform === 'uppercase')
+          : size === 20 ? bold && s.color === TEXT
+          : size === 14 ? s.color === TEXT || (control && s.color === BLUE) || (filled && s.color === WHITE) || (number && NET.includes(s.color))
+          : size === 13 ? s.color === MUTED || (control && s.color === BLUE)
+          : false;
+        if (!ok) why.add(`${e.closest('h1, h2, h3, h4, h5, h6') ? 'heading ' : ''}${name} ${size}px ${s.fontWeight} ${s.color}${s.textTransform === 'none' ? '' : ` ${s.textTransform}`}`);
+      }
+      const emoji = [...view.querySelectorAll('h1, h2, h3, h4, h5, h6')].map(e => e.textContent.trim()).filter(t => /\p{Extended_Pictographic}/u.test(t));
+      // One window: nothing to scroll, About under the sticky bar and above the window's edge, at the overview's edges.
+      const scroller = about.querySelector('.panel-scroll') ?? about;
+      const b = view.getBoundingClientRect(), o = race.getBoundingClientRect();
+      return { why: [...why], emoji, over: scroller.scrollHeight - scroller.clientHeight, T: b.top, B: b.bottom, L: b.left, R: b.right, oL: o.left, oR: o.right, h: innerHeight, n: cards.length };
+    });
+    seen.push(`${w}x${h}: ${r.n} cards ${r.L.toFixed(0)}..${r.R.toFixed(0)} x ${r.T.toFixed(0)}..${r.B.toFixed(0)}`);
+    const why = [...r.why];
+    if (r.emoji.length) why.push(`emoji in ${r.emoji.join(', ')}`);
+    if (r.over > 1 || r.T < 44 || r.B > r.h) why.push(`does not fit the window (${r.over > 1 ? `scrolls ${r.over}px, ` : ''}${r.T.toFixed(0)}..${r.B.toFixed(0)} of ${r.h})`);
+    if (Math.abs(r.L - r.oL) > 2 || Math.abs(r.R - r.oR) > 2) why.push(`${r.L.toFixed(0)}..${r.R.toFixed(0)} wide, not the overview's ${r.oL.toFixed(0)}..${r.oR.toFixed(0)}`);
+    if (why.length) bad.push(`${w}x${h}: ${why.slice(0, 8).join('; ')}`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
 }));
-// Owner's rule (drafts on the site): drafts live on the real page, with real data and a switcher, never as chat mockups. About
-// shows the default draft (About.tsx's DEFAULT); ?about=a|b picks a draft on the home page's About screen and on /about (anything
-// else: the default); the switcher's buttons swap the drafts in place, the page staying on About, and keep the choice in the
-// URL's query (never a hash: the URL never names a screen). Each draft names its layout (data-layout), so a draft shown is the
-// right one.
-group(() => check('about-drafts-switcher', 'About shows the default draft; ?about=a|b picks Draft A or Draft B (home page and /about), anything else the default; the switcher swaps them in place by click and keeps the choice in the query, never a hash', async () => {
-  const bad = [], seen = [];
-  const LABEL = Object.fromEntries(ABOUT_DRAFTS), LAYOUT = { a: 'hero-split', b: 'spec-sheet' };
-  if (!ABOUT_DEFAULT_LABEL) return { pass: false, detail: `About.tsx's DEFAULT (${ABOUT_DEFAULT}) is not a draft` };
-  const read = p => p.evaluate(() => {
-    const root = document.querySelector('[data-about-draft]');
-    const on = [...document.querySelectorAll('[data-draft-switcher] button')].find(b => b.getAttribute('aria-pressed') === 'true');
-    return { draft: root?.dataset.aboutDraft, pressed: on?.textContent.trim(), layout: root?.querySelector('[data-layout]')?.dataset.layout, search: location.search, hash: location.hash, top: document.getElementById('about')?.getBoundingClientRect().top };
-  });
-  const shows = (r, d) => r.draft === d && r.pressed === LABEL[d] && r.layout === LAYOUT[d];
-  const open = async path => {
-    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
-    await p.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    await aboutReady(p); await sleep(500); // hydration swaps the server's default for the URL's draft
-    return p;
-  };
-  for (const [path, want] of [['/', ABOUT_DEFAULT], ['/?about=a', 'a'], ['/?about=b', 'b'], ['/about?about=a', 'a'], ['/about?about=b', 'b'], ['/about?about=nonsense', ABOUT_DEFAULT]]) {
-    const p = await open(path), r = await read(p);
-    await p.close();
-    seen.push(`${path} → ${r.draft ?? 'none'}`);
-    if (!shows(r, want)) bad.push(`${path}: shows ${r.draft ?? 'no draft'} (pressed ${r.pressed ?? 'none'}, layout ${r.layout ?? 'none'}), not ${LABEL[want]}`);
-  }
-  // By click, on the home page's About screen.
-  const p = await open('/');
-  await goto(p, 'about'); await sleep(1500);
-  for (const d of [...ABOUT_DRAFTS.map(([d]) => d).filter(d => d !== ABOUT_DEFAULT), ABOUT_DEFAULT]) {
-    await pickDraft(p, LABEL[d]); await sleep(700);
-    const r = await read(p);
-    seen.push(`click ${LABEL[d]} → ${r.draft} ${r.search}`);
-    if (!shows(r, d)) bad.push(`click ${LABEL[d]}: shows ${r.draft} (pressed ${r.pressed}, layout ${r.layout})`);
-    if (r.search !== `?about=${d}` || r.hash) bad.push(`click ${LABEL[d]}: URL ${r.search}${r.hash}, not ?about=${d}`);
-    if (Math.abs(r.top) > 1) bad.push(`click ${LABEL[d]}: the page moved off About (About at ${Math.round(r.top)})`);
-  }
-  await p.close();
-  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
-}));
-// A draft on /about at 1440x900, then with each prompt dialog opened in turn: its text (an open dialog's included), its own
+// About on /about at 1440x900, then with each prompt dialog opened in turn: its text (an open dialog's included), its own
 // copy (every word but the prompts' code, each dialog's view included), its links, and each dialog's code blocks.
-async function readAbout(draft) {
+async function readAbout() {
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
-  await p.goto(`${BASE}/about?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p.goto(`${BASE}/about`, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await aboutReady(p);
-  const on = await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 10000 }, draft).then(() => true, () => false);
+  const on = await p.waitForFunction(() => document.querySelector('[data-about]'), { timeout: 10000 }).then(() => true, () => false);
   if (!on) { await p.close(); return null; }
   await sleep(500);
   const look = () => p.evaluate(() => {
-    const root = document.querySelector('[data-about-draft]'), copy = root.cloneNode(true), dialog = root.querySelector('dialog[open]');
-    copy.querySelectorAll('pre, [data-draft-switcher]').forEach(e => e.remove());
+    const root = document.querySelector('[data-about]'), copy = root.cloneNode(true), dialog = root.querySelector('dialog[open]');
+    copy.querySelectorAll('pre').forEach(e => e.remove());
     return { text: root.innerText, copy: copy.textContent, links: [...root.querySelectorAll('a[href]')].map(a => a.href), dialog: dialog && [...dialog.querySelectorAll('pre')].map(e => e.textContent) };
   });
   const looks = [await look()], dialogs = {};
   for (const t of ['Read the system prompt', 'Read the user prompt']) {
-    const clicked = await p.evaluate(t => { const b = [...document.querySelectorAll('[data-about-draft] button')].find(b => b.textContent.trim().startsWith(t) && b.getBoundingClientRect().width > 0); b?.click(); return !!b; }, t);
+    const clicked = await p.evaluate(t => { const b = [...document.querySelectorAll('[data-about] button')].find(b => b.textContent.trim().startsWith(t) && b.getBoundingClientRect().width > 0); b?.click(); return !!b; }, t);
     await sleep(500);
     const l = await look(); looks.push(l); dialogs[t] = clicked ? l.dialog : undefined;
     await p.keyboard.press('Escape'); await sleep(300);
@@ -2181,7 +2163,7 @@ async function readAbout(draft) {
 // prompt." / "Click either to see exactly what's inside." / "Assume each holds what a typical poker player is looking at."; the
 // caveats "No memory between hands." (not even its own last hand), "No tells or leaks." and the one retry, with "Poker is noisy"
 // cut; the hours as four lines (9am to 9pm ET, about 150 a day, a 12-hour game deals roughly 350, donations keep the models
-// seated); what's next the home page's Play button, then the dataset, its date and why. Every draft says all of it, the system
+// seated); what's next the home page's Play button, then the dataset, its date and why. About says all of it, the system
 // prompt and the user prompt (then the reply) opened in their dialog from lib/systemPrompt.ts (each export's first line, read from
 // the file as text when the check runs, so no prompt text is pinned here and another worker's rewrite of that file passes as it is;
 // About never copies it); and none of what he cut: LLM Council, training an LLM to play like you, Tinker, "9 LLMs at the table",
@@ -2218,57 +2200,49 @@ const ABOUT_LINKS = ['https://github.com/sponsors/RizzwareEngineer', 'https://gi
 const PROMPT_LINES = Object.fromEntries([...readFileSync(new URL('../src/lib/systemPrompt.ts', import.meta.url), 'utf8').matchAll(/^export const (\w+) = `([^\n`]*)/gm)].map(m => [m[1], m[2].trim()]));
 // Each dialog's code blocks, in order, and the export each one starts with.
 const PROMPT_DIALOGS = [['the system prompt', 'Read the system prompt', ['SYSTEM_PROMPT']], ['the user prompt', 'Read the user prompt', ['EXAMPLE_USER_PROMPT', 'EXAMPLE_REPLY']]];
-group(() => check('about-content-complete', 'Every draft says what About must, in the owner\'s plain words (pseudo benchmark, the same system and user prompts, the reply, the caveats, the hours in four lines, the Play button, the dataset, its date and why, what donations pay for, GitHub and handle) with the system prompt and the user prompt then the reply opened from lib/systemPrompt.ts (each export\'s first line, read at run time), and nothing the owner cut ("Poker is noisy" and "One turn" among it)', async () => {
-  const bad = [], seen = [];
+group(() => check('about-content-complete', 'About says what it must, in the owner\'s plain words (pseudo benchmark, the same system and user prompts, the reply, the caveats, the hours in four lines, the Play button, the dataset, its date and why, what donations pay for, GitHub and handle) with the system prompt and the user prompt then the reply opened from lib/systemPrompt.ts (each export\'s first line, read at run time), and nothing the owner cut ("Poker is noisy" and "One turn" among it)', async () => {
   const unread = PROMPT_DIALOGS.flatMap(([, , names]) => names).filter(n => !PROMPT_LINES[n]);
   if (unread.length) return { pass: false, detail: `lib/systemPrompt.ts: no \`export const ${unread.join(' / ')} = \`...\` found to read the first line of` };
-  for (const [draft, label] of ABOUT_DRAFTS) {
-    const got = await readAbout(draft);
-    if (!got) { bad.push(`${label}: not shown by /about?about=${draft}`); continue; }
-    const missing = ABOUT_FACTS.filter(([, re]) => !re.test(got.text)).map(([name]) => name);
-    const gone = ABOUT_GONE.filter(([, re]) => re.test(got.copy)).map(([name]) => name);
-    const noLink = ABOUT_LINKS.filter(l => !got.links.includes(l));
-    const code = [];
-    for (const [name, button, names] of PROMPT_DIALOGS) {
-      const pres = got.dialogs[button];
-      if (!pres) code.push(`${name} never opened`);
-      else if (pres.length !== names.length || names.some((n, i) => !pres[i].trim().startsWith(PROMPT_LINES[n]))) code.push(`${name} shows ${pres.length} code block(s) starting "${pres.map(t => t.trim().split('\n')[0].slice(0, 30)).join('", "')}", not ${names.join(' then ')} from lib/systemPrompt.ts`);
-    }
-    seen.push(`${label}: ${ABOUT_FACTS.length - missing.length}/${ABOUT_FACTS.length} facts, ${ABOUT_LINKS.length - noLink.length}/${ABOUT_LINKS.length} links, prompts from lib/systemPrompt.ts`);
-    const why = [missing.length && `missing ${missing.join(', ')}`, gone.length && `still says ${gone.join(', ')}`, noLink.length && `no link to ${noLink.join(', ')}`, ...code].filter(Boolean);
-    if (why.length) bad.push(`${label}: ${why.join('; ')}`);
+  const got = await readAbout();
+  if (!got) return { pass: false, detail: 'About not shown by /about' };
+  const missing = ABOUT_FACTS.filter(([, re]) => !re.test(got.text)).map(([name]) => name);
+  const gone = ABOUT_GONE.filter(([, re]) => re.test(got.copy)).map(([name]) => name);
+  const noLink = ABOUT_LINKS.filter(l => !got.links.includes(l));
+  const code = [];
+  for (const [name, button, names] of PROMPT_DIALOGS) {
+    const pres = got.dialogs[button];
+    if (!pres) code.push(`${name} never opened`);
+    else if (pres.length !== names.length || names.some((n, i) => !pres[i].trim().startsWith(PROMPT_LINES[n]))) code.push(`${name} shows ${pres.length} code block(s) starting "${pres.map(t => t.trim().split('\n')[0].slice(0, 30)).join('", "')}", not ${names.join(' then ')} from lib/systemPrompt.ts`);
   }
-  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+  const why = [missing.length && `missing ${missing.join(', ')}`, gone.length && `still says ${gone.join(', ')}`, noLink.length && `no link to ${noLink.join(', ')}`, ...code].filter(Boolean);
+  return { pass: !why.length, detail: why.length ? why.join('; ') : `${ABOUT_FACTS.length}/${ABOUT_FACTS.length} facts, ${ABOUT_LINKS.length}/${ABOUT_LINKS.length} links, prompts from lib/systemPrompt.ts` };
 }));
-// Owner, 2026-11-09: "don't link any sort of system design. That's not what should be inside of the About page." No draft's text
-// (its prompt dialogs opened) says "system design", and no link goes to a design doc.
-group(() => check('about-no-system-design', 'About never mentions or links the system design: no "system design" in any draft\'s text, prompt dialogs opened, and no link to a design doc', async () => {
-  const bad = [], seen = [];
-  for (const [draft, label] of ABOUT_DRAFTS) {
-    const got = await readAbout(draft);
-    if (!got) { bad.push(`${label}: not shown by /about?about=${draft}`); continue; }
-    const said = got.text.match(/[^\n]*system[ -]design[^\n]*/i)?.[0], linked = got.links.filter(l => /system[-_]design|\/docs\/design\b/i.test(l));
-    seen.push(`${label}: ${got.links.length} links, none to a design doc`);
-    if (said) bad.push(`${label}: says "${said.trim().slice(0, 60)}"`);
-    if (linked.length) bad.push(`${label}: links ${linked.join(', ')}`);
-  }
-  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+// Owner, 2026-11-09: "don't link any sort of system design. That's not what should be inside of the About page." About's text
+// (its prompt dialogs opened) never says "system design", and no link goes to a design doc.
+group(() => check('about-no-system-design', 'About never mentions or links the system design: no "system design" in its text, prompt dialogs opened, and no link to a design doc', async () => {
+  const bad = [];
+  const got = await readAbout();
+  if (!got) return { pass: false, detail: 'About not shown by /about' };
+  const said = got.text.match(/[^\n]*system[ -]design[^\n]*/i)?.[0], linked = got.links.filter(l => /system[-_]design|\/docs\/design\b/i.test(l));
+  if (said) bad.push(`says "${said.trim().slice(0, 60)}"`);
+  if (linked.length) bad.push(`links ${linked.join(', ')}`);
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : `${got.links.length} links, none to a design doc` };
 }));
 // Owner, 2026-11-09: "I do want a support section, and that should honestly be highlighted a bit better because that's the main
 // thing. I'm trying to get people to donate." The donate button (the GitHub Sponsors link) is in the window without scrolling at
-// 1440x900, on the home page's About screen (under the sticky bar) and on /about, in every draft; and it is About's most
-// prominent control: the only filled one, and the biggest (the draft switcher aside).
-group(() => check('about-support-prominent', 'The donate button is visible without scrolling at 1440x900 (home page About screen and /about, every draft) and is About\'s most prominent control: its only filled one, and the biggest', async () => {
+// 1440x900, on the home page's About screen (under the sticky bar) and on /about; and it is About's most prominent control:
+// the only filled one, and the biggest.
+group(() => check('about-support-prominent', 'The donate button is visible without scrolling at 1440x900 (home page About screen and /about) and is About\'s most prominent control: its only filled one, and the biggest', async () => {
   const bad = [], seen = [];
-  for (const [draft, label] of ABOUT_DRAFTS) for (const home of [true, false]) {
-    const where = `${label} ${home ? 'home' : '/about'}`;
+  for (const home of [true, false]) {
+    const where = home ? 'home' : '/about';
     const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
-    await p.goto(`${BASE}${home ? '/' : '/about'}?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.goto(`${BASE}${home ? '/' : '/about'}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await aboutReady(p);
     if (home) { await sleep(1500); await goto(p, 'about'); }
     await sleep(1500);
     const r = await p.evaluate(() => {
-      const view = document.querySelector('[data-about-draft]')?.firstElementChild;
+      const view = document.querySelector('[data-about]');
       const box = e => e.getBoundingClientRect(), area = e => box(e).width * box(e).height, name = e => e.textContent.trim().slice(0, 24) || e.getAttribute('aria-label');
       const controls = [...(view?.querySelectorAll('a, button') ?? [])].filter(e => area(e) > 0);
       const donate = controls.find(e => /github\.com\/sponsors\//.test(e.href ?? ''));
@@ -2297,41 +2271,36 @@ group(() => check('about-support-prominent', 'The donate button is visible witho
 // best first by bb/100, the LLMs with 500+ hands (MIN_HANDS) ahead of the rest, as the stats the page loaded say; the caption
 // names the leader, the best of those with 500+ hands, with its bb/100, and nothing in the figure says chips.
 group(() => check('about-bb100', 'The race on About draws running bb/100: its rows in bb/100 order (500+ hands first) from the stats the page loaded, and its caption names the leader among the LLMs with 500+ hands with its bb/100, never chips', async () => {
-  const bad = [], seen = [];
   const fmt = v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(0)}`;
-  for (const [draft, label] of ABOUT_DRAFTS) {
-    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
-    let stats = null;
-    p.on('response', r => { const u = new URL(r.url()); if (u.pathname === '/api/stats' && !u.search && r.ok()) r.json().then(j => { stats = j; }, () => {}); });
-    await p.goto(`${BASE}/about?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    await aboutReady(p);
-    await p.waitForFunction(() => document.querySelector('[data-race-row]'), { timeout: 60000, polling: 250 }).catch(() => {});
-    await sleep(800);
-    const r = await p.evaluate(() => {
-      const fig = document.querySelector('[data-about-draft] figure');
-      return fig && {
-        rows: [...fig.querySelectorAll('[data-race-row]')].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map(e => e.dataset.raceRow),
-        ridges: [...fig.querySelectorAll('svg [data-model]')].map(e => e.dataset.model),
-        caption: fig.querySelector('figcaption')?.innerText ?? '', all: fig.textContent + (fig.querySelector('svg')?.getAttribute('aria-label') ?? ''),
-      };
-    });
-    await p.close();
-    if (!r) { bad.push(`${label}: no race figure`); continue; }
-    if (!stats) { bad.push(`${label}: never saw the page load /api/stats`); continue; }
-    // The app's rule: the lineup when at least two of it have stats (seatedModels), with hands, 500+ first, then by bb/100.
-    const at = stats.seated ? stats.models.filter(m => stats.seated.includes(m.name)) : [];
-    const field = (at.length >= 2 ? at : stats.models).filter(m => m.hands > 0).sort((a, b) => (b.hands >= 500) - (a.hands >= 500) || b.bb100 - a.bb100);
-    const want = field.map(m => m.name), leader = field[0]?.hands >= 500 ? field[0] : null;
-    seen.push(`${label}: ${r.rows.length} rows in bb/100 order; ${leader ? `${leader.name} ${fmt(leader.bb100)} bb/100` : 'no leader yet'}`);
-    const why = [];
-    if (r.rows.join('|') !== want.join('|')) why.push(`rows ${r.rows.join(', ') || 'none'}, not by bb/100: ${want.join(', ')}`);
-    if (r.ridges.join('|') !== want.join('|')) why.push(`${r.ridges.length} ridges, not one per row in order`);
-    if (!/bb\/100/.test(r.caption)) why.push(`caption without bb/100: "${r.caption.replace(/\s+/g, ' ').slice(0, 80)}"`);
-    if (/chips/i.test(r.all)) why.push('says chips');
-    if (leader && !(r.caption.includes(leader.name) && r.caption.includes(`${fmt(leader.bb100)} bb/100`))) why.push(`caption does not name ${leader.name} at ${fmt(leader.bb100)} bb/100`);
-    if (why.length) bad.push(`${label}: ${why.join('; ')}`);
-  }
-  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  let stats = null;
+  p.on('response', r => { const u = new URL(r.url()); if (u.pathname === '/api/stats' && !u.search && r.ok()) r.json().then(j => { stats = j; }, () => {}); });
+  await p.goto(`${BASE}/about`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await aboutReady(p);
+  await p.waitForFunction(() => document.querySelector('[data-race-row]'), { timeout: 60000, polling: 250 }).catch(() => {});
+  await sleep(800);
+  const r = await p.evaluate(() => {
+    const fig = document.querySelector('[data-about] figure');
+    return fig && {
+      rows: [...fig.querySelectorAll('[data-race-row]')].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map(e => e.dataset.raceRow),
+      ridges: [...fig.querySelectorAll('svg [data-model]')].map(e => e.dataset.model),
+      caption: fig.querySelector('figcaption')?.innerText ?? '', all: fig.textContent + (fig.querySelector('svg')?.getAttribute('aria-label') ?? ''),
+    };
+  });
+  await p.close();
+  if (!r) return { pass: false, detail: 'no race figure' };
+  if (!stats) return { pass: false, detail: 'never saw the page load /api/stats' };
+  // The app's rule: the lineup when at least two of it have stats (seatedModels), with hands, 500+ first, then by bb/100.
+  const at = stats.seated ? stats.models.filter(m => stats.seated.includes(m.name)) : [];
+  const field = (at.length >= 2 ? at : stats.models).filter(m => m.hands > 0).sort((a, b) => (b.hands >= 500) - (a.hands >= 500) || b.bb100 - a.bb100);
+  const want = field.map(m => m.name), leader = field[0]?.hands >= 500 ? field[0] : null;
+  const why = [];
+  if (r.rows.join('|') !== want.join('|')) why.push(`rows ${r.rows.join(', ') || 'none'}, not by bb/100: ${want.join(', ')}`);
+  if (r.ridges.join('|') !== want.join('|')) why.push(`${r.ridges.length} ridges, not one per row in order`);
+  if (!/bb\/100/.test(r.caption)) why.push(`caption without bb/100: "${r.caption.replace(/\s+/g, ' ').slice(0, 80)}"`);
+  if (/chips/i.test(r.all)) why.push('says chips');
+  if (leader && !(r.caption.includes(leader.name) && r.caption.includes(`${fmt(leader.bb100)} bb/100`))) why.push(`caption does not name ${leader.name} at ${fmt(leader.bb100)} bb/100`);
+  return { pass: !why.length, detail: why.length ? why.join('; ') : `${r.rows.length} rows in bb/100 order; ${leader ? `${leader.name} ${fmt(leader.bb100)} bb/100` : 'no leader yet'}` };
 }));
 // Owner, 2026-11-09: what's next shows the dataset with a waitlist under it: a labelled email input (type email, required) and a
 // "Join the waitlist" button that is not filled (the Sponsor button stays the only filled one), then how many have joined ("N on
@@ -2351,7 +2320,7 @@ group(() => check('about-waitlist', 'About\'s dataset waitlist: a labelled email
       if (req.method() === 'POST') { posts.push(req.postData()); return req.respond({ status: 201, headers, contentType: 'application/json', body: JSON.stringify({ count: count + 1 }) }); }
       req.respond({ status: 200, headers, contentType: 'application/json', body: JSON.stringify({ count }) });
     });
-    await p.goto(`${BASE}/about?about=${ABOUT_DEFAULT}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.goto(`${BASE}/about`, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await aboutReady(p);
     return { p, posts };
   };
@@ -2395,15 +2364,14 @@ group(() => check('about-waitlist', 'About\'s dataset waitlist: a labelled email
   await p.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
-// Owner, 2026-11-09: what's next starts with "the same disabled Play button as the home page", nothing written under it. Every
-// draft's button is the home page's, markup and all (one shared PlaySoonButton).
-group(() => check('about-play-soon', 'About\'s disabled Play button (every draft) is the home page\'s: same text, classes and markup, disabled', async () => {
-  const bad = [], seen = [];
+// Owner, 2026-11-09: what's next starts with "the same disabled Play button as the home page", nothing written under it.
+// About's button is the home page's, markup and all (one shared PlaySoonButton).
+group(() => check('about-play-soon', 'About\'s disabled Play button is the home page\'s: same text, classes and markup, disabled', async () => {
+  const bad = [];
   const read = async (path, scope) => {
     const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
     await p.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await aboutReady(p);
-    if (scope) await p.waitForFunction(d => document.querySelector(`[data-about-draft="${d}"]`), { timeout: 10000, polling: 100 }, path.slice(-1)).catch(() => {});
     const r = await p.evaluate(scope => {
       const b = [...document.querySelectorAll(`${scope} button`)].find(b => b.textContent.includes('Play vs. LLMs'));
       return b && { html: b.outerHTML, text: b.textContent.trim(), cls: b.className, disabled: b.disabled };
@@ -2414,34 +2382,26 @@ group(() => check('about-play-soon', 'About\'s disabled Play button (every draft
   const home = await read('/', '');
   if (!home) return { pass: false, detail: 'no Play button on the home page' };
   if (!home.disabled) bad.push('the home page\'s Play button is not disabled');
-  for (const [draft, label] of ABOUT_DRAFTS) {
-    const r = await read(`/about?about=${draft}`, '[data-about-draft]');
-    if (!r) { bad.push(`${label}: no Play button`); continue; }
-    if (r.text !== home.text) bad.push(`${label}: says "${r.text}", not "${home.text}"`);
-    if (r.cls !== home.cls) bad.push(`${label}: classes "${r.cls}", not "${home.cls}"`);
-    if (r.html !== home.html) bad.push(`${label}: markup differs from the home page's`);
-    if (!r.disabled) bad.push(`${label}: not disabled`);
-    seen.push(`${label}: "${r.text}" as on the home page`);
-  }
-  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+  const r = await read('/about', '[data-about]');
+  if (!r) return { pass: false, detail: [...bad, 'About: no Play button'].join('; ') };
+  if (r.text !== home.text) bad.push(`About: says "${r.text}", not "${home.text}"`);
+  if (r.cls !== home.cls) bad.push(`About: classes "${r.cls}", not "${home.cls}"`);
+  if (r.html !== home.html) bad.push('About: markup differs from the home page\'s');
+  if (!r.disabled) bad.push('About: not disabled');
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `About: "${r.text}" as on the home page` };
 }));
 // Owner, 2026-11-09, of the race art: he dislikes the grey "mountain" under the lines. Each ridge's fill is the page's own colour
 // (var(--page), no model tint), so only the coloured lines show and the shape melts into the background.
-group(() => check('about-race-fill', 'Every ridge area in About\'s race (every draft) is filled with var(--page), untinted', async () => {
-  const bad = [], seen = [];
-  for (const [draft, label] of ABOUT_DRAFTS) {
-    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
-    await p.goto(`${BASE}/about?about=${draft}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    await aboutReady(p);
-    await p.waitForFunction(() => document.querySelector('[data-about-draft] figure svg [data-model]'), { timeout: 60000, polling: 250 }).catch(() => {});
-    const fills = await p.evaluate(() => [...document.querySelectorAll('[data-about-draft] figure svg [data-model]')].map(g => [g.dataset.model, g.querySelector('path')?.style.fill ?? '']));
-    await p.close();
-    if (!fills.length) { bad.push(`${label}: no ridges`); continue; }
-    const off = fills.filter(([, f]) => f !== 'var(--page)');
-    if (off.length) bad.push(`${label}: ${off.map(([m, f]) => `${m} filled ${f || 'none'}`).join(', ')}`);
-    seen.push(`${label}: ${fills.length} ridges on var(--page)`);
-  }
-  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+group(() => check('about-race-fill', 'Every ridge area in About\'s race is filled with var(--page), untinted', async () => {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  await p.goto(`${BASE}/about`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await aboutReady(p);
+  await p.waitForFunction(() => document.querySelector('[data-about] figure svg [data-model]'), { timeout: 60000, polling: 250 }).catch(() => {});
+  const fills = await p.evaluate(() => [...document.querySelectorAll('[data-about] figure svg [data-model]')].map(g => [g.dataset.model, g.querySelector('path')?.style.fill ?? '']));
+  await p.close();
+  if (!fills.length) return { pass: false, detail: 'no ridges' };
+  const off = fills.filter(([, f]) => f !== 'var(--page)');
+  return { pass: !off.length, detail: off.length ? off.map(([m, f]) => `${m} filled ${f || 'none'}`).join(', ') : `${fills.length} ridges on var(--page)` };
 }));
 // Opens a card from the overview the way a visitor does (a click on its tile), and waits for the glide.
 const median = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return Math.round(b[b.length >> 1]); };
