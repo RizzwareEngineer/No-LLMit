@@ -32,6 +32,12 @@ running the mock provider, with its prompts alongside.
   `--- retry ---`, and `retry_prompt` is the follow-up. If the retry is also bad, the
   fallback is `CHECK` when checking is legal and `FOLD` otherwise. Provider failures are
   retried within the turn's time budget without counting as a model retry.
+- A hand in which no call succeeded (no action `ok`, at least one `timeout`, `api_error` or
+  `service_error`) is an outage, not a hand: it is voided and never saved, every stack and
+  the button go back to where they were before the blinds, and the table waits 5 minutes
+  (showing "The models can't be reached") before dealing again. Hand numbers skip it.
+  Hands saved before 2026-11-09 can still be such hands; they were moved to
+  `hands_voided` (see below).
 - `model` and `upstream_provider` on an action are what OpenRouter reported serving that
   call; `reasoning_tokens` is its count of thinking tokens. All three are absent on records
   from before the Python-owned prompts, as is the per-action `prompt_version`.
@@ -53,3 +59,8 @@ A hand that still fails after 5 attempts is appended to `unsaved.jsonl` in `HAND
 (default `data/`), and that file is replayed at startup and after every successful save.
 The engine also reads one row from `hands` every 6 hours so a free Supabase project is
 never paused for inactivity.
+
+`hands_voided` and `decision_prompts_voided` (same columns as `hands` and `decision_prompts`)
+hold the 71 hands saved between 2026-11-04 and 2026-11-09 in which every call failed at the
+provider: outages, not poker. Stats and the dataset read `hands` only. To restore one, insert
+its rows back into `hands` and `decision_prompts`.

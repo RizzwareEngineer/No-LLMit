@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -400,7 +401,7 @@ func TestLoadSupabaseHandsWithSmallRowCap(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	hands, err := loadSupabaseHands(srv.URL, "k")
+	hands, err := loadSupabaseHands(srv.URL, "k", time.Time{})
 	if err != nil || len(hands) != total || hands[total-1].HandID != "h1200" {
 		t.Fatalf("%d hands, %v", len(hands), err)
 	}
@@ -552,3 +553,51 @@ func TestPotStatsEdgeCases(t *testing.T) {
 }
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
+
+// After the first load, only hands newer than the newest one held are fetched, and they are added.
+func TestStatsPollsOnlyNewHands(t *testing.T) {
+	hands := statsHands(t)
+	var mu sync.Mutex
+	loads, since := 0, []time.Time{}
+	c := newTestCache(func() ([]history.HandRecord, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		loads++
+		return hands[:3:3], nil
+	})
+	c.loadSince = func(s time.Time) ([]history.HandRecord, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		since = append(since, s)
+		return []history.HandRecord{hands[2], hands[3]}, nil // the newest held comes back too
+	}
+	c.pollEvery = 20 * time.Millisecond
+	c.seated = []string{"A", "B"}
+	go c.run()
+	waitFor(t, "4 hands", func() bool { _, s := c.get("/api/stats"); return s.Scope.Hands == 4 })
+	time.Sleep(60 * time.Millisecond) // more polls: nothing new, nothing added twice
+	mu.Lock()
+	defer mu.Unlock()
+	if _, s := c.get("/api/stats"); s.Scope.Hands != 4 || loads != 1 {
+		t.Errorf("%d hands after %d full loads, want 4 after 1", s.Scope.Hands, loads)
+	}
+	if len(since) < 2 || !since[0].Equal(hands[2].StartedAt) || !since[len(since)-1].Equal(hands[3].StartedAt) {
+		t.Errorf("polled since %v, want %v first and %v once it was held", since, hands[2].StartedAt, hands[3].StartedAt)
+	}
+}
+
+func TestSupabaseHandsSince(t *testing.T) {
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		w.Write([]byte("[]"))
+	}))
+	defer srv.Close()
+	since := time.Date(2026, 11, 9, 20, 56, 46, 280093000, time.FixedZone("EST", -5*3600))
+	if _, err := loadSupabaseHands(srv.URL, "k", since); err != nil {
+		t.Fatal(err)
+	}
+	if len(queries) != 1 || !strings.Contains(queries[0], "started_at=gte.2026-11-10T01%3A56%3A46.280093Z") {
+		t.Errorf("queries %v", queries)
+	}
+}

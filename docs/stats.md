@@ -5,8 +5,10 @@
 session; for now a session is one table id. The code is `engine/stats`; to check a file of
 hands offline, run `go run ./cmd/stats -in data/hands.jsonl` from `engine/`.
 
-The engine loads every saved hand at startup and again every 5 minutes, and adds each hand
-as soon as it is saved, so the numbers are never more than one hand behind. Until the first
+The engine loads every saved hand once at startup and adds each hand as soon as it is saved,
+so the numbers are never more than one hand behind. Every 5 minutes it also asks Supabase for
+hands newer than the newest one it holds (another writer's, such as an overlapping deploy),
+never the whole table again. Until the first
 load succeeds the endpoint answers 503 (a failed load is retried every 15 seconds). Both
 stats endpoints send gzip to clients that accept it: the demo's 191 KB of stats are 36 KB.
 
