@@ -7,7 +7,7 @@ import { motion, useInView, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { RATE_FROM, series } from '@/components/CumulativeChart';
 import { CARD, CARD_SHADOW, Segmented, TITLE } from '@/components/Section';
-import { MIN_HANDS, MUTED, ModelStats, TEXT, netColor, seatedModels, signed, useStats } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, seatedModels, signed, useStats } from '@/lib/stats';
 import { EXAMPLE_REPLY, EXAMPLE_USER_PROMPT, SYSTEM_PROMPT } from '@/lib/systemPrompt';
 import { joinWaitlist, waitlistCount } from '@/lib/waitlist';
 
@@ -342,14 +342,32 @@ function ridges(field: ModelStats[]) {
 
 // The race: live art from the stats, drawn in from the left once they arrive, and a caption naming the leader in bb/100
 // among the LLMs with MIN_HANDS or more. `art` sizes the drawing (its height); the logos sit in a gutter at its right.
+// Hovering a line (a wide invisible hit area over it) or its logo, tapping either, or focusing the logo shows that LLM in a
+// tooltip by the pointer; its line comes to the front and the others dim (about-race-hover).
 export function Race({ art, className = '' }: { art: string; className?: string }) {
   const { ref, field, failed } = useField();
   const reduce = useReducedMotion();
   const rows = useMemo(() => ridges(field), [field]);
   const leader = field[0]?.hands >= MIN_HANDS ? field[0] : undefined;
+  const box = useRef<HTMLDivElement>(null);
+  const [tip, setTip] = useState<{ name: string; x: number; y: number; f: number } | null>(null);
+  const hot = rows.find(r => r.m.name === tip?.name);
+  const show = (name: string, cx: number, cy: number) => {
+    const b = box.current?.getBoundingClientRect();
+    if (b) setTip({ name, x: cx - b.left, y: cy - b.top, f: Math.min(1, Math.max(0, (cx - b.left) / b.width)) }); // f: how far across
+  };
+  const atLogo = (name: string, el: Element) => { const r = el.getBoundingClientRect(); show(name, r.left + r.width / 2, r.top + r.height / 2); };
+  const hide = (e: React.PointerEvent) => { if (e.pointerType !== 'touch') setTip(null); }; // a tap's pointerleave follows its pointerup
+  // A tapped tooltip stays until a tap elsewhere.
+  useEffect(() => {
+    if (!tip) return;
+    const off = (e: PointerEvent) => { if (!(e.target as Element).closest?.('[data-race-hit], [data-race-row]')) setTip(null); };
+    document.addEventListener('pointerdown', off);
+    return () => document.removeEventListener('pointerdown', off);
+  }, [tip]);
   return (
     <figure ref={ref} className={`flex flex-col gap-2.5 min-w-0 ${className}`}>
-      <div className={`relative ${art}`}>
+      <div ref={box} className={`relative ${art}`}>
         <svg
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
@@ -363,12 +381,30 @@ export function Race({ art, className = '' }: { art: string; className?: string 
                 <motion.rect x={0} y={0} height={H} initial={{ width: reduce ? W : 0 }} animate={{ width: W }} transition={{ duration: 1.6, ease: [0.22, 1, 0.36, 1] }} />
               </clipPath>
               <g clipPath="url(#about-race-reveal)">
+                <g pointerEvents="none">
+                  {rows.map(r => (
+                    <g key={r.m.name} data-model={r.m.name}>
+                      <path d={r.area} style={{ fill: 'var(--page)' }} />
+                      <path d={r.line} fill="none" stroke={r.color} strokeWidth={r.m === leader ? 2 : 1.25} strokeLinejoin="round" vectorEffect="non-scaling-stroke" style={{ opacity: hot && hot !== r ? 0.5 : 1, transition: 'opacity 150ms' }} />
+                    </g>
+                  ))}
+                  {/* The hovered line, whole, over every ridge. */}
+                  {hot && <path d={hot.line} fill="none" stroke={hot.color} strokeWidth={2} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
+                </g>
                 {rows.map(r => (
-                  <g key={r.m.name} data-model={r.m.name}>
-                    <title>{`${r.m.name}: ${signed(r.m.bb100, 0)} bb/100 over ${r.m.hands.toLocaleString()} hands`}</title>
-                    <path d={r.area} style={{ fill: 'var(--page)' }} />
-                    <path d={r.line} fill="none" stroke={r.color} strokeWidth={r.m === leader ? 2 : 1.25} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                  </g>
+                  <path
+                    key={r.m.name}
+                    data-race-hit={r.m.name}
+                    d={r.line}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={16}
+                    vectorEffect="non-scaling-stroke"
+                    pointerEvents="stroke"
+                    onPointerMove={e => show(r.m.name, e.clientX, e.clientY)}
+                    onPointerDown={e => show(r.m.name, e.clientX, e.clientY)}
+                    onPointerLeave={hide}
+                  />
                 ))}
               </g>
             </>
@@ -376,19 +412,41 @@ export function Race({ art, className = '' }: { art: string; className?: string 
         </svg>
         {/* Each row's logo where its ridge ends, top to bottom in rank order (about-bb100). */}
         {rows.map((r, i) => (
-          <motion.div
+          <motion.button
             key={r.m.name}
+            type="button"
             data-race-row={r.m.name}
-            title={`${r.m.name}: ${signed(r.m.bb100, 0)} bb/100 over ${r.m.hands.toLocaleString()} hands`}
+            aria-label={`${r.m.name}: ${chips(Math.round(r.m.bb100))} bb/100 over ${r.m.hands.toLocaleString()} hands`}
             initial={{ opacity: reduce ? 1 : 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: reduce ? 0 : 0.6 + i * 0.05, duration: 0.3 }}
-            className="absolute right-0 -translate-y-1/2"
+            className="absolute right-0 -translate-y-1/2 rounded"
             style={{ top: `${r.y * 100}%` }}
+            onPointerEnter={e => atLogo(r.m.name, e.currentTarget)}
+            onPointerDown={e => atLogo(r.m.name, e.currentTarget)}
+            onPointerLeave={hide}
+            onFocus={e => atLogo(r.m.name, e.currentTarget)}
+            onBlur={() => setTip(null)}
           >
             <LLMLogo model={r.m.name} size={20} />
-          </motion.div>
+          </motion.button>
         ))}
+        {/* Floats over the art (no layout shift): above the pointer, or below it near the top; slid along so it stays inside. */}
+        {hot && tip && (
+          <div
+            role="tooltip"
+            data-race-tip
+            className="absolute z-10 pointer-events-none rounded bg-white px-2.5 py-2 text-[13px] leading-snug tabular-nums whitespace-nowrap"
+            style={{
+              left: tip.x, top: tip.y < 64 ? tip.y + 16 : tip.y - 16,
+              transform: `translate(${-tip.f * 100}%, ${tip.y < 64 ? '0' : '-100%'})`,
+              color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px',
+            }}
+          >
+            <div className="flex items-center gap-1.5"><LLMLogo model={hot.m.name} size={16} /><b translate="no">{hot.m.name}</b></div>
+            <div><b style={{ color: netColor(hot.m.bb100) }}>{chips(Math.round(hot.m.bb100))}</b> bb/100 over {hot.m.hands.toLocaleString()} hands</div>
+          </div>
+        )}
       </div>
       <figcaption className="flex flex-col gap-1">
         <Label>{failed ? 'The race isn’t available right now.' : 'Running bb/100 of each LLM at the table, best on top.'}</Label>
