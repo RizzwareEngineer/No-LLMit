@@ -1,32 +1,33 @@
 'use client';
 
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { GLIDE } from '@/components/Section';
+import { GLIDE, NONE } from '@/components/Section';
 import LLMLogo from '@/components/LLMLogo';
 import { DASH, MIN_HANDS, MIN_PAIR_HANDS, MUTED, ModelStats, TEXT, bb100Among, bb100Of, chips, modelHref, netColor, plural, signed, signedBrief, useChanges } from '@/lib/stats';
 
-// A cell's bb/100 at the grid's one font size: +12.3 (+1.2k past a thousand, as Profiles) where it fits,
-// else rounded to a whole, else none (the tint and the tooltip carry it). Never scaled, never clipped.
-// Screen readers get the full figure.
+// A cell's bb/100 at the grid's one font size, in full (+1234.5: a pair with few hands together reaches four
+// digits) where it fits, else rounded to a whole, else shortened (+1.2k, a phone's narrow cells), else none (the
+// tint and the tooltip carry it). Never clipped. Screen readers get the full figure.
 // Its width in em, tabular figures (calibrated in the browser: a figure or sign 0.62em, a comma or point 0.29, k 0.53).
 const ems = (t: string) => [...t].reduce((w, c) => w + (c === ',' || c === '.' ? 0.29 : c === 'k' ? 0.53 : 0.62), 0);
 export function fitFigure(n: number, room: number, px: number) {
-  return [signedBrief(n), signed(n, 0)].find(t => ems(t) * px <= room) ?? '';
+  return [signed(n), signed(n, 0), signedBrief(n)].find(t => ems(t) * px <= room) ?? '';
 }
-const Fit = memo(function Fit({ n, room, px }: { n: number; room: number; px: number }) {
-  return <span aria-hidden>{fitFigure(n, room, px)}</span>;
+// On the tile↔card glide the figure travels with the matrix and grows from the tile's size to the card's (motion
+// layout, measured only when `at` changes), never shrinking first.
+const Fit = memo(function Fit({ n, room, px, at, move }: { n: number; room: number; px: number; at: boolean; move: typeof GLIDE | typeof NONE }) {
+  return <motion.span aria-hidden layout layoutDependency={at} transition={move} className="inline-block">{fitFigure(n, room, px)}</motion.span>;
 });
 
 // A changed cell flashes toward its new tint (a stronger shade of it fading to it, 400ms) as its figure
-// changes; it never moves or scales. `delay` staggers the cells that changed together into a quiet ripple.
-// A Total (no tint of its own) flashes in its figure's colour.
+// changes; it never moves or scales. A Total (no tint of its own) flashes in its figure's colour.
 const playing = new WeakMap<Element, Animation>(); // not el.getAnimations(), which forces a style recalc per cell
-function flash(el: HTMLElement, delay: number) {
+function flash(el: HTMLElement) {
   playing.get(el)?.cancel(); // a newer change replaces one still playing
   const to = el.style.backgroundColor;
   const from = to ? to.replace(/[\d.]+\)$/, a => `${Math.min(1, parseFloat(a) + 0.25).toFixed(3)})`) : `rgba(${el.style.color.match(/\d+/g)!.slice(0, 3).join(', ')}, 0.18)`;
-  playing.set(el, el.animate([{ backgroundColor: from }, { backgroundColor: to || 'rgba(0, 0, 0, 0)' }], { duration: 400, delay, easing: 'ease-out' }));
+  playing.set(el, el.animate([{ backgroundColor: from }, { backgroundColor: to || 'rgba(0, 0, 0, 0)' }], { duration: 400, easing: 'ease-out' }));
 }
 
 // The grid's names column and its row of column logos, on the tile (StatsSections sizes the tile with them).
@@ -55,6 +56,7 @@ export default memo(function HeadToHead({
   bigBlind = 0,
   zoomed = false,
   mini = false,
+  snap = false,
   hand = null,
   fitTo,
   leader,
@@ -64,6 +66,7 @@ export default memo(function HeadToHead({
   bigBlind?: number; // the big blind, for bb/100
   zoomed?: boolean; // the Pairwise screen: larger type
   mini?: boolean; // the overview tile: the same grid, no links or readout (the tile opens the screen)
+  snap?: boolean; // switch between tile and card without gliding (the stage is hidden under the card)
   hand?: number | null; // the hand History is replaying, when `models` are as of then (null: now)
   fitTo?: number; // the card's matrix box holds this many models (the seated lineup); more keep that cell size and scroll
   leader?: string | null; // the Leader line's model: its row, and the opponent it did best against, are marked
@@ -87,14 +90,12 @@ export default memo(function HeadToHead({
     for (const col of sorted) if (col !== row) shown[`${row.name}|${col.name}`] = Math.round((cellOf(row, col.name).bb ?? 0) * 10) / 10;
     shown[`${row.name}|`] = Math.round(among.get(row.name)!.bb100 * 10) / 10;
   }
-  // The cells whose figure changed (a hand History replays, or a new hand) play once each, rippling.
+  // The cells whose figure changed (a hand History replays, or a new hand) flash once each, all together, in the
+  // frame their figures change (a layout effect: before that frame is painted).
   const { deltas, seq } = useChanges(shown);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!deltas.size || !outer.current) return;
-    const cells = new Map([...outer.current.querySelectorAll<HTMLElement>('[data-cell]')].map(el => [el.dataset.cell!, el]));
-    const gap = Math.min(20, 240 / deltas.size); // a big change (Skip) still ripples within a quarter second
-    let i = 0;
-    for (const k of deltas.keys()) { const el = cells.get(k); if (el) flash(el, i++ * gap); }
+    for (const el of outer.current.querySelectorAll<HTMLElement>('[data-cell]')) if (deltas.has(el.dataset.cell!)) flash(el);
   }, [seq, deltas]);
   // A cell's width, for the figures that fit it (layout size: a glide's transform does not change it).
   const square = useRef<HTMLDivElement>(null);
@@ -181,6 +182,9 @@ export default memo(function HeadToHead({
   const rowH = { height: `calc((${Mh} - ${n + 2}px) / ${n})` }; // a matrix row: a cell inside the 1px spacing (n + 2 of them down, with the logos' row)
   const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
   const pin = mini ? '' : 'sticky bg-white'; // the card scrolls a grid bigger than its box: headers pinned
+  // Tile↔card: the matrix grows as one piece; the names, logos and figures inside it travel with it at their own
+  // size (motion layout corrects them for the matrix's scale), like Profiles' cells; the Total column fades in.
+  const move = snap ? NONE : GLIDE;
   return (
     <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : 'w-max'}`}>{/* w-max: as wide as the grid, so the pinned names can follow a sideways scroll */}
       {/* On the tile, a size container: the matrix takes what its names leave. No scroller of its own. */}
@@ -192,11 +196,11 @@ export default memo(function HeadToHead({
           {/* Model names as in Profiles (14px bold); the Leader on the highlight. */}
           {sorted.map(row => (
             <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold ${mini ? '' : 'hover:underline'}`}>
-              <span translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{row.name}</span>
+              <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{row.name}</motion.span>
             </a>
           ))}
         </div>
-        <motion.div ref={square} layout layoutDependency={mini} transition={GLIDE} className="shrink-0" style={{ width: Mw, height: `calc(${Mh} + ${strip}px)` }}>
+        <motion.div ref={square} layout layoutDependency={mini} transition={move} className="shrink-0" style={{ width: Mw, height: `calc(${Mh} + ${strip}px)` }}>
           <table className="w-full h-full table-fixed border-separate border-spacing-px">
             <caption className="sr-only">Matchups: big blinds each row model won from each column model per 100 hands they were dealt in together, in bb/100 rank order</caption>
             {/* A zero-width first column holds each row's header for screen readers (the names column shows it). */}
@@ -207,7 +211,7 @@ export default memo(function HeadToHead({
                 {/* Opaque when pinned (the highlight over white, a white 1px ring over the cell spacing): scrolled cells never show through. */}
                 {sorted.map(m => (
                   <th key={m.name} scope="col" className={`p-0 font-medium rounded-sm ${pin && `${pin} top-0 z-[1]`}`} title={m.name} style={{ background: m.name === from?.col ? `linear-gradient(${HOT}, ${HOT}) white` : undefined, boxShadow: pin ? '0 0 0 1px white' : undefined }}>
-                    <span className="flex justify-center"><LLMLogo model={m.name} size={zoomed ? 24 : 16} /></span>
+                    <motion.span layout layoutDependency={mini} transition={move} className="flex justify-center"><LLMLogo model={m.name} size={zoomed ? 24 : 16} /></motion.span>
                     <span className="sr-only">{m.name}</span>
                   </th>
                 ))}
@@ -237,7 +241,7 @@ export default memo(function HeadToHead({
                         style={{ color: TEXT, background: tint(bb), opacity: hands < MIN_PAIR_HANDS ? FAINT : undefined, outline: tip?.row === row.name && tip.col === col.name ? `2px solid ${TEXT}` : undefined }}
                         onMouseEnter={mini ? undefined : e => show(e, row.name, col.name)}
                       >
-                        <Fit n={bb} room={room} px={px} />
+                        <Fit n={bb} room={room} px={px} at={mini} move={move} />
                         <span className="sr-only">{signed(bb)} bb/100 vs {col.name} over {plural(hands, 'hand')} together{v!.pots ? `, ${plural(v!.pots, 'pot')}` : ''}</span>
                       </td>
                     );
@@ -249,7 +253,7 @@ export default memo(function HeadToHead({
         </motion.div>
         {/* The row's bb/100 against the models shown, bold in its colour. The card only. */}
         {/* Pinned at the right from md; a phone's card is too narrow to give it a lane of its own (scroll to it, as before). */}
-        {!mini && <div className="shrink-0 flex flex-col font-bold md:sticky md:right-0 md:bg-white z-[2]" style={{ width: totals }}>
+        {!mini && <motion.div layout="position" layoutDependency={mini} transition={move} className="add-in shrink-0 flex flex-col font-bold md:sticky md:right-0 md:bg-white z-[2]" style={{ width: totals }}>
           {/* A column header: 13px muted, like Profiles'. */}
           <span style={{ height: strip, color: MUTED }} className={`shrink-0 flex items-end pl-2 text-[13px] leading-none font-medium ${pin} top-0`} title={TOTAL_TITLE}>Total</span>
           {sorted.map(row => {
@@ -264,7 +268,7 @@ export default memo(function HeadToHead({
               </div>
             );
           })}
-        </div>}
+        </motion.div>}
       </div>
       {/* The hovered cell's readout floats over the grid, clamped inside it. One sentence per line. */}
       {tip && tipCell && (

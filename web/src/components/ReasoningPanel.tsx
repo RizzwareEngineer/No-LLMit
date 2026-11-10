@@ -21,12 +21,14 @@ interface ReasoningPanelProps {
   displayState: DisplayState | null;
   shotClockRemaining: number;
   isPaused?: boolean;
+  blank?: boolean; // no table state yet: the bar at its size with nothing in it
 }
 
 export default function ReasoningPanel({
   displayState,
   shotClockRemaining,
   isPaused = false,
+  blank = false,
 }: ReasoningPanelProps) {
   const bb = useBigBlind(); // the action's amount follows the Chips/BB switch; the model's own words stay as written
 
@@ -57,7 +59,7 @@ export default function ReasoningPanel({
 
   return (
     <div 
-      className="relative bg-white h-[100px] rounded overflow-hidden"
+      className={`relative bg-white h-[100px] rounded overflow-hidden ${blank ? '[&>*]:invisible' : ''}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
       <CornerBorders />

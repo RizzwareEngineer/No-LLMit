@@ -4,6 +4,7 @@ import { useRef, useSyncExternalStore } from 'react';
 import { AnimatePresence, motion, useInView } from 'motion/react';
 import NumberFlow, { type Format } from '@number-flow/react';
 import { MUTED, TEXT } from '@/lib/stats';
+import { useRememberedBox } from '@/lib/boxes';
 
 // Document y of every snap screen, top to bottom. Screens carry no transforms, so the
 // bounding box is their layout position.
@@ -127,7 +128,7 @@ export function scrollsInside(el: Element | null, dir: number) {
 // The glide between a tile and its screen's card: ease-out, half a second.
 export const GLIDE_MS = 500;
 export const GLIDE = { duration: GLIDE_MS / 1000, ease: [0.22, 1, 0.36, 1] } as const;
-const NONE = { duration: 0 } as const;
+export const NONE = { duration: 0 } as const;
 // What a card adds to its tile (and the header extras) fades in just after the glide starts, and out quickly.
 const OUT = { duration: 0.12, ease: 'easeOut' } as const;
 const IN = { duration: 0.3, delay: 0.08, ease: 'easeOut' } as const;
@@ -137,7 +138,8 @@ const IN = { duration: 0.3, delay: 0.08, ease: 'easeOut' } as const;
 // `focused`: the tile stands in its screen card's place; motion's layout animation turns that jump
 // into a glide (transforms only, nothing under reduced motion). `fit` sets that place: a height in px
 // or 'content', centred in the stage at the stage's width, or 'hug' (its content's width and height,
-// centred); without it the tile fills the stage.
+// centred); without it the tile fills the stage. `blank`: its data is still loading: the tile stands in blank at its
+// place and size (a phone's, as tall as it last was with its data).
 // `covered`: another tile is focused, and this one slides off the screen by `away` (back in when it
 // is not). `lifted`: the tile focused last, on top while it glides back. `snap`: change without
 // animating (the stage is hidden under a card). The body never cross-fades: the caller keeps the
@@ -154,6 +156,7 @@ export default function Panel({
   lifted = false,
   snap = false,
   fit,
+  blank = false,
   onOpen,
   className = '',
   children,
@@ -168,6 +171,7 @@ export default function Panel({
   lifted?: boolean;
   snap?: boolean;
   fit?: number | 'content' | 'hug';
+  blank?: boolean;
   onOpen: () => void;
   className?: string;
   children: React.ReactNode;
@@ -182,11 +186,15 @@ export default function Panel({
   // also move as the ones above them fill in, and a glide started then would leave the content inside, which
   // measures only when it changes, in its place from before.
   const place = `${focused}|${covered}|${fit}`;
+  const [cell, size, attrs] = useRememberedBox<HTMLDivElement>(id, !blank);
   // The slide lives on a wrapper (the grid cell), the glide on the section: motion drops an x/y
   // that changes in the same render as a layout snap. Untransformed, the wrapper is no containing
   // block, so a focused section still fills the whole grid.
   return (
     <motion.div
+      ref={cell}
+      {...attrs}
+      style={size}
       // A projection node, so the layout children inside (table rows, the matrix) measure through the
       // slide instead of chasing it when they re-render mid-slide.
       layout
@@ -202,6 +210,8 @@ export default function Panel({
       layoutDependency={place}
       initial={false}
       transition={move}
+      // The glide to the card's place has landed: StatsSections hands over to the card now.
+      onLayoutAnimationComplete={focused ? () => window.dispatchEvent(new CustomEvent('glideend', { detail: id })) : undefined}
       id={id}
       aria-labelledby={`${id}-title`}
       inert={covered}
@@ -210,7 +220,7 @@ export default function Panel({
         if (!(e.target as Element).closest('a, button, select, input, label')) open(e);
       } : undefined}
       onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && open(e) : undefined}
-      className={`${CARD} overflow-hidden ${!focused ? 'relative flex-1' : fit === undefined ? 'absolute inset-0' : fit === 'hug' ? `absolute ${HUG}` : `absolute inset-x-0 inset-y-0 my-auto max-h-full ${fit === 'content' ? 'h-fit' : ''}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''}`}
+      className={`${CARD} overflow-hidden ${!focused ? 'relative flex-1' : fit === undefined ? 'absolute inset-0' : fit === 'hug' ? `absolute ${HUG}` : `absolute inset-x-0 inset-y-0 my-auto max-h-full ${fit === 'content' ? 'h-fit' : ''}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''} ${blank ? '[&>*]:invisible' : ''}`}
       style={{ boxShadow: CARD_SHADOW, height: focused && typeof fit === 'number' ? fit : undefined }}
     >
       <motion.div layout="position" layoutDependency={place} transition={move} className={HEADER}>
