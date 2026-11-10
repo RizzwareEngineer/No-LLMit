@@ -56,6 +56,8 @@ const COVERS = [
   [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],
   [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges)/],
   [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|page-edges|main-scroll|no-stats-hash|scroll-consistency)/],
+  [/components\/StickyBar\.tsx|lib\/amounts\./, /^(sticky-|table-bb-toggle)/],
+  [/(^|\/)AGENTS\.md$/, /(?!)/], // the file next dev writes: no check covers it
 ];
 function changedChecks() { // a Set of ids, or null for every check
   const git = c => execSync(c, { cwd: new URL('../..', import.meta.url), encoding: 'utf8' }).split('\n').filter(Boolean);
