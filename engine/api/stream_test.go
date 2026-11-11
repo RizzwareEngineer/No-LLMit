@@ -1,0 +1,266 @@
+package api
+
+import (
+	"bufio"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/rizzwareengineer/no-LLMit/engine/client"
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
+)
+
+func handStartMsg(n int) ServerMessage {
+	return ServerMessage{Type: MsgHandStart, Payload: map[string]int{"handNumber": n}}
+}
+
+// A publish that lands between a writer's read and its wait still wakes it.
+func TestPublishBetweenReadAndWaitWakes(t *testing.T) {
+	h := newHub()
+	v := h.since(0, true)
+	h.publish("tbl_a", &tableSnap{}, nil, handStartMsg(1))
+	select {
+	case <-v.wake:
+	case <-time.After(time.Second):
+		t.Fatal("writer not woken")
+	}
+	if next := h.since(v.seq, false); next.snap || len(next.frames) != 1 {
+		t.Errorf("after the wake: snapshot %v, %d frames", next.snap, len(next.frames))
+	}
+}
+
+// A writer 50 behind is still served from the ring; 51 behind gets a snapshot.
+func TestWriterBehindGetsEventsThenSnapshot(t *testing.T) {
+	h := newHub()
+	for i := range 60 {
+		h.publish("tbl_a", &tableSnap{}, nil, handStartMsg(i))
+	}
+	for _, c := range []struct {
+		behind uint64
+		snap   bool
+	}{{49, false}, {50, false}, {51, true}} {
+		v := h.since(60-c.behind, false)
+		if v.snap != c.snap || (!c.snap && len(v.frames) != int(c.behind)) || v.seq != 60 {
+			t.Errorf("%d behind: snapshot %v, %d frames, seq %d", c.behind, v.snap, len(v.frames), v.seq)
+		}
+		if !c.snap && !strings.HasPrefix(string(v.frames[0]), `data: {"seq":`+itoa(61-c.behind)+`,`) {
+			t.Errorf("%d behind: first frame %s", c.behind, v.frames[0])
+		}
+	}
+}
+
+func itoa(n uint64) string { b, _ := json.Marshal(n); return string(b) }
+
+type wireMsg struct {
+	Seq     uint64          `json:"seq"`
+	Table   string          `json:"table"`
+	Type    MessageType     `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+func parseFrames(t *testing.T, b []byte) []wireMsg {
+	t.Helper()
+	var out []wireMsg
+	for _, f := range strings.Split(strings.TrimSuffix(string(b), "\n\n"), "\n\n") {
+		var m wireMsg
+		if !strings.HasPrefix(f, "data: ") || json.Unmarshal([]byte(f[len("data: "):]), &m) != nil {
+			t.Fatalf("bad frame %q", f)
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// Events from two tables keep one order, and the snapshot holds both tables.
+func TestTwoTablesShareOneOrder(t *testing.T) {
+	h := newHub()
+	h.publish("tbl_a", &tableSnap{State: GameStatePayload{HandNumber: 1}}, nil, handStartMsg(1))
+	h.publish("tbl_b", &tableSnap{State: GameStatePayload{HandNumber: 7}}, nil, handStartMsg(7), handStartMsg(8))
+	h.publish("tbl_a", &tableSnap{State: GameStatePayload{HandNumber: 2}}, nil, handStartMsg(2))
+
+	var got []string
+	for _, f := range h.since(0, false).frames {
+		m := parseFrames(t, f)[0]
+		got = append(got, itoa(m.Seq)+m.Table)
+	}
+	if strings.Join(got, ",") != "1tbl_a,2tbl_b,3tbl_b,4tbl_a" {
+		t.Errorf("frames %v", got)
+	}
+
+	b, err := h.since(0, true).snapshotFrames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap struct{ Tables map[string]tableSnap }
+	json.Unmarshal(parseFrames(t, b)[0].Payload, &snap)
+	if len(snap.Tables) != 2 || snap.Tables["tbl_a"].State.HandNumber != 2 || snap.Tables["tbl_b"].State.HandNumber != 7 {
+		t.Errorf("snapshot tables %+v", snap.Tables)
+	}
+}
+
+// A snapshot taken after the notice is cleared and the turn has ended carries both as null.
+func TestSnapshotCarriesClearedNoticeAndTurnAsNull(t *testing.T) {
+	tbl := testTable(t)
+	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{PlayerIdx: 1, PlayerName: "B"}}
+	tbl.turn = &thinking
+	tbl.setNotice(TableNoticePayload{Kind: "saving", Message: "paused"})
+	tbl.publish(thinking)
+	b, _ := tbl.hub.since(0, true).snapshotFrames()
+	if s := string(b); !strings.Contains(s, `"notice":{"kind":"saving"`) || !strings.Contains(s, `"turn":{"type":"llm_thinking"`) {
+		t.Fatalf("live snapshot %s", s)
+	}
+
+	tbl.setNotice(TableNoticePayload{})
+	tbl.turn = nil // as after hand_start (TestSnapshotKeepsTheAppliedActionUntilTheNextHand)
+	tbl.publish(tbl.stateMessage())
+	b, _ = tbl.hub.since(0, true).snapshotFrames()
+	s := string(b)
+	for _, want := range []string{`"notice":null`, `"turn":null`, `"buttonCards":[]`, `"buttonWinner":null`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("snapshot lacks %s: %s", want, s)
+		}
+	}
+}
+
+// The stream answers with the SSE headers, a snapshot and the full stats, then live events;
+// at the cap it answers 503.
+func TestStreamServesSnapshotStatsAndEvents(t *testing.T) {
+	h := newHub()
+	h.publish("", nil, []byte(`{"models":[]}`), ServerMessage{Type: MsgStats, Payload: map[string]any{}})
+	srv := httptest.NewServer(http.HandlerFunc(h.handleStream))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "text/event-stream" || resp.Header.Get("Cache-Control") != "no-store" || resp.ContentLength != -1 {
+		t.Fatalf("%d %v", resp.StatusCode, resp.Header)
+	}
+	r := bufio.NewReader(resp.Body)
+	next := func() wireMsg {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.ReadString('\n')
+		return parseFrames(t, []byte(line+"\n"))[0]
+	}
+	if m := next(); m.Type != MsgSnapshot || string(m.Payload) != `{"tables":{}}` || m.Seq != 1 {
+		t.Errorf("first %+v", m)
+	}
+	if m := next(); m.Type != MsgStats || string(m.Payload) != `{"models":[]}` || m.Seq != 1 {
+		t.Errorf("second %+v", m)
+	}
+	h.publish("tbl_a", &tableSnap{}, nil, handStartMsg(3))
+	if m := next(); m.Type != MsgHandStart || m.Table != "tbl_a" || m.Seq != 2 {
+		t.Errorf("live %+v", m)
+	}
+	if n := h.open.Load(); n != 1 {
+		t.Errorf("open streams %d", n)
+	}
+
+	h.open.Store(maxStreams)
+	full, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full.Body.Close()
+	if full.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("at the cap: %d", full.StatusCode)
+	}
+}
+
+// Stats go out once per recompute that added a hand, with only the rows that changed.
+func TestStatsEventCarriesChangedRows(t *testing.T) {
+	hands := statsHands(t)
+	c := newTestCache(nil)
+	c.hub = newHub()
+	for _, h := range hands[:4] {
+		c.add(h)
+	}
+	c.recompute(true)
+	c.recompute(false) // nothing added: nothing published
+	c.add(hands[4])
+	c.recompute(false)
+
+	frames := c.hub.since(0, false).frames
+	if len(frames) != 2 {
+		t.Fatalf("%d stats events, want 2", len(frames))
+	}
+	var first, second statsChange
+	json.Unmarshal(parseFrames(t, frames[0])[0].Payload, &first)
+	json.Unmarshal(parseFrames(t, frames[1])[0].Payload, &second)
+	if len(first.Changed) != len(first.ModelNames) || len(first.ModelNames) == 0 {
+		t.Errorf("first event: %d changed of %v", len(first.Changed), first.ModelNames)
+	}
+	played := map[string]bool{}
+	for _, a := range hands[4].Actions {
+		played[a.Player] = true
+	}
+	for _, row := range second.Changed {
+		var m struct{ Name string }
+		json.Unmarshal(row, &m)
+		if !played[m.Name] && !seatedIn(hands[4], m.Name) {
+			t.Errorf("%s changed but was not in the new hand", m.Name)
+		}
+	}
+	if len(second.Changed) == 0 {
+		t.Error("the new hand changed no row")
+	}
+	c.hub.mu.RLock()
+	full := string(c.hub.statsFull)
+	c.hub.mu.RUnlock()
+	c.mu.Lock()
+	want := string(c.all.json)
+	c.mu.Unlock()
+	if full != want {
+		t.Error("the stream's full stats differ from GET /api/stats")
+	}
+}
+
+func seatedIn(h history.HandRecord, name string) bool {
+	for _, p := range h.Seats {
+		if p.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// After an action is applied the snapshot still carries it, marked applied, so a viewer who
+// reconnects then keeps the revealed reasoning; the next hand_start ends it.
+func TestSnapshotKeepsTheAppliedActionUntilTheNextHand(t *testing.T) {
+	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
+	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) {
+		r := reply("FOLD", 0)
+		return &r, nil
+	}
+	tbl := testTable(t)
+	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+	snap := func() *tableSnap { return tbl.hub.since(0, true).tables[tbl.id] }
+
+	seat := tbl.gs.CurrentPlayerIdx
+	tbl.playTurn()
+	s := snap()
+	if s.Turn == nil || s.Turn.Type != MsgLLMAction || !s.TurnApplied {
+		t.Fatalf("after the action: turn %+v, applied %v", s.Turn, s.TurnApplied)
+	}
+	if p := s.Turn.Payload.(LLMActionPayload); p.PlayerIdx != seat || p.Action != "FOLD" || p.Reason != "because" {
+		t.Errorf("turn payload %+v", p)
+	}
+	if s.State.Players[seat].Status != "folded" {
+		t.Errorf("the state does not show the fold: %+v", s.State.Players[seat])
+	}
+
+	if _, err := tbl.dealHand(); err != nil {
+		t.Fatal(err)
+	}
+	if s := snap(); s.Turn != nil || s.TurnApplied {
+		t.Errorf("after hand_start: turn %+v, applied %v", s.Turn, s.TurnApplied)
+	}
+}

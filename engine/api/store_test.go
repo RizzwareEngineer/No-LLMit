@@ -1,26 +1,27 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/rizzwareengineer/no-LLMit/engine/game"
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
-// fakeSaver records saved hand IDs and fails while down is set.
+// fakeSaver records saved hand IDs and fails the first fails attempts.
 type fakeSaver struct {
-	down  bool
+	fails int
+	tries int
 	saved []string
 }
 
 func (f *fakeSaver) save(h savedHand) error {
-	if f.down {
+	if f.tries++; f.tries <= f.fails {
 		return errors.New("database unavailable")
 	}
 	f.saved = append(f.saved, h.Record.HandID+"|"+h.SystemPrompt)
@@ -29,59 +30,58 @@ func (f *fakeSaver) save(h savedHand) error {
 
 func (f *fakeSaver) describe() string { return "fake" }
 
-func hand(id string) savedHand {
-	return savedHand{Record: history.HandRecord{HandID: id}, SystemPrompt: "sys-" + id}
+// testTable is a table that publishes to its own hub and has a hand on.
+func testTable(t *testing.T) *Table {
+	gs := game.NewGame(game.GameConfig{PlayerNames: []string{"A", "B", "C"}, StartingStack: 1000, Stakes: game.Stakes{SmallBlind: 5, BigBlind: 10}})
+	if err := gs.StartHand(); err != nil {
+		t.Fatal(err)
+	}
+	return &Table{id: "tbl_test", hub: newHub(), gs: gs}
 }
 
-func TestFailedSaveSpillsAndReplays(t *testing.T) {
-	saver := &fakeSaver{down: true}
+// noticeKinds lists the table_notice kinds in the hub's recent frames, in order.
+func noticeKinds(h *hub) []string {
+	var kinds []string
+	for _, f := range h.since(0, false).frames {
+		var m struct {
+			Type    MessageType
+			Payload TableNoticePayload
+		}
+		json.Unmarshal(f[len("data: "):], &m)
+		if m.Type == MsgTableNotice {
+			kinds = append(kinds, m.Payload.Kind)
+		}
+	}
+	return kinds
+}
+
+// A failing save pauses the table behind the "saving" notice; the success that follows
+// clears it, and the hand is counted once.
+func TestFailingSavePausesUntilItSucceeds(t *testing.T) {
+	tbl := testTable(t)
+	saver := &fakeSaver{fails: 3}
 	var notified []string
-	s := &HandStore{saver: saver, spillPath: filepath.Join(t.TempDir(), "unsaved.jsonl"), retryWait: time.Millisecond,
-		onSaved: func(h history.HandRecord) { notified = append(notified, h.HandID) }}
+	tbl.saver, tbl.saveWait = saver, time.Millisecond
+	tbl.onSaved = func(h history.HandRecord) { notified = append(notified, h.HandID) }
 
-	s.saveWithRetry(hand("h1"))
-	s.saveWithRetry(hand("h2"))
-	data, err := os.ReadFile(s.spillPath)
-	if err != nil || strings.Count(string(data), "\n") != 2 {
-		t.Fatalf("both hands should be spilled: %q %v", data, err)
+	tbl.saveWithRetry(savedHand{Record: history.HandRecord{HandID: "h1"}, SystemPrompt: "sys"})
+	if saver.tries != 4 || strings.Join(saver.saved, ",") != "h1|sys" {
+		t.Errorf("%d tries, saved %v", saver.tries, saver.saved)
+	}
+	if strings.Join(notified, ",") != "h1" {
+		t.Errorf("onSaved saw %v", notified)
+	}
+	if got := strings.Join(noticeKinds(tbl.hub), ","); got != "saving," {
+		t.Errorf("notices %q, want saving then cleared", got)
+	}
+	if tbl.notice.Kind != "" {
+		t.Errorf("notice left as %q", tbl.notice.Kind)
 	}
 
-	// Still down at startup: nothing is lost.
-	s.replaySpill()
-	if data2, _ := os.ReadFile(s.spillPath); string(data2) != string(data) {
-		t.Fatalf("spill file changed while the database was down: %q", data2)
-	}
-
-	// The next successful save replays the spill, in order, with its system prompt.
-	saver.down = false
-	s.saveWithRetry(hand("h3"))
-	want := "h3|sys-h3,h1|sys-h1,h2|sys-h2"
-	if got := strings.Join(saver.saved, ","); got != want {
-		t.Errorf("saved %s, want %s", got, want)
-	}
-	if got := strings.Join(notified, ","); got != "h3,h1,h2" {
-		t.Errorf("onSaved should see each hand once it is saved, got %s", got)
-	}
-	if _, err := os.Stat(s.spillPath); !os.IsNotExist(err) {
-		t.Errorf("spill file should be removed once replayed: %v", err)
-	}
-}
-
-func TestReplayKeepsUnreadableLines(t *testing.T) {
-	saver := &fakeSaver{}
-	s := &HandStore{saver: saver, spillPath: filepath.Join(t.TempDir(), "unsaved.jsonl"), retryWait: time.Millisecond}
-	s.spill(hand("h1"))
-	f, _ := os.OpenFile(s.spillPath, os.O_APPEND|os.O_WRONLY, 0o644)
-	f.WriteString("{not json\n")
-	f.Close()
-	s.spill(hand("h2"))
-
-	s.replaySpill()
-	if got := strings.Join(saver.saved, ","); got != "h1|sys-h1,h2|sys-h2" {
-		t.Errorf("saved %s", got)
-	}
-	if data, _ := os.ReadFile(s.spillPath); string(data) != "{not json\n" {
-		t.Errorf("only the unreadable line should be kept, got %q", data)
+	// A save that works at once shows no notice.
+	tbl.saveWithRetry(savedHand{Record: history.HandRecord{HandID: "h2"}})
+	if got := strings.Join(noticeKinds(tbl.hub), ","); got != "saving," || len(notified) != 2 {
+		t.Errorf("notices %q, onSaved %v", got, notified)
 	}
 }
 

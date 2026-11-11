@@ -1,11 +1,9 @@
 // Saves finished hands. With SUPABASE_URL and SUPABASE_SERVICE_KEY set, hands go to the
-// Supabase database; otherwise they are appended to local files for development. Saving
-// runs in the background so a slow or unavailable database never holds up the table. A
-// hand that cannot be saved is spilled to data/unsaved.jsonl and saved again later.
+// Supabase database; otherwise they are appended to local files for development. The table
+// waits for each save, retrying until it succeeds, so a hand is counted only once it is kept.
 package api
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -15,16 +13,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 type savedHand struct {
-	Record       history.HandRecord `json:"hand"`
-	Prompts      []HandPrompt       `json:"prompts"`
-	SystemPrompt string             `json:"system_prompt,omitempty"` // only written to the spill file
+	Record       history.HandRecord
+	Prompts      []HandPrompt
+	SystemPrompt string
 }
 
 type handSaver interface {
@@ -32,154 +29,54 @@ type handSaver interface {
 	describe() string
 }
 
-// HandStore queues hands and saves them one at a time, retrying on failure. A hand that
-// still fails is appended to the spill file, which is replayed at startup and after every
-// successful save.
-type HandStore struct {
-	saver     handSaver
-	queue     chan savedHand
-	spillPath string
-	spillMu   sync.Mutex
-	retryWait time.Duration // first wait between attempts; doubles each time
-	onSaved   func(history.HandRecord)
-}
+const (
+	firstSaveWait = 2 * time.Second
+	maxSaveWait   = 60 * time.Second
+)
 
-// onSaved, if set, is called with each hand once it is saved.
-func NewHandStore(onSaved func(history.HandRecord)) *HandStore {
-	dir := os.Getenv("HAND_LOG_DIR")
-	if dir == "" {
-		dir = "data"
-	}
+func newSaver() handSaver {
 	var saver handSaver
 	if url, key := os.Getenv("SUPABASE_URL"), os.Getenv("SUPABASE_SERVICE_KEY"); url != "" && key != "" {
 		sb := &supabaseSaver{url: strings.TrimRight(url, "/"), key: key, http: &http.Client{Timeout: 15 * time.Second}}
 		go sb.keepAlive()
 		saver = sb
 	} else {
+		dir := os.Getenv("HAND_LOG_DIR")
+		if dir == "" {
+			dir = "data"
+		}
 		saver = &fileSaver{dir: dir}
 	}
 	log.Printf("Saving hands to %s", saver.describe())
-
-	s := &HandStore{
-		saver:     saver,
-		queue:     make(chan savedHand, 256),
-		spillPath: filepath.Join(dir, "unsaved.jsonl"),
-		retryWait: 2 * time.Second,
-		onSaved:   onSaved,
-	}
-	go s.run()
-	return s
+	return saver
 }
 
-// Save queues a hand. If the queue is full the hand is spilled to disk instead, so a long
-// database outage cannot stall play or grow memory without bound.
-func (s *HandStore) Save(h savedHand) {
-	select {
-	case s.queue <- h:
-	default:
-		log.Printf("!!! Save queue is full")
-		s.spill(h)
-	}
-}
-
-func (s *HandStore) run() {
-	s.replaySpill()
-	for h := range s.queue {
-		s.saveWithRetry(h)
-	}
-}
-
-// saveWithRetry tries a hand up to 5 times. On success it also replays any spilled hands;
-// on failure it spills this one.
-func (s *HandStore) saveWithRetry(h savedHand) {
-	var err error
-	for attempt, wait := 1, s.retryWait; attempt <= 5; attempt, wait = attempt+1, wait*2 {
-		if err = s.saver.save(h); err == nil {
-			s.saved(h)
-			s.replaySpill()
-			return
+// saveWithRetry saves a finished hand, retrying until it succeeds, and the table waits
+// meanwhile. After the first failure viewers see the "saving" notice until it succeeds.
+func (t *Table) saveWithRetry(h savedHand) {
+	failed := false
+	for wait := t.saveWait; ; wait = min(wait*2, maxSaveWait) {
+		err := t.saver.save(h)
+		if err == nil {
+			break
 		}
-		log.Printf("Saving hand %s failed (attempt %d): %v", h.Record.HandID, attempt, err)
+		log.Printf("!!! Saving hand %s failed, table paused, retrying in %s: %v", h.Record.HandID, wait, err)
+		if !failed {
+			failed = true
+			t.mu.Lock()
+			t.setNotice(TableNoticePayload{Kind: "saving", Message: "The table is paused until the last hand is saved."})
+			t.mu.Unlock()
+		}
 		time.Sleep(wait)
 	}
-	log.Printf("!!! Hand %s not saved after 5 attempts", h.Record.HandID)
-	s.spill(h)
-}
-
-func (s *HandStore) saved(h savedHand) {
-	if s.onSaved != nil {
-		s.onSaved(h.Record)
+	if failed {
+		log.Printf("Hand %s saved, table resumed", h.Record.HandID)
+		t.mu.Lock()
+		t.setNotice(TableNoticePayload{})
+		t.mu.Unlock()
 	}
-}
-
-// spill appends a hand to the spill file. Losing it here is the only way a hand is lost.
-func (s *HandStore) spill(h savedHand) {
-	s.spillMu.Lock()
-	defer s.spillMu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(s.spillPath), 0o755); err != nil {
-		log.Printf("!!! Hand %s lost: %v", h.Record.HandID, err)
-		return
-	}
-	if err := appendJSONLine(s.spillPath, h); err != nil {
-		log.Printf("!!! Hand %s lost: %v", h.Record.HandID, err)
-		return
-	}
-	log.Printf("Hand %s spilled to %s", h.Record.HandID, s.spillPath)
-}
-
-// replaySpill saves the spilled hands in order. It stops at the first failure and keeps
-// that hand and every later one in the file; lines it cannot read are kept as they are.
-func (s *HandStore) replaySpill() {
-	s.spillMu.Lock()
-	defer s.spillMu.Unlock()
-	data, err := os.ReadFile(s.spillPath)
-	if err != nil || len(data) == 0 {
-		return
-	}
-
-	var keep [][]byte
-	saved, failed := 0, false
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	scanner.Buffer(nil, len(data)+1)
-	for scanner.Scan() {
-		line := append([]byte(nil), scanner.Bytes()...)
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
-		}
-		var h savedHand
-		if failed {
-			keep = append(keep, line)
-		} else if err := json.Unmarshal(line, &h); err != nil {
-			log.Printf("!!! Unreadable line in %s kept: %v", s.spillPath, err)
-			keep = append(keep, line)
-		} else if err := s.saver.save(h); err != nil {
-			log.Printf("Replaying spilled hand %s failed: %v", h.Record.HandID, err)
-			keep = append(keep, line)
-			failed = true
-		} else {
-			s.saved(h)
-			saved++
-		}
-	}
-	if saved == 0 {
-		return
-	}
-	log.Printf("Saved %d spilled hand(s), %d left in %s", saved, len(keep), s.spillPath)
-
-	if len(keep) == 0 {
-		if err := os.Remove(s.spillPath); err != nil {
-			log.Printf("Could not remove %s: %v", s.spillPath, err)
-		}
-		return
-	}
-	// Write the rest to a temporary file and rename it, so a crash never leaves a half-written spill file.
-	tmp := s.spillPath + ".tmp"
-	if err := os.WriteFile(tmp, append(bytes.Join(keep, []byte("\n")), '\n'), 0o644); err != nil {
-		log.Printf("Could not rewrite %s: %v", s.spillPath, err)
-		return
-	}
-	if err := os.Rename(tmp, s.spillPath); err != nil {
-		log.Printf("Could not rewrite %s: %v", s.spillPath, err)
+	if t.onSaved != nil {
+		t.onSaved(h.Record)
 	}
 }
 

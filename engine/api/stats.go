@@ -2,8 +2,10 @@
 // are loaded from Supabase, or from HAND_LOG_DIR/hands.jsonl when Supabase is not
 // configured, once on start; each hand this engine saves is added as it lands, and every 5
 // minutes only hands newer than the newest one held are fetched from Supabase (another
-// writer's: an overlapping deploy, a spill replayed elsewhere), never the whole table again. The JSON for the whole table and for each session, and its gzip, is precomputed,
-// so a request only copies bytes.
+// writer's: an overlapping deploy), never the whole table again. The JSON for the whole
+// table and for each session, and its gzip, is precomputed, so a request only copies bytes.
+// The all-time stats also go out on the stream (stream.go): the full body to each joiner,
+// and the rows that changed after each recompute that added a hand.
 package api
 
 import (
@@ -44,12 +46,16 @@ type statsCache struct {
 	hands     []history.HandRecord // in the order played
 	seen      map[string]bool
 	changed   map[string]bool // sessions with hands added since the last recompute
+	added     bool            // a hand was added since the last recompute
 	all       payload         // /api/stats
 	bySession map[string]payload
 	timeline  payload // /api/stats/timeline
 	tlSession map[string]payload
 
-	live string // the live session last encoded; only run touches it
+	live    string            // the live session last encoded; only run touches it
+	warming bool              // all-ins were left after the last recompute; only run touches it
+	rows    map[string][]byte // each model's row as last published; only run touches it
+	hub     *hub              // nil: publish nothing (tests)
 
 	seated    []string  // the table's lineup; set before run starts, never changed after
 	tableID   string    // the table this engine is playing: the live session, even before its first hand
@@ -154,7 +160,7 @@ func (c *statsCache) Add(h history.HandRecord) {
 	}
 }
 
-// add inserts a hand in play order; hands replayed from the spill file can arrive late.
+// add inserts a hand in play order; another writer's hands can arrive late.
 func (c *statsCache) add(h history.HandRecord) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -162,6 +168,7 @@ func (c *statsCache) add(h history.HandRecord) {
 		return
 	}
 	c.seen[h.HandID] = true
+	c.added = true
 	c.changed[stats.SessionID(h)] = true
 	i := sort.Search(len(c.hands), func(i int) bool { return c.hands[i].StartedAt.After(h.StartedAt) })
 	c.hands = append(c.hands, history.HandRecord{})
@@ -174,7 +181,7 @@ func (c *statsCache) replace(loaded []history.HandRecord) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	old := c.hands
-	c.hands, c.seen = nil, map[string]bool{}
+	c.hands, c.seen, c.added = nil, map[string]bool{}, true
 	for _, src := range [][]history.HandRecord{loaded, old} {
 		for _, h := range src {
 			if !c.seen[h.HandID] {
@@ -205,8 +212,8 @@ func trimHand(h history.HandRecord) history.HandRecord {
 func (c *statsCache) recompute(full bool) (more bool) {
 	c.mu.Lock()
 	hands := append([]history.HandRecord(nil), c.hands...) // add may shift c.hands while we work
-	changed := c.changed
-	c.changed = map[string]bool{}
+	changed, added := c.changed, c.added
+	c.changed, c.added = map[string]bool{}, false
 	c.mu.Unlock()
 
 	warmed, remaining := stats.WarmAIEV(hands, aievPerPass)
@@ -222,7 +229,7 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	}
 
 	now := time.Now().UTC()
-	encode := func(hs []history.HandRecord, current bool) [2]payload {
+	encode := func(hs []history.HandRecord, current bool) (stats.Stats, [2]payload) {
 		s, tl := stats.ComputeWithTimeline(hs)
 		s.GeneratedAt, tl.GeneratedAt = now, now
 		if current {
@@ -237,7 +244,7 @@ func (c *statsCache) recompute(full bool) (more bool) {
 		if current && live != "" && !found { // no hand saved yet this run
 			s.Sessions = append(s.Sessions, stats.Session{ID: live, StartedAt: c.tableFrom})
 		}
-		return [2]payload{newPayload(s), newPayload(tl)}
+		return s, [2]payload{newPayload(s), newPayload(tl)}
 	}
 	sessions := map[string][]history.HandRecord{}
 	for _, h := range hands {
@@ -250,9 +257,9 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	}
 	updated := map[string][2]payload{}
 	for id, hs := range sessions {
-		updated[id] = encode(hs, id == live)
+		_, updated[id] = encode(hs, id == live)
 	}
-	all := encode(hands, true)
+	allStats, all := encode(hands, true)
 
 	c.mu.Lock()
 	if full || c.bySession == nil {
@@ -263,7 +270,50 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	}
 	c.all, c.timeline = all[0], all[1]
 	c.mu.Unlock()
+
+	warmedUp := c.warming && remaining == 0
+	c.warming = remaining > 0
+	if c.hub != nil && all[0].json != nil && (added || warmedUp) {
+		c.hub.publish("", nil, all[0].json, ServerMessage{Type: MsgStats, Payload: c.changedRows(allStats)})
+	}
 	return remaining > 0
+}
+
+// statsChange is the stream's stats event: the all-time envelope, every model name in
+// order, and the rows that differ from the ones last published.
+type statsChange struct {
+	GeneratedAt    time.Time         `json:"generated_at"`
+	Scope          stats.Scope       `json:"scope"`
+	Sessions       []stats.Session   `json:"sessions"`
+	Seated         []string          `json:"seated,omitempty"`
+	DefinitionsURL string            `json:"definitions_url"`
+	Partial        bool              `json:"partial"`
+	ModelNames     []string          `json:"model_names"`
+	Changed        []json.RawMessage `json:"changed"`
+}
+
+// changedRows builds the stats event for s and remembers its rows as published. Only run calls it.
+func (c *statsCache) changedRows(s stats.Stats) statsChange {
+	ev := statsChange{
+		GeneratedAt: s.GeneratedAt, Scope: s.Scope, Sessions: s.Sessions, Seated: s.Seated,
+		DefinitionsURL: s.DefinitionsURL, Partial: s.Partial,
+		ModelNames: []string{}, Changed: []json.RawMessage{},
+	}
+	rows := make(map[string][]byte, len(s.Models))
+	for _, m := range s.Models {
+		b, err := json.Marshal(m)
+		if err != nil {
+			log.Printf("!!! Stats: %v", err)
+			continue
+		}
+		rows[m.Name] = b
+		ev.ModelNames = append(ev.ModelNames, m.Name)
+		if !bytes.Equal(c.rows[m.Name], b) {
+			ev.Changed = append(ev.Changed, b)
+		}
+	}
+	c.rows = rows
+	return ev
 }
 
 func (c *statsCache) handle(w http.ResponseWriter, r *http.Request) { c.serve(w, r, false) }

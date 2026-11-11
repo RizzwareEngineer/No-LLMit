@@ -1,4 +1,4 @@
-// Entry point. Starts the WebSocket server (api/server.go) on port 8080.
+// Entry point. Starts the HTTP server (api/server.go) on port 8080.
 package main
 
 import (
@@ -23,7 +23,7 @@ func main() {
 	log.Println("=================================")
 	log.Printf("Starting server on port %d...", port)
 	log.Println("")
-	log.Println("WebSocket endpoint: ws://localhost:" + strconv.Itoa(port) + "/ws")
+	log.Println("Stream endpoint: http://localhost:" + strconv.Itoa(port) + "/stream")
 	log.Println("Health check: http://localhost:" + strconv.Itoa(port) + "/health")
 	log.Println("")
 
