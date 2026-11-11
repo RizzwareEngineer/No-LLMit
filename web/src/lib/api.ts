@@ -1,14 +1,16 @@
-// WebSocket API client for No-LLMit
+// Game stream client for No-LLMit: Server-Sent Events from the engine (docs/stream.md)
 
-export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws';
+// The deploy setting is still the engine's old WebSocket address, so no Vercel setting changes.
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws';
 
-// The engine's HTTP address, derived from its WebSocket address
+// The engine's HTTP address
 export const API_URL = WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, '');
+const STREAM_URL = `${API_URL}/stream`;
 
-export type MessageType = 
-  | 'get_state'
+export type MessageType =
+  | 'snapshot'
+  | 'stats'
   | 'game_state'
-  | 'error'
   | 'hand_start'
   | 'street_change'
   | 'hand_complete'
@@ -18,12 +20,10 @@ export type MessageType =
   | 'button_winner'
   | 'table_notice';
 
-export interface ClientMessage {
-  type: MessageType;
-  payload?: unknown;
-}
-
+// One SSE frame from the engine (docs/stream.md). snapshot and stats carry no table.
 export interface ServerMessage {
+  seq: number;
+  table?: string;
   type: MessageType;
   payload?: unknown;
 }
@@ -96,87 +96,48 @@ export interface HandCompletePayload {
 
 // Why the shared table is stopped. An empty kind means it is running again.
 export interface TableNoticePayload {
-  kind: 'closed' | 'cap' | '';
+  kind: 'closed' | 'cap' | 'outage' | 'saving' | '';
   message: string;
   reopensAt?: string; // RFC3339
 }
 
 export type ConnectionStatus = 'open' | 'reconnecting' | 'gave_up';
 
-export interface ErrorPayload {
-  message: string;
-}
-
-// WebSocket wrapper class
-export class PokerWebSocket {
-  private ws: WebSocket | null = null;
-  private messageHandlers: Map<MessageType, ((payload: unknown) => void)[]> = new Map();
+// The stream, reopened by this class on every error: EventSource never retries after a non-200
+// answer (a 502 from the edge while the engine restarts), so its own retry is not relied on.
+export class GameStream {
+  private es: EventSource | null = null;
+  private messageHandlers: Map<MessageType, ((message: ServerMessage) => void)[]> = new Map();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 2000;
-  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   onStatus?: (status: ConnectionStatus) => void;
 
-  constructor(private url: string = WS_URL) {}
-
+  // Resolves on the first open, rejects on the first error; later ones go to the reconnect loop.
   connect(): Promise<void> {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      return Promise.resolve();
-    }
-    if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
-      return new Promise((resolve, reject) => {
-        const checkInterval = setInterval(() => {
-          if (this.ws?.readyState === WebSocket.OPEN) {
-            clearInterval(checkInterval);
-            resolve();
-          } else if (this.ws?.readyState === WebSocket.CLOSED) {
-            clearInterval(checkInterval);
-            reject(new Error('Connection closed during connect'));
-          }
-        }, 100);
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          reject(new Error('Connection timeout'));
-        }, 5000);
-      });
-    }
+    this.es?.close();
+    const es = (this.es = new EventSource(STREAM_URL));
     return new Promise((resolve, reject) => {
-      try {
-        this.ws = new WebSocket(this.url);
-
-        this.ws.onopen = () => {
-          console.log('WebSocket connected');
-          this.reconnectAttempts = 0;
-          this.onStatus?.('open');
-          resolve();
-        };
-
-        this.ws.onclose = (event) => {
-          if (event.code === 1000 || event.code === 1001) {
-            // Normal closure - don't reconnect
-            console.log('WebSocket closed normally:', event.code, event.reason);
-          } else {
-            console.log('WebSocket closed:', event.code, event.reason);
-            this.handleReconnect();
-          }
-        };
-
-        this.ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          reject(error);
-        };
-
-        this.ws.onmessage = (event) => {
-          try {
-            const message: ServerMessage = JSON.parse(event.data);
-            this.handleMessage(message);
-          } catch (e) {
-            console.error('Failed to parse message:', e);
-          }
-        };
-      } catch (error) {
-        reject(error);
-      }
+      es.onopen = () => {
+        this.reconnectAttempts = 0;
+        this.onStatus?.('open');
+        resolve();
+      };
+      es.onerror = () => {
+        es.close();
+        reject(new Error('stream error'));
+        if (this.es !== es) return; // replaced or disconnected
+        this.es = null;
+        this.handleReconnect();
+      };
+      es.onmessage = (event) => {
+        try {
+          this.handleMessage(JSON.parse(event.data) as ServerMessage);
+        } catch (e) {
+          console.error('Failed to parse message:', e);
+        }
+      };
     });
   }
 
@@ -184,20 +145,20 @@ export class PokerWebSocket {
     if (this.reconnectTimeout) {
       return;
     }
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      console.log(`Reconnecting... attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
-      this.reconnectTimeout = setTimeout(() => {
-        this.reconnectTimeout = null;
-        this.connect().catch(err => {
-          console.error('Reconnection failed:', err);
-        });
-      }, this.reconnectDelay * this.reconnectAttempts);
-    } else {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnection attempts reached');
       this.onStatus?.('gave_up');
       return;
     }
+    this.reconnectAttempts++;
+    // The first reopen is spread over 1 s so a burst of viewers (the server ends every stream within 14 min) does not land at once.
+    const delay = this.reconnectAttempts === 1
+      ? Math.random() * 1000
+      : this.reconnectDelay * this.reconnectAttempts * (0.5 + Math.random());
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      this.connect().catch(() => {}); // an error schedules the next attempt
+    }, delay);
     this.onStatus?.('reconnecting');
   }
 
@@ -209,24 +170,24 @@ export class PokerWebSocket {
     }
     this.reconnectAttempts = 0;
     this.onStatus?.('reconnecting');
-    this.connect().catch(() => {}); // a failed attempt closes the socket, which schedules the next one
+    this.connect().catch(() => {}); // an error schedules the next attempt
   }
 
   private handleMessage(message: ServerMessage) {
     const handlers = this.messageHandlers.get(message.type);
     if (handlers) {
-      handlers.forEach(handler => handler(message.payload));
+      handlers.forEach(handler => handler(message));
     }
   }
 
-  on(type: MessageType, handler: (payload: unknown) => void) {
+  on(type: MessageType, handler: (message: ServerMessage) => void) {
     if (!this.messageHandlers.has(type)) {
       this.messageHandlers.set(type, []);
     }
     this.messageHandlers.get(type)!.push(handler);
   }
 
-  off(type: MessageType, handler: (payload: unknown) => void) {
+  off(type: MessageType, handler: (message: ServerMessage) => void) {
     const handlers = this.messageHandlers.get(type);
     if (handlers) {
       const index = handlers.indexOf(handler);
@@ -236,32 +197,13 @@ export class PokerWebSocket {
     }
   }
 
-  send(message: ClientMessage) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
-    } else {
-      console.error('WebSocket not connected');
-    }
-  }
-
-  getState() {
-    this.send({ type: 'get_state' });
-  }
-
   disconnect() {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
-    if (this.ws) {
-      this.ws.close(1000, 'Client disconnect');
-      this.ws = null;
-    }
+    this.es?.close();
+    this.es = null;
     this.reconnectAttempts = 0;
   }
-
-  isConnected(): boolean {
-    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
-  }
 }
-
