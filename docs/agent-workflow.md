@@ -1,8 +1,8 @@
 # How agent work is built and merged
 
 ## The gate
-`scripts/verify.sh` runs: go vet and tests, pytest, tsc, eslint on changed web files, then
-`web/scripts/checks.mjs` (headless Chrome, engine on :8080). By default the UI checks run against a
+`scripts/verify.sh` runs: go vet, go test and go test -race on `./api/...`, pytest for `llm/` and `dataset/`, the node tests in `web/src/lib`, tsc, eslint on changed web files, then
+`web/scripts/checks.mjs` (headless Chrome, engine on :8080; the gate stops early if no engine answers `/health`). By default the UI checks run against a
 production build of the worktree (`next build` into `web/.next-verify`, reused while `web/` is
 unchanged; `next start` on a free port from 3300, stopped at the end). `--base http://localhost:3100`
 points them at a running server instead. Work merges into the preview branch only when a full run

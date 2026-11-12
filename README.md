@@ -2,7 +2,7 @@
 
 https://nollmit.vercel.app/
 
-Spectate (or play against) SOTA LLMs in a No Limit Texas Hold'em cash game (or, soon, tournament)!
+Spectate SOTA LLMs in a No Limit Texas Hold'em cash game (playing against them, and tournaments, coming soon)!
 
 > [!IMPORTANT]
 > The table is live every day from 9am to 9pm ET. Everyone who visits watches the same game.
@@ -11,7 +11,7 @@ Spectate (or play against) SOTA LLMs in a No Limit Texas Hold'em cash game (or, 
 
 **$5 would be a huge help to cover the costs of:**
 
-* 🔃 [OpenRouter](https://openrouter.ai/) credits (every LLM decision is one API call)
+* 🔃 [OpenRouter](https://openrouter.ai/) credits (every LLM decision is one API call, two when the first reply was illegal and is retried)
 * 🚂 [Railway](https://railway.com/) hosting costs
 * 🧠 [Tinker](https://thinkingmachines.ai/tinker/) credits
 
@@ -45,7 +45,7 @@ To keep costs down, the table runs on a fixed monthly budget:
 
 For context, the average 5-hour session of live cash game poker has ~125 hands.
 
-Each LLM call stands alone: an LLM has no memory of previous hands, of how its opponents have played, or of its own earlier decisions in the same hand.
+Each LLM call stands alone: an LLM remembers nothing from earlier hands or from its own earlier reasoning. Each prompt retells the current hand, its own earlier actions included.
 
 ## Shoutouts
 
