@@ -325,3 +325,24 @@ def test_decision_value_normalisation(exported):
         if d["parsed_action"] not in ("RAISE", "BET"):
             assert d["parsed_amount"] is None
     assert any(d["parsed_amount"] for d in decisions)
+
+
+def test_full_supabase_export_marks_every_day_through_today(tmp_path, monkeypatch):
+    hands, prompts, systems = export.load_jsonl(GENERATED / "hands.jsonl", GENERATED / "prompts.jsonl")
+    first = min(hands, key=lambda h: h["started_at"])
+    asked = []
+
+    def load(base, key, day, back):
+        asked.append(day)
+        hs = [h for h in hands if export.hand_day(h) == day.isoformat()]
+        ids = {a["prompt_id"] for h in hs for a in h["actions"]}
+        return hs, [p for p in prompts if p["prompt_id"] in ids], systems
+
+    monkeypatch.setenv("SUPABASE_URL", "http://db.invalid")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "k")
+    monkeypatch.setattr(export, "_get", lambda *a: [{"started_at": first["started_at"]}])
+    monkeypatch.setattr(export, "load_supabase", load)
+    out = tmp_path / "out"
+    export.main(["--out", str(out)])
+    assert asked[-1] == export.datetime.now(export.hh.ET).date()
+    assert (out / ".exported-days").read_text().split() == sorted({export.hand_day(h) for h in hands})

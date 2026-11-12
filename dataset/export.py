@@ -207,9 +207,6 @@ def export(hands, prompts, systems, out):
         known.update({s["prompt_version"]: s for s in systems})
         with open(path, "w") as f:
             f.writelines(json.dumps(s) + "\n" for _, s in sorted(known.items()))
-    write_card(out)
-    with open(os.path.join(out, EXPORTED), "w") as f:  # read by upload.py for its commit message
-        f.write("\n".join(sorted(days)) + "\n")
     return sorted(days)
 
 
@@ -390,29 +387,31 @@ def main(argv=None):
 
     if args.from_jsonl:
         hands, prompts, systems = load_jsonl(*args.from_jsonl)
+        n_hands, n_prompts, days = len(hands), len(prompts), export(hands, prompts, systems, args.out)
     else:
         base, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_SERVICE_KEY")
         if not base or not key:
             sys.exit("Set SUPABASE_URL and SUPABASE_SERVICE_KEY, or pass --from-jsonl.")
         base = base.rstrip("/")
-        yesterday = datetime.now(hh.ET).date() - timedelta(days=1)
+        today = datetime.now(hh.ET).date()
         if args.day:
-            day = yesterday if args.day == "yesterday" else date.fromisoformat(args.day)
+            day = today - timedelta(days=1) if args.day == "yesterday" else date.fromisoformat(args.day)
             loads = [(day, args.back)]
-        else:  # every hand, one ET day at a time so memory stays at a day's worth
+        else:  # every hand, today's included, one ET day at a time so memory stays at a day's worth
             first = _get(base, key, "hands", {"select": "started_at", "order": "started_at", "limit": 1})
-            start = datetime.fromisoformat(first[0]["started_at"]).astimezone(hh.ET).date() if first else yesterday
-            loads = [(start + timedelta(days=i), 0) for i in range((yesterday - start).days + 1)]
+            start = datetime.fromisoformat(first[0]["started_at"]).astimezone(hh.ET).date() if first else today
+            loads = [(start + timedelta(days=i), 0) for i in range((today - start).days + 1)]
         n_hands = n_prompts = 0
         days = []
         for day, back in loads:
             hands, prompts, systems = load_supabase(base, key, day, back)
             n_hands, n_prompts = n_hands + len(hands), n_prompts + len(prompts)
             days += export(hands, prompts, systems, args.out)
-        print(f"{n_hands} hands, {n_prompts} prompts -> {args.out} ({', '.join(sorted(set(days))) or 'no days'})")
-        return
-    days = export(hands, prompts, systems, args.out)
-    print(f"{len(hands)} hands, {len(prompts)} prompts -> {args.out} ({', '.join(days) or 'no days'})")
+    days = sorted(set(days))
+    write_card(args.out)
+    with open(os.path.join(args.out, EXPORTED), "w") as f:  # read by upload.py for its commit message
+        f.write("\n".join(days) + "\n")
+    print(f"{n_hands} hands, {n_prompts} prompts -> {args.out} ({', '.join(days) or 'no days'})")
 
 
 if __name__ == "__main__":
