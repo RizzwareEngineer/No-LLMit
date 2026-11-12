@@ -24,15 +24,11 @@ def test_every_roster_slug_is_on_openrouter():
     assert not missing
 
 
-def test_every_roster_model_has_a_price():
-    assert set(registry.PRICES) == set(registry.MODELS)
-
-
 def test_web_roster_matches():
     # web/src/lib/constants.ts lists the roster for the stats table's "Not seated yet" group.
     ts = (Path(__file__).parents[2] / "web/src/lib/constants.ts").read_text()
     block = ts.split("ALL_LLMS = [", 1)[1].split("]", 1)[0]
-    assert re.findall(r'"([^"]+)"', block) == registry.list_models()
+    assert re.findall(r'"([^"]+)"', block) == list(registry.MODELS)
 
 
 def test_parse_lineup_default():
@@ -57,7 +53,7 @@ def test_parse_lineup_rejects_naming_the_entry(value, message):
 
 
 def test_rotation_seats_nine_distinct_and_covers_roster():
-    roster = registry.list_models()
+    roster = list(registry.MODELS)
     sessions = -(-len(roster) // registry.SEATS)
     seen = set()
     for s in range(sessions):
@@ -71,10 +67,6 @@ def test_rotation_seats_nine_distinct_and_covers_roster():
     assert registry.rotated_lineup(0) != registry.rotated_lineup(1)
 
 
-def test_models_endpoint_rotates_in_mock(tmp_path, monkeypatch):
-    client = TestClient(app.app)
-    body = client.get("/models?session=1").json()
-    assert body["provider"] == "mock"
-    assert body["seated"] == registry.rotated_lineup(1)
-    assert [m["name"] for m in body["models"]] == registry.list_models()
-    assert sum(m["seated"] for m in body["models"]) == registry.SEATS
+def test_models_endpoint_rotates_in_mock():
+    body = TestClient(app.app).get("/models?session=1").json()
+    assert body == {"provider": "mock", "seated": registry.rotated_lineup(1)}

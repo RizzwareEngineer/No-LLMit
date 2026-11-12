@@ -237,17 +237,15 @@ def test_a_reply_too_long_to_be_three_lines_is_a_miss():
     missed(OPEN, filler + "\nACTION: bet\nAMOUNT: 120\nREASON: Two thirds of the pot.", "the reply must be three short lines")
 
 
-def test_the_service_never_answers_500_for_a_reply(tmp_path, monkeypatch):
-    monkeypatch.setattr(app, "DECISION_LOG", tmp_path / "decisions.jsonl")
+def test_the_service_never_answers_500_for_a_reply(monkeypatch):
     monkeypatch.setattr(app, "complete", said("Call, the price is right.", CALL))
     res = TestClient(app.app, raise_server_exceptions=False).post("/decide", json=FACING.model_dump())
     assert (res.status_code, res.json()["status"], res.json()["retried"]) == (200, "ok", True)
-    # A bug in the parser is ours: no 500, no retry, not the model's miss, and the paid reply is still logged.
+    # A bug in the parser is ours: no 500, no retry, not the model's miss.
     monkeypatch.setattr(app, "complete", said(CALL))
     monkeypatch.setattr(decide, "parse_response", lambda text: 1 / 0)
     res = TestClient(app.app, raise_server_exceptions=False).post("/decide", json=FACING.model_dump())
     assert (res.status_code, res.json()["status"], res.json()["retried"]) == (200, "service_error", False)
-    assert (tmp_path / "decisions.jsonl").read_text().count("\n") == 2
 
 
 def test_no_reply_makes_the_parser_slow():

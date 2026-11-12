@@ -74,6 +74,8 @@ def ask(complete, request: DecisionRequest, messages: list[dict], deadline: floa
             raise requests.Timeout("turn budget used up")
         try:
             return complete(request, messages, min(REQUEST_TIMEOUT, remaining))
+        except requests.ReadTimeout:
+            raise  # the model got the request and is billed for it in full; a retry would get less time
         except (requests.Timeout, ProviderError):
             if tries >= len(BACKOFF) or deadline - time.monotonic() < BACKOFF[tries] + MIN_REQUEST:
                 raise

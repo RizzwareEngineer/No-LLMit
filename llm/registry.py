@@ -3,8 +3,8 @@ The roster: every model that can take a seat, and the OpenRouter model behind ea
 
 MODELS is the full roster. Nine of them are seated at the table: DEFAULT_LINEUP unless the
 LINEUP env var (comma-separated display names) says otherwise. The engine reads the seated
-names from GET /models at startup, so changing LINEUP needs no engine change. Slugs and
-prices were checked against https://openrouter.ai/api/v1/models on 2026-11-05.
+names from GET /models at startup, so changing LINEUP needs no engine change. Slugs were
+checked against https://openrouter.ai/api/v1/models on 2026-11-05.
 """
 
 import os
@@ -36,40 +36,7 @@ MODELS = {
     "Nemotron 3.5 Super": "nvidia/nemotron-3.5-super-vl",
 }
 
-# OpenRouter list price, USD per million tokens: (prompt, completion). 2026-11-05.
-PRICES = {
-    "GPT-OSS 20B": (0.03, 0.13),
-    "Claude Haiku 5.5": (0.10, 0.50),
-    "Gemma 3 12B": (0.05, 0.15),
-    "Llama 3.1 8B": (0.05, 0.08),
-    "Mistral Nemo": (0.029, 0.03),
-    "DeepSeek V4 Flash": (0.091, 0.182),
-    "Phi-4": (0.07, 0.14),
-    "Qwen 3.7 Flash": (0.03, 0.13),
-    "Cohere Command R7B": (0.0375, 0.15),
-    "Qwen3 235B A22B": (0.14, 0.80),
-    "Qwen3 32B": (0.08, 0.28),
-    "DeepSeek V3.2": (0.26, 0.38),
-    "Llama 4 Maverick": (0.35, 1.00),
-    "Mistral Large 3": (0.50, 1.50),
-    "Gemma 3 27B": (0.08, 0.35),
-    "GLM-4.6": (0.50, 2.00),
-    "Kimi K2": (0.60, 2.50),
-    "GPT-OSS 120B": (0.022, 0.083),
-    "Nemotron 3.5 Super": (0.15, 0.50),
-}
-
 DEFAULT_LINEUP = list(MODELS)[:SEATS]
-
-
-def get_model_id(display_name: str) -> str:
-    """Get the OpenRouter model ID for a seat. Raises KeyError for an unknown seat."""
-    return MODELS[display_name]
-
-
-def list_models() -> list[str]:
-    """List every roster name."""
-    return list(MODELS.keys())
 
 
 def parse_lineup(value: str | None) -> list[str]:
