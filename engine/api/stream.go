@@ -19,6 +19,7 @@ import (
 const (
 	ringSize          = 50
 	maxStreams        = 6000
+	maxStreamsPerAddr = 50 // high: a mobile or office network puts many viewers behind one address
 	heartbeatEvery    = 20 * time.Second
 	eventWriteWait    = 10 * time.Second
 	snapshotWriteWait = 60 * time.Second
@@ -42,17 +43,20 @@ type tableSnap struct {
 }
 
 type hub struct {
-	mu        sync.RWMutex
-	seq       uint64
-	ring      [ringSize]frame
-	tables    map[string]*tableSnap
-	statsFull []byte        // the all-time GET /api/stats body; nil until stats are loaded
-	wake      chan struct{} // closed and replaced on every publish
-	open      atomic.Int64  // streams open now
+	mu     sync.RWMutex
+	seq    uint64
+	ring   [ringSize]frame
+	tables map[string]*tableSnap
+	stats  []byte        // the all-time GET /api/stats body as one stats frame, sent after every snapshot; nil until loaded
+	wake   chan struct{} // closed and replaced on every publish
+	open   atomic.Int64  // streams open now
+
+	addrMu sync.Mutex // its own lock, so a connect never waits on a publish
+	addrs  map[string]int
 }
 
 func newHub() *hub {
-	return &hub{tables: map[string]*tableSnap{}, wake: make(chan struct{})}
+	return &hub{tables: map[string]*tableSnap{}, wake: make(chan struct{}), addrs: map[string]int{}}
 }
 
 type envelope struct {
@@ -73,6 +77,10 @@ func (h *hub) publish(table string, snap *tableSnap, statsFull []byte, msgs ...S
 		}
 		bodies[i] = b
 	}
+	var stats []byte
+	if statsFull != nil {
+		stats = append(append([]byte(`{"type":"stats","payload":`), statsFull...), '}')
+	}
 	h.mu.Lock()
 	for _, b := range bodies {
 		h.seq++
@@ -81,8 +89,8 @@ func (h *hub) publish(table string, snap *tableSnap, statsFull []byte, msgs ...S
 	if snap != nil {
 		h.tables[table] = snap
 	}
-	if statsFull != nil {
-		h.statsFull = statsFull
+	if stats != nil {
+		h.stats = sseFrame(h.seq, stats) // framed once here; every stream shares the bytes
 	}
 	old := h.wake
 	h.wake = make(chan struct{})
@@ -129,11 +137,11 @@ func (h *hub) since(last uint64, first bool) view {
 			return v
 		}
 	}
-	v.snap, v.tables, v.stats = true, maps.Clone(h.tables), h.statsFull
+	v.snap, v.tables, v.stats = true, maps.Clone(h.tables), h.stats
 	return v
 }
 
-// snapshotFrames encodes the snapshot, and the full stats after it when they are loaded.
+// snapshotFrames encodes the snapshot.
 func (v view) snapshotFrames() ([]byte, error) {
 	tables := make(map[string]tableSnap, len(v.tables))
 	for id, s := range v.tables {
@@ -150,16 +158,31 @@ func (v view) snapshotFrames() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := sseFrame(v.seq, b)
-	if v.stats != nil {
-		out = append(out, sseFrame(v.seq, []byte(`{"type":"stats","payload":`+string(v.stats)+`}`))...)
-	}
-	return out, nil
+	return sseFrame(v.seq, b), nil
 }
 
 var heartbeat = []byte(": hb\n\n")
 
 func (h *hub) handleStream(w http.ResponseWriter, r *http.Request) {
+	if addr := clientAddr(r); addr != "" {
+		h.addrMu.Lock()
+		n := h.addrs[addr]
+		if n < maxStreamsPerAddr {
+			h.addrs[addr] = n + 1
+		}
+		h.addrMu.Unlock()
+		if n >= maxStreamsPerAddr {
+			http.Error(w, "Too many streams from your address.", http.StatusTooManyRequests)
+			return
+		}
+		defer func() {
+			h.addrMu.Lock()
+			if h.addrs[addr]--; h.addrs[addr] <= 0 {
+				delete(h.addrs, addr) // so the map does not grow with every address ever seen
+			}
+			h.addrMu.Unlock()
+		}()
+	}
 	if h.open.Add(1) > maxStreams {
 		h.open.Add(-1)
 		http.Error(w, "Too many viewers right now.", http.StatusServiceUnavailable)
@@ -210,6 +233,11 @@ func (v view) write(w http.ResponseWriter, rc *http.ResponseController) error {
 		}
 		if err := send(w, rc, b, snapshotWriteWait); err != nil {
 			return err
+		}
+		if v.stats != nil {
+			if err := send(w, rc, v.stats, snapshotWriteWait); err != nil {
+				return err
+			}
 		}
 	}
 	for _, f := range v.frames {

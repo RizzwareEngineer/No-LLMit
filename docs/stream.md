@@ -16,7 +16,9 @@ Access-Control-Allow-Origin: *
 ```
 
 When 6,000 streams are already open the answer is `503` with a plain-text body, before any
-stream header is written. The client treats it like any other error and retries.
+stream header is written. When 50 streams are already open from the viewer's address
+(`X-Real-IP`; an IPv6 address counts by its /64) the answer is `429` the same way. The
+client treats either like any other error and retries.
 
 Every message is one frame: `data: ` and one line of JSON, then a blank line. There is no
 `id:`, `event:` or `retry:` line. Every 20 s with nothing else to send the server writes the
@@ -29,8 +31,9 @@ after a random 10 to 14 minutes, chosen when it opens; the client then reconnect
 {"seq":1042,"table":"tbl_9f2c41d07ab35e18","type":"llm_action","payload":{}}
 ```
 
-- `seq`: one counter for all tables. A `snapshot` and the `stats` written after it carry
-  the counter they reflect. The client never reads it.
+- `seq`: one counter for all tables. A `snapshot` carries the counter it reflects; the full
+  `stats` written after it carries the counter of the publish that set those stats. The
+  client never reads it.
 - `table`: the table id, `tbl_` and 16 hex digits. `snapshot` and `stats` have no `table`.
 - `type` and `payload`: below. No type is called `error`; `get_state` and `error` are gone.
 
@@ -44,18 +47,22 @@ The payloads are today's Go structs in `engine/api/messages.go`, unchanged.
 | `hand_start` | `{"handNumber":12}` |
 | `street_change` | `{"street":"flop"}` |
 | `hand_complete` | `{"winners":[WinnerPayload],"handNumber":12}` |
-| `llm_thinking` | `{"playerIdx":3,"playerName":"Phi-4"}` |
-| `llm_action` | `{"playerIdx":3,"playerName":"Phi-4","action":"RAISE","amount":60,"reason":"..."}` |
+| `llm_thinking` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4"}` |
+| `llm_action` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4","action":"RAISE","amount":60,"reason":"..."}` |
 | `button_card` | `{"playerIdx":0,"playerName":"Phi-4","card":"Ah"}` |
 | `button_winner` | `{"playerIdx":0,"playerName":"Phi-4"}` |
 | `table_notice` | `{"kind":"cap","message":"Daily LLM call limit reached.","reopensAt":"2026-11-11T00:00:00Z"}` |
 
-Events of one table step arrive back to back: `hand_start` then `game_state`; `street_change`,
-`hand_complete`, then `game_state`. The `game_state` after an `llm_action` is what applies the
+`turn` numbers the hand's turns from 1; a turn's `llm_thinking` and `llm_action` carry the
+same number.
+
+Events of one table step arrive back to back: `hand_start` then `game_state`; `street_change`
+(and `hand_complete` when the hand ends), then `game_state`. The `game_state` after an `llm_action` is what applies the
 action (the page moves its reasoning to revealed); the action stays the table's turn until the
 next `llm_thinking` or `hand_start`. There is no turn-cleared message.
 
 `table_notice` kinds: `closed`, `cap`, `outage`, `saving`, and `""`, which clears the notice.
+`outage` is cleared right before the next `hand_start`, which deals the probe hand.
 `saving` is sent after the first failed attempt to save a finished hand and cleared when the
 save succeeds:
 
@@ -78,8 +85,8 @@ that stream. Examples here are wrapped and abbreviated; on the wire each is one 
 
 ```json
 {"seq":1042,"type":"snapshot","payload":{"tables":{"tbl_9f2c41d07ab35e18":{
-  "state":{"id":"game_1762804860000000000","handNumber":12,"street":"flop","pot":120,"communityCards":["Ah","7d","2c"],"currentBet":0,"minRaise":10,"currentPlayerIdx":3,"buttonIdx":1,"players":[],"stakes":{"smallBlind":5,"bigBlind":10},"gameStartTime":"2026-11-10T20:01:00Z"},
-  "turn":{"type":"llm_thinking","payload":{"playerIdx":3,"playerName":"Phi-4"}},
+  "state":{"id":"game_1762804860000000000","handNumber":12,"street":"flop","pot":120,"communityCards":["Ah","7d","2c"],"currentPlayerIdx":3,"buttonIdx":1,"players":[],"stakes":{"smallBlind":5,"bigBlind":10},"gameStartTime":"2026-11-10T20:01:00Z"},
+  "turn":{"type":"llm_thinking","payload":{"turn":4,"playerIdx":3,"playerName":"Phi-4"}},
   "turnApplied":false,
   "notice":null,
   "buttonCards":[],
@@ -98,9 +105,11 @@ The payload is exactly the `GET /api/stats` body, `models` as the list of row ob
 {"seq":1042,"type":"stats","payload":{"generated_at":"...","scope":{},"sessions":[],"models":[{"name":"Phi-4","hands":128}],"seated":["Phi-4"],"definitions_url":"/docs/stats.md","partial":false}}
 ```
 
-**Changed rows.** Sent once per recompute that added a hand (the first recompute after the
-startup load counts) and once when the all-in warm-up reaches zero left, never per warm-up
-pass. It has the same envelope keys except `models`, plus `model_names` (every model in the
+The first `stats` event after the engine starts is also the full form, so a stream that
+opened before any stats were loaded gets them whole.
+
+**Changed rows.** Sent once per recompute that added a hand and once when the all-in
+warm-up reaches zero left, never per warm-up pass, after that first full event. It has the same envelope keys except `models`, plus `model_names` (every model in the
 order `models` must have) and `changed` (each row whose encoded bytes differ from the last
 one published, whole and absolute).
 
@@ -128,10 +137,9 @@ name with neither. Rows are matched by `name` only, never by position.
   message is applied on arrival to `tables[msg.table]`, creating the entry if missing.
 - Turn on a snapshot: an `llm_thinking` shows thinking, an `llm_action` not yet applied shows
   reasoning, and an applied one shows revealed. If the snapshot's `turn` is the turn on screen
-  (same `state.handNumber` and `playerIdx`, and for an action the same action, amount and
-  reason), the display object and shot clock are kept exactly as they are; reasoning only moves
+  (same `state.handNumber` and `turn` number), the display object and shot clock are kept exactly as they are; reasoning only moves
   to revealed when `turnApplied` says so. If thinking is on screen and the snapshot carries that
-  seat's action, the turn's start time and shot clock carry over, as on a live `llm_action`.
+  turn's action, the turn's start time and shot clock carry over, as on a live `llm_action`.
   Otherwise the display is built from the snapshot, or cleared when `turn` is `null`. A
   reconnect therefore changes nothing on screen.
 - The client keeps no `seq`, detects no gaps and queues nothing; the server paces every event.

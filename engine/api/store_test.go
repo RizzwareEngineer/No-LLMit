@@ -85,19 +85,31 @@ func TestFailingSavePausesUntilItSucceeds(t *testing.T) {
 	}
 }
 
-func TestSupabaseKeepAlivePing(t *testing.T) {
-	var gotPath, gotKey, gotAuth string
+// saveHand sends a real model hand to Supabase, but never a mock-provider hand or a hand
+// with no decision.
+func TestSaveHandKeepsMockHandsOutOfSupabase(t *testing.T) {
+	posts := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath, gotKey, gotAuth = r.URL.RequestURI(), r.Header.Get("apikey"), r.Header.Get("Authorization")
-		w.Write([]byte("[]"))
+		if r.URL.Path == "/rest/v1/rpc/save_hand" {
+			posts++
+		}
 	}))
 	defer srv.Close()
-
-	s := &supabaseSaver{url: srv.URL, key: "k", http: srv.Client()}
-	if err := s.ping(); err != nil {
-		t.Fatal(err)
-	}
-	if gotPath != "/rest/v1/hands?select=hand_id&limit=1" || gotKey != "k" || gotAuth != "Bearer k" {
-		t.Errorf("path %q apikey %q auth %q", gotPath, gotKey, gotAuth)
+	for _, c := range []struct {
+		provider string
+		actions  int
+		want     int
+	}{{"mock", 1, 0}, {"openrouter", 0, 0}, {"openrouter", 1, 1}} {
+		tbl := testTable(t)
+		tbl.saver = &supabaseSaver{url: srv.URL, key: "k", http: srv.Client()}
+		tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+		tbl.recorder.record.Config.Provider = c.provider
+		for range c.actions {
+			tbl.recorder.record.Actions = append(tbl.recorder.record.Actions, history.ActionRecord{Status: "ok"})
+		}
+		posts = 0
+		if voided := tbl.saveHand(); voided || posts != c.want {
+			t.Errorf("%s with %d actions: voided %v, %d saves, want %d", c.provider, c.actions, voided, posts, c.want)
+		}
 	}
 }

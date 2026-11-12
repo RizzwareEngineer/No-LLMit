@@ -35,14 +35,7 @@ func (gs *GameState) GetValidActions() []ValidAction {
 	} else if amountToCall > 0 && amountToCall < player.Stack {
 		actions = append(actions, ValidAction{Type: ActionCall, MinAmount: amountToCall})
 	}
-	// A raise needs an opponent who can respond. With everyone else in the hand all-in,
-	// the actor can only call (all-in when covered) or fold.
-	canRespond := false
-	for i := range gs.Players {
-		if p := &gs.Players[i]; i != gs.CurrentPlayerIdx && p.Status == PlayerActive && p.Stack > 0 {
-			canRespond = true
-		}
-	}
+	canRespond := gs.raiseCanBeAnswered()
 	minRaiseTotal := gs.CurrentBet + gs.MinRaise
 	if canRespond && player.Stack > amountToCall && !player.RaiseClosed {
 		if player.Stack >= minRaiseTotal-player.CurrentBet {
@@ -107,6 +100,19 @@ func (gs *GameState) ProcessAction(action Action) error {
 	return nil
 }
 
+// raiseCanBeAnswered: a raise needs an opponent who can respond. With everyone else in the
+// hand all-in, the actor can only call (all-in when covered) or fold.
+func (gs *GameState) raiseCanBeAnswered() bool {
+	for i := range gs.Players {
+		if p := &gs.Players[i]; i != gs.CurrentPlayerIdx && p.Status == PlayerActive && p.Stack > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+var errNoRaise = fmt.Errorf("no opponent can answer a raise; call or fold")
+
 // CheckAction reports whether ProcessAction would accept the action, without changing the game.
 func (gs *GameState) CheckAction(action Action) error {
 	trial := *gs
@@ -163,6 +169,9 @@ func (gs *GameState) processRaise(player *Player, action Action) error {
 	if player.RaiseClosed {
 		return fmt.Errorf("an all-in for less than a full raise does not reopen raising; call or fold")
 	}
+	if !gs.raiseCanBeAnswered() {
+		return errNoRaise
+	}
 
 	// Validate minimum raise
 	if raiseAmount < gs.MinRaise && totalNeeded < player.Stack {
@@ -199,6 +208,9 @@ func (gs *GameState) processAllIn(player *Player, action Action) error {
 	totalBet := player.CurrentBet + allInAmount
 	if player.RaiseClosed && totalBet > gs.CurrentBet {
 		return fmt.Errorf("an all-in for less than a full raise does not reopen raising; call or fold")
+	}
+	if totalBet > gs.CurrentBet && !gs.raiseCanBeAnswered() {
+		return errNoRaise
 	}
 
 	player.Stack = 0

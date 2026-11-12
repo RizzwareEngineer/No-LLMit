@@ -119,12 +119,11 @@ func (gs *GameState) DetermineButton() []ButtonCard {
 	return cards
 }
 
+// StartHand deals the next hand. Every seat needs chips (RebuyBrokePlayers).
 func (gs *GameState) StartHand() error {
-	gs.EliminateBrokePlayers()
-
 	activeCount := 0
 	for _, p := range gs.Players {
-		if p.Status != PlayerEliminated && p.Stack > 0 {
+		if p.Stack > 0 {
 			activeCount++
 		}
 	}
@@ -143,7 +142,7 @@ func (gs *GameState) StartHand() error {
 		gs.Players[i].LastAction = nil
 		gs.Players[i].HasActedThisRound = false
 		gs.Players[i].RaiseClosed = false
-		if gs.Players[i].Status != PlayerEliminated && gs.Players[i].Stack > 0 {
+		if gs.Players[i].Stack > 0 {
 			gs.Players[i].Status = PlayerActive
 		}
 	}
@@ -169,7 +168,7 @@ func (gs *GameState) StartHand() error {
 func (gs *GameState) rotateButton() {
 	for i := 1; i <= len(gs.Players); i++ {
 		idx := (gs.ButtonIdx + i) % len(gs.Players)
-		if gs.Players[idx].Status != PlayerEliminated && gs.Players[idx].Stack > 0 {
+		if gs.Players[idx].Stack > 0 {
 			gs.ButtonIdx = idx
 			return
 		}
@@ -210,7 +209,7 @@ func (gs *GameState) postBlinds() error {
 func (gs *GameState) getNextActivePlayer(fromIdx int) int {
 	for i := 1; i <= len(gs.Players); i++ {
 		idx := (fromIdx + i) % len(gs.Players)
-		if gs.Players[idx].Status != PlayerEliminated && gs.Players[idx].Stack > 0 {
+		if gs.Players[idx].Stack > 0 {
 			return idx
 		}
 		// Also include all-in players for blind posting purposes
@@ -228,9 +227,7 @@ func (gs *GameState) dealHoleCards() {
 	for round := 0; round < 2; round++ {
 		for i := 0; i < len(gs.Players); i++ {
 			idx := (startIdx + i) % len(gs.Players)
-			if gs.Players[idx].Status != PlayerEliminated {
-				gs.Players[idx].HoleCards = append(gs.Players[idx].HoleCards, gs.deck.Deal(1)[0])
-			}
+			gs.Players[idx].HoleCards = append(gs.Players[idx].HoleCards, gs.deck.Deal(1)[0])
 		}
 	}
 }
@@ -329,21 +326,6 @@ func (gs *GameState) NeedToAdvanceStreet() bool {
 		return false
 	}
 	return gs.IsBettingRoundComplete()
-}
-
-func (gs *GameState) GetCurrentPlayer() *Player {
-	if gs.CurrentPlayerIdx < 0 || gs.CurrentPlayerIdx >= len(gs.Players) {
-		return nil
-	}
-	return &gs.Players[gs.CurrentPlayerIdx]
-}
-
-func (gs *GameState) EliminateBrokePlayers() {
-	for i := range gs.Players {
-		if gs.Players[i].Stack == 0 && gs.Players[i].Status != PlayerEliminated {
-			gs.Players[i].Status = PlayerEliminated
-		}
-	}
 }
 
 // RebuyBrokePlayers tops any player with no chips back up to the given stack so a cash

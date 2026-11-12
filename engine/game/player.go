@@ -1,5 +1,5 @@
 // This file defines Player (name, stack, cards, status), Action (fold/check/call/raise/all-in),
-// and status types (active, folded, all-in, eliminated). These are the core data types that
+// and status types (active, folded, all-in). These are the core data types that
 // game.go and action.go use to track who's doing what at the table.
 package game
 
@@ -9,11 +9,10 @@ const (
 	PlayerActive PlayerStatus = iota
 	PlayerFolded
 	PlayerAllIn
-	PlayerEliminated // Out of chips, out of game
 )
 
 func (ps PlayerStatus) String() string {
-	return []string{"active", "folded", "all-in", "eliminated"}[ps]
+	return []string{"active", "folded", "all-in"}[ps]
 }
 
 // ActionType represents a player action

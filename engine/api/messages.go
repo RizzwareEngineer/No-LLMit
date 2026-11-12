@@ -33,12 +33,9 @@ type GameStatePayload struct {
 	Street           string               `json:"street"`
 	Pot              int                  `json:"pot"`
 	CommunityCards   []string             `json:"communityCards"`
-	CurrentBet       int                  `json:"currentBet"`
-	MinRaise         int                  `json:"minRaise"`
 	CurrentPlayerIdx int                  `json:"currentPlayerIdx"`
 	ButtonIdx        int                  `json:"buttonIdx"`
 	Players          []PlayerStatePayload `json:"players"`
-	ValidActions     []ValidActionPayload `json:"validActions,omitempty"`
 	Winners          []WinnerPayload      `json:"winners,omitempty"`
 	Stakes           StakesPayload        `json:"stakes"`
 	GameStartTime    string               `json:"gameStartTime"`
@@ -57,12 +54,6 @@ type PlayerStatePayload struct {
 	IsButton   bool     `json:"isButton"`
 	Position   string   `json:"position"` // BTN, SB, BB, UTG, ... as the models are told
 	Winnings   int      `json:"winnings"`
-}
-
-type ValidActionPayload struct {
-	Type      string `json:"type"`
-	MinAmount int    `json:"minAmount,omitempty"`
-	MaxAmount int    `json:"maxAmount,omitempty"`
 }
 
 type WinnerPayload struct {
@@ -92,13 +83,15 @@ type HandCompletePayload struct {
 	HandNumber int             `json:"handNumber"`
 }
 
+// Turn numbers a hand's turns from 1; a turn's llm_thinking and llm_action share it.
 type LLMThinkingPayload struct {
+	Turn       int    `json:"turn"`
 	PlayerIdx  int    `json:"playerIdx"`
 	PlayerName string `json:"playerName"`
-	Reason     string `json:"reason,omitempty"`
 }
 
 type LLMActionPayload struct {
+	Turn       int    `json:"turn"`
 	PlayerIdx  int    `json:"playerIdx"`
 	PlayerName string `json:"playerName"`
 	Action     string `json:"action"`
@@ -143,40 +136,16 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 		}
 	}
 
-	var validActions []ValidActionPayload
-	if gs.IsWaitingForAction() {
-		for _, va := range gs.GetValidActions() {
-			validActions = append(validActions, ValidActionPayload{
-				Type:      va.Type.String(),
-				MinAmount: va.MinAmount,
-				MaxAmount: va.MaxAmount,
-			})
-		}
-	}
-
-	var winners []WinnerPayload
-	for _, w := range gs.Winners {
-		winners = append(winners, WinnerPayload{
-			PlayerIdx: w.PlayerIdx,
-			Amount:    w.Amount,
-			HandType:  w.HandType.String(),
-			HandDesc:  w.HandDesc,
-		})
-	}
-
 	return GameStatePayload{
 		ID:               gs.ID,
 		HandNumber:       gs.HandNumber,
 		Street:           gs.Street.String(),
 		Pot:              gs.GetTotalPot(),
 		CommunityCards:   game.CardStrings(gs.CommunityCards),
-		CurrentBet:       gs.CurrentBet,
-		MinRaise:         gs.MinRaise,
 		CurrentPlayerIdx: gs.CurrentPlayerIdx,
 		ButtonIdx:        gs.ButtonIdx,
 		Players:          players,
-		ValidActions:     validActions,
-		Winners:          winners,
+		Winners:          convertWinners(gs.Winners),
 		Stakes: StakesPayload{
 			SmallBlind: gs.Stakes.SmallBlind,
 			BigBlind:   gs.Stakes.BigBlind,
@@ -185,19 +154,35 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 	}
 }
 
-// ParseActionType reads an action name. ok is false for anything it does not know, which
-// callers must treat as an illegal move rather than a fold.
+func convertWinners(winners []game.Winner) []WinnerPayload {
+	var result []WinnerPayload
+	for _, w := range winners {
+		result = append(result, WinnerPayload{
+			PlayerIdx:       w.PlayerIdx,
+			Amount:          w.Amount,
+			HandType:        w.HandType.String(),
+			HandDesc:        w.HandDesc,
+			EligiblePlayers: w.EligiblePlayers,
+			PotNumber:       w.PotNumber,
+		})
+	}
+	return result
+}
+
+// ParseActionType reads an action name as the LLM service sends it (llm/schemas.py). ok is
+// false for anything it does not know, which callers must treat as an illegal move rather
+// than a fold.
 func ParseActionType(s string) (game.ActionType, bool) {
 	switch s {
-	case "FOLD", "fold":
+	case "FOLD":
 		return game.ActionFold, true
-	case "CHECK", "check":
+	case "CHECK":
 		return game.ActionCheck, true
-	case "CALL", "call":
+	case "CALL":
 		return game.ActionCall, true
-	case "RAISE", "raise":
+	case "RAISE":
 		return game.ActionRaise, true
-	case "ALL_IN", "ALL-IN", "all-in", "allin":
+	case "ALL_IN":
 		return game.ActionAllIn, true
 	default:
 		return game.ActionFold, false
