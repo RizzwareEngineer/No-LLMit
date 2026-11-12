@@ -1,74 +1,30 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 
 interface TypewriterTextProps {
-  text: string;
+  text: string; // the caller keys it by the text, so a new text starts typing afresh
   speed?: number; // ms per character
-  className?: string;
 }
 
-export default function TypewriterText({ 
-  text, 
-  speed = 20,
-  className = ""
-}: TypewriterTextProps) {
-  const [displayedText, setDisplayedText] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+export default function TypewriterText({ text, speed = 20 }: TypewriterTextProps) {
+  const full = text.trim();
+  // Characters shown; one past the end keeps the cursor one more tick after the last character.
+  const [n, setN] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? full.length + 1 : 0);
 
   useEffect(() => {
-    // Clear any existing interval
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
+    if (n > full.length) return;
+    const id = setTimeout(() => setN(n + 1), speed);
+    return () => clearTimeout(id);
+  }, [n, full.length, speed]);
 
-    // Trim and validate text
-    const trimmedText = text?.trim() || "";
-    
-    if (!trimmedText || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setDisplayedText(trimmedText);
-      setIsTyping(false);
-      return;
-    }
-
-    // Start typing
-    setIsTyping(true);
-    setDisplayedText("");
-    
-    let currentIndex = 0;
-    intervalRef.current = setInterval(() => {
-      if (currentIndex < trimmedText.length) {
-        currentIndex++;
-        setDisplayedText(trimmedText.slice(0, currentIndex));
-      } else {
-        setIsTyping(false);
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
-        }
-      }
-    }, speed);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [text, speed]);
-
-  // Fallback: if no text to show
-  if (!text?.trim()) {
-    return <span className={className}>…</span>;
-  }
+  if (!full) return <span>…</span>;
 
   return (
-    <span className={className}>
-      {displayedText}
-      {isTyping && <span>▌</span>}
+    <span>
+      {full.slice(0, n)}
+      {n <= full.length && <span>▌</span>}
     </span>
   );
 }
-

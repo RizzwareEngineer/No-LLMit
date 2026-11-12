@@ -83,33 +83,9 @@ dialog.drawer::backdrop {
   from { opacity: 0; }
 }
 
-@theme {
-  --font-jetbrains-mono: var(--font-jetbrains-mono);
-}
-
 /* Notion divider border */
 .border-notion {
   border-color: rgba(55, 53, 47, 0.09);
-}
-
-/* Notion text colors */
-.text-notion {
-  color: rgb(55, 53, 47);
-}
-
-.text-notion-secondary {
-  color: rgba(55, 53, 47, 0.65);
-}
-
-.text-notion-tertiary {
-  color: rgba(55, 53, 47, 0.5);
-}
-
-/* Fixed layout container */
-.fixed-layout {
-  width: 1200px;
-  min-width: 1200px;
-  max-width: 1200px;
 }
 
 /* Active player - More prominent blue highlight using outline (no layout shift) */
@@ -200,18 +176,6 @@ input:focus-visible {
   background: rgba(55, 53, 47, 0.08);
 }
 
-/* Danger outline button */
-.btn-brutal-danger {
-  background: transparent;
-  color: rgb(235, 87, 87);
-  border: 1px solid rgb(235, 87, 87);
-}
-
-.btn-brutal-danger:hover {
-  background: rgba(235, 87, 87, 0.04);
-  color: rgb(235, 87, 87);
-}
-
 /* Success outline button */
 .btn-brutal-success {
   background: transparent;
@@ -224,31 +188,6 @@ input:focus-visible {
   color: rgb(15, 123, 108);
 }
 
-/* Warning outline button */
-.btn-brutal-warning {
-  background: transparent;
-  color: rgb(203, 145, 47);
-  border: 1px solid rgb(203, 145, 47);
-}
-
-.btn-brutal-warning:hover {
-  background: rgba(203, 145, 47, 0.04);
-  color: rgb(203, 145, 47);
-}
-
-/* Primary filled button (blue) */
-.btn-brutal-primary {
-  background: rgb(35, 131, 226);
-  color: #ffffff;
-  border: 1px solid rgb(35, 131, 226);
-}
-
-.btn-brutal-primary:hover {
-  background: rgb(0, 117, 211);
-  border-color: rgb(0, 117, 211);
-  color: #ffffff;
-}
-
 /* Disabled button */
 .btn-brutal-disabled {
   background: transparent;
@@ -259,35 +198,6 @@ input:focus-visible {
 
 .btn-brutal-disabled:hover {
   background: transparent;
-}
-
-/* Number input hide spinners */
-input[type="number"]::-webkit-inner-spin-button,
-input[type="number"]::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-input[type="number"] {
-  -moz-appearance: textfield;
-}
-
-/* Notion-style input */
-.input-brutal {
-  background: rgba(242, 241, 238, 0.6);
-  color: rgb(55, 53, 47);
-  border: none;
-  border-radius: 4px;
-  font-family: inherit;
-  font-weight: 400;
-  box-shadow: rgba(15, 15, 15, 0.1) 0px 0px 0px 1px inset;
-}
-
-.input-brutal:hover {
-  background: rgba(242, 241, 238, 1);
-}
-
-.input-brutal:focus {
-  background: #ffffff;
 }
 
 /* The home page pages between whole screens: each [data-screen] is a snap point. Phones

@@ -15,7 +15,6 @@ import ModelDrawer from "@/components/ModelDrawer";
 import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
-import { useStats } from "@/lib/stats";
 import { NEXT_BUTTON, NEXT_STYLE, isPaging, pageBy, pageTo, resnap, scrollsInside } from "@/components/Section";
 import { holdBoxes } from "@/lib/boxes";
 
@@ -85,15 +84,13 @@ export default function Home() {
   const {
     gameState,
     isConnected,
+    tried,
     gaveUp,
     tableNotice,
-    isLoading,
-    lastHandResult,
     displayState,
     shotClockRemaining,
     buttonDetermination,
     stats,
-    connect,
     retry,
   } = useGameState();
 
@@ -103,23 +100,8 @@ export default function Home() {
   const { usage, error: usageError } = useUsage(usageRefreshTrigger);
   const watching = usageError ? undefined : usage?.table?.spectators;
   const isLive = isConnected && !tableNotice;
-  // The connection bar waits for the first attempt (3 s at most): on a refresh the stream opens in a moment, and a bar
-  // shown until then moved every screen by its height (--bar-h) twice.
-  const [tried, setTried] = useState(false);
+  // The connection bar waits for the first attempt: a bar shown until then moved every screen by its height (--bar-h) twice.
   const bar = tried && !isConnected;
-
-  // Auto-connect on mount
-  useEffect(() => {
-    const t = setTimeout(() => setTried(true), 3000);
-    if (!isConnected && !isLoading) {
-      connect().catch(err => {
-        console.error('Failed to auto-connect:', err);
-      }).finally(() => setTried(true));
-    }
-    return () => clearTimeout(t);
-    // Only run once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Refresh usage stats when an LLM action is revealed
   useEffect(() => {
@@ -166,19 +148,15 @@ export default function Home() {
   const currentPlayerIdx = displayState?.playerIdx ?? (gameState?.currentPlayerIdx ?? -1);
   const stakes = gameState?.stakes || { smallBlind: 5, bigBlind: 10 };
   const handNumber = gameState?.handNumber || 0;
-  const winners = gameState?.winners || lastHandResult?.winners || [];
+  const winners = gameState?.winners || [];
   const isHandComplete = street === 'complete';
 
   // All-time stats feed the leaderboard, the drawer and the stats sections; the stream sends them on connect and as each hand is saved.
+  // The stream has no sample and no fetch error: loading only means no stats event yet. StatsSections still takes useStats' shape.
   const all = useMemo(() => ({ data: stats, sample: false, loading: !stats, error: null, current: true }), [stats]);
-  // Profits & Losses covers the live table session (the one not ended yet: the table the engine
-  // is playing). Until that session has a saved hand, the panel shows this game's winnings.
-  const liveId = all.data?.sessions.find(s => !s.ended_at)?.id;
-  const live = useStats(liveId, !!liveId, handNumber);
-  // Who is at the table now: the engine's lineup, else (an older engine) the live session's models.
-  const seated = all.data?.seated ?? live.data?.models.map(m => m.name);
-  // Hover stats on the seats: all-time, from the same fetch; the bundled dev sample never feeds them.
-  const seatStats = useMemo(() => (all.data && !all.sample ? Object.fromEntries(all.data.models.map(m => [m.name, m])) : undefined), [all.data, all.sample]);
+  const seated = stats?.seated; // who is at the table now
+  // Hover stats on the seats: all-time.
+  const seatStats = useMemo(() => (stats ? Object.fromEntries(stats.models.map(m => [m.name, m])) : undefined), [stats]);
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
   // The URL names no stats screen: an old #stats, #race or #pairwise link opens the page at its top.

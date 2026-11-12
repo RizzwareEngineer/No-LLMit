@@ -3,29 +3,12 @@
 interface LLMLogoProps {
   model: string;
   size?: number;
-  className?: string;
 }
 
 // Brand logos in public/logos, from @lobehub/icons-static-svg (MIT). The marks belong to
 // their owners and are used only to identify each model.
 // glm is Z.ai's mark, kimi Moonshot's and nemotron NVIDIA's.
 const LLM_KEYS = ['gpt', 'claude', 'gemini', 'gemma', 'llama', 'mistral', 'deepseek', 'grok', 'phi', 'qwen', 'cohere', 'glm', 'kimi', 'nemotron'];
-
-// Initials shown for a model we have no logo for
-const LLM_ABBREV: Record<string, string> = {
-  'gpt': 'GPT',
-  'claude': 'CL',
-  'gemini': 'GEM',
-  'llama': 'LL',
-  'mistral': 'MIS',
-  'deepseek': 'DS',
-  'grok': 'GRK',
-  'qwen': 'QW',
-  'cohere': 'CO',
-  'glm': 'GLM',
-  'kimi': 'KI',
-  'nemotron': 'NV',
-};
 
 function getModelKey(name: string): string {
   const lower = name.toLowerCase();
@@ -77,15 +60,14 @@ export function modelColor(name: string): string {
   return MODEL_COLORS[name] || LLM_COLORS[getModelKey(name)] || 'rgb(120, 119, 116)';
 }
 
-export default function LLMLogo({ model, size = 28, className = '' }: LLMLogoProps) {
-  const key = getModelKey(model);
+export default function LLMLogo({ model, size = 28 }: LLMLogoProps) {
   const logo = modelLogo(model);
   const box = { width: size, height: size, minWidth: size, minHeight: size };
 
   if (logo) {
     return (
       <div
-        className={`bg-white border border-neutral-200 rounded-sm flex items-center justify-center shrink-0 ${className}`}
+        className="bg-white border border-neutral-200 rounded-sm flex items-center justify-center shrink-0"
         style={box}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -96,10 +78,10 @@ export default function LLMLogo({ model, size = 28, className = '' }: LLMLogoPro
 
   return (
     <div
-      className={`bg-neutral-800/20 text-neutral-400 border border-neutral-600/50 rounded-sm flex items-center justify-center shrink-0 font-mono font-bold text-[11px] ${className}`}
+      className="bg-neutral-800/20 text-neutral-400 border border-neutral-600/50 rounded-sm flex items-center justify-center shrink-0 font-mono font-bold text-[11px]"
       style={box}
     >
-      {LLM_ABBREV[key] || model.slice(0, 2).toUpperCase()}
+      {model.slice(0, 2).toUpperCase()}
     </div>
   );
 }

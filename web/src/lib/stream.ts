@@ -1,13 +1,14 @@
 // What the stream's messages do to the page's state (docs/stream.md). Pure, so the stream test runs it under plain Node.
-import type { ButtonCardPayload, ButtonWinnerPayload, GameState, HandCompletePayload, ServerMessage, TableNoticePayload } from './api';
+import type { ButtonCardPayload, ButtonWinnerPayload, GameState, ServerMessage, TableNoticePayload } from './api';
 import type { ModelStats, StatsResponse } from './stats';
 
 // Display phases for each LLM turn
-export type DisplayPhase = 'idle' | 'waiting' | 'thinking' | 'reasoning' | 'revealed';
+export type DisplayPhase = 'thinking' | 'reasoning' | 'revealed';
 
 // What's currently being displayed to the user
 export interface DisplayState {
   phase: DisplayPhase;
+  turn: number; // the engine's turn number within the hand
   playerIdx: number;
   playerName: string;
   reason: string | null;
@@ -17,11 +18,7 @@ export interface DisplayState {
 }
 
 // Button determination state
-export interface ButtonCard {
-  playerIdx: number;
-  playerName: string;
-  card: string;
-}
+export type ButtonCard = ButtonCardPayload;
 
 export interface ButtonDetermination {
   cards: ButtonCard[];
@@ -31,6 +28,7 @@ export interface ButtonDetermination {
 }
 
 interface LLMDecision {
+  turn: number;
   playerIdx: number;
   playerName: string;
   action: string;
@@ -42,7 +40,6 @@ interface LLMDecision {
 export interface TableView {
   gameState: GameState | null;
   notice: TableNoticePayload | null; // table closed, capped, in an outage or saving
-  lastHandResult: HandCompletePayload | null;
   display: DisplayState | null;
   clock: { start: number; running: boolean } | null; // the shot clock: llm_thinking starts it, the next game_state stops it
   buttonDetermination: ButtonDetermination | null;
@@ -50,7 +47,7 @@ export interface TableView {
 
 export type Tables = Record<string, TableView>;
 
-export const EMPTY_TABLE: TableView = { gameState: null, notice: null, lastHandResult: null, display: null, clock: null, buttonDetermination: null };
+export const EMPTY_TABLE: TableView = { gameState: null, notice: null, display: null, clock: null, buttonDetermination: null };
 
 type Turn = { type: 'llm_thinking' | 'llm_action'; payload: unknown };
 
@@ -67,10 +64,10 @@ interface SnapshotTable {
 // game_state with the action applied, each at the moment it should appear.
 function applyTurn(v: TableView, turn: Turn, now: number): TableView {
   if (turn.type === 'llm_thinking') {
-    const p = turn.payload as { playerIdx: number; playerName: string };
+    const p = turn.payload as { turn: number; playerIdx: number; playerName: string };
     return {
       ...v,
-      display: { phase: 'thinking', playerIdx: p.playerIdx, playerName: p.playerName, reason: null, action: null, amount: 0, turnStartTime: now },
+      display: { phase: 'thinking', turn: p.turn, playerIdx: p.playerIdx, playerName: p.playerName, reason: null, action: null, amount: 0, turnStartTime: now },
       clock: { start: now, running: true },
     };
   }
@@ -80,12 +77,13 @@ function applyTurn(v: TableView, turn: Turn, now: number): TableView {
     ...v,
     display: {
       phase: 'reasoning',
+      turn: p.turn,
       playerIdx: p.playerIdx,
       playerName: p.playerName,
       reason: p.reason,
       action: p.action,
       amount: p.amount,
-      turnStartTime: prev?.playerIdx === p.playerIdx ? prev.turnStartTime : now,
+      turnStartTime: prev?.turn === p.turn ? prev.turnStartTime : now,
     },
   };
 }
@@ -103,29 +101,25 @@ function applyTableMessage(v: TableView, m: ServerMessage, now: number): TableVi
   switch (m.type) {
     case 'game_state':
       return reveal({ ...v, gameState: m.payload as GameState });
-    case 'hand_complete':
-      return { ...v, lastHandResult: m.payload as HandCompletePayload };
     case 'table_notice': {
       const notice = m.payload as TableNoticePayload;
       return { ...v, notice: notice.kind ? notice : null };
     }
     case 'hand_start':
-      return { ...v, notice: null, lastHandResult: null, buttonDetermination: null, display: null, clock: null };
+      return { ...v, notice: null, buttonDetermination: null, display: null, clock: null };
     case 'llm_thinking':
     case 'llm_action':
       return applyTurn(v, m as Turn, now);
-    case 'button_card': {
-      const bc = m.payload as ButtonCardPayload;
+    case 'button_card':
       return {
         ...v,
         buttonDetermination: {
-          cards: [...(v.buttonDetermination?.cards || []), { playerIdx: bc.playerIdx, playerName: bc.playerName, card: bc.card }],
+          cards: [...(v.buttonDetermination?.cards || []), m.payload as ButtonCardPayload],
           winnerIdx: null,
           winnerName: null,
           isComplete: false,
         },
       };
-    }
     case 'button_winner': {
       const bw = m.payload as ButtonWinnerPayload;
       const bd = v.buttonDetermination;
@@ -144,12 +138,11 @@ function fromSnapshot(prev: TableView | undefined, s: SnapshotTable, now: number
   const base: TableView = {
     gameState: s.state,
     notice: s.notice,
-    lastHandResult: sameHand ? prev!.lastHandResult : null,
     display: null,
     clock: null,
     buttonDetermination: s.buttonCards.length || s.buttonWinner
       ? {
-        cards: s.buttonCards.map(c => ({ playerIdx: c.playerIdx, playerName: c.playerName, card: c.card })),
+        cards: s.buttonCards,
         winnerIdx: s.buttonWinner?.playerIdx ?? null,
         winnerName: s.buttonWinner?.playerName ?? null,
         isComplete: !!s.buttonWinner,
@@ -157,11 +150,9 @@ function fromSnapshot(prev: TableView | undefined, s: SnapshotTable, now: number
       : null,
   };
   if (!s.turn) return base;
-  const p = s.turn.payload as LLMDecision, d = sameHand && prev!.display?.playerIdx === p.playerIdx ? prev!.display : null;
-  const kept = { ...base, display: d, clock: d && prev!.clock }; // this seat's turn as it is on screen
-  const onScreen = s.turn.type === 'llm_thinking'
-    ? d?.phase === 'thinking'
-    : (d?.phase === 'reasoning' || d?.phase === 'revealed') && d.action === p.action && d.amount === p.amount && d.reason === p.reason;
+  const p = s.turn.payload as LLMDecision, d = sameHand && prev!.display?.turn === p.turn ? prev!.display : null;
+  const kept = { ...base, display: d, clock: d && prev!.clock }; // this turn as it is on screen
+  const onScreen = s.turn.type === 'llm_thinking' ? d?.phase === 'thinking' : d?.phase === 'reasoning' || d?.phase === 'revealed';
   const v = onScreen ? kept : applyTurn(d?.phase === 'thinking' ? kept : base, s.turn, now);
   return s.turnApplied ? reveal(v) : v;
 }
@@ -179,11 +170,12 @@ export function applyMessage(tables: Tables, m: ServerMessage, now: number): Tab
 type ChangedStats = Omit<StatsResponse, 'models'> & { model_names: string[]; changed: ModelStats[] };
 
 // A stats message: the full all-time body replaces the held one; the changed form replaces rows by model name.
+// With nothing held, a changed form that carries every row stands in for the full body; any other waits for one.
 export function applyStats(held: StatsResponse | null, payload: StatsResponse | ChangedStats): StatsResponse | null {
   if (!('changed' in payload)) return payload;
-  if (!held) return held; // the full body always comes first on a stream
   const { model_names, changed, ...envelope } = payload;
-  const byName = new Map(held.models.map(m => [m.name, m]));
+  if (!held && !model_names.every(name => changed.some(r => r.name === name))) return held;
+  const byName = new Map(held?.models.map(m => [m.name, m]));
   for (const row of changed) byName.set(row.name, row);
   return { ...envelope, models: model_names.flatMap(name => byName.get(name) ?? []) };
 }

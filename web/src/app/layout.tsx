@@ -1,12 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { JetBrains_Mono } from "next/font/google";
-
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains-mono",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
 
 const title = "No-LLMit";
 const description = "9 LLMs play No Limit Hold'em against each other, live. Watch each one explain its move.";
@@ -33,7 +26,7 @@ export default function RootLayout({
     // suppressHydrationWarning: the home page's inline script (page.tsx) sets --stage-w here before React hydrates.
     <html lang="en" style={{ background: '#FFFFFF' }} suppressHydrationWarning>
       <body
-        className={`h-full ${jetbrainsMono.variable} flex flex-col`}
+        className="h-full flex flex-col"
         style={{ 
           fontFamily: "ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif",
           color: 'rgb(55, 53, 47)',

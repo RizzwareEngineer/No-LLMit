@@ -1,43 +1,29 @@
 "use client";
 
-import CornerBorders from "@/components/CornerBorders";
 import LLMLogo from "@/components/LLMLogo";
 import TypewriterText from "@/components/TypewriterText";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
-
-type DisplayPhase = 'idle' | 'waiting' | 'thinking' | 'reasoning' | 'revealed';
-
-interface DisplayState {
-  phase: DisplayPhase;
-  playerIdx: number;
-  playerName: string;
-  reason: string | null;
-  action: string | null;
-  amount: number;
-  turnStartTime: number;
-}
+import type { DisplayState } from "@/lib/stream";
 
 interface ReasoningPanelProps {
   displayState: DisplayState | null;
   shotClockRemaining: number;
-  isPaused?: boolean;
   blank?: boolean; // no table state yet: the bar at its size with nothing in it
 }
 
 export default function ReasoningPanel({
   displayState,
   shotClockRemaining,
-  isPaused = false,
   blank = false,
 }: ReasoningPanelProps) {
   const bb = useBigBlind(); // the action's amount follows the Chips/BB switch; the model's own words stay as written
 
-  const phase = displayState?.phase || 'idle';
+  const phase = displayState?.phase;
   const playerName = displayState?.playerName || '—';
   const reason = displayState?.reason;
   const action = displayState?.action;
   const amount = displayState?.amount || 0;
-  const isIdle = !displayState || phase === 'idle';
+  const isIdle = !displayState;
   const isThinking = phase === 'thinking';
   const isReasoning = phase === 'reasoning';
   const isRevealed = phase === 'revealed';
@@ -62,15 +48,13 @@ export default function ReasoningPanel({
       className={`relative bg-white h-[100px] rounded overflow-hidden ${blank ? '[&>*]:invisible' : ''}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >
-      <CornerBorders />
       <p className="sr-only" aria-live="polite">{announcement}</p>
       <div className="flex h-full">
         {/* Left section - Player name + countdown */}
         <div 
           className={`w-[200px] shrink-0 flex flex-col items-center justify-center border-r border-notion`}
           style={{ 
-            background: isPaused ? 'rgba(203, 145, 47, 0.1)' : 
-                        !isIdle ? 'rgba(35, 131, 226, 0.06)' :
+            background: !isIdle ? 'rgba(35, 131, 226, 0.06)' :
                         'rgba(55, 53, 47, 0.02)'
           }}
         >
@@ -86,14 +70,11 @@ export default function ReasoningPanel({
               <span 
                 className="font-mono text-lg font-bold"
                 style={{ 
-                  color: shotClockRemaining <= 5 ? 'rgb(235, 87, 87)' : 
-                         isPaused ? 'rgb(203, 145, 47)' : 
-                         'rgb(35, 131, 226)'
+                  color: shotClockRemaining <= 5 ? 'rgb(235, 87, 87)' : 'rgb(35, 131, 226)'
                 }}
               >
                 {shotClockRemaining}s
               </span>
-              {isPaused && <span style={{ color: 'rgb(203, 145, 47)' }} className="text-xs">⏸</span>}
             </div>
           )}
         </div>
@@ -124,7 +105,7 @@ export default function ReasoningPanel({
                 )}
               </div>
               <p className={`${reasonFontSize} italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
-                <TypewriterText text={reason} speed={25} />
+                <TypewriterText key={reason} text={reason} speed={25} />
               </p>
             </>
           )}
