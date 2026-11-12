@@ -1,7 +1,7 @@
 'use client';
 
-import { useRef, useSyncExternalStore } from 'react';
-import { AnimatePresence, motion, useInView } from 'motion/react';
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { AnimatePresence, motion, useInView, useIsPresent } from 'motion/react';
 import NumberFlow, { type Format } from '@number-flow/react';
 import { MUTED, TEXT } from '@/lib/stats';
 import { useRememberedBox } from '@/lib/boxes';
@@ -187,6 +187,13 @@ export default function Panel({
   // measures only when it changes, in its place from before.
   const place = `${focused}|${covered}|${fit}`;
   const [cell, size, attrs] = useRememberedBox<HTMLDivElement>(id, !blank);
+  // A tile that hands over to a card of its own (Profiles, Matchups: it takes the card's header extras). Its "Open ↓"
+  // fades, and it scrolls only once its glide has landed (no scrollbars mid-glide); Trends' tile stays as it was.
+  const hands = extra !== undefined;
+  const [landed, setLanded] = useState(place);
+  // Back on the overview, a tile shows its top (the tile standing in for a card was scrolled as the card was).
+  const scroller = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (!focused && scroller.current) scroller.current.scrollTop = 0; }, [focused]);
   // The slide lives on a wrapper (the grid cell), the glide on the section: motion drops an x/y
   // that changes in the same render as a layout snap. Untransformed, the wrapper is no containing
   // block, so a focused section still fills the whole grid.
@@ -211,7 +218,7 @@ export default function Panel({
       initial={false}
       transition={move}
       // The glide to the card's place has landed: StatsSections hands over to the card now.
-      onLayoutAnimationComplete={focused ? () => window.dispatchEvent(new CustomEvent('glideend', { detail: id })) : undefined}
+      onLayoutAnimationComplete={focused ? () => { setLanded(place); window.dispatchEvent(new CustomEvent('glideend', { detail: id })); } : undefined}
       id={id}
       aria-labelledby={`${id}-title`}
       inert={covered}
@@ -228,20 +235,17 @@ export default function Panel({
           {/* No link (the URL never names a stats screen): the tile itself is the one tab stop that opens it. */}
           <span className="hover:underline">{title}</span>
         </h2>
-        <div className="flex items-center gap-4 min-w-0">
+        <div className="relative flex items-center gap-4 min-w-0">
           {aside}
-          <AnimatePresence initial={false} mode="popLayout">
-            {extra && (
-              <motion.div key="extra" initial={{ opacity: 0 }} animate={{ opacity: 1, transition: snap ? NONE : IN }} exit={{ opacity: 0, transition: OUT }}>
-                {extra}
-              </motion.div>
-            )}
+          <AnimatePresence initial={false}>
+            {extra && <Swap key="extra" snap={snap}>{extra}</Swap>}
+            {hands && overview && <Swap key="open" snap={snap}>{OPEN}</Swap>}
           </AnimatePresence>
-          {overview && <span aria-hidden className="text-[14px] font-medium whitespace-nowrap" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span>}
+          {!hands && overview && OPEN}
         </div>
       </motion.div>
       {/* A tile never scrolls (it opens its card instead); only the focused card may. */}
-      <motion.div layout layoutDependency={place} layoutScroll transition={move} className={`panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 ${focused ? 'overflow-auto' : 'overflow-hidden'}`}>
+      <motion.div ref={scroller} layout layoutDependency={place} layoutScroll transition={move} className={`panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 ${focused && (!hands || snap || landed === place) ? 'overflow-auto' : 'overflow-hidden'}`}>
         {children}
       </motion.div>
     </motion.section>
@@ -249,9 +253,21 @@ export default function Panel({
   );
 }
 
+const OPEN = <span aria-hidden className="text-[14px] font-medium whitespace-nowrap" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span>;
+// A header extra or "Open ↓" coming or going: fades in place; one leaving steps out of the header's flow at its right
+// end, so the header never wraps or shifts while the two cross-fade.
+function Swap({ snap, children }: { snap: boolean; children: React.ReactNode }) {
+  const present = useIsPresent();
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: snap ? NONE : IN }} exit={{ opacity: 0, transition: OUT }} className={present ? '' : 'absolute right-0 inset-y-0 flex items-center'}>
+      {children}
+    </motion.div>
+  );
+}
+
 // Something the card adds around its tile's content: fades in as the tile glides open (nothing when `still`).
 export function Added({ still = false, className, style, children }: { still?: boolean; className?: string; style?: React.CSSProperties; children: React.ReactNode }) {
-  return <motion.div initial={still ? false : { opacity: 0 }} animate={{ opacity: 1, transition: IN }} className={className} style={style}>{children}</motion.div>;
+  return <motion.div initial={still ? false : { opacity: 0 }} animate={{ opacity: 1, transition: IN }} className={`added ${className ?? ''}`} style={style}>{children}</motion.div>;
 }
 
 export const SHADOW = 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px';
