@@ -50,9 +50,9 @@ if [ "$UI" = 1 ] && [ "$CHANGED" = 1 ] && ! changed_files | grep -q '^web/'; the
   step "ui: headless checks"; echo "no changed files under web/: no UI checks"; UI=0
 fi
 
-# The UI checks need the engine the build's NEXT_PUBLIC_WS_URL names: fail before the lock and the build if it is down.
+# Without --base, the UI checks need the engine the build's NEXT_PUBLIC_WS_URL names: fail before the lock and the build if it is down.
 api=$(printf %s "${NEXT_PUBLIC_WS_URL:-ws://localhost:8080/ws}" | sed 's#^ws#http#; s#/ws$##')
-if [ "$UI" = 1 ] && ! curl -sf -m 5 "$api/health" >/dev/null; then echo "no engine at $api: start it first"; fail=1; UI=0; fi
+if [ "$UI" = 1 ] && [ -z "$BASE" ] && ! curl -sf -m 5 "$api/health" >/dev/null; then echo "no engine at $api: start it first"; fail=1; UI=0; fi
 
 LOCK=/tmp/nollmit-checks.lock SERVER="" PORT=""
 cleanup() {

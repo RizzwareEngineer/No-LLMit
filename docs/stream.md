@@ -39,7 +39,7 @@ after a random 10 to 14 minutes, chosen when it opens; the client then reconnect
 
 ## Table messages
 
-The payloads are today's Go structs in `engine/api/messages.go`, unchanged.
+The payloads are the Go structs in `engine/api/messages.go`.
 
 | type | payload |
 |---|---|
@@ -131,7 +131,7 @@ name with neither. Rows are matched by `name` only, never by position.
   stream itself; `EventSource`'s own retry is never relied on.
 - Reconnect loop: attempt 1 after an error waits a random 0 to 1 s; attempt n ≥ 2 waits
   2 s × n × a random 0.5 to 1.5. After 10 failed attempts the status is `gave_up`
-  and the Retry button starts a fresh round. `open` resets the attempt count.
+  and the Retry button starts a fresh round. The first message on a stream (the snapshot) resets the attempt count; an `open` alone does not.
 - `isConnected` turns false only after 4 s with no open stream. Nothing is cleared on `open`.
 - A `snapshot` replaces all table state; tables absent from it are dropped. Every other table
   message is applied on arrival to `tables[msg.table]`, creating the entry if missing.
