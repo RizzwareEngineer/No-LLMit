@@ -236,6 +236,44 @@ def test_supabase_pagination(monkeypatch):
     assert calls[0][1]["and"] == "(started_at.gte.2026-11-01T04:00:00+00:00,started_at.lt.2026-11-05T05:00:00+00:00)"
 
 
+def test_paged_survives_a_server_row_cap(monkeypatch):
+    """A server that caps responses below PAGE must not end the read at the first short page."""
+    rows = list(range(25))
+    monkeypatch.setattr(export, "_get", lambda b, k, path, p: rows[p["offset"]:p["offset"] + min(p["limit"], 4)])
+    assert export._paged("b", "k", "t", {}, "id") == rows
+
+
+def test_export_without_day_goes_one_day_at_a_time(monkeypatch, tmp_path, capsys):
+    hs, ps, _ = export.load_jsonl(GENERATED / "hands.jsonl", GENERATED / "prompts.jsonl")
+    first = min(export.hh.start_order(h) for h in hs)[0]
+    loaded = []
+
+    def fake_load(base, key, day, back):
+        loaded.append((day, back))
+        day_hands = [h for h in hs if export.hand_day(h) == day.isoformat()]
+        ids = {h["hand_id"] for h in day_hands}
+        return day_hands, [p for p in ps if p["prompt_id"].rsplit("-", 1)[0] in ids], []
+
+    monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "k")
+    monkeypatch.setattr(export, "_get", lambda *a: [{"started_at": first.isoformat()}])
+    monkeypatch.setattr(export, "load_supabase", fake_load)
+    export.main(["--out", str(tmp_path / "out")])
+    days = [d for d, _ in loaded]
+    assert days[0] == first.astimezone(export.hh.ET).date() and len(days) > 1
+    assert all(b == 0 for _, b in loaded) and days == sorted(set(days))
+    assert "hands," in capsys.readouterr().out
+
+
+def test_stars_hand_number_fits_64_bits_for_long_table_ids():
+    from hh import stars_hand_number
+    short = {"table_id": "tbl_684679", "hand_number": 2}
+    long = {"table_id": "tbl_ffffffffffffffff", "hand_number": 999_999}
+    assert stars_hand_number(short) == 0x684679 * 1_000_000 + 2
+    assert 0 < stars_hand_number(long) < 2**63
+    assert stars_hand_number(long) == stars_hand_number(dict(long))
+
+
 def test_upload_dry_run_needs_no_token(exported, monkeypatch, capsys):
     import upload
     out, _, _ = exported

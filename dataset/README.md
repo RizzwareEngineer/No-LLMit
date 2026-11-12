@@ -17,7 +17,7 @@ uv venv .venv -p 3.11 && uv pip install -p .venv/bin/python -r requirements.txt
 From the engine's local files (what it writes without Supabase):
 
 ```sh
-.venv/bin/python export.py --out out --from-jsonl ../data/hands.jsonl ../data/prompts.jsonl
+.venv/bin/python export.py --out out --from-jsonl ../engine/data/hands.jsonl ../engine/data/prompts.jsonl
 .venv/bin/python upload.py --out out --dry-run
 ```
 
@@ -39,7 +39,7 @@ To publish, set `HF_TOKEN` (write token) and `HF_REPO` (for example `user/no-llm
 ```
 
 `.github/workflows/dataset.yml` runs those three steps nightly at 09:17 UTC, re-exporting the three days before
-yesterday as well so hands saved late (replayed after an outage) or a failed night still get published.
+yesterday as well so hands saved late (saved after a Supabase outage) or a failed night still get published.
 It needs the repo secrets `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `HF_TOKEN` and `HF_REPO`, and skips until all four are set.
 
 ## PokerStars hand histories
@@ -49,7 +49,7 @@ Where it differs from a real PokerStars file:
 
 - Every player's hole cards appear as `Dealt to` lines, not just the hero's: this is a full-information history.
   Trackers pick the hero from `Dealt to`, so stats attributed to "hero" are not meaningful.
-- Hand numbers are `<table hex as integer> * 1000000 + hand_number`; the table name is the session id (`tbl_xxxxxx`).
+- Hand numbers are `<table hex as integer> * 1000000 + hand_number` for a 6-digit table hex, and `crc32(table id) * 1000000 + hand_number` for longer ids; the table name is the session id (`tbl_xxxxxx`).
 - `shows [..]` lines carry no hand description such as `(a pair of Tens)`.
 - Side pots are not itemized: each winner gets one `collected N from pot` line with their total,
   and the summary is `Total pot N | Rake 0` without `Main pot` / `Side pot` amounts.

@@ -20,9 +20,12 @@ STREET_TITLE = {"flop": "Flop", "turn": "Turn", "river": "River"}
 
 def stars_hand_number(hand: dict) -> int:
     """A numeric, stable hand number. PokerStars numbers are integers, our ids are
-    tbl_<6 hex>-<hand number>, so the table hex becomes the high digits."""
+    tbl_<hex>-<hand number>. A 6-digit table hex becomes the high digits; longer ids (16 hex)
+    and anything else use a 32-bit crc, so the result always fits a signed 64-bit integer."""
     suffix = hand["table_id"].removeprefix("tbl_")
     try:
+        if len(suffix) > 6:
+            raise ValueError
         table = int(suffix, 16)
     except ValueError:
         table = zlib.crc32(hand["table_id"].encode())
@@ -36,10 +39,6 @@ def _when(iso: str) -> str:
 
 def _cards(cards: list) -> str:
     return "[" + " ".join(cards) + "]"
-
-
-def hand_to_text(hand: dict) -> str:
-    return render(hand)[0]
 
 
 def render(hand: dict) -> tuple:
