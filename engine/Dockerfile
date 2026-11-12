@@ -1,6 +1,6 @@
 # Base images come from Amazon's public mirror of the official Docker images, which is
 # not subject to Docker Hub's pull rate limits.
-FROM public.ecr.aws/docker/library/golang:1.22-alpine AS builder
+FROM public.ecr.aws/docker/library/golang:1.25-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./

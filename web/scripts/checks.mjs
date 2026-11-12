@@ -1,6 +1,6 @@
 // Headless checks for the owner's locked UI rules. Each one can fail; a failure exits non-zero.
 // Run: node scripts/checks.mjs [--base http://localhost:3100] [--skip id,id] [--only id,id] [--changed] [--replay-speed 4]
-// Needs a running web server and engine; scripts/verify.sh provides both and the machine-wide lock.
+// Needs a running web server and an engine (the build's NEXT_PUBLIC_WS_URL, default :8080); scripts/verify.sh starts the server, holds the machine-wide lock and checks the engine is up.
 // Chrome is the system install (CHROME_PATH to override).
 import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
@@ -48,12 +48,12 @@ const watchStream = p => { p.on('request', r => { if (/\/stream$/.test(r.url()))
 const newPage = async () => watchStream(await (lane.getStore() ?? browser).newPage());
 // Runs fn in a fresh browser context (its own window), beside whatever else is running.
 const alone = async fn => { const ctx = await browser.createBrowserContext(); try { return await lane.run(ctx, fn); } finally { await ctx.close().catch(() => {}); } };
-const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { while (fns.length) await alone(fns.shift()); }));
+const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { while (fns.length) await alone(fns.shift()).catch(e => console.error(e)); }));
 
 // --changed: only the checks tied to the files changed against $BASE_REF (committed, uncommitted, untracked).
 // A web file no rule names, or a change to this script outside a check's own block, selects every check.
 const COVERS = [
-  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|CornerBorders|ActionPanel|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/(sound|amounts)\./, /^(seat-size|table-|no-currency|main-scroll|stats-font-unified|stats-type-scale)/],
+  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|CornerBorders|ActionPanel|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/(sound|amounts)\./, /^(seat-size|table-|no-currency|main-scroll|stats-type-scale)/],
   [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges)/],
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
   [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],
@@ -92,6 +92,9 @@ if (process.argv.includes('--changed')) {
   if (ids) ids.forEach(id => ONLY.add(id));
   console.log(`--changed: ${ids ? [...ids].join(', ') : 'every check'}`);
 }
+
+const unknown = [...ONLY].filter(id => !IDS.includes(id));
+if (unknown.length) { console.error(`unknown check id: ${unknown.join(', ')}`); process.exit(2); }
 
 const goto = (pg, id) => pg.evaluate(id => { const el = document.getElementById(id); window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: 'instant' }); }, id);
 const clickText = (pg, t) => pg.evaluate(t => { const b = [...document.querySelectorAll('button')].find(e => e.textContent.trim() === t && e.getBoundingClientRect().width > 0); if (b) b.click(); return !!b; }, t);
@@ -1299,31 +1302,27 @@ main(() => check('history-type', 'Trends type: x and y ticks alike, axis titles 
   const s = o => o ? `${o.family} ${o.px}px ${o.weight} ${o.color ?? ''}${o.tab ? ' tabular' : ''}` : 'none';
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `ticks ${s(r.y[0])}; titles ${s(r.titles[0])}; pill names ${s(r.names[0])}; values ${s(r.values[0])}` };
 }));
-// Since 2026-11-08 ticks and pills are 13px (history-type, the orchestrator's type audit); the hover
-// readout keeps the Profiles cells' 14px.
-main(() => check('history-number-style', 'Trends numbers (ticks, pills, readout) use the body sans, tabular; the readout at the Profiles cells\' 14px, ticks and pills at 13px', async () => {
+// Ticks and pills are history-type's; the hover readout keeps the Profiles cells' 14px.
+main(() => check('history-number-style', 'The Trends hover readout uses the body sans, tabular, at the Profiles cells\' 14px', async () => {
   const c = await pg.evaluate(() => { const p = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0).getBoundingClientRect(); return [p.left + p.width * 0.45, p.top + p.height * 0.5]; });
   await pg.mouse.move(c[0], c[1]); await sleep(300);
   const r = await pg.evaluate(() => {
     const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
     const svg = plot.querySelector('svg'), k = plot.getBoundingClientRect().width / svg.viewBox.baseVal.width;
     const ref = document.querySelector('#stats-panel td, #stats-card td') || document.body;
-    const roles = { 'y ticks': '[data-y-tick]', 'x ticks': '[data-x-tick]', pills: '[data-pill]', readout: '[data-readout-value]' };
-    return Object.entries(roles).map(([role, sel]) => {
-      const es = [...plot.querySelectorAll(sel)];
-      if (!es.length) return `${role}: none`;
-      const bad = new Set();
-      for (const e of es) {
-        const cs = getComputedStyle(e), px = parseFloat(cs.fontSize) * k;
-        if (cs.fontFamily !== getComputedStyle(ref).fontFamily) bad.add(`font ${cs.fontFamily.slice(0, 20)}`);
-        if (!cs.fontVariantNumeric.includes('tabular-nums')) bad.add('not tabular');
-        if (Math.abs(px - (role === 'readout' ? 14 : 13)) > 0.75) bad.add(`${px.toFixed(1)}px`);
-      }
-      return bad.size ? `${role}: ${[...bad].join(', ')}` : '';
-    }).filter(Boolean);
+    const es = [...plot.querySelectorAll('[data-readout-value]')];
+    if (!es.length) return ['readout: none'];
+    const bad = new Set();
+    for (const e of es) {
+      const cs = getComputedStyle(e), px = parseFloat(cs.fontSize) * k;
+      if (cs.fontFamily !== getComputedStyle(ref).fontFamily) bad.add(`font ${cs.fontFamily.slice(0, 20)}`);
+      if (!cs.fontVariantNumeric.includes('tabular-nums')) bad.add('not tabular');
+      if (Math.abs(px - 14) > 0.75) bad.add(`${px.toFixed(1)}px`);
+    }
+    return bad.size ? [`readout: ${[...bad].join(', ')}`] : [];
   });
   await pg.mouse.move(5, 5);
-  return { pass: !r.length, detail: r.length ? r.join('; ') : 'ticks, pills and readout: body sans, tabular; readout 14px, ticks and pills 13px on screen' };
+  return { pass: !r.length, detail: r.length ? r.join('; ') : 'readout: body sans, tabular, 14px on screen' };
 }));
 
 // The overview tile gets its own Replay once the lines have stopped (owner 2026-11-08): hidden while
@@ -1949,41 +1948,9 @@ main(() => check('matchups-card-hugs', 'The opened Matchups card spans the table
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-// Owner, 2026-11-07: "the font for the numbers in matchups doesn't feel like it matches ... unify all
-// of the fonts". The reference is Profiles' cells (body sans, 14px, tabular figures): in the cards,
-// Matchups' cells, its Total column and the Leader figure match it; the Matchups tile uses one size for
-// every cell (no per-cell scaling); Profits & Losses uses the same family and tabular figures.
-main(() => check('stats-font-unified', 'One number font across the stats cards (family, tabular figures, size by role)', async () => {
-  // Every visible element under `sel` that holds a figure's text itself (screen-reader copies aside).
-  const font = sel => pg.evaluate(sel => [...document.querySelectorAll(sel)].flatMap(e => [e, ...e.querySelectorAll('*')])
-    .filter(e => !e.closest('.sr-only') && e.getBoundingClientRect().width > 0 && [...e.childNodes].some(n => n.nodeType === 3 && /\d/.test(n.textContent)))
-    .map(e => { const s = getComputedStyle(e); return `${s.fontFamily.split(',')[0]}|${s.fontVariantNumeric}|${s.fontSize}`; }), sel);
-  await goto(pg, 'stats-table'); await sleep(1500);
-  const prof = await font('#stats-card tbody td');
-  await goto(pg, 'pairwise'); await sleep(1500);
-  const cells = await font('#pairwise-card td[data-cell]');
-  const totals = await font('#pairwise-card div[data-cell]');
-  const leader = (await font('#pairwise-card h2 ~ div span.font-bold')).slice(-1); // its figure, after the name
-  await goto(pg, 'stats'); await sleep(1500);
-  const tile = await font('#pairwise-panel td[data-cell]');
-  await pg.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(800);
-  const pl = await font('#table ol li div.tabular-nums');
-  const ref = prof[0];
-  const fam = f => f?.split('|').slice(0, 2).join('|');
-  const bad = [];
-  for (const [name, fs] of [['Matchups cells', cells], ['Totals', totals], ['Leader', leader]]) {
-    if (!fs.length) bad.push(`${name}: none found`);
-    else if (fs.some(f => f !== ref)) bad.push(`${name}: ${[...new Set(fs)].join(', ')}`);
-  }
-  if (!ref || !ref.endsWith('|14px') || !ref.includes('tabular-nums')) bad.push(`Profiles cells: ${ref}`);
-  if (new Set(tile).size !== 1 || fam(tile[0]) !== fam(ref)) bad.push(`Matchups tile: ${[...new Set(tile)].join(', ')}`);
-  if (!pl.length || pl.some(f => fam(f) !== fam(ref))) bad.push(`Profits & Losses: ${[...new Set(pl)].join(', ') || 'none found'}`);
-  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `cards ${ref}; tile ${tile[0]}; P&L ${pl[0]}` };
-}));
-
 // Owner, 2026-11-08: "we need to do an audit on the fonts and sizes and all". One family (the body's sans),
 // tabular figures, and one small scale by role on every stats tile and card (Trends's chart internals are
-// checked by history-number-style): titles 20px bold; model names and data figures 14px; controls 14px
+// checked by history-type and history-number-style): titles 20px bold; model names and data figures 14px; controls 14px
 // medium; column headers and secondary text 13px (muted); the Matchups tile's figures one size (11px).
 main(() => check('stats-type-scale', 'Every text role on the stats tiles and cards uses the agreed family, size, weight and colour', async () => {
   const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)';
@@ -2853,8 +2820,8 @@ const bb100 = (v, bb) => (v.net_chips / bb / v.hands) * 100;
 const seatedOf = stats => { const at = stats.models.filter(m => stats.seated?.includes(m.name)); return at.length >= 2 ? at : stats.models; };
 // A button in the Matchups card's header (the Trends card has an "All models" of its own in the page's order).
 const clickLineup = (p, t) => p.evaluate(t => { const b = [...document.querySelectorAll('#pairwise-card button')].find(e => e.textContent.trim() === t && e.getBoundingClientRect().width > 0); if (b) b.click(); return !!b; }, t);
-const cardCells = p => p.evaluate(() => [...document.querySelectorAll('#pairwise-card td[data-cell]')].map(td => ({ key: td.dataset.cell, hands: td.dataset.hands ?? null, text: td.querySelector('[aria-hidden]')?.textContent ?? '' }))); // the visible figure (the sr-only copy aside)
-group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/100: net_chips / big_blind / hands together x 100 from the engine, with those hands on it', async () => {
+const cardCells = p => p.evaluate(() => [...document.querySelectorAll('#pairwise-card [data-cell]')].map(el => ({ key: el.dataset.cell, hands: el.dataset.hands ?? null, text: el.querySelector('[aria-hidden]')?.textContent ?? '' }))); // the visible figure (the sr-only copy aside)
+group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/100 (net_chips / big_blind / hands together x 100 from the engine, with those hands on it), and each Total is the row\'s bb/100 against the models shown', async () => {
   const p = await pageAt(1440, 900, 'race');
   await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
   const e = await engineStats(p);
@@ -2863,12 +2830,17 @@ group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/
   const cells = await cardCells(p);
   await p.close();
   const bad = []; let n = 0;
+  const names = new Set(cells.map(c => c.key.split('|')[0]));
   for (const c of cells) {
     const [row, col] = c.key.split('|');
-    if (!col || row === col) continue;
-    const v = by[row]?.vs?.[col];
+    if (row === col) continue;
+    let v = by[row]?.vs?.[col];
+    if (!col) { // the Total: the row's bb/100 against the models shown
+      v = { net_chips: 0, hands: 0 };
+      for (const o of names) if (o !== row) { const w = by[row]?.vs?.[o]; v.net_chips += w?.net_chips ?? 0; v.hands += w?.hands ?? 0; }
+    }
     if (!v?.hands) { if (c.text) bad.push(`${c.key}: "${c.text}" for a pair without hands together`); continue; }
-    n++;
+    if (col) n++;
     const x = bb100(v, bb), want = bbText(x), whole = `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.round(Math.abs(x))}`; // a whole where the decimal does not fit
     if (c.text !== want && c.text !== whole) bad.push(`${c.key}: shows "${c.text}", engine ${v.net_chips} chips over ${v.hands} hands = ${want}`);
     if (+c.hands !== v.hands) bad.push(`${c.key}: data-hands ${c.hands}, engine ${v.hands}`);
@@ -3155,11 +3127,13 @@ group(() => check('reconnect-unseen', 'The routine stream reconnect is unseen: n
 }));
 
 const beside = drain(groups, Math.max(1, LANES - 1));
-for (const step of steps) await step();
+for (const step of steps) await step().catch(e => console.error(e));
 await Promise.all([pg, ...shared().values()].map(p => p.close()));
 await browser.__sharedCtx?.close();
 await Promise.all([beside, drain(lates, Math.max(1, LANES - 1))]);
 await browser.close();
+// A block that threw outside its check() lost its checks: they fail under their own ids, so verify.sh reruns them alone.
+for (const id of IDS) if (want(id) && !results.some(r => r.id === id)) results.push({ id, rule: 'ran', pass: false, detail: 'never ran: its block threw (error above)', ms: 0 });
 results.sort((a, b) => IDS.indexOf(a.id) - IDS.indexOf(b.id));
 const w = Math.max(...results.map(r => r.id.length));
 for (const r of results) console.log(`${r.pass ? 'PASS' : 'FAIL'}  ${r.id.padEnd(w)}  ${(r.ms / 1000).toFixed(1).padStart(5)}s  ${r.detail}   (${r.rule})`);
