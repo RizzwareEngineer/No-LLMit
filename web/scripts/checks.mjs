@@ -5,6 +5,7 @@
 import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
@@ -54,10 +55,10 @@ const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { wh
 // A web file no rule names, or a change to this script outside a check's own block, selects every check.
 const COVERS = [
   [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/(sound|amounts)\./, /^(seat-size|table-|no-currency|main-scroll|stats-type-scale)/],
-  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges)/],
+  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges|handover-|glide-clean)/],
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
-  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],
-  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges)/],
+  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],
+  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges)/],
   [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|page-edges|main-scroll|no-stats-hash|scroll-consistency)/],
   [/components\/StickyBar\.tsx|lib\/amounts\./, /^(sticky-|table-bb-toggle)/],
   [/components\/(PokerTable|Player|TableFelt|WinningsPanel|UsageIndicator|ReasoningPanel|StickyBar|StatsTable|HeadToHead|CumulativeChart|About)\.tsx|lib\/boxes\./, /^skeleton-/],
@@ -1550,6 +1551,286 @@ main(() => check('glide-smooth', 'Opening and closing Profiles and Matchups: no 
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
+
+// Owner, 2026-11-10, the third time on this seam: "when I open and close matchups, it does not feel like a smooth
+// experience. There's some flashing ... With trends, it's very smooth ... for matchups and profiles, there's just
+// something off." Profiles and Matchups hand over between two elements (the tile and its card), and every difference
+// between them showed as a one-frame pop; closing painted a blank frame. glide-smooth measured the DOM and passed
+// through all of it, so these three judge the painted frames (CDP screencast) by content and order, never by timing,
+// at four sizes, closing with Back to overview and with Escape. Trends, which never swaps elements, is filmed and
+// judged the same way as the control. One run of films serves all three checks (the first of them pays for it).
+// Each frame carries the DOM state it was painted from (test-only): a ResizeObserver, which runs after rAF and layout
+// and before paint, samples the page and paints the sample's number into a 6px marker in the bottom-left corner.
+const filmable = p => p.evaluate(() => {
+  const F = window.__film = { k: 0, on: false, s: [] };
+  const mark = document.createElement('div'), probe = document.createElement('div');
+  mark.style.cssText = 'position:fixed;left:0;bottom:0;width:6px;height:6px;z-index:2147483647;pointer-events:none';
+  probe.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;visibility:hidden;pointer-events:none';
+  document.body.append(mark, probe);
+  const R = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+  const shown = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+  const part = e => e.matches('[role=group][aria-label=Lineup]') && e.closest('#pairwise-panel, #pairwise-card') ? 'Lineup control' : e.matches('[data-scope]') ? 'Leader'
+    : e.matches('p') ? 'definition line' : e.matches('tr.add-in') ? 'group header row' : e.matches('.add-in') && e.closest('table') ? 'extra columns'
+    : e.matches('.add-in') && e.querySelector('button') ? 'button row' : e.matches('.add-in') ? 'Total column'
+    : e.matches('[translate=no]') && e.closest('tbody, a[title]') ? 'row names' : e.textContent.trim() === 'Open ↓' ? 'Open ↓' : null;
+  const sample = () => {
+    const { tile, card, screen } = F.cfg;
+    const t = document.querySelector(tile), c = card && document.querySelector(`${card} .card-chrome`);
+    const onCard = !!c && document.getElementById(screen).getBoundingClientRect().top < 2;
+    const el = onCard ? c : t;
+    const parts = [...el.querySelectorAll('[role=group], [data-scope], p, .add-in, [translate=no], span[aria-hidden]')].filter(shown).map(e => [part(e), R(e)]).filter(([k]) => k);
+    const names = [...el.querySelectorAll('a[title] [translate=no]')];
+    const rows = [...el.querySelectorAll('tbody tr')].map((tr, i) => {
+      const cells = [...tr.querySelectorAll(card === '#pairwise-card' ? 'td[data-hands]' : 'td')].filter(d => shown(d) && /\d/.test(d.textContent)).map(R);
+      const name = card === '#pairwise-card' ? names[i] : tr.querySelector('th [translate=no]');
+      return cells.length && name && shown(name) && { n: name.textContent.trim(), nx: R(name), cy: [Math.min(...cells.map(b => b[1])), Math.max(...cells.map(b => b[3]))], cx: [Math.min(...cells.map(b => b[0])), Math.max(...cells.map(b => b[2]))], tr: R(tr) };
+    }).filter(Boolean);
+    const tip = [...el.querySelectorAll('[role=tooltip]')].find(e => shown(e) && getComputedStyle(e).visibility === 'visible');
+    const sc = el.querySelector('.panel-scroll');
+    return { y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), title: R(el.querySelector('h2')) };
+  };
+  new ResizeObserver(() => {
+    if (!F.on) return;
+    F.s[++F.k] = sample();
+    mark.style.background = `rgb(${F.k & 255},${(F.k >> 8) & 255},90)`;
+  }).observe(probe);
+  let flip = 0;
+  const loop = () => { probe.style.width = `${(flip ^= 1) + 1}px`; requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+// A screencast PNG (8-bit RGB or RGBA, not interlaced) to RGBA pixels: no image dependency in the checks.
+const png = b64 => {
+  const b = Buffer.from(b64, 'base64'), idat = [];
+  let o = 8, w = 0, h = 0, c = 4;
+  while (o < b.length) {
+    const n = b.readUInt32BE(o), t = b.toString('latin1', o + 4, o + 8);
+    if (t === 'IHDR') { w = b.readUInt32BE(o + 8); h = b.readUInt32BE(o + 12); c = b[o + 17] === 6 ? 4 : 3; }
+    if (t === 'IDAT') idat.push(b.subarray(o + 8, o + 8 + n));
+    o += 12 + n;
+  }
+  const raw = inflateSync(Buffer.concat(idat)), s = w * c, px = Buffer.alloc(w * h * 4);
+  let prev = Buffer.alloc(s);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (s + 1)], cur = raw.subarray(y * (s + 1) + 1, (y + 1) * (s + 1));
+    for (let i = 0; i < s; i++) {
+      const a = i >= c ? cur[i - c] : 0, u = prev[i], ul = i >= c ? prev[i - c] : 0;
+      const pa = Math.abs(u - ul), pb = Math.abs(a - ul), pc = Math.abs(a + u - 2 * ul);
+      cur[i] += f === 1 ? a : f === 2 ? u : f === 3 ? (a + u) >> 1 : f === 4 ? (pa <= pb && pa <= pc ? a : pb <= pc ? u : ul) : 0;
+    }
+    for (let x = 0, j = y * w * 4; x < w; x++, j += 4) { px[j] = cur[x * c]; px[j + 1] = cur[x * c + 1]; px[j + 2] = cur[x * c + 2]; }
+    prev = cur;
+  }
+  return { w, h, px };
+};
+const clip = (f, [l, t, r, b]) => [Math.max(0, Math.ceil(l)), Math.max(0, Math.ceil(t)), Math.min(f.w, Math.floor(r)), Math.min(f.h, Math.floor(b))];
+const meet = ([l, t, r, b], [L, T, R, B]) => [Math.max(l, L), Math.max(t, T), Math.min(r, R), Math.min(b, B)];
+// The share of a box's pixels (every other one) that pass `test`.
+const share = (f, box, test) => {
+  const [l, t, r, b] = clip(f, box); let n = 0, all = 0;
+  for (let y = t; y < b; y += 2) for (let x = l; x < r; x += 2) { const i = (y * f.w + x) * 4; all++; if (test(f.px[i], f.px[i + 1], f.px[i + 2])) n++; }
+  return all ? n / all : 0;
+};
+const PAGE = (r, g, b) => Math.abs(r - 250) + Math.abs(g - 250) + Math.abs(b - 249) <= 6; // the page colour (pages-one-background)
+const INK = (r, g, b) => r + g + b < 300; // text at full strength (TEXT is 155); the darkest cell tint sums 464
+// How much a set of boxes is drawn: the darkness summed over their pixels, in pixels of black.
+const dark = (f, boxes) => boxes.reduce((d, box) => {
+  const [l, t, r, b] = clip(f, box);
+  for (let y = t; y < b; y++) for (let x = l; x < r; x++) { const i = (y * f.w + x) * 4; d += 765 - f.px[i] - f.px[i + 1] - f.px[i + 2]; }
+  return d;
+}, 0) / 765;
+// The longest run of scrollbar grey along the 10px strips at a box's right and bottom edges.
+const thumb = (f, [l, t, r, b]) => {
+  [l, t, r, b] = clip(f, [l, t, r, b]);
+  const grey = (x, y) => { const i = (y * f.w + x) * 4, p = [f.px[i], f.px[i + 1], f.px[i + 2]]; return Math.max(...p) - Math.min(...p) <= 6 && p[0] >= 140 && p[0] <= 215; };
+  let most = 0;
+  for (let x = r - 10; x < r; x++) for (let y = t, run = 0; y < b; y++) most = Math.max(most, run = grey(x, y) ? run + 1 : 0);
+  for (let y = b - 10; y < b; y++) for (let x = l, run = 0; x < r; x++) most = Math.max(most, run = grey(x, y) ? run + 1 : 0);
+  return most;
+};
+// Where two frames differ inside a box, as regions of 16px blocks. Both frames are blurred 3x3, and a pixel counts as
+// changed only when no pixel within 1px of it in the other frame matches it (SAME, summed RGB), both ways; a block
+// counts with BLOCK_PX changed pixels. Measured on this page's frames (1440x900): two frames of the still page differ
+// in 0 pixels; Trends' tile and its own screen at the jump in 0; Profiles' tile and card at its matching hand-over in
+// 253 pixels scattered over the table (text drawn at another sub-pixel phase), no block; unblurred, those were 9,432
+// pixels in 40 blocks. The Lineup control popping in is 1,938 changed pixels, the hover readout 20,296.
+const SAME = 60, BLOCK_PX = 12;
+const regions = (A, B, box) => {
+  const [l, t, r, b] = clip(A, box), w = r - l, h = b - t;
+  // Both frames blurred over 3x3 first: text drawn at another sub-pixel phase blurs to the same picture.
+  const blur = F => { const o = new Float32Array(w * h * 3); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) for (let c = 0; c < 3; c++) { let v = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) v += F.px[((t + y + dy) * F.w + l + x + dx) * 4 + c]; o[(y * w + x) * 3 + c] = v / 9; } return o; };
+  const P = blur(A), Q = blur(B), blocks = new Map();
+  const d = (X, Y, i, j) => Math.abs(X[i] - Y[j]) + Math.abs(X[i + 1] - Y[j + 1]) + Math.abs(X[i + 2] - Y[j + 2]);
+  const near = (X, Y, i, x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (d(X, Y, i, ((y + dy) * w + x + dx) * 3) <= SAME) return true; return false; };
+  for (let y = 3; y < h - 3; y++) for (let x = 3; x < w - 3; x++) {
+    const i = (y * w + x) * 3;
+    if (d(P, Q, i, i) <= SAME || (near(P, Q, i, x, y) && near(Q, P, i, x, y))) continue;
+    const k = `${(l + x) >> 4},${(t + y) >> 4}`; blocks.set(k, (blocks.get(k) ?? 0) + 1);
+  }
+  const hot = new Set([...blocks].filter(([, n]) => n >= BLOCK_PX).map(([k]) => k)), out = [];
+  for (const k0 of hot) {
+    const todo = [k0], box = [Infinity, Infinity, -Infinity, -Infinity]; let px = 0; hot.delete(k0);
+    while (todo.length) {
+      const [x, y] = todo.pop().split(',').map(Number); px += blocks.get(`${x},${y}`);
+      box[0] = Math.min(box[0], x * 16); box[1] = Math.min(box[1], y * 16); box[2] = Math.max(box[2], x * 16 + 16); box[3] = Math.max(box[3], y * 16 + 16);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const n = `${x + dx},${y + dy}`; if (hot.delete(n)) todo.push(n); }
+    }
+    out.push({ box, px });
+  }
+  return { out, px: [...blocks.values()].reduce((a, n) => a + n, 0) };
+};
+// What sits in a region: the smallest named things of either frame that overlap it.
+const what = (box, ...ss) => {
+  const items = ss.flatMap(s => [...s.parts, ...s.rows.map(r => [`row ${r.n}`, r.tr]), ['title', s.title]]);
+  const hit = items.filter(([, r]) => { const m = meet(r, box); return m[2] > m[0] && m[3] > m[1]; }).sort((a, b) => (a[1][2] - a[1][0]) * (a[1][3] - a[1][1]) - (b[1][2] - b[1][0]) * (b[1][3] - b[1][1]));
+  return [...new Set(hit.map(([k]) => k))].slice(0, 2).join(' / ') || 'nothing named';
+};
+const BLANK = 0.05; // under 5% of the card's box painted: neither card nor tile (a blank frame measures 0.1-0.4%, the lowest real one 30%+)
+const SECTIONS = { Trends: ['#race-panel', null, 'race'], Profiles: ['#stats-panel', '#stats-card', 'stats-table'], Matchups: ['#pairwise-panel', '#pairwise-card', 'pairwise'] };
+// The frames painted around one open or close, each with the sample it was painted from; `post`: after the press.
+const film = async (p, cfg, act, to) => {
+  const cdp = p.__cdp ??= await p.createCDPSession(), data = [];
+  const W = await p.evaluate(c => { Object.assign(window.__film, { cfg: c, s: [], on: true }); return [innerWidth, innerHeight]; }, cfg);
+  const on = f => { data.push(f.data); cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {}); };
+  cdp.on('Page.screencastFrame', on);
+  await cdp.send('Page.startScreencast', { format: 'png', everyNthFrame: 1, maxWidth: W[0], maxHeight: W[1] });
+  await sleep(400);
+  const mark = await p.evaluate(() => window.__film.k);
+  await act();
+  await p.waitForFunction(id => Math.abs(document.getElementById(id).getBoundingClientRect().top) < 2, { timeout: 15000, polling: 100 }, to).catch(() => {});
+  await sleep(1300);
+  await cdp.send('Page.stopScreencast'); cdp.off('Page.screencastFrame', on);
+  const s = await p.evaluate(() => { window.__film.on = false; return window.__film.s; });
+  const frames = data.map(png).map(f => { const i = ((f.h - 3) * f.w + 2) * 4; return { ...f, k: f.px[i + 2] === 90 ? f.px[i] + 256 * f.px[i + 1] : 0 }; }).filter(f => f.k >= mark && s[f.k]).sort((a, b) => a.k - b.k);
+  // The last frame from before the press, then every frame after it, in the order they were painted (the screencast can
+  // deliver them out of order).
+  return Object.assign(frames.filter((f, i) => f.k > mark || frames[i + 1]?.k > mark).map(f => ({ ...f, s: s[f.k], post: f.k > mark })), { S: s });
+};
+// Judges one film for all three checks; returns their findings (the frames are dropped after).
+const judge = (fr, name, how, state) => {
+  const out = { name, blank: [], same: [], clean: [], cal: {} }, post = fr.filter(f => f.post);
+  if (post.length < 3) { out.same.push(`${name}: only ${post.length} frames painted`); return out; }
+  const ref = how === 'open' ? post.at(-1).s.box : fr[0].s.box; // the card's box (Trends: its opened tile)
+  fr.forEach(f => { f.ink = share(f, ref, (r, g, b) => !PAGE(r, g, b)); });
+  post.forEach((f, i) => f.ink < BLANK && out.blank.push(`${name}: frame ${i + 1} of ${post.length} is blank (${(100 * f.ink).toFixed(1)}% painted in the card's box)`));
+  out.cal.ink = Math.min(...post.map(f => f.ink));
+  // The swap (the page's jump, sample kSwap): the last frame painted before it, and the first after it with anything
+  // painted. The screencast drops frames on a busy machine: a frame either side counts only if nothing moved between
+  // it and the swap (every sample in between has its box and scroll) or every frame in between was captured (blank
+  // ones); otherwise the hand-over was not seen and the film is taken again.
+  const S = fr.S, yEnd = post.at(-1).s.y, kSwap = S.findLastIndex(x => x && Math.abs(x.y - yEnd) > 2) + 1;
+  const i = post.findLastIndex(f => f.k < kSwap), j = post.findIndex(f => f.k >= kSwap && f.ink >= BLANK), caught = new Set(fr.map(f => f.k));
+  const still = (a, b) => S.slice(a, b + 1).every(x => x && Math.abs(x.y - S[a].y) <= 2 && x.box.every((v, n) => Math.abs(v - S[a].box[n]) <= 0.5));
+  const seen = (a, b) => still(a, b) || Array.from({ length: b - a + 1 }, (_, n) => a + n).every(k => caught.has(k));
+  if (i < 0 || j < 0 || !seen(post[i].k, kSwap - 1) || !seen(kSwap, post[j].k)) out.missed = true;
+  else if (name.startsWith('Trends') && post[j].w < 768) out.cal.swap = 0; // Trends' phone legend steps 4px at its jump (its own, out of this work)
+  else {
+    const a = post[i], b = post[j], box = (how === 'open' ? b : a).s.box;
+    const moved = Math.max(...a.s.box.map((v, n) => Math.abs(v - b.s.box[n])));
+    if (moved > 2) out.same.push(`${name}: the box moves ${moved.toFixed(0)}px at the swap`);
+    const { out: rs, px } = regions(a, b, box);
+    out.cal.swap = px;
+    if (rs.length) out.same.push(`${name}: at the swap (frame ${i + 1} → ${j + 1}) the picture changes at ${rs.slice(0, 4).map(r => `${what(r.box, a.s, b.s)} (${r.box[2] - r.box[0]}x${r.box[3] - r.box[1]} at ${r.box[0]},${r.box[1]})`).join('; ')}${rs.length > 4 ? ` and ${rs.length - 4} more` : ''}`);
+    const still = regions(post.at(-2), post.at(-1), box);
+    out.cal.still = still.px;
+  }
+  // While it glides: what the card adds (and the tile's "Open ↓", the Leader, the row names) fades; nothing appears,
+  // vanishes or drops out between two frames painted one after the other. Blank frames are A's; they are skipped here.
+  const seq = fr.filter(f => f.ink >= BLANK), gap = (a, b) => b.k - a.k - fr.filter(f => f.ink < BLANK && f.k > a.k && f.k < b.k).length;
+  const at = n => fr.indexOf(seq[n]) + (fr[0].post ? 1 : 0); // a frame's number after the press
+  const keys = new Set(seq.flatMap(f => f.s.parts.map(([k]) => k)));
+  for (const k of keys) {
+    if (name.startsWith('Trends') && k === 'Open ↓') continue; // Trends' tile hides it at once too, by design so far
+    const d = seq.map(f => dark(f, f.s.parts.filter(([q]) => q === k).map(([, r]) => meet(r, f.s.box))));
+    const top = Math.max(...d); if (top < 40) continue;
+    const r = d.map(v => v / top);
+    for (let n = 1; n < seq.length; n++) {
+      if (gap(seq[n - 1], seq[n]) > 1) continue; // a frame between them was not captured
+      if (r[n - 1] <= 0.1 && r[n] >= 0.9) out.clean.push(`${name}: ${k} appears in one frame (${at(n - 1)} → ${at(n)})`);
+      if (r[n - 1] >= 0.9 && r[n] <= 0.1) out.clean.push(`${name}: ${k} ${r[n + 1] >= 0.8 ? 'drops out for one frame' : 'vanishes in one frame'} (${at(n - 1)} → ${at(n)})`);
+    }
+  }
+  const torn = new Map(), tips = [], bars = [];
+  seq.forEach((f, n) => {
+    const [l, t, r, b] = f.s.box;
+    for (const row of f.s.rows) {
+      if (row.cy[0] < Math.max(t, 44) || row.cy[1] > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar
+      if (share(f, [row.cx[0], row.cy[0], row.cx[1], row.cy[1]], INK) * (row.cx[1] - row.cx[0]) * (row.cy[1] - row.cy[0]) / 4 < 8) continue; // no numbers drawn
+      if (share(f, [row.nx[0], row.cy[0], row.nx[2], row.cy[1]], INK) === 0 && !torn.has(row.n)) torn.set(row.n, at(n));
+    }
+    if (f.post && f.s.tip && share(f, f.s.tip, (r, g, b) => r + g + b >= 759) > 0.5) tips.push(at(n));
+    // Trends' tile shows its scrollbars while gliding too (its own, out of this work): judged on Profiles and Matchups.
+    if (state === 'default' && !name.startsWith('Trends') && !f.s.card && f.s.sc && thumb(f, meet(f.s.sc, f.s.box)) >= 30) bars.push(at(n));
+  });
+  for (const [row, n] of torn) out.clean.push(`${name}: row "${row}" has its numbers but no name (frame ${n})`);
+  if (tips.length) out.clean.push(`${name}: a hover tooltip shows with the pointer still (frames ${tips[0]}–${tips.at(-1)})`);
+  if (bars.length) out.clean.push(`${name}: a scrollbar shows on the gliding tile (frames ${bars[0]}–${bars.at(-1)})`);
+  return out;
+};
+let filmed;
+const films = () => (filmed ??= alone(async () => {
+  const out = [];
+  for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117], [390, 844]]) {
+    const p = await pageAt(w, h, 'race');
+    // Puppeteer launches Chrome with --hide-scrollbars; the films show them, as a mouse user's browser does.
+    await (p.__cdp ??= await p.createCDPSession()).send('Emulation.setScrollbarsHidden', { hidden: false });
+    await clickText(p, 'Skip'); await sleep(1000); // the replay over, only the glides change pixels
+    await goto(p, 'stats'); await sleep(1500);
+    await filmable(p);
+    for (const [sec, [tile, card, screen]] of Object.entries(SECTIONS)) {
+      const take = async (how, state, act) => {
+        for (let n = 1; ; n++) {
+          await sleep(800);
+          const fr = await film(p, { tile, card, screen }, act, how === 'open' ? screen : 'stats');
+          const r = judge(fr, `${sec} ${how} ${w}x${h}${state === 'default' ? '' : ` (${state})`}`, how, state);
+          if (!r.missed || n === 4) { if (r.missed) r.same.push(`${r.name}: the swap was not captured in 4 films`); out.push(r); return; }
+          await (how === 'open' ? back() : open()); await sleep(2500); // undo it and film it again
+        }
+      };
+      const open = async () => { const pt = await p.evaluate(s => { const b = document.querySelector(s).getBoundingClientRect(); return [b.left + b.width / 2, b.top + 20]; }, tile); await p.mouse.click(pt[0], pt[1]); };
+      const back = () => clickPrefix(p, 'Back to overview'), esc = () => p.keyboard.press('Escape');
+      await take('open', 'default', open); await take('close by Back', 'default', back);
+      await take('open', 'default', open); await take('close by Escape', 'default', esc);
+      if (sec === 'Trends') continue;
+      // The viewer changes the card, then closes and opens it again.
+      await open(); await sleep(3000);
+      const changed = await p.evaluate(c => {
+        const q = s => [...document.querySelectorAll(`${c} ${s}`)];
+        const press = (s, t) => { const b = q(s).find(e => e.textContent.trim().startsWith(t) && !e.disabled); b?.click(); return !!b; };
+        if (c === '#pairwise-card') return press('button', 'All models') ? 'lineup All models' : '';
+        const did = [press('thead th button', 'VPIP') && 'sorted by VPIP', press('button', 'All models') && 'All models'];
+        q('tbody tr td').filter((_, i, a) => i === 0 || i === Math.floor(a.length / 2)).forEach(td => td.click());
+        return did.filter(Boolean).concat('2 rows picked').join(', ');
+      }, card);
+      await sleep(800);
+      const scrolled = await p.evaluate(c => { const s = document.querySelector(`${c} .panel-scroll`); s.scrollTop = 60; return s.scrollTop; }, card);
+      await sleep(500);
+      const state = `${changed}${scrolled ? `, scrolled ${scrolled}px` : ''}`;
+      await take('close by Back', state, back); await take('open', state, open);
+      await back(); await sleep(2500);
+    }
+    // A real pointer move over a cell still shows its readout.
+    await (async () => {
+      await p.mouse.click(...await p.evaluate(() => { const b = document.querySelector('#pairwise-panel').getBoundingClientRect(); return [b.left + b.width / 2, b.top + 20]; }));
+      await sleep(3000);
+      const c = await p.evaluate(() => [...document.querySelectorAll('#pairwise-card td[data-hands]')].map(e => { const b = e.getBoundingClientRect(); return [e, b.left + b.width / 2, b.top + b.height / 2]; }).find(([e, x, y]) => e.contains(document.elementFromPoint(x, y)))?.slice(1));
+      if (c) { await p.mouse.move(c[0] - 3, c[1] - 3); await p.mouse.move(c[0], c[1], { steps: 3 }); await sleep(600); }
+      if (!c || !await p.evaluate(() => !!document.querySelector('#pairwise-card [role=tooltip]'))) out.push({ blank: [], same: [], clean: [`Matchups ${w}x${h}: a real pointer move over a cell shows no readout`], cal: {} });
+    })();
+    await p.close();
+  }
+  return out;
+}));
+const report = (key, ok) => async () => {
+  const fs = await films(), bad = fs.flatMap(f => f[key]), n = fs.filter(f => f.cal.ink !== undefined).length;
+  const by = ['Trends', 'Profiles', 'Matchups'].map(x => `${x} ${bad.filter(b => b.startsWith(x)).length}`).join(', ');
+  return { pass: !bad.length, detail: bad.length ? `${bad.length} (${by}): ${bad.slice(0, 12).join('; ')}${bad.length > 12 ? '; …' : ''}` : ok(fs, n) };
+};
+main(() => check('handover-no-blank', 'Opening and closing Trends, Profiles and Matchups (Back to overview and Escape, 1440x900, 1512x982, 1728x1117, 390x844) never paints a frame with neither the card nor the tile in the card\'s box', report('blank',
+  (fs, n) => `${n} opens and closes filmed, at least ${(100 * Math.min(...fs.map(f => f.cal.ink ?? 1))).toFixed(0)}% of the card's box painted in every frame`)));
+main(() => check('handover-same-picture', 'At each hand-over between tile and card (opening and closing, as opened and after the viewer changed the lineup, the sort, All models, picked rows or the scroll), the last frame before the swap and the first after it show the same picture in the card\'s box, the box itself within 2px', report('same',
+  (fs, n) => `${n} hand-overs, changed pixels at the swap ≤ ${Math.max(...fs.map(f => f.cal.swap ?? 0))}, at rest ≤ ${Math.max(...fs.map(f => f.cal.still ?? 0))}`)));
+main(() => check('glide-clean', 'While a tile glides to its card and back: no scrollbar on it, no hover readout the pointer did not ask for (a real move still shows one), no row with numbers but no name, and nothing the card adds (Lineup, Total, extra columns, the definition and button rows, Open ↓, the Leader, the names) appears, vanishes or drops out in one frame', report('clean',
+  (fs, n) => `${n} glides, every frame clean`)));
 
 // --- Matchups and Profiles opened ---
 main(() => check('matchups-no-fade', 'Opening Matchups grows the matrix without fading it', async () => {
