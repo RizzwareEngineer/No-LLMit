@@ -2,13 +2,11 @@
 
 import { Club, Diamond, Heart, Spade } from '@phosphor-icons/react';
 import { motion } from "motion/react"
-import React, { useState } from 'react';
 
 
 interface CardProps {
   value: string;
   className?: string;
-  faceDown?: boolean;
 }
 
 const RANK_NAMES: Record<string, string> = {
@@ -16,9 +14,7 @@ const RANK_NAMES: Record<string, string> = {
 };
 const SUIT_NAMES: Record<string, string> = { h: 'hearts', d: 'diamonds', c: 'clubs', s: 'spades' };
 
-const Card = ({ value, className = "", faceDown = false }: CardProps) => {
-  const [isHovered, setIsHovered] = useState(false);
-  
+const Card = ({ value, className = "" }: CardProps) => {
   // Determine card color based on suit
   const suit = value.slice(-1);
   const rank = value.slice(0, -1);
@@ -39,34 +35,25 @@ const Card = ({ value, className = "", faceDown = false }: CardProps) => {
   const suitColor = getSuitColor();
   const rankName = RANK_NAMES[rank] ?? rank;
   const suitName = SUIT_NAMES[suit];
-  const label = faceDown || !suitName ? 'hidden card' : `${rankName} of ${suitName}`;
+  const label = !suitName ? 'hidden card' : `${rankName} of ${suitName}`;
   
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
       transition={{ duration: 0.2 }}
       role="img"
       aria-label={label}
       className={`relative bg-white flex items-center justify-center rounded ${className}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px' }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
     >
-      {(!faceDown || isHovered) ? (
-        // Face up card
-        <div aria-hidden className="flex flex-row gap-1 items-center justify-center w-full h-full" style={{ color: 'rgb(55, 53, 47)' }}>
-          <span className="font-bold text-xs sm:text-sm">{rankText}</span>
-          {suit === 'h' && <Heart className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
-          {suit === 'd' && <Diamond className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
-          {suit === 'c' && <Club className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
-          {suit === 's' && <Spade className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
-        </div>
-      ) : (
-        // Face down card
-        <div className="card-back relative w-full h-full rounded" />
-      )}
+      <div aria-hidden className="flex flex-row gap-1 items-center justify-center w-full h-full" style={{ color: 'rgb(55, 53, 47)' }}>
+        <span className="font-bold text-xs sm:text-sm">{rankText}</span>
+        {suit === 'h' && <Heart className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
+        {suit === 'd' && <Diamond className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
+        {suit === 'c' && <Club className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
+        {suit === 's' && <Spade className={`w-3 h-3 shrink-0 ${suitColor}`} weight="fill" />}
+      </div>
     </motion.div>
   );
 };

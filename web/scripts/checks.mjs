@@ -53,7 +53,7 @@ const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { wh
 // --changed: only the checks tied to the files changed against $BASE_REF (committed, uncommitted, untracked).
 // A web file no rule names, or a change to this script outside a check's own block, selects every check.
 const COVERS = [
-  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|CornerBorders|ActionPanel|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/(sound|amounts)\./, /^(seat-size|table-|no-currency|main-scroll|stats-type-scale)/],
+  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/(sound|amounts)\./, /^(seat-size|table-|no-currency|main-scroll|stats-type-scale)/],
   [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges)/],
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
   [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],

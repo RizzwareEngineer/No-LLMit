@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { Lightning, Heart, Warning } from "@phosphor-icons/react";
-import CornerBorders from "@/components/CornerBorders";
 import { API_URL } from "@/lib/api";
 import { localHoursLabel } from "@/lib/time";
 import { useRememberedBox } from "@/lib/boxes";
@@ -13,7 +12,6 @@ export interface UsageData {
     callsToday: number;
     dailyCallCap: number;
     open: boolean;
-    hours?: string;
     openHour?: number;
     closeHour?: number;
     timezone?: string;
@@ -28,12 +26,11 @@ export interface UsageData {
 const USAGE_POLL_MS = 30_000;
 
 // Polls /api/usage on an interval and whenever refreshTrigger changes.
-export function useUsage(refreshTrigger?: number, isPaused = false) {
+export function useUsage(refreshTrigger?: number) {
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (isPaused) return;
     const fetchUsage = async () => {
       try {
         const res = await fetch(`${API_URL}/api/usage`);
@@ -47,7 +44,7 @@ export function useUsage(refreshTrigger?: number, isPaused = false) {
     fetchUsage();
     const interval = setInterval(fetchUsage, USAGE_POLL_MS);
     return () => clearInterval(interval);
-  }, [isPaused, refreshTrigger]);
+  }, [refreshTrigger]);
 
   return { usage, error };
 }
@@ -82,7 +79,6 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
       className={`relative bg-white rounded overflow-hidden ${usage || error ? '' : '[&>*]:invisible'}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', ...size }}
     >
-      <CornerBorders />
       <div className="px-3 py-2">
         <div className="flex items-center gap-2 text-[11px] mb-1" style={{ color: MUTED }}>
           <Lightning size={11} weight="bold" style={{ color: barColor }} aria-hidden />
