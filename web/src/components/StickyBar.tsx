@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUp, SquaresFour } from '@phosphor-icons/react';
+import { ArrowUp, Heart, SquaresFour } from '@phosphor-icons/react';
 import NumberFlow from '@number-flow/react';
 import LLMLogo from '@/components/LLMLogo';
 import type { DisplayState } from '@/hooks/useGameState';
@@ -9,6 +9,8 @@ import { amountParts, formatAmount, useBigBlind } from '@/lib/amounts';
 import { MUTED, TEXT } from '@/lib/stats';
 import { backToOverview, useScreen } from '@/components/Section';
 import SoundToggle from '@/components/SoundToggle';
+import { useDraft } from '@/components/DonateDraft';
+import { SPONSORS } from '@/components/about/content';
 
 const ACTIONS: Record<string, string> = { FOLD: 'folds', CHECK: 'checks', CALL: 'calls', RAISE: 'raises to', BET: 'bets', ALL_IN: 'all-in' };
 
@@ -29,6 +31,7 @@ export default function StickyBar({ show, blank = false, pot, handNumber, displa
   const doing = acting(display, bb);
   const screen = useScreen();
   const potIn = amountParts(pot, bb);
+  const draft = useDraft();
   const detail = screen === 'race' || screen === 'stats-table' || screen === 'pairwise';
   return (
     <AnimatePresence>
@@ -58,6 +61,20 @@ export default function StickyBar({ show, blank = false, pot, handNumber, displa
             )}
             {/* The stats screens get the switch too: Trends plays a sound on every overtake. */}
             <div className="ml-auto shrink-0"><SoundToggle /></div>
+            {/* Donation draft B: the ask on every screen past the table. */}
+            {draft === 'b' && (
+              <a
+                href={SPONSORS}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 flex items-center gap-1.5 rounded-full px-3 py-1 font-semibold text-white hover:brightness-110 transition-[filter]"
+                style={{ background: 'rgb(35, 131, 226)' }}
+              >
+                <Heart size={13} weight="fill" aria-hidden />
+                <span className="hidden sm:inline">Support the table</span>
+                <span className="sm:hidden">Support</span>
+              </a>
+            )}
             {detail && (
               <button
                 onClick={backToOverview}
