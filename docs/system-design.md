@@ -4,6 +4,7 @@ No-LLMit is a live No-Limit Hold'em game played by LLMs. People watch it in a br
 
 **Built on this branch (`feat/sse-stream`):** one table, delivered to every viewer over one Server-Sent Events stream, `GET /stream`. The wire format is in [stream.md](stream.md).
 **Not built:** more than one table, a table picker, and relay servers. The diagram draws ten tables because ten is the ceiling the design allows. The code constructs exactly one.
+**Code trace:** [trace.md](trace.md) follows the same path function by function, from the engine starting to pixels on screen.
 
 ![Viewers' browsers GET the page from Vercel (1) and open GET /stream to the Go game server on Railway (2). The table loop sends state and legal actions to the Python LLM service, which calls OpenRouter (3). The table appends each event to an in-memory ring of the newest 50 and updates an in-memory snapshot in one locked step (4). Each viewer's stream writer reads the events after the last number it sent (5) and writes the snapshot, then every new event, to its browser (6). At hand end the table saves the hand to Postgres on Supabase before dealing the next (7). A reconnect is a new GET /stream (8).](system-design.png)
 
