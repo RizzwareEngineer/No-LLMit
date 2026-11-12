@@ -148,12 +148,19 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', mini }: { col
 // `pending`: models in range with no hands yet at the hand History is replaying, shown as dash rows.
 // `mini`: the overview tile, the same table with fewer columns, fixed short rows and no controls;
 // opening the card keeps this table and adds the rest around it.
-export default memo(function StatsTable({ models, seated, pending = [], mini = false }: { models: ModelStats[]; seated?: string[]; pending?: string[]; mini?: boolean }) {
-  const [sort, setSort] = useState({ key: 'bb100', desc: true });
-  const [everyone, setEveryone] = useState(false);
+export type TableView = { sort: { key: string; desc: boolean }; everyone: boolean; picked: Set<string> };
+export const TABLE_VIEW: TableView = { sort: { key: 'bb100', desc: true }, everyone: false, picked: new Set() };
+// `view`: the sort, "All models" and the picked rows, when they are shared (Profiles' opened tile and its card show
+// the same); the overview tile keeps the default.
+export default memo(function StatsTable({ models, seated, pending = [], mini = false, view }: { models: ModelStats[]; seated?: string[]; pending?: string[]; mini?: boolean; view?: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
+  const own = useState(TABLE_VIEW);
+  const [shared, setView] = view ?? own;
+  const { sort, everyone, picked } = mini ? TABLE_VIEW : shared;
+  const setSort = (f: (s: TableView['sort']) => TableView['sort']) => setView(v => ({ ...v, sort: f(v.sort) }));
+  const setEveryone = (f: (e: boolean) => boolean) => setView(v => ({ ...v, everyone: f(v.everyone) }));
   // Rows clicked to compare: the rest fade (Sports-Reference's row isolation).
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const isolate = (name: string) => setPicked(p => { const n = new Set(p); if (!n.delete(name)) n.add(name); return n; });
+  const setPicked = (p: Set<string>) => setView(v => ({ ...v, picked: p }));
+  const isolate = (name: string) => setView(v => { const n = new Set(v.picked); if (!n.delete(name)) n.add(name); return { ...v, picked: n }; });
   const col = COLUMNS.find(c => c.key === sort.key) ?? BB100;
   // Nulls (nothing to count yet) sort last in both directions.
   const sorted = [...models].sort((a, b) => {

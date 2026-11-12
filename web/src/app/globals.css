@@ -257,6 +257,11 @@ html:has([data-screen]) {
 @media (prefers-reduced-motion: no-preference) {
   .add-in { animation: add-in 0.3s 0.08s ease-out both; }
 }
+/* Closing a card (StatsSections' back): what it adds fades out, in the card and in the tile standing in under it,
+   before the tile glides back. */
+.stats-room[data-leaving] :is(.add-in, .added) { opacity: 0 !important; transition: opacity 0.12s ease-out; }
+/* Until the pointer moves after a tile opens or closes, no hover readout (content moved under a still pointer). */
+.stats-room[data-still] [role=tooltip] { display: none !important; }
 /* Only where scroll timelines exist: elsewhere a time-based run would fill straight to the end state. */
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) and (timeline-scope: --a) {
