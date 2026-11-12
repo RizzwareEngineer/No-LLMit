@@ -371,10 +371,13 @@ func TestLoneStackWithNothingToCallIsNotAsked(t *testing.T) {
 		}
 	})
 	t.Run("heads-up, a blind posted all-in", func(t *testing.T) {
-		// Two seats: seat 1 posts the small blind with its last 3 chips, seat 0 the big blind.
+		// Two seats: the button (seat 0) posts the small blind, seat 1 the big blind with its last 3 chips.
 		gs := newTable(1000, 3)
 		if err := gs.StartHand(); err != nil {
 			t.Fatal(err)
+		}
+		if gs.Players[0].CurrentBet != 5 || gs.Players[1].CurrentBet != 3 {
+			t.Fatalf("blinds: button posted %d (5), seat 1 posted %d (3)", gs.Players[0].CurrentBet, gs.Players[1].CurrentBet)
 		}
 		if gs.IsWaitingForAction() || !gs.NeedToAdvanceStreet() {
 			t.Fatalf("nothing can be decided, yet player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
@@ -382,6 +385,21 @@ func TestLoneStackWithNothingToCallIsNotAsked(t *testing.T) {
 		gs.AdvanceStreet()
 		if short := gs.Players[1].Stack; !gs.IsHandComplete() || short > 6 || total(gs) != 1003 {
 			t.Errorf("complete=%v, the short stack has %d (at most 6), %d chips in all (1003)", gs.IsHandComplete(), short, total(gs))
+		}
+	})
+	t.Run("heads-up, the button posts the small blind and acts first preflop only", func(t *testing.T) {
+		gs := newTable(1000, 1000)
+		if err := gs.StartHand(); err != nil {
+			t.Fatal(err)
+		}
+		if gs.Players[0].CurrentBet != 5 || gs.CurrentPlayerIdx != 0 {
+			t.Fatalf("button posted %d (5), player %d acts first (0)", gs.Players[0].CurrentBet, gs.CurrentPlayerIdx)
+		}
+		act(t, gs, ActionCall, 0)
+		act(t, gs, ActionCheck, 0)
+		gs.AdvanceStreet()
+		if gs.CurrentPlayerIdx != 1 {
+			t.Errorf("on the flop player %d acts first (1, the big blind)", gs.CurrentPlayerIdx)
 		}
 	})
 	t.Run("a stack that still owes a call is asked", func(t *testing.T) {

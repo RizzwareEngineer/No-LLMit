@@ -141,8 +141,7 @@ func (h *hub) since(last uint64, first bool) view {
 	return v
 }
 
-// snapshotFrames encodes the snapshot.
-func (v view) snapshotFrames() ([]byte, error) {
+func (v view) snapshotFrame() ([]byte, error) {
 	tables := make(map[string]tableSnap, len(v.tables))
 	for id, s := range v.tables {
 		c := *s
@@ -227,7 +226,7 @@ func (h *hub) handleStream(w http.ResponseWriter, r *http.Request) {
 
 func (v view) write(w http.ResponseWriter, rc *http.ResponseController) error {
 	if v.snap {
-		b, err := v.snapshotFrames()
+		b, err := v.snapshotFrame()
 		if err != nil {
 			return err
 		}

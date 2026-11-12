@@ -176,8 +176,7 @@ func (gs *GameState) rotateButton() {
 }
 
 func (gs *GameState) postBlinds() error {
-	sbIdx := gs.getNextActivePlayer(gs.ButtonIdx) // SB is left of button
-	bbIdx := gs.getNextActivePlayer(sbIdx)        // BB is left of SB
+	sbIdx, bbIdx := gs.blindSeats()
 
 	sbPlayer := &gs.Players[sbIdx]
 	sbAmount := min(gs.Stakes.SmallBlind, sbPlayer.Stack)
@@ -204,6 +203,15 @@ func (gs *GameState) postBlinds() error {
 	gs.RecordActionForLLMs(bbPlayer.Name, "post", bbAmount)
 
 	return nil
+}
+
+// blindSeats returns the small and big blind: left of the button, except heads-up, where the button posts the small blind.
+func (gs *GameState) blindSeats() (sb, bb int) {
+	sb = gs.getNextActivePlayer(gs.ButtonIdx)
+	if gs.getNextActivePlayer(sb) == gs.ButtonIdx {
+		sb = gs.ButtonIdx
+	}
+	return sb, gs.getNextActivePlayer(sb)
 }
 
 func (gs *GameState) getNextActivePlayer(fromIdx int) int {
