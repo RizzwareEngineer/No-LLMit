@@ -13,15 +13,18 @@ never sends anything on it. The code is `engine/api/stream.go`, `web/src/lib/api
 Content-Type: text/event-stream
 Cache-Control: no-store
 Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, OPTIONS
+Access-Control-Allow-Headers: Content-Type
 ```
 
 When 6,000 streams are already open the answer is `503` with a plain-text body, before any
-stream header is written. When 50 streams are already open from the viewer's address
-(`X-Real-IP`; an IPv6 address counts by its /64) the answer is `429` the same way. The
+stream header is written (the three CORS headers are still sent). When 50 streams are already
+open from the viewer's address (`X-Real-IP`; an IPv6 address counts by its /64; no per-address
+cap when the header is missing) the answer is `429` the same way. The
 client treats either like any other error and retries.
 
 Every message is one frame: `data: ` and one line of JSON, then a blank line. There is no
-`id:`, `event:` or `retry:` line. Every 20 s with nothing else to send the server writes the
+`id:`, `event:` or `retry:` line. Every 20 s from the open, whatever else was sent, the server writes the
 heartbeat comment `: hb` and a blank line; `EventSource` ignores it. Each stream ends itself
 after a random 10 to 14 minutes, chosen when it opens; the client then reconnects.
 
@@ -57,7 +60,8 @@ The payloads are the Go structs in `engine/api/messages.go`.
 same number.
 
 Events of one table step arrive back to back: `hand_start` then `game_state`; `street_change`
-(and `hand_complete` when the hand ends), then `game_state`. The `game_state` after an `llm_action` is what applies the
+(and `hand_complete` when the hand ends), then `game_state`; after a voided hand, `table_notice`
+(`outage`) then `game_state`. The `game_state` after an `llm_action` is what applies the
 action (the page moves its reasoning to revealed); the action stays the table's turn until the
 next `llm_thinking` or `hand_start`. There is no turn-cleared message.
 
@@ -131,7 +135,7 @@ name with neither. Rows are matched by `name` only, never by position.
   stream itself; `EventSource`'s own retry is never relied on.
 - Reconnect loop: attempt 1 after an error waits a random 0 to 1 s; attempt n ≥ 2 waits
   2 s × n × a random 0.5 to 1.5. After 10 failed attempts the status is `gave_up`
-  and the Retry button starts a fresh round. The first message on a stream (the snapshot) resets the attempt count; an `open` alone does not.
+  and the Retry button starts a fresh round. Every message on a stream, the snapshot first, resets the attempt count; an `open` alone does not.
 - `isConnected` turns false only after 4 s with no open stream. Nothing is cleared on `open`.
 - A `snapshot` replaces all table state; tables absent from it are dropped. Every other table
   message is applied on arrival to `tables[msg.table]`, creating the entry if missing.
@@ -141,5 +145,5 @@ name with neither. Rows are matched by `name` only, never by position.
   to revealed when `turnApplied` says so. If thinking is on screen and the snapshot carries that
   turn's action, the turn's start time and shot clock carry over, as on a live `llm_action`.
   Otherwise the display is built from the snapshot, or cleared when `turn` is `null`. A
-  reconnect therefore changes nothing on screen.
+  reconnect while the turn on screen is still the table's turn therefore changes nothing on screen.
 - The client keeps no `seq`, detects no gaps and queues nothing; the server paces every event.
