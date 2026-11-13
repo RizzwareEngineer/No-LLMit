@@ -202,6 +202,19 @@ func TestStatsEventCarriesChangedRows(t *testing.T) {
 	if strings.Contains(string(firstRaw), `"changed"`) || len(first.Models) == 0 {
 		t.Errorf("first event is not the full body: %.200s", firstRaw)
 	}
+	var keys map[string]json.RawMessage
+	json.Unmarshal(parseFrames(t, frames[1])[0].Payload, &keys)
+	for _, k := range []string{"generated_at", "scope", "partial", "model_names", "changed"} {
+		if _, ok := keys[k]; !ok {
+			t.Errorf("change event lacks %q", k)
+		}
+	}
+	if _, ok := keys["sessions"]; ok {
+		t.Error("change event carries sessions")
+	}
+	if _, ok := keys["models"]; ok {
+		t.Error("change event carries models")
+	}
 	played := map[string]bool{}
 	for _, a := range hands[4].Actions {
 		played[a.Player] = true
