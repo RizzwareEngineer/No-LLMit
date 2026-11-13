@@ -528,8 +528,10 @@ func TestPeekedFollowsTheTurns(t *testing.T) {
 	if p := snap().State.Peeked; p == nil || len(p) != 0 {
 		t.Fatalf("after hand_start: peeked %v, want []", p)
 	}
-	if b, _ := json.Marshal(tbl.stateMessage().Payload); !strings.Contains(string(b), `"peeked":[]`) {
-		t.Errorf("game_state without peeked: %s", b)
+	for _, f := range tbl.hub.since(0, false).frames {
+		if strings.Contains(string(f), `"type":"game_state"`) && !strings.Contains(string(f), `"peeked":[]`) {
+			t.Errorf("game_state without peeked: %s", f)
+		}
 	}
 	seat := tbl.gs.CurrentPlayerIdx
 	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
