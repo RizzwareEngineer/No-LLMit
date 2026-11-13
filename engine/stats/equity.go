@@ -6,7 +6,7 @@ package stats
 import (
 	"math/rand"
 	"runtime"
-	"sort"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -15,11 +15,6 @@ import (
 )
 
 const preflopSamples = 10000
-
-type pot struct {
-	amount   float64
-	eligible []int // indexes into the players being evaluated
-}
 
 // aievCache keeps each hand's all-in EV nets, since a preflop all-in takes up to seconds
 // with the shared evaluator and stats are recomputed after every hand.
@@ -105,7 +100,7 @@ func computeAIEV(h history.HandRecord) map[int]float64 {
 		inShowdown[sd.Seat] = true
 	}
 	for seat, c := range contrib {
-		if !inShowdown[seat] && float64(netOf(&h, seat)) != -c {
+		if !inShowdown[seat] && netOf(&h, seat) != -c {
 			return out // the actions do not add up to the result; keep the actual nets
 		}
 	}
@@ -125,9 +120,15 @@ func computeAIEV(h history.HandRecord) map[int]float64 {
 		return out
 	}
 
-	won := expectedWinnings(holes, board, buildPots(contrib, seats))
+	pots := game.SplitPots(contrib, seats)
+	for _, p := range pots {
+		for k, seat := range p.EligiblePlayers {
+			p.EligiblePlayers[k] = slices.Index(seats, seat) // expectedWinnings wants indexes into holes
+		}
+	}
+	won := expectedWinnings(holes, board, pots)
 	for i, seat := range seats {
-		out[seat] = won[i] - contrib[seat]
+		out[seat] = won[i] - float64(contrib[seat])
 	}
 	return out
 }
@@ -135,10 +136,10 @@ func computeAIEV(h history.HandRecord) map[int]float64 {
 // contributions is the chips each seat put in over the hand, from the blinds and the
 // applied actions (a call adds its amount; a bet, raise or all-in sets the street total).
 // result.pots cannot be used: a pot only one player is eligible for is not recorded.
-func contributions(h history.HandRecord) map[int]float64 {
-	total, street := make(map[int]float64, len(h.Seats)), make(map[int]float64, len(h.Seats))
+func contributions(h history.HandRecord) map[int]int {
+	total, street := make(map[int]int, len(h.Seats)), make(map[int]int, len(h.Seats))
 	for _, b := range h.Blinds {
-		street[b.Seat] = float64(b.Amount)
+		street[b.Seat] = b.Amount
 	}
 	cur := "preflop"
 	for _, a := range h.Actions {
@@ -151,9 +152,9 @@ func contributions(h history.HandRecord) map[int]float64 {
 		}
 		switch a.Applied.Type {
 		case "CALL":
-			street[a.Seat] += float64(a.Applied.Amount)
+			street[a.Seat] += a.Applied.Amount
 		case "BET", "RAISE", "ALL_IN":
-			street[a.Seat] = float64(a.Applied.Amount)
+			street[a.Seat] = a.Applied.Amount
 		}
 	}
 	for seat, c := range street {
@@ -162,47 +163,18 @@ func contributions(h history.HandRecord) map[int]float64 {
 	return total
 }
 
-// buildPots splits the chips into a main pot and side pots by contribution level. Only the
-// showdown seats are eligible; folded chips count toward each level up to what they put in.
-func buildPots(contrib map[int]float64, showdown []int) []pot {
-	levels := []float64{}
-	for _, s := range showdown {
-		levels = append(levels, contrib[s])
-	}
-	sort.Float64s(levels)
-	var pots []pot
-	prev := 0.0
-	for _, level := range levels {
-		if level == prev {
-			continue
-		}
-		p := pot{}
-		for _, c := range contrib {
-			p.amount += min(c, level) - min(c, prev)
-		}
-		for i, s := range showdown {
-			if contrib[s] >= level {
-				p.eligible = append(p.eligible, i)
-			}
-		}
-		pots = append(pots, p)
-		prev = level
-	}
-	return pots
-}
-
 // equity is each player's share of a single pot over all runouts.
 func equity(holes [][]game.Card, board []game.Card) []float64 {
 	all := make([]int, len(holes))
 	for i := range all {
 		all[i] = i
 	}
-	return expectedWinnings(holes, board, []pot{{amount: 1, eligible: all}})
+	return expectedWinnings(holes, board, []game.Pot{{Amount: 1, EligiblePlayers: all}})
 }
 
 // expectedWinnings averages what each player wins from the pots over the runouts: every
 // runout when one or two cards are to come, preflopSamples seeded random ones preflop.
-func expectedWinnings(holes [][]game.Card, board []game.Card, pots []pot) []float64 {
+func expectedWinnings(holes [][]game.Card, board []game.Card, pots []game.Pot) []float64 {
 	used := map[game.Card]bool{}
 	for _, c := range board {
 		used[c] = true
@@ -231,7 +203,7 @@ func expectedWinnings(holes [][]game.Card, board []game.Card, pots []pot) []floa
 		}
 		for _, p := range pots {
 			var best []int
-			for _, i := range p.eligible {
+			for _, i := range p.EligiblePlayers {
 				if len(best) == 0 {
 					best = []int{i}
 				} else if c := game.CompareHands(results[i], results[best[0]]); c > 0 {
@@ -241,7 +213,7 @@ func expectedWinnings(holes [][]game.Card, board []game.Card, pots []pot) []floa
 				}
 			}
 			for _, i := range best {
-				won[i] += p.amount / float64(len(best))
+				won[i] += float64(p.Amount) / float64(len(best))
 			}
 		}
 	}

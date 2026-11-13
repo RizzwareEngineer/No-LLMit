@@ -339,17 +339,17 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 		}
 	}
 	// The pot is every chip put in, less the part of the biggest bet nobody called.
-	var put []float64
+	var put []int
 	contrib := contributions(h)
 	for _, c := range contrib {
 		put = append(put, c)
 	}
-	sort.Sort(sort.Reverse(sort.Float64Slice(put)))
+	sort.Sort(sort.Reverse(sort.IntSlice(put)))
 	totalPot, totalWon := 0, 0.0
 	for i, c := range put {
-		totalPot += int(c)
+		totalPot += c
 		if i == 0 && len(put) > 1 {
-			totalPot -= int(c - put[1])
+			totalPot -= c - put[1]
 		}
 	}
 	for _, p := range h.Result.Pots {

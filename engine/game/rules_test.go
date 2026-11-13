@@ -91,6 +91,22 @@ func TestShortAllInLetsUnactedPlayersRaise(t *testing.T) {
 	}
 }
 
+func TestThreeWaySidePots(t *testing.T) {
+	// A is all-in for 100, B all-in for 250, C and D put in 400; E folded after 300 and F
+	// after 20. Folded chips count toward each level up to what they put in.
+	gs := newTable(1000, 1000, 1000, 1000, 1000, 1000)
+	put := []int{100, 250, 400, 400, 300, 20}
+	status := []PlayerStatus{PlayerAllIn, PlayerAllIn, PlayerActive, PlayerActive, PlayerFolded, PlayerFolded}
+	for i := range gs.Players {
+		gs.Players[i].TotalBetThisHand, gs.Players[i].Status = put[i], status[i]
+	}
+	gs.CalculatePots()
+	want := []Pot{{520, []int{0, 1, 2, 3}}, {600, []int{1, 2, 3}}, {350, []int{2, 3}}}
+	if !reflect.DeepEqual(gs.Pots, want) {
+		t.Errorf("pots = %+v, want %+v", gs.Pots, want)
+	}
+}
+
 func TestFoldedExcessGoesToSidePot(t *testing.T) {
 	// C is all-in for 50; A and B each put in 200 and B folds. The main pot is 150
 	// (50 x 3) for A or C, and the side pot is 300 for A alone.
