@@ -1,10 +1,8 @@
 // Game stream client for No-LLMit: Server-Sent Events from the engine (docs/stream.md)
 
-// The deploy setting is still the engine's old WebSocket address, so no Vercel setting changes.
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws';
-
-// The engine's HTTP address
-export const API_URL = WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, '');
+// The engine's address: an http(s) base URL without a trailing slash, such as https://engine.example.com. Unset, the site
+// talks to localhost; next.config.ts refuses a production Vercel build without it.
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 const STREAM_URL = `${API_URL}/stream`;
 
 type MessageType =

@@ -50,8 +50,8 @@ if [ "$UI" = 1 ] && [ "$CHANGED" = 1 ] && ! changed_files | grep -q '^web/'; the
   step "ui: headless checks"; echo "no changed files under web/: no UI checks"; UI=0
 fi
 
-# Without --base, the UI checks need the engine the build's NEXT_PUBLIC_WS_URL names: fail before the lock and the build if it is down.
-api=$(printf %s "${NEXT_PUBLIC_WS_URL:-ws://localhost:8080/ws}" | sed 's#^ws#http#; s#/ws$##')
+# Without --base, the UI checks need the engine the build's NEXT_PUBLIC_API_URL names: fail before the lock and the build if it is down.
+api=${NEXT_PUBLIC_API_URL:-http://localhost:8080}
 if [ "$UI" = 1 ] && [ -z "$BASE" ] && ! curl -sf -m 5 "$api/health" >/dev/null; then echo "no engine at $api: start it first"; fail=1; UI=0; fi
 
 LOCK=/tmp/nollmit-checks.lock SERVER="" PORT=""
@@ -78,8 +78,8 @@ fi
 if [ "$UI" = 1 ] && [ -z "$BASE" ]; then
   step "ui: production build (web/.next-verify)"
   export NEXT_DIST_DIR=.next-verify
-  # Rebuild only when web/ (the check scripts aside) or the engine address baked into the build (NEXT_PUBLIC_WS_URL) differs from the last build's.
-  key=$(cd "$ROOT" && { echo "${NEXT_PUBLIC_WS_URL-}"; git rev-parse HEAD:web; git diff HEAD -- web ':!web/scripts'; git ls-files -z --others --exclude-standard -- web ':!web/scripts' | xargs -0 cat; } | shasum | cut -c1-40)
+  # Rebuild only when web/ (the check scripts aside) or the engine address baked into the build (NEXT_PUBLIC_API_URL) differs from the last build's.
+  key=$(cd "$ROOT" && { echo "${NEXT_PUBLIC_API_URL-}"; git rev-parse HEAD:web; git diff HEAD -- web ':!web/scripts'; git ls-files -z --others --exclude-standard -- web ':!web/scripts' | xargs -0 cat; } | shasum | cut -c1-40)
   # Turbopack cannot follow a worker worktree's symlinked node_modules; webpack can.
   [ -L "$ROOT/web/node_modules" ] && bundler=--webpack || bundler=
   if [ "$(cat "$ROOT/web/.next-verify/VERIFY_KEY" 2>/dev/null)" = "$key" ]; then echo "unchanged since the last build: reused"

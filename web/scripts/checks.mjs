@@ -1,6 +1,6 @@
 // Headless checks for the owner's locked UI rules. Each one can fail; a failure exits non-zero.
 // Run: node scripts/checks.mjs [--base http://localhost:3100] [--skip id,id] [--only id,id] [--changed] [--replay-speed 4]
-// Needs a running web server and an engine (the build's NEXT_PUBLIC_WS_URL, default :8080); scripts/verify.sh starts the server, holds the machine-wide lock and checks the engine is up.
+// Needs a running web server and an engine (the build's NEXT_PUBLIC_API_URL, default :8080); scripts/verify.sh starts the server, holds the machine-wide lock and checks the engine is up.
 // Chrome is the system install (CHROME_PATH to override).
 import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
@@ -3779,7 +3779,7 @@ main(() => check('matchups-tile-no-total', 'The Matchups tile has no Total colum
 // together x 100, as the engine counts them); the card's "All models" lineup shows everyone with hands at the
 // seated lineup's cell size, scrolling inside the card with the names and logos pinned; a pair that never sat
 // together is an empty cell whose readout says so; the Leader line is bb/100 among models with 500 hands.
-// The engine's /api/stats, at the address of the page's own stream (the build's NEXT_PUBLIC_WS_URL); null if it never opened one.
+// The engine's /api/stats, at the address of the page's own stream (the build's NEXT_PUBLIC_API_URL); null if it never opened one.
 const engineStats = async p => {
   const url = p.__stream?.replace(/\/stream$/, '/api/stats');
   return url ? { url, stats: await (await fetch(url)).json() } : null;
