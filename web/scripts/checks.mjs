@@ -2164,7 +2164,9 @@ const filmable = p => p.evaluate(() => {
     const rows = [...el.querySelectorAll('tbody tr')].map((tr, i) => {
       const cells = [...tr.querySelectorAll(card === '#pairwise-card' ? 'td[data-hands]' : 'td')].filter(d => shown(d) && /\d/.test(d.textContent)).map(R);
       const name = card === '#pairwise-card' ? names[i] : tr.querySelector('th [translate=no]');
-      return cells.length && name && shown(name) && { n: name.textContent.trim(), nx: R(name), cy: [Math.min(...cells.map(b => b[1])), Math.max(...cells.map(b => b[3]))], cx: [Math.min(...cells.map(b => b[0])), Math.max(...cells.map(b => b[2]))], tr: R(tr) };
+      // Its opacity (a row fading as a whole, or faded by picked rows): faint text on a tint still reads as ink, on white not.
+      let o = 1; for (let x = tr; x && x !== el; x = x.parentElement) o *= +getComputedStyle(x).opacity;
+      return cells.length && name && shown(name) && { n: name.textContent.trim(), o, nx: R(name), cy: [Math.min(...cells.map(b => b[1])), Math.max(...cells.map(b => b[3]))], cx: [Math.min(...cells.map(b => b[0])), Math.max(...cells.map(b => b[2]))], tr: R(tr) };
     }).filter(Boolean);
     const tip = [...el.querySelectorAll('[role=tooltip]')].find(e => shown(e) && getComputedStyle(e).visibility === 'visible');
     return { y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), st: sc ? sc.scrollTop + sc.scrollLeft : 0, head: Math.max(0, ...[...el.querySelectorAll('thead th')].map(e => e.getBoundingClientRect().bottom)), title: R(el.querySelector('h2')) };
@@ -2337,7 +2339,7 @@ const judge = (fr, name, how, state) => {
     if (n > 1 && gap(seq[n - 1], f) <= 1 && Math.abs(f.s.st - seq[n - 1].s.st) >= 30 && seq[n - 1].s.st === seq[n - 2].s.st) jumps.push(`${seq[n - 1].s.st} → ${f.s.st}px (${at(n - 1)} → ${at(n)})`);
     const [l, t, r, b] = f.s.box;
     for (const row of f.s.rows) {
-      if (row.cy[0] < Math.max(t, 44, f.s.head - 1) || row.cy[1] > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar or the card's pinned header (scrolled)
+      if (row.o < 0.99 || row.cy[0] < Math.max(t, 44, f.s.head - 1) || Math.max(row.cy[1], row.nx[3]) > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar or the card's pinned header (scrolled)
       if (share(f, [row.cx[0], row.cy[0], row.cx[1], row.cy[1]], INK) * (row.cx[1] - row.cx[0]) * (row.cy[1] - row.cy[0]) / 4 < 8) continue; // no numbers drawn
       if (share(f, [row.nx[0], row.cy[0], row.nx[2], row.cy[1]], INK) === 0 && !torn.has(row.n)) torn.set(row.n, at(n));
     }
