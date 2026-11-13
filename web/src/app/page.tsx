@@ -376,7 +376,7 @@ export default function Home() {
             <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
             <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
             <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-            <span className="text-[14px] font-mono tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
+            <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
           </div>
           <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
           <UnitToggle bigBlind={stakes.bigBlind} />

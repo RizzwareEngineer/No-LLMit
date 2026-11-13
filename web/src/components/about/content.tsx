@@ -221,7 +221,7 @@ export function Footer() {
 // The prompts, as code.
 function Code({ children }: { children: string }) {
   return (
-    <pre className="p-3 rounded-lg text-[13px] leading-relaxed overflow-x-auto whitespace-pre-wrap" style={{ background: 'rgba(55, 53, 47, 0.04)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+    <pre className="p-3 rounded-lg text-[13px] leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono" style={{ background: 'rgba(55, 53, 47, 0.04)' }}>
       {children}
     </pre>
   );

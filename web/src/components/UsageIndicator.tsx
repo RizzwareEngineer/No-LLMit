@@ -97,7 +97,7 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
               style={{ width: error ? '0%' : `${Math.min(100, usedPct)}%`, background: barColor }}
             />
           </div>
-          <span className="text-[11px] font-mono font-bold tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
+          <span className="text-[11px] font-bold tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
             {error ? '???' : barIsSpend ? `$${usedUsd.toFixed(2)} / $${limitUsd!.toFixed(0)}` : calls}
           </span>
         </div>
@@ -105,13 +105,13 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
         {barIsSpend && (
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[11px]" style={{ color: MUTED }}>Calls today:</span>
-            <span className="text-[11px] font-mono tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>{calls}</span>
+            <span className="text-[11px] tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>{calls}</span>
           </div>
         )}
         {showSpend && !limitUsd && (
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[11px]" style={{ color: MUTED }}>Spend:</span>
-            <span className="text-[11px] font-mono tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>${usedUsd.toFixed(2)}</span>
+            <span className="text-[11px] tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>${usedUsd.toFixed(2)}</span>
           </div>
         )}
 

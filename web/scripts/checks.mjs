@@ -343,7 +343,7 @@ group(() => check('table-positions', 'Each seat\'s badge is the position the eng
 
 group(() => check('table-shot-clock', 'The shot clock shows the turn\'s budgetMs - elapsedMs from the stream (a viewer who joins mid-turn sees the time really left) and counts down; with no budgetMs there is no clock', async () => {
   const p = await scriptedTable(1440, 900), bad = [], seen = [];
-  const read = () => p.evaluate(() => { const c = document.querySelector('.font-mono.text-lg'); return c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null; });
+  const read = () => p.evaluate(() => { const c = document.querySelector('[data-clock]'); return c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null; });
   const think = (budgetMs, elapsedMs) => p.evaluate((budgetMs, elapsedMs) => { const s = window.__stream; s.scripted = true;
     s.feed({ type: 'llm_thinking', payload: { turn: 1, playerIdx: 2, playerName: s.last.players[2].name, budgetMs, elapsedMs } }); }, budgetMs, elapsedMs);
   const near = (got, want) => got !== null && Math.abs(got - want) <= 1;
@@ -671,7 +671,7 @@ group(() => check('table-card-sizes', 'Hole card sizes (?cards=1|2|3; none: as t
         if (w >= 768) { const b = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).getBoundingClientRect(); return [e.left + 20, e.top + 20]; }); await p.mouse.move(b[0], b[1]); await sleep(400); }
         // Text boxes per seat: the name, the stack, the badge, the action text (each text's own painted extent), the band's lines.
         const boxes = await p.evaluate(() => [...document.querySelectorAll('[data-seat]')].filter(s => s.getBoundingClientRect().width > 0).flatMap(seat => {
-          const texts = [...seat.querySelectorAll('[title], [data-chips], .font-mono, .absolute.top-\\[46px\\] > div')].filter(e => !e.closest('[data-hole]'));
+          const texts = [...seat.querySelectorAll('[title], [data-chips], [data-action], .absolute.top-\\[46px\\] > div')].filter(e => !e.closest('[data-hole]'));
           return texts.map(e => {
             // The text's own extent, cut to its box (a truncated text runs on, unpainted, under the cards).
             const r = document.createRange(); r.selectNodeContents(e); const b = r.getBoundingClientRect();
@@ -4081,7 +4081,7 @@ group(() => check('reconnect-unseen', 'The routine stream reconnect is unseen: n
     window.__endStream = () => { const es = s.cur; es.close(); es.onerror?.(new Event('error')); };
     window.__read = () => {
       const panel = document.querySelector('.stage-zoom .h-\\[100px\\]');
-      const clock = panel?.querySelector('.font-mono.text-lg');
+      const clock = panel?.querySelector('[data-clock]');
       const shown = clock && !clock.closest('.invisible');
       const look = e => e.textContent + [...e.querySelectorAll('[aria-label]')].map(c => c.getAttribute('aria-label')).join(',');
       return {

@@ -28,7 +28,6 @@ export default function RootLayout({
       <body
         className="h-full flex flex-col"
         style={{ 
-          fontFamily: "ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif",
           color: 'rgb(55, 53, 47)',
           WebkitFontSmoothing: 'auto'
         }}

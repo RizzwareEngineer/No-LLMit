@@ -69,7 +69,8 @@ export default function ReasoningPanel({
           {(
             <div className={`flex items-center gap-1 mt-1 ${showShotClock ? '' : 'invisible'}`}>
               <span 
-                className="font-mono text-lg font-bold"
+                data-clock
+                className="text-[20px] leading-7 font-bold tabular-nums"
                 style={{ 
                   color: (shotClockRemaining ?? 0) <= 5 ? 'rgb(235, 87, 87)' : BLUE
                 }}
@@ -99,7 +100,7 @@ export default function ReasoningPanel({
                 {action && (
                   // The same look as the action on each seat: mono, uppercase, bold, the amount muted.
                   <span className="flex flex-row items-center gap-1">
-                    <span className="text-[11px] font-mono uppercase font-bold tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>{action.replace('_', '-')}</span>
+                    <span className="text-[11px] uppercase font-bold tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>{action.replace('_', '-')}</span>
                     {amount > 0 && action !== 'FOLD' && action !== 'CHECK' && (
                       <span data-chips={amount} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(amount, bb)}</span>
                     )}

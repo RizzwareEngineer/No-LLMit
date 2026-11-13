@@ -127,7 +127,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
               </div>
             ) : player.lastAction && showAction ? (
               <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
-                <div className="text-[11px] font-mono uppercase font-bold tracking-wider shrink-0" style={{ color: 'rgb(55, 53, 47)' }}>
+                <div data-action className="text-[11px] uppercase font-bold tracking-wider shrink-0" style={{ color: 'rgb(55, 53, 47)' }}>
                   {player.lastAction}
                 </div>
                 {(player.lastAmount ?? 0) > 0 && (
@@ -136,11 +136,11 @@ export default function Player({ player, active, position, winAmount, winDesc, i
               </div>
             ) : player.currentBet > 0 ? (
               // Chips out with no action yet: the blinds. Their amount sits in front of the seat.
-              <div className="text-[11px] font-mono uppercase tracking-wider truncate" style={{ color: MUTED }}>
+              <div data-action className="text-[11px] uppercase tracking-wider truncate" style={{ color: MUTED }}>
                 {position === 'SB' ? 'SMALL BLIND' : position === 'BB' ? 'BIG BLIND' : <>BET <span data-chips={player.currentBet}>{formatAmount(player.currentBet, bb)}</span></>}
               </div>
             ) : (
-              <div className="text-[11px] font-mono uppercase truncate" style={{ color: isThinking ? BLUE : MUTED }}>
+              <div data-action className="text-[11px] uppercase truncate" style={{ color: isThinking ? BLUE : MUTED }}>
                 {player.status === 'folded' ? 'FOLD' : 
                  player.status === 'all-in' ? 'ALL-IN' :
                  player.status === 'eliminated' ? 'OUT' : 
