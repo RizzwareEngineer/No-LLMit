@@ -108,7 +108,8 @@ Request (`schemas.py` `DecisionRequest`):
 }
 ```
 
-`seats` run clockwise from the small blind with current stacks. Action amounts are chips
+`seats` run clockwise from the seat after the button, button last, with current stacks: the
+small blind first, or heads-up the big blind first (the button posts the small blind). Action amounts are chips
 added for `post` and `call` and the street total for `raise` and `all_in`; `pot` on a street
 is the pot when it began. When the bet covers the player's stack the engine lists `CALL`
 with the player's remaining chips beside the `ALL-IN`; the prompt shows them as one move,

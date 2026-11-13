@@ -595,8 +595,8 @@ type llmTurn struct {
 	decision   *client.LLMDecisionResponse // the service's reply, as the model gave it
 	action     game.Action
 	applied    history.AppliedAction // what the engine makes of action: the stream and the saved hand show this
-	serviceErr bool // the LLM service could not be reached
-	fallback   bool // action is not the model's own choice: CHECK when legal, otherwise FOLD
+	serviceErr bool                  // the LLM service could not be reached
+	fallback   bool                  // action is not the model's own choice: CHECK when legal, otherwise FOLD
 }
 
 // decideLLMTurn asks the LLM service for the current player's move. The service owns the

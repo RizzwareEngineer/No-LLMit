@@ -33,7 +33,7 @@ class DecisionRequest(BaseModel):
     player_name: str  # roster name of the seat's model; never shown to the model
     small_blind: int
     big_blind: int
-    seats: list[Seat]  # clockwise from the small blind
+    seats: list[Seat]  # clockwise after the button, button last (heads-up: BB, then BTN)
     streets: list[Street]  # preflop first, up to and including the current street
     seat: int  # the acting player
     position: str
