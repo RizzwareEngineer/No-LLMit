@@ -193,7 +193,8 @@ func (l *waitlistLimiter) release() {
 
 // clientAddr is the sender as Railway's edge reports it (X-Real-IP, which the edge sets on
 // every request), or "" without that header. IPv6 senders are grouped by /64, the block one
-// subscriber controls.
+// subscriber controls. Behind a CDN every viewer would share the CDN's address: then read
+// that CDN's client-IP header here instead.
 func clientAddr(r *http.Request) string {
 	s := strings.TrimSpace(r.Header.Get("X-Real-IP"))
 	if ip, err := netip.ParseAddr(s); err == nil && ip.Is6() && !ip.Is4In6() {
