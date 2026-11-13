@@ -573,19 +573,23 @@ func (t *Table) playTurn() {
 	if decision.Retried {
 		t.calls++ // the service asked the model a second time
 	}
+	reason := decision.Reason
+	if turn.fallback {
+		reason = "" // it argued for the model's own move, not the one played; the saved hand keeps it
+	}
 	acted := ServerMessage{Type: MsgLLMAction, Payload: LLMActionPayload{
 		Turn:       turnNum,
 		PlayerIdx:  playerIdx,
 		PlayerName: playerName,
 		Action:     turn.applied.Type, // the engine's move, never the model's own wording or number
 		Amount:     turn.applied.Amount,
-		Reason:     decision.Reason,
+		Reason:     reason,
 	}}
 	t.turn = &acted
 	t.publish(acted)
 	t.mu.Unlock()
 
-	reasoning := time.Duration(len(decision.Reason))*25*time.Millisecond + 200*time.Millisecond
+	reasoning := time.Duration(len(reason))*25*time.Millisecond + 200*time.Millisecond
 	t.sleep(min(max(reasoning, minReasoning), maxReasoning))
 
 	t.mu.Lock()

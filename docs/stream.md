@@ -65,7 +65,8 @@ sized move is `BET` when nobody has bet on the street yet and `RAISE` otherwise
 `amount` is the chips added on a `CALL`, the street total on a `BET`, `RAISE` or `ALL_IN`
 (a call or raise that takes the whole stack is an `ALL_IN`), and 0 on `FOLD` and `CHECK`. A
 move the engine did not take from the model (a fallback) shows `CHECK` or `FOLD` with
-`amount` 0. A player's `lastAction` and `lastAmount` in `game_state` are the same move:
+`amount` 0 and an empty `reason`, since the model's text argued for its own move (the saved
+hand keeps it in `parsed.reason`). A player's `lastAction` and `lastAmount` in `game_state` are the same move:
 `FOLD`, `CHECK`, `CALL`, `BET`, `RAISE` or `ALL-IN` (with a hyphen), with the same amount.
 
 In `game_state`, each player's `position` is the name the model in that seat is told and the
