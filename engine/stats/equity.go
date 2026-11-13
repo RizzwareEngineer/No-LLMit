@@ -163,15 +163,6 @@ func contributions(h history.HandRecord) map[int]int {
 	return total
 }
 
-// equity is each player's share of a single pot over all runouts.
-func equity(holes [][]game.Card, board []game.Card) []float64 {
-	all := make([]int, len(holes))
-	for i := range all {
-		all[i] = i
-	}
-	return expectedWinnings(holes, board, []game.Pot{{Amount: 1, EligiblePlayers: all}})
-}
-
 // expectedWinnings averages what each player wins from the pots over the runouts: every
 // runout when one or two cards are to come, preflopSamples seeded random ones preflop.
 func expectedWinnings(holes [][]game.Card, board []game.Card, pots []game.Pot) []float64 {

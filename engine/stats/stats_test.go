@@ -80,6 +80,15 @@ func TestEquityPreflopIsSeededAndClose(t *testing.T) {
 	}
 }
 
+// equity is each player's share of a single pot over all runouts.
+func equity(holes [][]game.Card, board []game.Card) []float64 {
+	all := make([]int, len(holes))
+	for i := range all {
+		all[i] = i
+	}
+	return expectedWinnings(holes, board, []game.Pot{{Amount: 1, EligiblePlayers: all}})
+}
+
 func TestSplitPotsWithSidePot(t *testing.T) {
 	// Seat 1 is all-in for 100, seats 2 and 3 put in 300, seat 4 folded after 50.
 	pots := game.SplitPots(map[int]int{1: 100, 2: 300, 3: 300, 4: 50}, []int{1, 2, 3})
