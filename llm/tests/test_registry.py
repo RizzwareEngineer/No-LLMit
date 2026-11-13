@@ -9,6 +9,7 @@ import requests
 from fastapi.testclient import TestClient
 
 import app
+import decide
 import registry
 
 
@@ -69,4 +70,4 @@ def test_rotation_seats_nine_distinct_and_covers_roster():
 
 def test_models_endpoint_rotates_in_mock():
     body = TestClient(app.app).get("/models?session=1").json()
-    assert body == {"provider": "mock", "seated": registry.rotated_lineup(1)}
+    assert body == {"provider": "mock", "seated": registry.rotated_lineup(1), "turn_budget_s": decide.TURN_BUDGET}

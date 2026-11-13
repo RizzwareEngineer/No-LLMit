@@ -58,10 +58,10 @@ def get_prompt():
 
 @app.get("/models")
 def get_models(session: int = 0):
-    """The seated names. With the mock provider the lineup rotates by session index so every
+    """The seated names and the seconds a turn may take (the engine's shot clock). With the mock provider the lineup rotates by session index so every
     roster model gets hands locally; otherwise it is LINEUP (the default nine when unset)."""
     seated = registry.rotated_lineup(session) if PROVIDER == "mock" else registry.LINEUP
-    return {"provider": PROVIDER, "seated": seated}
+    return {"provider": PROVIDER, "seated": seated, "turn_budget_s": decide.TURN_BUDGET}
 
 
 @app.post("/decide", response_model=DecisionResponse)
