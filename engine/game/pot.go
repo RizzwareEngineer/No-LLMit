@@ -10,17 +10,17 @@ import (
 )
 
 type Pot struct {
-	Amount          int   `json:"amount"`
-	EligiblePlayers []int `json:"eligiblePlayers"`
+	Amount          int
+	EligiblePlayers []int
 }
 
 type Winner struct {
-	PlayerIdx       int      `json:"playerIdx"`
-	Amount          int      `json:"amount"`
-	HandType        HandType `json:"handType"`
-	HandDesc        string   `json:"handDesc"`        // e.g., "Full House, Kings over Aces"
-	EligiblePlayers []int    `json:"eligiblePlayers"` // Players who were competing for this pot
-	PotNumber       int      `json:"potNumber"`
+	PlayerIdx       int
+	Amount          int
+	HandType        HandType
+	HandDesc        string // e.g., "Full House, Kings over Aces"
+	EligiblePlayers []int  // Players who were competing for this pot
+	PotNumber       int
 }
 
 // calculatePots splits the chips into a main pot and side pots, one per contribution level

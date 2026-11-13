@@ -6,9 +6,9 @@ package game
 import "fmt"
 
 type ValidAction struct {
-	Type      ActionType `json:"type"`
-	MinAmount int        `json:"minAmount,omitempty"` // For raise
-	MaxAmount int        `json:"maxAmount,omitempty"` // For raise (player's stack)
+	Type      ActionType
+	MinAmount int // For raise
+	MaxAmount int // For raise (player's stack)
 }
 
 func (gs *GameState) GetValidActions() []ValidAction {

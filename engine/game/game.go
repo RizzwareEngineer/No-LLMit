@@ -25,32 +25,32 @@ func (s Street) String() string {
 }
 
 type Stakes struct {
-	SmallBlind int `json:"smallBlind"`
-	BigBlind   int `json:"bigBlind"`
+	SmallBlind int
+	BigBlind   int
 }
 
 type GameConfig struct {
-	PlayerNames   []string `json:"playerNames"`
-	StartingStack int      `json:"startingStack"`
-	Stakes        Stakes   `json:"stakes"`
+	PlayerNames   []string
+	StartingStack int
+	Stakes        Stakes
 }
 
 type GameState struct {
-	ID                 string      `json:"id"`
-	Players            []Player    `json:"players"`
-	CommunityCards     []Card      `json:"communityCards"`
-	Pots               []Pot       `json:"pots"`
-	Street             Street      `json:"street"`
-	ButtonIdx          int         `json:"buttonIdx"`
-	CurrentPlayerIdx   int         `json:"currentPlayerIdx"`
-	CurrentBet         int         `json:"currentBet"`
-	MinRaise           int         `json:"minRaise"`
-	Stakes             Stakes      `json:"stakes"`
-	HandNumber         int         `json:"handNumber"`
-	Winners            []Winner    `json:"winners,omitempty"`
-	GameStartTime      time.Time   `json:"gameStartTime"`
-	deck               *Deck       `json:"-"`
-	LLMActionsThisHand []LLMAction `json:"-"`
+	ID                 string
+	Players            []Player
+	CommunityCards     []Card
+	Pots               []Pot
+	Street             Street
+	ButtonIdx          int
+	CurrentPlayerIdx   int
+	CurrentBet         int
+	MinRaise           int
+	Stakes             Stakes
+	HandNumber         int
+	Winners            []Winner
+	GameStartTime      time.Time
+	deck               *Deck
+	LLMActionsThisHand []LLMAction
 }
 
 func NewGame(config GameConfig) *GameState {
@@ -84,9 +84,9 @@ func NewGame(config GameConfig) *GameState {
 }
 
 type ButtonCard struct {
-	PlayerIdx  int    `json:"playerIdx"`
-	PlayerName string `json:"playerName"`
-	Card       string `json:"card"`
+	PlayerIdx  int
+	PlayerName string
+	Card       string
 }
 
 // DetermineButton deals one card to each player and returns them in order.

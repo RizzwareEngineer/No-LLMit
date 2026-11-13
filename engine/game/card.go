@@ -63,8 +63,8 @@ func (r Rank) String() string {
 }
 
 type Card struct {
-	Rank Rank `json:"rank"`
-	Suit Suit `json:"suit"`
+	Rank Rank
+	Suit Suit
 }
 
 func (c Card) String() string {

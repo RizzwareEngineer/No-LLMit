@@ -37,9 +37,9 @@ func (ht HandType) String() string {
 }
 
 type HandResult struct {
-	HandType HandType `json:"handType"`
-	HandRank int      `json:"handRank"` // Overall rank (higher is better); encodes every kicker
-	Kickers  []Rank   `json:"kickers"`  // The ranks that name the hand, for its description
+	HandType HandType
+	HandRank int    // Overall rank (higher is better); encodes every kicker
+	Kickers  []Rank // The ranks that name the hand, for its description
 }
 
 // Base values ensure any higher hand type always beats any lower type
