@@ -1,9 +1,8 @@
-// Serves GET /api/stats and GET /api/stats/timeline (each optionally ?session=<id>). Hands
-// are loaded from Supabase, or from HAND_LOG_DIR/hands.jsonl when Supabase is not
+// Serves GET /api/stats and GET /api/stats/timeline, all time. Hands are loaded from Supabase, or from HAND_LOG_DIR/hands.jsonl when Supabase is not
 // configured, once on start; each hand this engine saves is added as it lands, and every 5
 // minutes only hands newer than the newest one held are fetched from Supabase (another
-// writer's: an overlapping deploy), never the whole table again. The JSON for the whole
-// table and for each session, and its gzip, is precomputed, so a request only copies bytes.
+// writer's: an overlapping deploy), never the whole table again. The JSON and its gzip are
+// precomputed, so a request only copies bytes.
 // The all-time stats also go out on the stream (stream.go): the full body to each joiner,
 // and the rows that changed after each recompute that added a hand.
 package api
@@ -42,17 +41,13 @@ type statsCache struct {
 	dirty     chan struct{}
 	retryWait time.Duration
 
-	mu        sync.Mutex
-	hands     []history.HandRecord // in the order played
-	seen      map[string]bool
-	changed   map[string]bool // sessions with hands added since the last recompute
-	added     bool            // a hand was added since the last recompute
-	all       payload         // /api/stats
-	bySession map[string]payload
-	timeline  payload // /api/stats/timeline
-	tlSession map[string]payload
+	mu       sync.Mutex
+	hands    []history.HandRecord // in the order played
+	seen     map[string]bool
+	added    bool    // a hand was added since the last recompute
+	all      payload // /api/stats
+	timeline payload // /api/stats/timeline
 
-	live    string            // the live session last encoded; only run touches it
 	warming bool              // all-ins were left after the last recompute; only run touches it
 	rows    map[string][]byte // each model's row as last published; only run touches it
 	hub     *hub              // nil: publish nothing (tests)
@@ -79,7 +74,7 @@ func newPayload(v any) payload {
 }
 
 func newStatsCache() *statsCache {
-	c := &statsCache{dirty: make(chan struct{}, 1), retryWait: statsRetryEvery, seen: map[string]bool{}, changed: map[string]bool{}}
+	c := &statsCache{dirty: make(chan struct{}, 1), retryWait: statsRetryEvery, seen: map[string]bool{}}
 	if base, key := supabaseEnv(); base != "" {
 		c.load = func() ([]history.HandRecord, error) { return loadSupabaseHands(base, key, time.Time{}) }
 		c.loadSince = func(since time.Time) ([]history.HandRecord, error) { return loadSupabaseHands(base, key, since) }
@@ -103,13 +98,12 @@ func (c *statsCache) run() {
 	defer tick.Stop()
 	loaded, try, poll := false, true, false // try: the first load, or its retry once retryWait passes
 	for {
-		full := false
 		if !loaded && try {
 			if hands, err := c.load(); err != nil {
 				log.Printf("!!! Stats: loading hands failed: %v", err)
 			} else {
 				c.replace(hands)
-				loaded, full = true, true
+				loaded = true
 			}
 		} else if loaded && poll && c.loadSince != nil {
 			if hands, err := c.loadSince(c.newest()); err != nil {
@@ -123,7 +117,7 @@ func (c *statsCache) run() {
 		var again <-chan time.Time
 		if !loaded {
 			again = time.After(c.retryWait)
-		} else if more := c.recompute(full); more {
+		} else if more := c.recompute(); more {
 			again = time.After(0)
 		}
 		select {
@@ -165,7 +159,6 @@ func (c *statsCache) add(h history.HandRecord) {
 	}
 	c.seen[h.HandID] = true
 	c.added = true
-	c.changed[stats.SessionID(h)] = true
 	i := sort.Search(len(c.hands), func(i int) bool { return c.hands[i].StartedAt.After(h.StartedAt) })
 	c.hands = append(c.hands, history.HandRecord{})
 	copy(c.hands[i+1:], c.hands[i:])
@@ -211,68 +204,35 @@ func trimHand(h history.HandRecord) history.HandRecord {
 var checkLegal = []game.LLMValidAction{{Type: "CHECK"}} // shared by every trimmed hand; never changed
 
 // recompute works out the next batch of all-ins, then re-encodes the all-time stats and
-// every session that changed (all of them when full). It returns true while all-ins are
-// left to work out.
-func (c *statsCache) recompute(full bool) (more bool) {
+// timeline. It returns true while all-ins are left to work out.
+func (c *statsCache) recompute() (more bool) {
 	c.mu.Lock()
 	hands := append([]history.HandRecord(nil), c.hands...) // add may shift c.hands while we work
-	changed, added := c.changed, c.added
-	c.changed, c.added = map[string]bool{}, false
+	added := c.added
+	c.added = false
 	c.mu.Unlock()
 
 	// One all-in per 1,000 hands held, so a warm-up after a restart takes about 100 passes.
-	warmed, remaining := stats.WarmAIEV(hands, max(aievPerPass, len(hands)/1000))
-	for _, i := range warmed {
-		changed[stats.SessionID(hands[i])] = true
-	}
-	// The live session is the table being played, never the last one in the log: right after a
-	// restart that is the previous run's table.
-	live := c.tableID
-	if live != c.live { // the old live session has ended
-		changed[live], changed[c.live] = true, true
-		c.live = live
-	}
+	_, remaining := stats.WarmAIEV(hands, max(aievPerPass, len(hands)/1000))
 
 	now := time.Now().UTC()
-	encode := func(hs []history.HandRecord, current bool) (stats.Stats, [2]payload) {
-		s, tl := stats.ComputeWithTimeline(hs)
-		s.GeneratedAt, tl.GeneratedAt = now, now
-		if current {
-			s.Seated = c.seated
-		}
-		found := false
-		for i := range s.Sessions {
-			if s.Sessions[i].ID == live {
-				s.Sessions[i].EndedAt, found = nil, true
-			}
-		}
-		if current && live != "" && !found { // no hand saved yet this run
-			s.Sessions = append(s.Sessions, stats.Session{ID: live, StartedAt: c.tableFrom})
-		}
-		return s, [2]payload{newPayload(s), newPayload(tl)}
-	}
-	sessions := map[string][]history.HandRecord{}
-	for _, h := range hands {
-		if id := stats.SessionID(h); full || changed[id] {
-			sessions[id] = append(sessions[id], h)
+	allStats, tl := stats.ComputeWithTimeline(hands)
+	allStats.GeneratedAt, tl.GeneratedAt = now, now
+	allStats.Seated = c.seated
+	// The live session is the table being played, never the last one in the log: right after a
+	// restart that is the previous run's table.
+	live, found := c.tableID, false
+	for i := range allStats.Sessions {
+		if allStats.Sessions[i].ID == live {
+			allStats.Sessions[i].EndedAt, found = nil, true
 		}
 	}
-	if _, ok := sessions[live]; live != "" && !ok && (full || changed[live]) {
-		sessions[live] = nil // answer ?session=<live> with zero hands until the first one is saved
+	if live != "" && !found { // no hand saved yet this run
+		allStats.Sessions = append(allStats.Sessions, stats.Session{ID: live, StartedAt: c.tableFrom})
 	}
-	updated := map[string][2]payload{}
-	for id, hs := range sessions {
-		_, updated[id] = encode(hs, id == live)
-	}
-	allStats, all := encode(hands, true)
+	all := [2]payload{newPayload(allStats), newPayload(tl)}
 
 	c.mu.Lock()
-	if full || c.bySession == nil {
-		c.bySession, c.tlSession = map[string]payload{}, map[string]payload{}
-	}
-	for id, b := range updated {
-		c.bySession[id], c.tlSession[id] = b[0], b[1]
-	}
 	c.all, c.timeline = all[0], all[1]
 	c.mu.Unlock()
 
@@ -329,17 +289,9 @@ func (c *statsCache) handleTimeline(w http.ResponseWriter, r *http.Request) { c.
 
 func (c *statsCache) serve(w http.ResponseWriter, r *http.Request, timeline bool) {
 	c.mu.Lock()
-	body, bySession := c.all, c.bySession
+	body := c.all
 	if timeline {
-		body, bySession = c.timeline, c.tlSession
-	}
-	if id := r.URL.Query().Get("session"); id != "" {
-		var ok bool
-		if body, ok = bySession[id]; !ok {
-			c.mu.Unlock()
-			http.Error(w, "unknown session", http.StatusNotFound)
-			return
-		}
+		body = c.timeline
 	}
 	c.mu.Unlock()
 	if body.json == nil {

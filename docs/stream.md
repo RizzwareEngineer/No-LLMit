@@ -148,7 +148,7 @@ stats. For the changed form it copies the envelope keys (keeping the `sessions` 
 `models = model_names.map(name => changed row with that name, else the held row)`, dropping a
 name with neither. Rows are matched by `name` only, never by position.
 
-`GET /api/stats` and `GET /api/stats/timeline` stay for `/about`, `?session=` and the timeline.
+`GET /api/stats` and `GET /api/stats/timeline` stay for `/about` and the timeline.
 
 ## Client rules
 

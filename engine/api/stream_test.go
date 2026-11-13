@@ -185,10 +185,10 @@ func TestStatsEventCarriesChangedRows(t *testing.T) {
 	for _, h := range hands[:4] {
 		c.add(h)
 	}
-	c.recompute(true)
-	c.recompute(false) // nothing added: nothing published
+	c.recompute()
+	c.recompute() // nothing added: nothing published
 	c.add(hands[4])
-	c.recompute(false)
+	c.recompute()
 
 	frames := c.hub.since(0, false).frames
 	if len(frames) != 2 {

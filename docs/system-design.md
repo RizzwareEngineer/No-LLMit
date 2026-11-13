@@ -56,7 +56,7 @@ Without it: Railway ends every HTTP request at 15 minutes. WebSockets are exempt
 | The newest 50 events | the hub's ring, as encoded SSE frames | overwritten as new events arrive |
 | Finished hands, decisions, prompts | Postgres on Supabase, written by `save_hand` | kept |
 | All-time stats | engine memory, rebuilt from Supabase at boot | until restart |
-| Stats for `/about`, `?session=` and the timeline | `GET /api/stats`, `GET /api/stats/timeline` | served from the same memory |
+| Stats for `/about` and the timeline | `GET /api/stats`, `GET /api/stats/timeline` | served from the same memory |
 | What the viewer sees | browser memory, keyed by table id | until the tab closes |
 
 ## Numbers

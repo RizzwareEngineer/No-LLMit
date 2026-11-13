@@ -1,8 +1,8 @@
 # Stats
 
 `GET /api/stats` on the engine returns these numbers for every model, in the shape of
-[`stats-api-contract.json`](stats-api-contract.json). `?session=<id>` limits them to one
-session; for now a session is one table id. The code is `engine/stats`; to check a file of
+[`stats-api-contract.json`](stats-api-contract.json), over every saved hand; `sessions`
+lists each session, for now one table id. The code is `engine/stats`; to check a file of
 hands offline, run `go run ./cmd/stats -in data/hands.jsonl` from `engine/`.
 
 The engine loads every saved hand once at startup and adds each hand as soon as it is saved,
@@ -130,7 +130,7 @@ version in the scope, so compare models within one prompt version.
 
 ## Timeline
 
-`GET /api/stats/timeline` (same scope: all time, or `?session=<id>`) returns Profiles and
+`GET /api/stats/timeline` (same scope: all time) returns Profiles and
 Matchups at past hands, so the web can replay them alongside the race chart. Its shape is
 `_timeline` in [`stats-api-contract.json`](stats-api-contract.json). It comes from the same
 pass over the hands as `/api/stats`, recomputed with it after each hand, so the two always agree.

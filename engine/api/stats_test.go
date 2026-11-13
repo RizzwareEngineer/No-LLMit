@@ -166,7 +166,7 @@ func deref(p *float64) any {
 }
 
 func newTestCache(load func() ([]history.HandRecord, error)) *statsCache {
-	return &statsCache{load: load, dirty: make(chan struct{}, 1), retryWait: time.Hour, seen: map[string]bool{}, changed: map[string]bool{}, tableID: "tbl_test"}
+	return &statsCache{load: load, dirty: make(chan struct{}, 1), retryWait: time.Hour, seen: map[string]bool{}, tableID: "tbl_test"}
 }
 
 func (c *statsCache) get(url string) (int, stats.Stats) {
@@ -211,14 +211,8 @@ func TestStatsEndpoint(t *testing.T) {
 	go c.run()
 	c.Add(hands[4]) // a hand saved while loading is kept
 	waitFor(t, "5 hands", func() bool { _, s := c.get("/api/stats"); return s.Scope.Hands == 5 })
-	if _, s := c.get("/api/stats"); !reflect.DeepEqual(s.Seated, c.seated) {
-		t.Errorf("all-time seated: %v", s.Seated)
-	}
-	if code, s := c.get("/api/stats?session=tbl_test"); code != 200 || s.Scope.Hands != 5 || s.GeneratedAt.IsZero() || !reflect.DeepEqual(s.Seated, c.seated) {
-		t.Errorf("live session: %d %+v seated %v", code, s.Scope, s.Seated)
-	}
-	if code, _ := c.get("/api/stats?session=nope"); code != http.StatusNotFound {
-		t.Errorf("unknown session: %d", code)
+	if _, s := c.get("/api/stats"); !reflect.DeepEqual(s.Seated, c.seated) || s.GeneratedAt.IsZero() {
+		t.Errorf("all-time seated: %v, generated %v", s.Seated, s.GeneratedAt)
 	}
 }
 
@@ -257,40 +251,23 @@ func TestStatsSessionsInPlayOrderAndLiveOnlyLast(t *testing.T) {
 	for _, i := range []int{3, 1, 4, 0} { // saved out of play order, as spill replays can be
 		c.add(hands[i])
 	}
-	c.recompute(true)
+	c.recompute()
 
-	session := func(id string) stats.Session {
-		_, s := c.get("/api/stats?session=" + id)
-		return s.Sessions[0]
+	_, all := c.get("/api/stats")
+	if len(all.Sessions) != 2 || all.Sessions[0].ID != "tbl_old" || all.Sessions[1].ID != "tbl_test" {
+		t.Fatalf("all-time sessions: %+v", all.Sessions)
 	}
-	if old := session("tbl_old"); old.EndedAt == nil || !old.StartedAt.Equal(hands[0].StartedAt) || !old.EndedAt.Equal(hands[1].EndedAt) {
+	if old := all.Sessions[0]; old.EndedAt == nil || !old.StartedAt.Equal(hands[0].StartedAt) || !old.EndedAt.Equal(hands[1].EndedAt) {
 		t.Errorf("finished session: %+v", old)
 	}
-	if cur := session("tbl_test"); cur.EndedAt != nil || !cur.StartedAt.Equal(hands[3].StartedAt) {
+	if cur := all.Sessions[1]; cur.EndedAt != nil || !cur.StartedAt.Equal(hands[3].StartedAt) {
 		t.Errorf("live session: %+v", cur)
 	}
-	if _, all := c.get("/api/stats"); len(all.Sessions) != 2 || all.Sessions[0].ID != "tbl_old" || all.Sessions[0].EndedAt == nil || all.Sessions[1].EndedAt != nil {
-		t.Errorf("all-time sessions: %+v", all.Sessions)
-	}
 
-	// A new hand re-encodes the live session and all-time, not the finished one.
-	c.mu.Lock()
-	oldBytes := string(c.bySession["tbl_old"].json)
-	c.mu.Unlock()
-	time.Sleep(time.Millisecond) // so a re-encode would carry a new generated_at
 	c.add(hands[2])
-	c.recompute(false)
-	if _, all := c.get("/api/stats"); all.Scope.Hands != 5 {
-		t.Errorf("all-time hands %d", all.Scope.Hands)
-	}
-	c.mu.Lock()
-	unchanged := string(c.bySession["tbl_old"].json) == oldBytes
-	c.mu.Unlock()
-	if !unchanged {
-		t.Error("finished session was recomputed for a hand in another session")
-	}
-	if cur := session("tbl_test"); cur.Hands != 3 {
-		t.Errorf("live session hands %d", cur.Hands)
+	c.recompute()
+	if _, all := c.get("/api/stats"); all.Scope.Hands != 5 || all.Sessions[1].Hands != 3 {
+		t.Errorf("all-time hands %d, live session %+v", all.Scope.Hands, all.Sessions[1])
 	}
 }
 
@@ -314,11 +291,11 @@ func TestStatsTimelineByScopeAndGzip(t *testing.T) {
 	for _, h := range hands {
 		c.add(h)
 	}
-	c.recompute(true)
+	c.recompute()
 
-	// Each scope's timeline ends at that scope's /api/stats: the last profile row per model
-	// has its hands, and the matchups add up to its vs.
-	for _, url := range []string{"", "?session=tbl_old", "?session=tbl_test"} {
+	// The timeline ends at /api/stats: the last profile row per model has its hands, and the
+	// matchups add up to its vs.
+	for _, url := range []string{""} {
 		_, s := c.get("/api/stats" + url)
 		code, tl := c.getTimeline("/api/stats/timeline" + url)
 		if code != 200 || tl.Hands != s.Scope.Hands || tl.GeneratedAt.IsZero() || len(tl.Profiles.Fields) != 7 {
@@ -344,12 +321,8 @@ func TestStatsTimelineByScopeAndGzip(t *testing.T) {
 			}
 		}
 	}
-	if code, _ := c.getTimeline("/api/stats/timeline?session=nope"); code != http.StatusNotFound {
-		t.Errorf("unknown session: %d", code)
-	}
-
 	// With Accept-Encoding: gzip both endpoints send the same JSON compressed.
-	for _, url := range []string{"/api/stats", "/api/stats/timeline?session=tbl_old"} {
+	for _, url := range []string{"/api/stats", "/api/stats/timeline"} {
 		plain, zipped := httptest.NewRecorder(), httptest.NewRecorder()
 		r := httptest.NewRequest("GET", url, nil)
 		c.serve(plain, r, strings.Contains(url, "timeline"))
@@ -386,18 +359,23 @@ func TestStatsLiveSessionIsTheRunningTableAfterRestart(t *testing.T) {
 	if len(live) != 1 || live[0].ID != "tbl_new" || live[0].Hands != 0 || !live[0].StartedAt.Equal(c.tableFrom) {
 		t.Fatalf("live sessions: %+v", live)
 	}
-	if code, s := c.get("/api/stats?session=tbl_new"); code != 200 || s.Scope.Hands != 0 || len(s.Models) != 0 {
-		t.Errorf("new live session: %d %+v %d models", code, s.Scope, len(s.Models))
-	}
-	if _, old := c.get("/api/stats?session=tbl_test"); len(old.Sessions) != 1 || old.Sessions[0].EndedAt == nil {
-		t.Errorf("previous run should be ended: %+v", old.Sessions)
+	if len(all.Sessions) != 2 || all.Sessions[0].ID != "tbl_test" || all.Sessions[0].EndedAt == nil {
+		t.Errorf("previous run should be ended: %+v", all.Sessions)
 	}
 
 	// The first hand of the new table fills the live session.
 	h := hands[0]
 	h.HandID, h.TableID, h.StartedAt = "tbl_new-000001", "tbl_new", c.tableFrom.Add(time.Minute)
 	c.Add(h)
-	waitFor(t, "the first new hand", func() bool { _, s := c.get("/api/stats?session=tbl_new"); return s.Scope.Hands == 1 })
+	waitFor(t, "the first new hand", func() bool {
+		_, s := c.get("/api/stats")
+		for _, x := range s.Sessions {
+			if x.ID == "tbl_new" {
+				return x.Hands == 1 && x.EndedAt == nil
+			}
+		}
+		return false
+	})
 }
 
 func TestLoadSupabaseHandsWithSmallRowCap(t *testing.T) {

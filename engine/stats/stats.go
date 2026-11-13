@@ -16,8 +16,7 @@ type Stats struct {
 	Scope       Scope     `json:"scope"`
 	Sessions    []Session `json:"sessions"`
 	Models      []Model   `json:"models"`
-	// Seated is the table's current lineup, set by the engine on the all-time and live
-	// session payloads; absent elsewhere.
+	// Seated is the table's current lineup, set by the engine; absent until it knows it.
 	Seated []string `json:"seated,omitempty"`
 	// Partial is true while some all-ins are still being worked out; those hands count at
 	// their actual result in aiev_bb100 until then.
