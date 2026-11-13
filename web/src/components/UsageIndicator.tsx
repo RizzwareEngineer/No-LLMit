@@ -135,7 +135,7 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
           href={SPONSORS}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-fit flex items-center gap-1 rounded-full px-1.5 text-[11px] leading-[16px] font-semibold text-white whitespace-nowrap hover:brightness-110 transition-[filter]"
+          className="w-fit flex items-center gap-1 rounded-full px-1.5 text-[11px] leading-[16px] font-medium text-white whitespace-nowrap hover:brightness-110 transition-[filter]"
           style={{ background: 'rgb(35, 131, 226)' }}
         >
           {!(error || isCritical) && <Heart size={11} weight="fill" aria-hidden />}

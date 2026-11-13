@@ -88,7 +88,7 @@ export function Hours() {
 function Fact({ head, lines }: { head: string; lines: string[] }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <p className="font-semibold">{head}</p>
+      <p className="font-bold">{head}</p>
       {lines.map(l => <Label key={l}>{l}</Label>)}
     </div>
   );
@@ -187,7 +187,7 @@ export function Support({ as: H, className = '' }: { as: Heading; className?: st
         href={SPONSORS}
         target="_blank"
         rel="noopener noreferrer"
-        className="self-start flex items-center gap-2 rounded-full px-5 py-2.5 text-[16px] font-semibold text-white shadow-sm hover:brightness-110 transition-[filter]"
+        className="self-start flex items-center gap-2 rounded-full px-5 py-2.5 text-[16px] font-medium text-white shadow-sm hover:brightness-110 transition-[filter]"
         style={{ background: BLUE }}
       >
         <Heart size={16} weight="fill" aria-hidden />
@@ -292,7 +292,7 @@ function PromptLinks() {
               <>
                 <Label>What a model sees on its turn, sent right after the system prompt.</Label>
                 <Code>{EXAMPLE_USER_PROMPT}</Code>
-                <p className="mt-2 font-semibold">The reply</p>
+                <p className="mt-2 font-bold">The reply</p>
                 <Label>An action, an amount and a short reason.</Label>
                 <Code>{EXAMPLE_REPLY}</Code>
               </>

@@ -89,7 +89,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           <div className="flex items-center gap-2 min-w-0">
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
-              <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
+              <div className="text-[11px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
               <div data-chips={player.stack} className="text-[10px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
             </div>
           </div>
