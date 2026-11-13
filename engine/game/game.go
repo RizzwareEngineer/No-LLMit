@@ -107,7 +107,7 @@ func (gs *GameState) DetermineButton() []ButtonCard {
 			Card:       card.String(),
 		}
 
-		if i == 0 || card.CompareForButton(highestCard) > 0 {
+		if i == 0 || card.compareForButton(highestCard) > 0 {
 			highestCard = card
 			highestIdx = i
 		}
@@ -135,7 +135,7 @@ func (gs *GameState) StartHand() error {
 	gs.deck.Shuffle()
 	gs.CommunityCards = []Card{}
 	gs.Winners = nil
-	gs.ResetPotsForNewHand()
+	gs.resetPotsForNewHand()
 
 	for i := range gs.Players {
 		gs.Players[i].HoleCards = []Card{}
@@ -155,8 +155,8 @@ func (gs *GameState) StartHand() error {
 	gs.postBlinds()
 	gs.dealHoleCards()
 
-	gs.CurrentPlayerIdx = gs.GetFirstToAct()
-	if gs.IsBettingRoundComplete() {
+	gs.CurrentPlayerIdx = gs.getFirstToAct()
+	if gs.isBettingRoundComplete() {
 		gs.CurrentPlayerIdx = -1 // heads-up with a blind posted all-in: nothing to decide, the board runs out
 	}
 
@@ -197,8 +197,8 @@ func (gs *GameState) postBlinds() {
 	gs.CurrentBet = gs.Stakes.BigBlind
 	gs.MinRaise = gs.Stakes.BigBlind
 
-	gs.RecordActionForLLMs(sbIdx, "post", sbAmount)
-	gs.RecordActionForLLMs(bbIdx, "post", bbAmount)
+	gs.recordActionForLLMs(sbIdx, "post", sbAmount)
+	gs.recordActionForLLMs(bbIdx, "post", bbAmount)
 }
 
 // blindSeats returns the small and big blind: left of the button, except heads-up, where the button posts the small blind.
@@ -237,7 +237,7 @@ func (gs *GameState) dealHoleCards() {
 }
 
 func (gs *GameState) AdvanceStreet() error {
-	gs.CollectBetsIntoPot()
+	gs.collectBetsIntoPot()
 
 	if gs.CountActivePlayers() == 1 {
 		return gs.finishHandOnePlayerRemains()
@@ -264,20 +264,20 @@ func (gs *GameState) AdvanceStreet() error {
 		return nil
 	}
 
-	gs.ResetBettingRound()
-	gs.CurrentPlayerIdx = gs.GetFirstToAct()
+	gs.resetBettingRound()
+	gs.CurrentPlayerIdx = gs.getFirstToAct()
 
 	return nil
 }
 
 func (gs *GameState) dealFlop() {
-	gs.deck.Burn()
+	gs.deck.burn()
 	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(3)...)
 }
 
 // dealOne burns a card and deals the turn or river.
 func (gs *GameState) dealOne() {
-	gs.deck.Burn()
+	gs.deck.burn()
 	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(1)[0])
 }
 
@@ -290,7 +290,7 @@ func (gs *GameState) runOutBoard() error {
 }
 
 func (gs *GameState) finishHandOnePlayerRemains() error {
-	winner := gs.AwardPotToLastPlayer()
+	winner := gs.awardPotToLastPlayer()
 	if winner != nil {
 		gs.Winners = []Winner{*winner}
 	}
@@ -300,8 +300,8 @@ func (gs *GameState) finishHandOnePlayerRemains() error {
 }
 
 func (gs *GameState) resolveShowdown() error {
-	gs.CalculatePots()
-	gs.Winners = gs.AwardPots(gs.CommunityCards, FindWinners)
+	gs.calculatePots()
+	gs.Winners = gs.awardPots(gs.CommunityCards, findWinners)
 
 	for i := range gs.Winners {
 		playerIdx := gs.Winners[i].PlayerIdx
@@ -309,7 +309,7 @@ func (gs *GameState) resolveShowdown() error {
 		allCards = append(allCards, gs.CommunityCards...)
 		result := EvaluateHand(allCards)
 		gs.Winners[i].HandType = result.HandType
-		gs.Winners[i].HandDesc = GetHandDescription(result)
+		gs.Winners[i].HandDesc = getHandDescription(result)
 	}
 
 	gs.Street = StreetComplete
@@ -329,7 +329,7 @@ func (gs *GameState) NeedToAdvanceStreet() bool {
 	if gs.IsHandComplete() {
 		return false
 	}
-	return gs.IsBettingRoundComplete()
+	return gs.isBettingRoundComplete()
 }
 
 // RebuyBrokePlayers tops any player with no chips back up to the given stack so a cash
@@ -352,7 +352,7 @@ func (gs *GameState) DeckOrder() []string {
 	return CardStrings(gs.deck.cards)
 }
 
-func (gs *GameState) RecordActionForLLMs(seat int, action string, amount int) {
+func (gs *GameState) recordActionForLLMs(seat int, action string, amount int) {
 	gs.LLMActionsThisHand = append(gs.LLMActionsThisHand, LLMAction{
 		Seat:   seat,
 		Action: action,

@@ -71,17 +71,17 @@ func (c Card) String() string {
 	return c.Rank.String() + c.Suit.String()
 }
 
-// SuitRank returns the rank of the suit for button determination.
+// suitRank returns the rank of the suit for button determination.
 // Spades(3) > Hearts(0) > Diamonds(1) > Clubs(2)
-func (s Suit) SuitRank() int {
+func (s Suit) suitRank() int {
 	ranks := map[Suit]int{Spades: 4, Hearts: 3, Diamonds: 2, Clubs: 1}
 	return ranks[s]
 }
 
-// CompareForButton compares two cards for button determination.
+// compareForButton compares two cards for button determination.
 // Higher card wins. For ties, suit is used (Spades > Hearts > Diamonds > Clubs).
 // Returns 1 if c > other, -1 if c < other, 0 if equal.
-func (c Card) CompareForButton(other Card) int {
+func (c Card) compareForButton(other Card) int {
 	if c.Rank > other.Rank {
 		return 1
 	}
@@ -89,10 +89,10 @@ func (c Card) CompareForButton(other Card) int {
 		return -1
 	}
 	// Same rank, compare suits
-	if c.Suit.SuitRank() > other.Suit.SuitRank() {
+	if c.Suit.suitRank() > other.Suit.suitRank() {
 		return 1
 	}
-	if c.Suit.SuitRank() < other.Suit.SuitRank() {
+	if c.Suit.suitRank() < other.Suit.suitRank() {
 		return -1
 	}
 	return 0

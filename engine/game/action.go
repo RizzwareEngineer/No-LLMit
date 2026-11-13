@@ -91,7 +91,7 @@ func (gs *GameState) ProcessAction(action Action) error {
 	// Record what actually happened (a short call or raise can become an all-in),
 	// with the amount the engine applied rather than the one the caller sent.
 	applied := player.LastAction
-	gs.RecordActionForLLMs(action.PlayerIdx, applied.Type.String(), applied.Amount)
+	gs.recordActionForLLMs(action.PlayerIdx, applied.Type.String(), applied.Amount)
 
 	return nil
 }
@@ -272,7 +272,7 @@ func (gs *GameState) resetActedExcept(playerIdx int) {
 }
 
 func (gs *GameState) advanceToNextPlayer() {
-	if gs.IsBettingRoundComplete() {
+	if gs.isBettingRoundComplete() {
 		gs.CurrentPlayerIdx = -1
 		return
 	}
@@ -296,7 +296,7 @@ func (gs *GameState) advanceToNextPlayer() {
 	}
 }
 
-func (gs *GameState) IsBettingRoundComplete() bool {
+func (gs *GameState) isBettingRoundComplete() bool {
 	playersToAct, playersInHand, withChips, last := 0, 0, 0, -1
 
 	for i := range gs.Players {
@@ -351,7 +351,7 @@ func (gs *GameState) CountActiveNonAllInPlayers() int {
 	return count
 }
 
-func (gs *GameState) ResetBettingRound() {
+func (gs *GameState) resetBettingRound() {
 	for i := range gs.Players {
 		gs.Players[i].CurrentBet = 0
 		gs.Players[i].HasActedThisRound = false
@@ -361,7 +361,7 @@ func (gs *GameState) ResetBettingRound() {
 	gs.MinRaise = gs.Stakes.BigBlind
 }
 
-func (gs *GameState) GetFirstToAct() int {
+func (gs *GameState) getFirstToAct() int {
 	if gs.Street == StreetPreflop {
 		// Preflop: UTG (left of BB) acts first
 		_, bbIdx := gs.blindSeats()

@@ -1,6 +1,6 @@
-// This file handles pot math. CalculatePots figures out main pots and side pots (needed
-// when players go all-in for different amounts). AwardPots gives money to winners, handling
-// split pots when hands tie. AwardPotToLastPlayer handles the simple case when everyone
+// This file handles pot math. calculatePots figures out main pots and side pots (needed
+// when players go all-in for different amounts). awardPots gives money to winners, handling
+// split pots when hands tie. awardPotToLastPlayer handles the simple case when everyone
 // else folded. Called by game.go at the end of each hand.
 package game
 
@@ -23,9 +23,9 @@ type Winner struct {
 	PotNumber       int      `json:"potNumber"`
 }
 
-// CalculatePots splits the chips into a main pot and side pots, one per contribution level
+// calculatePots splits the chips into a main pot and side pots, one per contribution level
 // of the players still in the hand.
-func (gs *GameState) CalculatePots() {
+func (gs *GameState) calculatePots() {
 	put := make(map[int]int, len(gs.Players))
 	var live []int
 	for i, p := range gs.Players {
@@ -75,14 +75,14 @@ func (gs *GameState) SimplifiedPotCalculation() int {
 	return total
 }
 
-func (gs *GameState) CollectBetsIntoPot() {
+func (gs *GameState) collectBetsIntoPot() {
 	for i := range gs.Players {
 		gs.Players[i].CurrentBet = 0
 	}
 }
 
-// AwardPots pays out gs.Pots, which CalculatePots has just set.
-func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player, []Card, []int) []int) []Winner {
+// awardPots pays out gs.Pots, which calculatePots has just set.
+func (gs *GameState) awardPots(communityCards []Card, evaluateFunc func([]Player, []Card, []int) []int) []Winner {
 	var winners []Winner
 	amountWon := make(map[int]int)
 	displayPotNumber := 0
@@ -149,7 +149,7 @@ func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player
 	return winners
 }
 
-func (gs *GameState) AwardPotToLastPlayer() *Winner {
+func (gs *GameState) awardPotToLastPlayer() *Winner {
 	lastPlayerIdx := -1
 	for i, p := range gs.Players {
 		if p.Status == PlayerActive || p.Status == PlayerAllIn {
@@ -184,7 +184,7 @@ func (gs *GameState) AwardPotToLastPlayer() *Winner {
 	}
 }
 
-func (gs *GameState) ResetPotsForNewHand() {
+func (gs *GameState) resetPotsForNewHand() {
 	gs.Pots = []Pot{}
 	for i := range gs.Players {
 		gs.Players[i].TotalBetThisHand = 0

@@ -100,7 +100,7 @@ func TestThreeWaySidePots(t *testing.T) {
 	for i := range gs.Players {
 		gs.Players[i].TotalBetThisHand, gs.Players[i].Status = put[i], status[i]
 	}
-	gs.CalculatePots()
+	gs.calculatePots()
 	want := []Pot{{520, []int{0, 1, 2, 3}}, {600, []int{1, 2, 3}}, {350, []int{2, 3}}}
 	if !reflect.DeepEqual(gs.Pots, want) {
 		t.Errorf("pots = %+v, want %+v", gs.Pots, want)
@@ -118,7 +118,7 @@ func TestFoldedExcessGoesToSidePot(t *testing.T) {
 	gs.Players[0].TotalBetThisHand, gs.Players[0].Status = 200, PlayerActive
 	gs.Players[1].TotalBetThisHand, gs.Players[1].Status = 200, PlayerFolded
 	gs.Players[2].TotalBetThisHand, gs.Players[2].Status, gs.Players[2].Stack = 50, PlayerAllIn, 0
-	gs.CalculatePots()
+	gs.calculatePots()
 	if len(gs.Pots) != 2 || gs.Pots[0].Amount != 150 || gs.Pots[1].Amount != 300 {
 		t.Fatalf("want main 150 and side 300, got %+v", gs.Pots)
 	}
@@ -128,7 +128,7 @@ func TestFoldedExcessGoesToSidePot(t *testing.T) {
 
 	// C wins the showdown: C collects only the main pot, A gets the side pot back.
 	before := gs.Players[0].Stack + gs.Players[2].Stack
-	gs.AwardPots(nil, func(_ []Player, _ []Card, eligible []int) []int { return []int{2} })
+	gs.awardPots(nil, func(_ []Player, _ []Card, eligible []int) []int { return []int{2} })
 	if gs.Players[2].Stack != 150 {
 		t.Errorf("C should collect 150, has %d", gs.Players[2].Stack)
 	}
@@ -142,7 +142,7 @@ func TestOddChipGoesLeftOfButton(t *testing.T) {
 	gs.ButtonIdx = 0
 	gs.Pots = []Pot{{Amount: 21, EligiblePlayers: []int{0, 1, 2}}}
 	// Seats 0 and 2 tie. Left of the button the order is 1, 2, 0, so seat 2 gets the odd chip.
-	gs.AwardPots(nil, func(_ []Player, _ []Card, _ []int) []int { return []int{0, 2} })
+	gs.awardPots(nil, func(_ []Player, _ []Card, _ []int) []int { return []int{0, 2} })
 	if gs.Players[2].Stack != 1011 || gs.Players[0].Stack != 1010 {
 		t.Errorf("want seat 2 +11 and seat 0 +10, got %d and %d", gs.Players[2].Stack-1000, gs.Players[0].Stack-1000)
 	}
