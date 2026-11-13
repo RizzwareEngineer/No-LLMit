@@ -18,8 +18,7 @@ type Stats struct {
 	Models      []Model   `json:"models"`
 	// Seated is the table's current lineup, set by the engine on the all-time and live
 	// session payloads; absent elsewhere.
-	Seated         []string `json:"seated,omitempty"`
-	DefinitionsURL string   `json:"definitions_url"`
+	Seated []string `json:"seated,omitempty"`
 	// Partial is true while some all-ins are still being worked out; those hands count at
 	// their actual result in aiev_bb100 until then.
 	Partial bool `json:"partial"`
@@ -181,7 +180,7 @@ func ComputeWithTimeline(hands []history.HandRecord) (Stats, Timeline) {
 }
 
 func compute(hands []history.HandRecord, tl *timelineBuilder) (Stats, Timeline) {
-	out := Stats{Sessions: []Session{}, Models: []Model{}, DefinitionsURL: "/docs/stats.md"}
+	out := Stats{Sessions: []Session{}, Models: []Model{}}
 	accs := map[string]*acc{}
 	get := func(name string) *acc {
 		if accs[name] == nil {

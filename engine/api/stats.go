@@ -289,24 +289,21 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	return remaining > 0
 }
 
-// statsChange is the stream's stats event: the all-time envelope, every model name in
-// order, and the rows that differ from the ones last published.
+// statsChange is the stream's stats event: the all-time envelope without the session list,
+// every model name in order, and the rows that differ from the ones last published.
 type statsChange struct {
-	GeneratedAt    time.Time         `json:"generated_at"`
-	Scope          stats.Scope       `json:"scope"`
-	Sessions       []stats.Session   `json:"sessions"`
-	Seated         []string          `json:"seated,omitempty"`
-	DefinitionsURL string            `json:"definitions_url"`
-	Partial        bool              `json:"partial"`
-	ModelNames     []string          `json:"model_names"`
-	Changed        []json.RawMessage `json:"changed"`
+	GeneratedAt time.Time         `json:"generated_at"`
+	Scope       stats.Scope       `json:"scope"`
+	Seated      []string          `json:"seated,omitempty"`
+	Partial     bool              `json:"partial"`
+	ModelNames  []string          `json:"model_names"`
+	Changed     []json.RawMessage `json:"changed"`
 }
 
 // changedRows builds the stats event for s and remembers its rows as published. Only run calls it.
 func (c *statsCache) changedRows(s stats.Stats) statsChange {
 	ev := statsChange{
-		GeneratedAt: s.GeneratedAt, Scope: s.Scope, Sessions: s.Sessions, Seated: s.Seated,
-		DefinitionsURL: s.DefinitionsURL, Partial: s.Partial,
+		GeneratedAt: s.GeneratedAt, Scope: s.Scope, Seated: s.Seated, Partial: s.Partial,
 		ModelNames: []string{}, Changed: []json.RawMessage{},
 	}
 	rows := make(map[string][]byte, len(s.Models))
