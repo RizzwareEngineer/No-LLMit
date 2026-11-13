@@ -1,0 +1,28 @@
+# Every 15 minutes, ask the live engine whether it answers. A failed run makes GitHub email
+# the owner. Set the repository variable ENGINE_URL to the engine's Railway address
+# (https://..., no trailing slash). No secrets, no checkout, no actions: curl only.
+name: Health
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      ENGINE_URL: ${{ vars.ENGINE_URL }}
+    steps:
+      - name: The engine answers /health and /api/usage with 200 within 10 seconds
+        run: |
+          if [ -z "$ENGINE_URL" ]; then echo "The repository variable ENGINE_URL is not set"; exit 1; fi
+          for path in /health /api/usage; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$ENGINE_URL$path" || true)
+            echo "$path: $code"
+            [ "$code" = "200" ] || exit 1
+          done
