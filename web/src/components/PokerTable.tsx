@@ -31,6 +31,7 @@ interface PokerTableProps {
   winnersByIdx?: Record<number, WinnerInfo>;
   nextHandCountdown?: number | null;
   thinkingPlayerIdx?: number;
+  peeked?: number[]; // seats whose hole cards are face up this hand (the engine's peeked, and the turn on screen)
   buttonDetermination?: ButtonDetermination | null;
   hidePositions?: boolean;
   notice?: TableNoticePayload | null;
@@ -90,6 +91,7 @@ export default function PokerTable({
   winnersByIdx = {},
   nextHandCountdown,
   thinkingPlayerIdx,
+  peeked = [],
   buttonDetermination,
   hidePositions = false,
   notice,
@@ -142,6 +144,7 @@ export default function PokerTable({
       seatIdx={idx}
       handNumber={handNumber}
       dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + CARD_FLIGHT) : undefined}
+      faceUp={street === 'complete' || peeked.includes(idx)}
     />
   );
 

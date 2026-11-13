@@ -1,6 +1,7 @@
 "use client";
 
 import Card from "@/components/Card";
+import HoleCard from "@/components/HoleCard";
 import LLMLogo from "@/components/LLMLogo";
 import { useState } from "react";
 import { motion } from "motion/react";
@@ -22,6 +23,7 @@ interface PlayerProps {
   seatIdx?: number; // where TableMotion's chips and cards fly to and from
   handNumber?: number;
   dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
+  faceUp?: boolean; // the hole cards show their faces: the seat's turn has come this hand, or the hand is over
 }
 
 // Position badge colors
@@ -53,7 +55,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true }: PlayerProps) {
   const [hovered, setHovered] = useState(false);
   const bb = useBigBlind();
   const cards = player.holeCards || [];
@@ -154,7 +156,7 @@ export default function Player({ player, active, position, folded = false, winAm
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
                 >
-                  <Card value={card} className={cardClass} />
+                  <HoleCard value={card} faceUp={faceUp} className={cardClass} />
                 </motion.div>
               ))
             ) : (

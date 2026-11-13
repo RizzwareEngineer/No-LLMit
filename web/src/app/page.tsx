@@ -149,6 +149,8 @@ export default function Home() {
   const stakes = gameState?.stakes || { smallBlind: 5, bigBlind: 10 };
   const handNumber = gameState?.handNumber || 0;
   const winners = gameState?.winners || [];
+  // Seats whose cards are face up: the engine's list, and the turn on screen until a game_state carries it.
+  const peeked = gameState?.peeked ?? [];
   const isHandComplete = street === 'complete';
 
   // All-time stats feed the leaderboard, the drawer and the stats sections; the stream sends them on connect and as each hand is saved.
@@ -413,6 +415,7 @@ export default function Home() {
                 winnersByIdx={winnersByIdx}
                 nextHandCountdown={nextHandCountdown}
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
+                peeked={displayState ? [...peeked, displayState.playerIdx] : peeked}
                 buttonDetermination={buttonDetermination}
                 hidePositions={!!buttonDetermination}
                 notice={tableNotice}
