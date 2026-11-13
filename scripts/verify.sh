@@ -11,12 +11,13 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export BASE_REF="${BASE_REF:-preview/ui}"
 git -C "$ROOT" rev-parse -q --verify "$BASE_REF^{commit}" >/dev/null || { echo "BASE_REF $BASE_REF not found: set BASE_REF"; exit 2; }
-UI=1; BASE=""; CHANGED=0; PASS=()
+UI=1; BASE=""; CHANGED=0; PASS=(); LANES=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-ui) UI=0 ;;
     --base) BASE="$2"; shift ;;
     --changed) CHANGED=1; PASS+=("$1") ;;
+    --lanes) LANES=("$1" "$2"); PASS+=("$1" "$2"); shift ;;
     *) PASS+=("$1") ;;
   esac
   shift
@@ -104,7 +105,7 @@ if [ "$UI" = 1 ]; then
     # workers' builds and browsers. Each failed check reruns once without the rest of the suite; the run
     # passes only if all of them pass there, and VERIFY names them so a real flake is not forgotten.
     failed=$(sed -n 's/^FAIL  \([^ ]*\) .*/\1/p' /tmp/verify-checks.$$ | paste -sd, -)
-    if [ -n "$failed" ] && step "ui: rerun alone: $failed" && (cd "$ROOT/web" && node scripts/checks.mjs --base "$BASE" --only "$failed"); then
+    if [ -n "$failed" ] && step "ui: rerun alone: $failed" && (cd "$ROOT/web" && node scripts/checks.mjs --base "$BASE" --only "$failed" "${LANES[@]+"${LANES[@]}"}"); then
       flaky=" (failed in the full run, passed alone: $failed)"
     else fail=1; fi
   fi

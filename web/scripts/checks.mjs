@@ -37,9 +37,9 @@ async function check(id, rule, fn) {
 // The main page's steps (main) run in order on one page. Checks that bring their own pages run in lanes, each group
 // in a browser context of its own: a window of its own, so input and frames work in every lane at once (a background
 // tab gets neither); newPage() opens a page in the running group's context. The rest (group) run beside the main page
-// in LANES - 1 lanes. Checks that time scroll gestures (late) misread a busy machine, so they wait for the main page,
-// then take LANES - 1 lanes (scroll-consistency opens a second window of its own). All are only queued while this
-// file runs top to bottom, and start at its end.
+// in LANES - 1 lanes (with --lanes 1, after it). Checks that time scroll gestures (late) misread a busy machine, so they wait
+// for the main page, then take LANES - 1 lanes (scroll-consistency opens a second window of its own). All are only
+// queued while this file runs top to bottom, and start at its end.
 const LANES = +arg('--lanes', 3);
 const lane = new AsyncLocalStorage(), groups = [], lates = [], steps = [];
 const group = fn => groups.push(fn), late = fn => lates.push(fn), main = fn => steps.push(fn);
@@ -4455,11 +4455,14 @@ group(() => check('reconnect-unseen', 'The routine stream reconnect is unseen: n
   return { pass: !bad.length, detail: bad.length ? `${bad.join('; ')} (${seen.join('; ')})` : seen.join('; ') };
 }));
 
-const beside = drain(groups, Math.max(1, LANES - 1));
+// --lanes 1 runs one page at a time (the main page's steps, then each group, then each late): a timing check on the main
+// page (a 4x replay's splashes, a refresh's fade) misreads frames while a group films in a window beside it.
+const beside = LANES > 1 ? drain(groups, LANES - 1) : null;
 for (const step of steps) await step().catch(e => console.error(e));
 await Promise.all([pg, ...shared().values()].map(p => p.close()));
 await browser.__sharedCtx?.close();
-await Promise.all([beside, drain(lates, Math.max(1, LANES - 1))]);
+if (beside) await Promise.all([beside, drain(lates, LANES - 1)]);
+else { await drain(groups, 1); await drain(lates, 1); }
 await browser.close();
 // A block that threw outside its check() lost its checks: they fail under their own ids, so verify.sh reruns them alone.
 for (const id of IDS) if (want(id) && !results.some(r => r.id === id)) results.push({ id, rule: 'ran', pass: false, detail: 'never ran: its block threw (error above)', ms: 0 });
