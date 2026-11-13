@@ -389,6 +389,39 @@ group(() => check('table-no-turn-glow', 'The seat on the clock glows; once the h
   } finally { await p.close(); }
 }));
 
+group(() => check('table-notice-says-why', 'Closed for the day or at the daily call cap, the felt says which, and when the table reopens in the viewer\'s time and how long that is, inside the window at 1440x900 and 390x844; no next-hand countdown; the card goes when the table runs again', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [390, 844]]) {
+    const p = await scriptedTable(w, h);
+    // The card on screen (the page keeps a felt per layout; the other one is not drawn).
+    const card = () => p.evaluate(() => {
+      const e = [...document.querySelectorAll('[data-felt-cards] [role=status]')].find(x => x.getBoundingClientRect().width > 0), b = e?.getBoundingClientRect();
+      return { text: e?.innerText.replace(/\s+/g, ' ').trim() ?? null, inside: !!b && b.left >= 0 && b.right <= innerWidth, countdown: /Next hand in/.test(document.body.innerText) };
+    });
+    try {
+      await p.evaluate(() => window.__stream.end(1500)); await sleep(2500);
+      for (const [kind, message, headline] of [['closed', 'The table is closed.', 'Table closed.'], ['cap', 'Daily LLM call limit reached.', 'Daily LLM call limit reached.']]) {
+        // Reopens 13h 30m (and a little) from now, as the engine's RFC3339 reopensAt.
+        const want = await p.evaluate((kind, message) => {
+          const at = new Date(Date.now() + (13 * 60 + 30) * 60000 + 20000);
+          window.__stream.feed({ type: 'table_notice', payload: { kind, message, reopensAt: at.toISOString() } });
+          return `Reopens at ${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(at)} your time (in 13h 30m).`;
+        }, kind, message);
+        await sleep(800);
+        const r = await card(), tag = `${w}x${h} ${kind}`;
+        seen.push(`${tag}: '${r.text}'`);
+        if (!r.text?.startsWith(headline) || !r.text.includes(want)) bad.push(`${tag}: '${r.text}', want '${headline}' and '${want}'`);
+        if (r.text && !r.inside) bad.push(`${tag}: the card runs past the window`);
+        if (r.countdown) bad.push(`${tag}: a next-hand countdown is shown`);
+      }
+      await p.evaluate(() => window.__stream.feed({ type: 'table_notice', payload: { kind: '', message: '' } })); await sleep(800);
+      const after = await card();
+      if (after.text !== null) bad.push(`${w}x${h} after the table runs again: '${after.text}' still shown`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+
 group(() => check('table-reason-empty', 'An action that came with no reason still shows in the reasoning panel (its label and the action), and is announced', async () => {
   const p = await scriptedTable(1440, 900);
   try {
