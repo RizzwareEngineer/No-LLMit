@@ -39,11 +39,12 @@ func newWaitlist() waitlistStore {
 	return &memoryWaitlist{emails: map[string]bool{}}
 }
 
-// waitlistHandler answers GET with {"count": N}; POST with 201 {"count": N} for a new
-// address, 200 {"count": N, "already": true} for one already listed, 400 for an invalid
-// one (bodies over 1 KB included) and 429 past the sign-up limits; 503 when the store
-// fails; 405 otherwise. A sign-up that was stored is never reported as failed: when only
-// the count after it fails, the answer is the 201 or 200 without "count".
+// waitlistHandler answers GET with {"count": N}; POST with 201 {"count": N} for a valid
+// address, the same whether it was new or already listed, so the reply never tells whether
+// someone signed up; 400 for an invalid one (bodies over 1 KB included) and 429 past the
+// sign-up limits; 503 when the store fails; 405 otherwise. A sign-up that was stored is
+// never reported as failed: when only the count after it fails, the answer is the 201
+// without "count".
 func waitlistHandler(store waitlistStore) http.HandlerFunc {
 	limit := newWaitlistLimiter()
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -74,12 +75,10 @@ func waitlistHandler(store waitlistStore) http.HandlerFunc {
 				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
 				return
 			}
-			if added {
-				status = http.StatusCreated
-			} else {
+			if !added {
 				limit.release()
-				out["already"] = true
 			}
+			status = http.StatusCreated
 		default:
 			w.Header().Set("Allow", "GET, POST")
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
