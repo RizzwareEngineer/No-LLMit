@@ -241,8 +241,8 @@ Every frame takes this path: the snapshot first, then the full stats, then live 
 | `type` | Change to that table |
 |---|---|
 | `llm_thinking` | `display` gets phase `thinking`; `clock` becomes `{budgetMs, elapsedMs, received: now, running: true}`, or null without `budgetMs` |
-| `llm_action` | `display` gets phase `reasoning` with `reason`, `action` and `amount`; `clock` is left alone |
-| `game_state` | `gameState` is replaced; phase `reasoning` becomes `revealed`; the clock stops |
+| `llm_action` | `display` gets phase `reasoning` with `reason`, `action` and `amount`; the clock stops: the move has arrived |
+| `game_state` | `gameState` is replaced; phase `reasoning` becomes `revealed`; the clock stops if it still runs |
 | `hand_start` | `notice`, `buttonDetermination`, `display` and `clock` are cleared |
 | `table_notice` | `notice` is set, or null when `kind` is `""` |
 | `button_card` | `buttonDetermination` gains a card; its winner and `isComplete` are reset |

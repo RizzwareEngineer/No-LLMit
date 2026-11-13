@@ -33,7 +33,7 @@ export function useGameState(): UseGameStateReturn {
 
   const table = Object.values(tables)[0] ?? EMPTY_TABLE;
 
-  // The shot clock ticks from llm_thinking until the next game_state, then holds its last value.
+  // The shot clock ticks from llm_thinking until the move arrives (llm_action), then holds its last value.
   const { clock } = table;
   const [tick, setTick] = useState({ received: 0, left: 0 });
   useEffect(() => {
