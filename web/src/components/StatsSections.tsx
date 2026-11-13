@@ -344,8 +344,12 @@ export default memo(function StatsSections({
   const field = useMemo(() => seatedModels(data?.models ?? [], seated), [data, seated]);
   const bigBlind = data?.scope.big_blind ?? 10;
   // One scope for History, Profiles and Matchups (all time) and one clock: History's replay,
-  // which the other two follow through the timeline.
-  const tl = useTimeline(data?.scope.hands);
+  // which the other two follow through the timeline. It is fetched again every 25 hands (the engine's smallest
+  // profile_step: a new Profiles snapshot at most that often), not after every hand; its end is stretched to the
+  // stream's hand count, so every line's tip stays at now.
+  const hands = data?.scope.hands;
+  const fetched = useTimeline(hands === undefined ? undefined : Math.floor(hands / 25));
+  const tl = useMemo(() => (fetched && hands !== undefined && hands > fetched.hands ? { ...fetched, hands } : fetched), [fetched, hands]);
   // The leader, in one unit and one scope on every screen: bb/100 over the range shown, among the models shown.
   const lead = ready && <Leader tl={tl} models={field} />;
   // The Matchups card's lineup: the models seated now (the tile's, and Trends' default) or everyone with hands.

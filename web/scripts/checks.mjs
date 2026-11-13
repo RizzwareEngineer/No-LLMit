@@ -394,6 +394,26 @@ group(() => check('table-reason-empty', 'An action that came with no reason stil
   } finally { await p.close(); }
 }));
 
+group(() => check('history-timeline-fetches', 'Thirty hands of stats events fetch the replay timeline at most twice (every 25 hands, not after every hand), and every synced card\'s last hand is still the stream\'s hand count', async () => {
+  const p = await scriptedTable(1440, 900), urls = [];
+  try {
+    const e = await engineStats(p);
+    if (!e) return { pass: false, detail: 'no engine stream seen' };
+    await sleep(1500);
+    p.on('request', r => { if (/\/api\/stats\/timeline/.test(r.url())) urls.push(r.url()); });
+    const base = e.stats.scope.hands, { models, sessions, ...envelope } = e.stats;
+    for (let h = base + 1; h <= base + 30; h++) {
+      await p.evaluate(m => { window.__sock.scripted = true; window.__sock.feed(m); },
+        { type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: h }, model_names: models.map(m => m.name), changed: [] } });
+      await sleep(150);
+    }
+    await sleep(2500);
+    const ends = await p.evaluate(() => [...new Set([...document.querySelectorAll('[data-sync-hand]')].map(e => +e.dataset.syncHand))]);
+    const ok = urls.length <= 2 && ends.length > 0 && ends.every(h => h === base + 30);
+    return { pass: ok, detail: `hands ${base + 1}-${base + 30}: ${urls.length} timeline fetches (sessions held: ${sessions.length}); synced cards end at ${ends.join(', ') || 'none'}` };
+  } finally { await p.close(); }
+}));
+
 group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns every amount on the table screen (stacks, actions, bets, pot, P&L, the reasoning action) into big blinds and back, the model\'s words aside; kept across a reload; no size changes, nothing newly cut, wrapped or clipped', async () => {
   const bad = [], seen = [];
   const fmt = (chips, bb, unit) => { const v = chips / bb; return v.toLocaleString('en-US', { maximumFractionDigits: v < 100 ? 1 : 0 }) + (unit ? ' BB' : ''); };
