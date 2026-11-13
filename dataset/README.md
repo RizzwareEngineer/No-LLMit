@@ -27,7 +27,7 @@ From Supabase, with `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` set:
 .venv/bin/python export.py --out out --day yesterday   # or --day 2026-11-03, or no --day for every hand
 ```
 
-Days are America/New_York dates the hand started; the live table plays during its configured hours.
+Days are America/New_York dates the hand started; the live table stops for the rest of the UTC day when its daily call cap is reached.
 Re-exporting a day replaces that partition, so `--back 3` safely re-exports the three days before `--day` too.
 
 To publish, set `HF_TOKEN` (write token) and `HF_REPO` (for example `user/no-llmit-hands`):
