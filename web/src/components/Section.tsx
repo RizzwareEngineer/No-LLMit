@@ -193,6 +193,16 @@ export default function Panel({
   const [landed, setLanded] = useState(place);
   // Back on the overview, a tile shows its top (the tile standing in for a card was scrolled as the card was).
   const scroller = useRef<HTMLDivElement>(null);
+  // Its cell keeps its overview height while the tile is out (a phone's cell has no height but its tile's): a cell that
+  // shrank would be layout-animated, and a transformed cell becomes the opened tile's containing block (squeezed to it).
+  const [held, setHeld] = useState<number>();
+  useLayoutEffect(() => {
+    const el = cell.current;
+    if (!hands || !overview || !el) return;
+    const ro = new ResizeObserver(() => setHeld(parseFloat(getComputedStyle(el).height))); // exact: a rounded height still moves it
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hands, overview, cell]);
   useLayoutEffect(() => { if (!focused && scroller.current) scroller.current.scrollTop = 0; }, [focused]);
   // The slide lives on a wrapper (the grid cell), the glide on the section: motion drops an x/y
   // that changes in the same render as a layout snap. Untransformed, the wrapper is no containing
@@ -201,7 +211,7 @@ export default function Panel({
     <motion.div
       ref={cell}
       {...attrs}
-      style={size}
+      style={hands && !overview ? { ...size, minHeight: held } : size}
       // A projection node, so the layout children inside (table rows, the matrix) measure through the
       // slide instead of chasing it when they re-render mid-slide.
       layout
