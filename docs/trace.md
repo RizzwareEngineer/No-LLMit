@@ -313,7 +313,7 @@ Every frame takes this path: the snapshot first, then the full stats, then live 
 **42. A voided hand.**
 - **Where / trigger:** engine, table loop goroutine. Step 39 found an outage: no decision with status `ok` and at least one `timeout`, `api_error` or `service_error`.
 - **Code:** `engine/api/table.go` → `outage`; `engine/api/table.go` → `playHand`; `engine/api/table.go` → `restore`.
-- **Does:** Puts every stack, the winnings and the button back to what step 6 remembered and clears the winners, so no seat shows chips the hand no longer gave. Sets a notice of kind `outage` and `nextHandAt` to now plus `outagePause` (5 min), and sends in one publish: `table_notice`, then `game_state`. Nothing is saved and the stats do not change.
+- **Does:** Puts every stack, the winnings and the button back to what step 6 remembered, and `game.ClearHand` takes the hand off the table: board, winners, pot, bets, hole cards and last moves; seats with chips are active again. The street stays `complete`, so the countdown shows. Viewers then see the table as if the hand was never dealt. Sets a notice of kind `outage` and `nextHandAt` to now plus `outagePause` (5 min), and sends in one publish: `table_notice`, then `game_state`. Nothing is saved and the stats do not change.
 - **Next:** It sleeps, then step 6 deals the probe hand and clears the notice with a `table_notice` of kind `""` right before `hand_start`.
 
 ## The connection drops or the server ends it

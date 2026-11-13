@@ -117,6 +117,16 @@ func TestVoidedHandRestoresStacksAndButton(t *testing.T) {
 	if len(gs.Winners) != 0 {
 		t.Errorf("winners %+v kept, so seats would show chips the hand no longer gave", gs.Winners)
 	}
+	// Viewers see the table as if the hand was never dealt: no pot, cards, bets or moves.
+	shown := ConvertGameState(gs)
+	if shown.Pot != 0 || len(shown.CommunityCards) != 0 || shown.Street != "complete" {
+		t.Errorf("pot %d, board %v, street %s after the void", shown.Pot, shown.CommunityCards, shown.Street)
+	}
+	for _, p := range shown.Players {
+		if len(p.HoleCards) != 0 || p.CurrentBet != 0 || p.LastAction != "" || p.Status != "active" {
+			t.Errorf("%s shows %v, bet %d, %q, %s after the void", p.Name, p.HoleCards, p.CurrentBet, p.LastAction, p.Status)
+		}
+	}
 }
 
 // A rebuy made for a hand that is then voided is flagged on the next hand that is saved.

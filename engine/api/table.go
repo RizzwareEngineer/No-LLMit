@@ -425,7 +425,8 @@ func (t *Table) playHand() {
 const outagePause = 5 * time.Minute
 
 // handStart is what a voided hand puts back: every stack, winnings and the button, as they
-// were before the blinds, with no winners, so the next hand is dealt as if the voided one never was.
+// were before the blinds, with the hand's cards, pot, moves and winners cleared, so viewers and
+// the next deal see the table as if the voided hand never was.
 type handStart struct {
 	stacks, winnings []int
 	button           int
@@ -446,7 +447,7 @@ func (s handStart) restore(gs *game.GameState) {
 		gs.Players[i].Winnings = s.winnings[i]
 	}
 	gs.ButtonIdx = s.button
-	gs.Winners = nil // the seats and the felt would show chips the hand no longer gave
+	gs.ClearHand() // the street stays complete, so the countdown to the next hand still shows
 }
 
 // outage reports whether a hand had no model decision at all because the calls failed: not
