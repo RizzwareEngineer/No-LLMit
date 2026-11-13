@@ -182,8 +182,9 @@ export default memo(function HeadToHead({
       {/* On the tile, a size container: the matrix takes what its names leave. No scroller of its own. */}
       {/* Centred, but never past the left edge: a card that scrolls (a phone, All models) keeps the names pinned. */}
       <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : ''}`} style={{ containerType: mini ? 'size' : undefined, fontSize: px }} onMouseLeave={() => setTip(null)}>
-        {/* No overflow-hidden in the card: it would make the column the sticky container of its own top spacer. */}
-        <div className={`shrink-0 flex flex-col ${mini ? 'overflow-hidden' : `${pin} left-0 z-[2]`}`} style={{ width: namesW }}>
+        {/* No overflow-hidden: in the card it would make the column the sticky container of its own top spacer, and on the tile
+            it cut the names gliding back from the card's wider column (a phone's: each name truncates itself). */}
+        <div className={`shrink-0 flex flex-col ${mini ? '' : `${pin} left-0 z-[2]`}`} style={{ width: namesW }}>
           <span className={`block shrink-0 ${pin && `${pin} top-0 z-[1]`}`} style={{ height: strip }} />
           {/* Model names as in Profiles (14px bold); the Leader on the highlight. */}
           {sorted.map(row => (

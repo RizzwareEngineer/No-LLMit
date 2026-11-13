@@ -269,8 +269,9 @@ html:has([data-screen]) {
   /* The tile standing in under the card (unseen until the swap) has them gone at once: it may mount a frame late. */
   .stats-room[data-leaving] :is(#stats-panel, #pairwise-panel) :is(.add-in, .added) { animation: none; opacity: 0 !important; }
 }
-/* Until the pointer moves after a tile opens or closes, no hover readout (content moved under a still pointer). */
+/* Until the pointer moves after a tile opens or closes, no hover readout or underline (content moved under a still pointer). */
 .stats-room[data-still] [role=tooltip] { display: none !important; }
+.stats-room[data-still] .hover\:underline { text-decoration-line: none; }
 /* Only where scroll timelines exist: elsewhere a time-based run would fill straight to the end state. */
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) and (timeline-scope: --a) {

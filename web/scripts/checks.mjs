@@ -2156,7 +2156,10 @@ const filmable = p => p.evaluate(() => {
     // A part drawn fully transparent (an add-in before its fade starts) paints nothing: its box would only measure what
     // shows through it (the tile's own columns under the card's layout), read as the part appearing in one frame.
     const seen = e => { for (let x = e; x && x !== el; x = x.parentElement) if (+getComputedStyle(x).opacity < 0.01) return false; return true; };
-    const parts = [...el.querySelectorAll('[role=group], [data-scope], p, .add-in, [translate=no], span[aria-hidden]')].filter(e => shown(e) && seen(e)).map(e => [part(e), R(e)]).filter(([k]) => k);
+    // A part inside the card's scroller is drawn only where the scroller shows it (scrolled away, its box lies over the header).
+    const sc = el.querySelector('.panel-scroll'), S = sc && R(sc);
+    const box = e => { const b = R(e); return S && sc.contains(e) ? [Math.max(b[0], S[0]), Math.max(b[1], S[1]), Math.min(b[2], S[2]), Math.min(b[3], S[3])] : b; };
+    const parts = [...el.querySelectorAll('[role=group], [data-scope], p, .add-in, [translate=no], span[aria-hidden]')].filter(e => shown(e) && seen(e)).map(e => [part(e), box(e)]).filter(([k]) => k);
     const names = [...el.querySelectorAll('a[title] [translate=no]')];
     const rows = [...el.querySelectorAll('tbody tr')].map((tr, i) => {
       const cells = [...tr.querySelectorAll(card === '#pairwise-card' ? 'td[data-hands]' : 'td')].filter(d => shown(d) && /\d/.test(d.textContent)).map(R);
@@ -2164,8 +2167,7 @@ const filmable = p => p.evaluate(() => {
       return cells.length && name && shown(name) && { n: name.textContent.trim(), nx: R(name), cy: [Math.min(...cells.map(b => b[1])), Math.max(...cells.map(b => b[3]))], cx: [Math.min(...cells.map(b => b[0])), Math.max(...cells.map(b => b[2]))], tr: R(tr) };
     }).filter(Boolean);
     const tip = [...el.querySelectorAll('[role=tooltip]')].find(e => shown(e) && getComputedStyle(e).visibility === 'visible');
-    const sc = el.querySelector('.panel-scroll');
-    return { y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), st: sc ? sc.scrollTop + sc.scrollLeft : 0, title: R(el.querySelector('h2')) };
+    return { y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), st: sc ? sc.scrollTop + sc.scrollLeft : 0, head: Math.max(0, ...[...el.querySelectorAll('thead th')].map(e => e.getBoundingClientRect().bottom)), title: R(el.querySelector('h2')) };
   };
   new ResizeObserver(() => {
     if (!F.on) return;
@@ -2323,6 +2325,7 @@ const judge = (fr, name, how, state) => {
     const r = d.map(v => v / top);
     for (let n = 1; n < seq.length; n++) {
       if (gap(seq[n - 1], seq[n]) > 1) continue; // a frame between them was not captured
+      if (seq[n].s.st !== seq[n - 1].s.st) continue; // scrolled into or out of the card's view (a closing card returns to its top), not drawn or dropped
       if (r[n - 1] <= 0.1 && r[n] >= 0.9) out.clean.push(`${name}: ${k} appears in one frame (${at(n - 1)} → ${at(n)})`);
       if (r[n - 1] >= 0.9 && r[n] <= 0.1) out.clean.push(`${name}: ${k} ${r[n + 1] >= 0.8 ? 'drops out for one frame' : 'vanishes in one frame'} (${at(n - 1)} → ${at(n)})`);
     }
@@ -2330,10 +2333,11 @@ const judge = (fr, name, how, state) => {
   const torn = new Map(), tips = [], bars = [], jumps = [];
   seq.forEach((f, n) => {
     // A scrolled card closes from where it is: its content never jumps to its top in one frame (it did as the glide back started).
-    if (n && gap(seq[n - 1], f) <= 1 && Math.abs(f.s.st - seq[n - 1].s.st) >= 30) jumps.push(`${seq[n - 1].s.st} → ${f.s.st}px (${at(n - 1)} → ${at(n)})`);
+    // (A smooth scroll back that a slow frame stretches is moving already: the jump starts from a still scroll.)
+    if (n > 1 && gap(seq[n - 1], f) <= 1 && Math.abs(f.s.st - seq[n - 1].s.st) >= 30 && seq[n - 1].s.st === seq[n - 2].s.st) jumps.push(`${seq[n - 1].s.st} → ${f.s.st}px (${at(n - 1)} → ${at(n)})`);
     const [l, t, r, b] = f.s.box;
     for (const row of f.s.rows) {
-      if (row.cy[0] < Math.max(t, 44) || row.cy[1] > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar
+      if (row.cy[0] < Math.max(t, 44, f.s.head - 1) || row.cy[1] > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar or the card's pinned header (scrolled)
       if (share(f, [row.cx[0], row.cy[0], row.cx[1], row.cy[1]], INK) * (row.cx[1] - row.cx[0]) * (row.cy[1] - row.cy[0]) / 4 < 8) continue; // no numbers drawn
       if (share(f, [row.nx[0], row.cy[0], row.nx[2], row.cy[1]], INK) === 0 && !torn.has(row.n)) torn.set(row.n, at(n));
     }
