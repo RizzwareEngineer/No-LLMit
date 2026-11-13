@@ -85,6 +85,17 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
           <Lightning size={11} weight="bold" style={{ color: barColor }} aria-hidden />
           <span className="uppercase font-bold">API Usage</span>
           {(error || isCritical) && <Warning size={11} weight="bold" style={{ color: error ? WARN_TEXT : 'rgb(235, 87, 87)' }} aria-hidden />}
+          {/* The ask: the card's only filled control, on the title's line so the card keeps its height; the warning takes the heart's room. */}
+          <a
+            href={SPONSORS}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto shrink-0 flex items-center gap-1 rounded-full px-1.5 leading-[16px] font-semibold text-white hover:brightness-110 transition-[filter]"
+            style={{ background: 'rgb(35, 131, 226)' }}
+          >
+            {!(error || isCritical) && <Heart size={11} weight="fill" aria-hidden />}
+            Sponsor on GitHub
+          </a>
         </div>
 
         <div className="flex items-center gap-2">
@@ -125,23 +136,9 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
           </div>
         )}
 
-        {/* The ask, beside the calls it pays for: the card's only filled control. */}
-        <div data-donate className="mt-2 pt-2 border-t border-notion flex flex-col gap-1.5">
-          <div className="text-[11px] leading-snug whitespace-nowrap" style={{ color: 'rgb(55, 53, 47)' }}>
-            <p>Every move is a paid model call.</p>
-            <p style={{ color: MUTED }}>Donations pay for these calls.</p>
-          </div>
-          <a
-            href={SPONSORS}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110 transition-[filter]"
-            style={{ background: 'rgb(35, 131, 226)' }}
-          >
-            <Heart size={12} weight="fill" aria-hidden />
-            Sponsor on GitHub
-          </a>
-        </div>
+        {/* What the calls above are, in the old "Support this project" line's place (the card must not grow: the sidebar
+            already sets the table's height). */}
+        <p className="mt-2 pt-2 border-t border-notion text-[11px] whitespace-nowrap" style={{ color: 'rgb(55, 53, 47)' }}>Every move is a paid model call.</p>
       </div>
     </div>
   );
