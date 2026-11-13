@@ -10,7 +10,7 @@ so the numbers are never more than one hand behind. Every 5 minutes it also asks
 hands newer than the newest one it holds (another writer's, such as an overlapping deploy),
 never the whole table again. Until the first
 load succeeds the endpoint answers 503 (a failed load is retried every 15 seconds). Both
-stats endpoints send gzip to clients that accept it: the demo's 191 KB of stats are 36 KB.
+stats endpoints always send gzip (every browser takes it, and a raw body costs about five times the egress): the demo's 191 KB of stats are 36 KB.
 
 All-ins are worked out a few hands at a time after a restart, so serving never waits on
 them. While some are left, `partial` is `true` and those hands count at their actual result

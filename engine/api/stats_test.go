@@ -175,8 +175,18 @@ func (c *statsCache) get(url string) (int, stats.Stats) {
 	w := httptest.NewRecorder()
 	c.handle(w, httptest.NewRequest("GET", url, nil))
 	var s stats.Stats
-	json.Unmarshal(w.Body.Bytes(), &s)
+	json.Unmarshal(gunzip(w), &s)
 	return w.Code, s
+}
+
+// gunzip is a stats answer's body; 503s are plain text.
+func gunzip(w *httptest.ResponseRecorder) []byte {
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(zr)
+	return b
 }
 
 func waitFor(t *testing.T, what string, ok func() bool) {
@@ -268,7 +278,7 @@ func (c *statsCache) getTimeline(url string) (int, stats.Timeline) {
 	w := httptest.NewRecorder()
 	c.handleTimeline(w, httptest.NewRequest("GET", url, nil))
 	var tl stats.Timeline
-	json.Unmarshal(w.Body.Bytes(), &tl)
+	json.Unmarshal(gunzip(w), &tl)
 	return w.Code, tl
 }
 
@@ -314,21 +324,24 @@ func TestStatsTimelineByScopeAndGzip(t *testing.T) {
 			}
 		}
 	}
-	// With Accept-Encoding: gzip both endpoints send the same JSON compressed.
+	// Both endpoints send the JSON gzipped whatever Accept-Encoding says, so a client that
+	// leaves it out cannot pull the raw body, five times the bytes.
 	for _, url := range []string{"/api/stats", "/api/stats/timeline"} {
-		plain, zipped := httptest.NewRecorder(), httptest.NewRecorder()
-		r := httptest.NewRequest("GET", url, nil)
-		c.serve(plain, r, strings.Contains(url, "timeline"))
-		r.Header.Set("Accept-Encoding", "gzip, deflate, br")
-		c.serve(zipped, r, strings.Contains(url, "timeline"))
-		zr, err := gzip.NewReader(zipped.Body)
-		if err != nil {
-			t.Fatalf("%s: %v", url, err)
-		}
-		body, _ := io.ReadAll(zr)
-		if zipped.Header().Get("Content-Encoding") != "gzip" || plain.Header().Get("Content-Encoding") != "" ||
-			string(body) != plain.Body.String() || zipped.Body.Len() >= plain.Body.Len() {
-			t.Errorf("%s: gzip %d bytes, plain %d, same body %v", url, zipped.Body.Len(), plain.Body.Len(), string(body) == plain.Body.String())
+		for _, accept := range []string{"", "identity", "gzip, deflate, br"} {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest("GET", url, nil)
+			if accept != "" {
+				r.Header.Set("Accept-Encoding", accept)
+			}
+			timeline := strings.Contains(url, "timeline")
+			c.serve(w, r, timeline)
+			want := c.all
+			if timeline {
+				want = c.timeline
+			}
+			if w.Header().Get("Content-Encoding") != "gzip" || string(gunzip(w)) != string(want.json) || w.Body.Len() >= len(want.json) {
+				t.Errorf("%s with %q: Content-Encoding %q, %d bytes for %d of JSON", url, accept, w.Header().Get("Content-Encoding"), w.Body.Len(), len(want.json))
+			}
 		}
 	}
 }

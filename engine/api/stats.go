@@ -19,7 +19,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -55,7 +54,7 @@ type statsCache struct {
 	seated []string // the table's lineup; set before run starts, never changed after
 }
 
-// payload is a response body, and its gzip for clients that accept it.
+// payload is a response body (the stream's stats frame), and its gzip (what the endpoints send).
 type payload struct{ json, gz []byte }
 
 func newPayload(v any) payload {
@@ -280,15 +279,11 @@ func (c *statsCache) serve(w http.ResponseWriter, r *http.Request, timeline bool
 		http.Error(w, "stats are still loading", http.StatusServiceUnavailable)
 		return
 	}
+	// Always gzip, about a fifth of the bytes: every browser takes it, and a client that skips
+	// Accept-Encoding to get the raw body would cost five times the egress.
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Vary", "Accept-Encoding")
-	// shortcut: any "gzip" in Accept-Encoding counts, even gzip;q=0, which no browser sends.
-	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-		w.Header().Set("Content-Encoding", "gzip")
-		w.Write(body.gz)
-		return
-	}
-	w.Write(body.json)
+	w.Header().Set("Content-Encoding", "gzip")
+	w.Write(body.gz)
 }
 
 // loadSupabaseHands reads the saved hands that started at or after since (every hand when
