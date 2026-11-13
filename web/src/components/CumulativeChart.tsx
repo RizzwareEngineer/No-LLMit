@@ -170,6 +170,9 @@ function crossing(a: Pts, b: Pts, ns: number[]): [number, number] | null {
 // The vertical camera: [lo, hi] follows its target as a critically damped spring, so the y axis eases
 // to each new fit with no overshoot, no jump when the target moves and no per-frame jitter.
 const CAM_W = 7; // the spring's rate, 1/s: a step settles in about 0.8 s, trailing a moving target by 2/CAM_W
+// Never faster than this share of the span shown per second: a zoom into a pack several times narrower than the
+// view still eases (a spring step that large crossed over 4% of the span in one 60 Hz frame, history-y-dynamic).
+const CAM_MAX = 2;
 const LOOK_S = 0.6; // while the replay plays, the axis also fits the next this-many seconds of the lines, so the spring is there before a jump
 function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
   const [cur, setCur] = useState<[number, number]>([lo, hi]);
@@ -185,10 +188,12 @@ function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
       const dt = Math.min(0.25, Math.max(0, ((t - c.t) / 1000) * replaySpeed())), span = Math.abs(c.tgt[1] - c.tgt[0]) || 1;
       c.t = t;
       let still = true;
+      const lim = CAM_MAX * Math.abs(c.x[1] - c.x[0]) * dt;
       for (let i = 0; i < 2; i++) {
-        const e = Math.exp(-CAM_W * dt), d = c.x[i] - c.tgt[i], m = (c.v[i] + CAM_W * d) * dt;
+        const e = Math.exp(-CAM_W * dt), d = c.x[i] - c.tgt[i], m = (c.v[i] + CAM_W * d) * dt, was = c.x[i];
         c.v[i] = (c.v[i] - CAM_W * m) * e;
         c.x[i] = c.tgt[i] + (d + m) * e;
+        if (Math.abs(c.x[i] - was) > lim) [c.x[i], c.v[i]] = [was + Math.sign(c.x[i] - was) * lim, Math.sign(c.x[i] - was) * lim / dt];
         if (Math.abs(c.x[i] - c.tgt[i]) > span * 1e-4 || Math.abs(c.v[i]) > span * 1e-3) still = false;
       }
       if (still) [c.x, c.v, c.raf] = [[...c.tgt], [0, 0], 0];
