@@ -752,7 +752,8 @@ const holeBoxes = p => p.evaluate(() => [...document.querySelectorAll('[data-sea
 // cards change over 3 or more painted frames and end face up; every other seat stays down), its game_state with peeked
 // (no change), a second seat's turn, then the hand complete (the rest turn up). Reduced motion: the faces switch with
 // no frame in between. Live engine: a reload mid-hand, once a seat has had its turn and one has not: the first painted
-// frame with cards shows the snapshot's peeked seats up and the rest down, and nothing turns over after it.
+// frame with the cards drawn (faded in, owner 2026-11-11: "on a mid-hand refresh the dealt cards just fade in") shows the
+// snapshot's peeked seats up and the rest down, and nothing turns over after it.
 group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s two cards peel up when its turn first comes (either motion, ?peel=1|2) and stay up; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no peel; reduced motion switches faces with no motion', async () => {
   const bad = [], seen = [];
   const face = s => s.map(c => c.face).join('');
@@ -814,7 +815,8 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
   // Live: reload until the snapshot has a seat that has had its turn and one that has not.
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   try {
-    await p.evaluateOnNewDocument(() => { const look = () => { if (document.querySelector('[data-seat] [data-hole] [data-back]')) window.__cardsAt = performance.timeOrigin + performance.now(); else requestAnimationFrame(look); }; requestAnimationFrame(look); });
+    // The cards are drawn once their fade-in is done: a hole card (a folded seat's are at 40%) at full opacity.
+    await p.evaluateOnNewDocument(() => { const op = e => (e ? +getComputedStyle(e).opacity * op(e.parentElement) : 1); const look = () => { if (document.querySelector('[data-seat] [data-hole] [data-back]') && Math.max(...[...document.querySelectorAll('[data-seat] [data-hole] > *')].filter(e => e.getBoundingClientRect().width > 0).map(op)) > 0.99) window.__cardsAt = performance.timeOrigin + performance.now(); else requestAnimationFrame(look); }; requestAnimationFrame(look); });
     await p.evaluateOnNewDocument(() => { const Real = window.EventSource; window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'snapshot' && !window.__snap) { const t = Object.values(m.payload.tables)[0]; window.__snap = t && { peeked: t.state.peeked, street: t.state.street, players: t.state.players.length, at: performance.now() }; } if (m.type === 'game_state') window.__now = { peeked: m.payload.peeked, street: m.payload.street, players: m.payload.players.length }; } catch {} fn(e); }; } get onmessage() { return super.onmessage; } }; });
     let ok = null, lastSnap = null;
     for (let tries = 0; tries < 12 && !ok; tries++) {
