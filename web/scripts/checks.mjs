@@ -3781,6 +3781,19 @@ group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/
   if (n < 20) bad.push(`only ${n} pairs with hands together`);
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 5).join('; ') : `${n} cells match the engine's bb/100 (big blind ${bb})` };
 }));
+group(() => check('matchups-total-faint', 'A Matchups Total is drawn faint exactly when its row has fewer than 500 hands of its own (not the hands summed over its opponents)', async () => {
+  const p = await pageAt(1440, 900, 'race');
+  await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
+  const e = await engineStats(p);
+  if (!e) { await p.close(); return { pass: false, detail: 'the page never opened the engine stream' }; }
+  const by = Object.fromEntries(e.stats.models.map(m => [m.name, m]));
+  const totals = await p.evaluate(() => [...document.querySelectorAll('#pairwise-card [data-cell$="|"]')]
+    .filter(el => el.querySelector('[aria-hidden]')).map(el => ({ row: el.dataset.cell.slice(0, -1), faint: +getComputedStyle(el).opacity < 1 })));
+  await p.close();
+  const bad = totals.filter(t => by[t.row] && t.faint !== by[t.row].hands < 500).map(t => `${t.row}: ${by[t.row].hands} hands, drawn ${t.faint ? 'faint' : 'full'}`);
+  if (!totals.length) bad.push('no Total with a figure');
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 5).join('; ') : `${totals.length} Totals, ${totals.filter(t => t.faint).length} faint, each by its row's own hands` };
+}));
 group(() => check('matchups-all-models', 'The Matchups card\'s "All models" shows every model with hands at the seated cell size; the grid scrolls inside the card with the row names, column logos and totals pinned', async () => {
   const p = await pageAt(1440, 900, 'race');
   await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
