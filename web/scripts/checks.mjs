@@ -2529,10 +2529,12 @@ late(() => check('pages-move', 'The main screens move like pages: table → over
 // about-support-prominent), a number may take the stats' gain or loss colour, all in the body's sans (the code aside). Any card
 // in it is a stats card (radius, ring and shadow, padding, white); a disabled control (the home page's Play button,
 // about-play-soon) keeps its own muted look. No heading carries an emoji, and About fits one window at the overview's width
-// and centre (not wall to wall) at 1440x900 and 1728x1117.
+// and centre (not wall to wall) at 1440x900 and 1728x1117. Owner, 2026-11-13: "all the text that aren't headers and whatnot
+// in the about page can be bigger": the body is 16px (line-height 1.5) and the labels 14px muted; the headings and the 13px
+// uppercase labels (the eyebrow, a row's name) stay as they were; a button's own 14px label (the waitlist's) may stay.
 // React has taken over the page (its props are on About's first button): the server's HTML ignores clicks until then.
 const aboutReady = p => p.waitForFunction(() => { const b = document.querySelector('[data-about] button'); return !!b && Object.keys(b).some(k => k.startsWith('__react')); }, { timeout: 60000, polling: 100 }).catch(() => {});
-main(() => check('about-fits', 'About is on the stats type scale (thesis 28px bold, titles and figures 20px bold, section labels 13px muted uppercase, body 14px, labels 13px muted, the filled donate button white, body sans), any card in it is a stats card, no heading has an emoji, and it fits one window at the overview\'s width and centre at 1440x900 and 1728x1117', async () => {
+main(() => check('about-fits', 'About is on the stats type scale (thesis 28px bold, titles and figures 20px bold, section labels 13px muted uppercase, body 16px, labels 14px muted, the filled donate button white, body sans), any card in it is a stats card, no heading has an emoji, and it fits one window at the overview\'s width and centre at 1440x900 and 1728x1117', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await sharedAt(w, h, 'about');
@@ -2561,8 +2563,9 @@ main(() => check('about-fits', 'About is on the stats type scale (thesis 28px bo
         const ok = e.closest('h1, h2, h3, h4, h5, h6')
           ? ((size === 28 || size === 20) && bold && s.color === TEXT) || (size === 13 && s.color === MUTED && s.textTransform === 'uppercase')
           : size === 20 ? bold && s.color === TEXT
-          : size === 14 ? s.color === TEXT || (control && s.color === BLUE) || (filled && s.color === WHITE) || (number && NET.includes(s.color))
-          : size === 13 ? s.color === MUTED || (control && s.color === BLUE)
+          : size === 16 ? s.color === TEXT || (control && s.color === BLUE) || (filled && s.color === WHITE) || (number && NET.includes(s.color))
+          : size === 14 ? s.color === MUTED || (control && (s.color === BLUE || s.color === TEXT))
+          : size === 13 ? s.color === MUTED && s.textTransform === 'uppercase'
           : false;
         if (!ok) why.add(`${e.closest('h1, h2, h3, h4, h5, h6') ? 'heading ' : ''}${name} ${size}px ${s.fontWeight} ${s.color}${s.textTransform === 'none' ? '' : ` ${s.textTransform}`}`);
       }
@@ -2900,16 +2903,19 @@ const openTile = async (p, tile) => { await goto(p, 'stats'); await sleep(900); 
 // ... how it works is first and the rows below it can still be seen but it's blurry ... then you scroll down like a wheel";
 // "if I put my cursor closer to the dial then scrolling up or down or just clicking should bring it up and down. Then if
 // cursor elsewhere then scroll normally". The four topics on a dial: one row sharp in front, the others blurred behind.
-// Each dial row as painted: its index, whether it is the focused one, opacity, blur, scale, and its box against the dial's.
+// Each dial row as painted: its index, whether it is the focused one, its words' opacity and blur (the row's and its body's
+// together), its label's (the row's alone), scale, and its box against the dial's.
 const dialRows = p => p.evaluate(() => {
   const dial = document.querySelector('[data-dial]');
   if (!dial) return null;
   const b = dial.getBoundingClientRect();
+  const blurOf = s => +(s.filter.match(/blur\(([\d.]+)px\)/)?.[1] ?? 0);
   return [...dial.querySelectorAll('[data-dial-row]')].map((e, i) => {
     const s = getComputedStyle(e), r = e.getBoundingClientRect(), m = new DOMMatrix(s.transform === 'none' ? undefined : s.transform);
+    const body = e.querySelector('[data-dial-body]'), own = body ? getComputedStyle(body) : { filter: 'none', opacity: 1 };
     return {
-      i, title: e.dataset.dialRow, current: e.getAttribute('aria-current') === 'true', opacity: +s.opacity,
-      blur: +(s.filter.match(/blur\(([\d.]+)px\)/)?.[1] ?? 0), scale: Math.round(Math.hypot(m.a, m.b) * 1000) / 1000,
+      i, title: e.dataset.dialRow, current: e.getAttribute('aria-current') === 'true', opacity: Math.round(+s.opacity * +own.opacity * 1000) / 1000,
+      blur: blurOf(s) + blurOf(own), labelOpacity: +s.opacity, labelBlur: blurOf(s), scale: Math.round(Math.hypot(m.a, m.b) * 1000) / 1000,
       inside: r.top >= b.top - 1 && r.bottom <= b.bottom + 1 && r.left >= b.left - 1 && r.right <= b.right + 1,
     };
   });
@@ -2943,7 +2949,7 @@ const dialPage = async (w, h, path, opts = {}) => {
   await aboutReady(p); await sleep(1500);
   return p;
 };
-group(() => check('about-dial', 'About\'s four topics are a dial at 1440x900, 1728x1117 and 390x844 (home page About screen and /about): it opens on How it works; exactly one row is sharp (no blur, opacity 1, unscaled) and fully inside the dial\'s box; the others are blurred 2px or more, opacity 0.5 or less and scaled down; a focus ring is painted round it when it has keyboard focus', async () => {
+group(() => check('about-dial', 'About\'s four topics are a dial at 1440x900, 1728x1117 and 390x844 (home page About screen and /about): it opens on How it works; exactly one row is sharp (no blur, opacity 1, unscaled) and fully inside the dial\'s box; the others are scaled down, their words faded (opacity 0.5 or less) and softly blurred (more than 0, at most 1.5px, still readable), their label unblurred at opacity 0.45 or more; a focus ring is painted round it when it has keyboard focus', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) for (const path of ['/', '/about']) {
     const at = `${w}x${h} ${path}`;
@@ -2955,8 +2961,10 @@ group(() => check('about-dial', 'About\'s four topics are a dial at 1440x900, 17
     if (sharp.length !== 1 || !sharp[0].current) bad.push(`${at}: sharp rows ${sharp.map(r => r.title).join(', ') || 'none'}`);
     if (rows[0].current !== true) bad.push(`${at}: opens on ${rows.find(r => r.current)?.title ?? 'nothing'}`);
     if (sharp[0] && !sharp[0].inside) bad.push(`${at}: the focused row is cut by the dial's box`);
-    const soft = rows.filter(r => !r.current && !(r.blur >= 2 && r.opacity <= 0.5 && r.scale < 1));
-    if (soft.length) bad.push(`${at}: not blurred behind: ${soft.map(r => `${r.title} blur ${r.blur} opacity ${r.opacity} scale ${r.scale}`).join(', ')}`);
+    // Owner, 2026-11-13: "the text is a bit too blurry. at least make the left column words a bit less blurry": the words
+    // behind softly blurred (1.5px at most), the labels never, faded only.
+    const soft = rows.filter(r => !r.current && !(r.blur > 0 && r.blur <= 1.5 && r.opacity <= 0.5 && r.scale < 1 && r.labelBlur === 0 && r.labelOpacity >= 0.45));
+    if (soft.length) bad.push(`${at}: not softly behind: ${soft.map(r => `${r.title} blur ${r.blur} opacity ${r.opacity} label blur ${r.labelBlur} opacity ${r.labelOpacity} scale ${r.scale}`).join(', ')}`);
     // Keyboard focus (no pointer has touched this page, so a scripted focus shows as keyboard focus), then the ring's blue round its box.
     await p.focus('[data-dial]');
     const focused = await p.evaluate(() => document.activeElement?.matches('[data-dial]:focus-visible'));
@@ -3081,6 +3089,51 @@ group(() => check('about-dial-click-keys', 'On About\'s dial (/about, 1440x900):
   await p.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
+// Owner, 2026-11-13: "when i click read system prompt read user prompt nothing should be moving in the background." With a
+// prompt open (home page About screen and /about, 1440x900): wheel on the backdrop, on the dialog's header and past both
+// ends of its text, and the page's keys, move nothing behind it (the page's scroll, About's own, the dial, every box in the
+// window outside the dialog), every CSS animation behind it is paused, and on close all is where it was.
+group(() => check('about-prompt-holds', 'With a prompt dialog open on About (home page About screen and /about, 1440x900), wheel on the backdrop, the dialog\'s header and past both ends of its text, and PageDown, ArrowDown, End and PageUp, move nothing behind it (page scroll, About\'s scroll, the dial, every box in the window outside the dialog) and its CSS animations are paused; closing it leaves all where it was', async () => {
+  const bad = [], seen = [];
+  for (const path of ['/', '/about']) {
+    const p = await dialPage(1440, 900, path);
+    await p.waitForFunction(() => document.querySelector('[data-about] figure [data-race-hit]'), { timeout: 60000, polling: 250 }).catch(() => {});
+    await sleep(2200); // the race's reveal and the logos' fade
+    // The page's scroll, About's own, the dial's row, and every visible box outside an open dialog.
+    const state = () => p.evaluate(() => {
+      const panel = document.querySelector('section[aria-label=About] .panel-scroll');
+      const boxes = [...document.querySelectorAll('body *')].filter(e => !e.closest('dialog[open]')).map(e => e.getBoundingClientRect()).filter(r => r.width > 0 && r.bottom > 0 && r.top < innerHeight).map(r => [r.x, r.y, r.width, r.height].map(Math.round).join(','));
+      return { y: Math.round(scrollY), panel: Math.round(panel?.scrollTop ?? 0), at: [...document.querySelectorAll('[data-dial-row]')].findIndex(e => e.getAttribute('aria-current') === 'true'), boxes };
+    });
+    const before = await state();
+    const btn = await p.evaluate(() => { const b = [...document.querySelectorAll('[data-dial] button')].find(e => /^Read the system prompt/.test(e.textContent.trim())); const r = b?.getBoundingClientRect(); return r && [r.left + r.width / 2, r.top + r.height / 2]; });
+    if (!btn) { bad.push(`${path}: no "Read the system prompt" button`); await p.close(); continue; }
+    await p.mouse.click(btn[0], btn[1]); await sleep(600);
+    const open = await p.evaluate(() => !!document.querySelector('dialog[open]') && document.documentElement.hasAttribute('data-hold'));
+    if (!open) { bad.push(`${path}: the dialog did not open with <html data-hold>`); await p.close(); continue; }
+    const held = await state();
+    // Where to wheel: the backdrop (the side margin), the dialog's header, and its text (to its bottom and past, then back).
+    const spots = await p.evaluate(() => { const d = document.querySelector('dialog[open]').getBoundingClientRect(), t = document.querySelector('dialog[open] .overflow-y-auto').getBoundingClientRect(); return { head: [d.left + 40, d.top + 20], text: [t.left + t.width / 2, t.top + t.height / 2] }; });
+    for (const [x, y, dir, n] of [[20, 450, 1, 3], [20, 450, -1, 3], [...spots.head, 1, 3], [...spots.text, 1, 12], [...spots.text, -1, 12], [...spots.head, -1, 3]]) {
+      await p.mouse.move(x, y);
+      for (let k = 0; k < n; k++) { await p.mouse.wheel({ deltaY: 400 * dir }); await sleep(40); }
+      await sleep(300);
+    }
+    for (const key of ['PageDown', 'ArrowDown', 'End', 'PageUp']) { await p.keyboard.press(key); await sleep(200); }
+    await sleep(500);
+    const after = await state();
+    const moved = after.boxes.filter(b => !held.boxes.includes(b)).length + held.boxes.filter(b => !after.boxes.includes(b)).length;
+    const running = await p.evaluate(() => document.getAnimations().filter(a => a instanceof CSSAnimation && a.playState === 'running' && !a.effect?.target?.closest?.('dialog')).map(a => `${a.animationName} on ${a.effect.target.className || a.effect.target.tagName}`.slice(0, 60)));
+    if (after.y !== held.y || after.panel !== held.panel || after.at !== held.at || moved) bad.push(`${path}: open, the page moved (scrollY ${held.y} → ${after.y}, About ${held.panel} → ${after.panel}, dial row ${held.at} → ${after.at}, ${moved} boxes changed)`);
+    if (running.length) bad.push(`${path}: CSS animations still running behind the dialog: ${running.slice(0, 4).join(', ')}`);
+    await p.keyboard.press('Escape'); await sleep(500);
+    const closed = await state(), hold = await p.evaluate(() => document.documentElement.hasAttribute('data-hold') || !!document.querySelector('dialog[open]'));
+    if (hold || closed.y !== before.y || closed.panel !== before.panel || closed.at !== before.at) bad.push(`${path}: closed, ${hold ? 'still held or open; ' : ''}scrollY ${before.y} → ${closed.y}, About ${before.panel} → ${closed.panel}, dial row ${before.at} → ${closed.at}`);
+    seen.push(`${path}: scrollY ${held.y}, dial row ${held.at}, ${held.boxes.length} boxes held, ${running.length} animations running`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
 group(() => check('about-dial-touch-motion', 'At 390x844 with touch, one vertical swipe on About\'s dial turns it exactly one row (swipe up: the next) and the page stays; past How it works the page scrolls instead. Under reduced motion a turn shows the new row in focus at once, with no transition', async () => {
   const bad = [], seen = [];
   const p = await dialPage(390, 844, '/about', { touch: true });
@@ -3120,7 +3173,9 @@ group(() => check('about-dial-touch-motion', 'At 390x844 with touch, one vertica
     document.querySelector('[data-dial]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const rows = [...document.querySelectorAll('[data-dial-row]')];
-      res({ at: rows.findIndex(e => e.getAttribute('aria-current') === 'true'), o: +getComputedStyle(rows[1]).opacity, f: getComputedStyle(rows[1]).filter, back: +getComputedStyle(rows[0]).opacity, anims: document.querySelector('[data-dial]').getAnimations({ subtree: true }).length });
+      // A row's words: the row's opacity times its body's, and the body's blur (the row itself is never blurred).
+      const words = e => { const b = e.querySelector('[data-dial-body]') ?? e; return { o: +getComputedStyle(e).opacity * (b === e ? 1 : +getComputedStyle(b).opacity), f: getComputedStyle(b).filter }; };
+      res({ at: rows.findIndex(e => e.getAttribute('aria-current') === 'true'), o: words(rows[1]).o, f: words(rows[1]).f, back: words(rows[0]).o, anims: document.querySelector('[data-dial]').getAnimations({ subtree: true }).length });
     }));
   }));
   seen.push(`reduced motion, next frame: row ${frame.at}, opacity ${frame.o}, filter ${frame.f}, behind ${frame.back}, ${frame.anims} animations`);
@@ -3131,7 +3186,7 @@ group(() => check('about-dial-touch-motion', 'At 390x844 with touch, one vertica
 // Owner, 2026-11-12: "the donation part is not like... apparent". The ask sits on the table screen, in the API usage card
 // beside the calls it pays for: a filled "Sponsor on GitHub" link, its sentence on one line, and Profits & Losses above
 // still shows every seat.
-group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117 and 390x844, the API usage card says "Every move is a paid model call." on one line and has a filled "Sponsor on GitHub" link to GitHub Sponsors (new tab), the card\'s only filled control, inside the window; Profits & Losses shows every seat\'s row unclipped and unscrolled', async () => {
+group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117 and 390x844, the API usage card says "Every move is a paid model call." on one line and, below it inside the card, has a filled "Sponsor on GitHub" link to GitHub Sponsors (new tab), the card\'s only filled control, inside the window; Profits & Losses shows every seat\'s row unclipped and unscrolled', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) {
     const p = await newPage(); await p.setViewport({ width: w, height: h });
@@ -3145,13 +3200,16 @@ group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117
       const line = [...card.querySelectorAll('p')].find(e => e.textContent.trim() === 'Every move is a paid model call.');
       const lines = line ? (() => { const rg = document.createRange(); rg.selectNodeContents(line); return new Set([...rg.getClientRects()].map(q => Math.round(q.top))).size; })() : 0;
       const clipped = line ? line.scrollWidth > line.clientWidth + 1 || line.getBoundingClientRect().right > cb.right + 1 : true;
+      // Owner, 2026-11-13: the link sits below the sentence, still inside the card (on a line of its own, whole).
+      const lb = line?.getBoundingClientRect();
+      const below = !!lb && ab.top >= lb.bottom - 1 && ab.left >= lb.left - 1 && ab.bottom <= cb.bottom - 1 && ab.right <= cb.right - 1 && a.scrollWidth <= a.clientWidth + 1;
       const filled = [...card.querySelectorAll('a, button')].filter(e => { const c = getComputedStyle(e).backgroundColor; return c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent'; });
       const pnl = [...document.querySelectorAll('#table h2')].find(e => /Profits/.test(e.textContent))?.closest('.rounded');
       const list = pnl?.querySelector('ol'), scroller = list?.parentElement, pb = scroller?.getBoundingClientRect();
       const rows = list ? [...list.children] : [];
       const cut = rows.filter(li => { const q = li.getBoundingClientRect(); return q.top < pb.top - 1 || q.bottom > pb.bottom + 1; }).length;
       return {
-        text: a.textContent.trim(), bg: getComputedStyle(a).backgroundColor, target: a.target, lines, clipped, filled: filled.length,
+        text: a.textContent.trim(), bg: getComputedStyle(a).backgroundColor, target: a.target, lines, clipped, below, filled: filled.length,
         inWindow: ab.top >= 0 && ab.bottom <= innerHeight + 1 && ab.left >= 0 && ab.right <= innerWidth, rows: rows.length, cut,
         scrolls: scroller ? scroller.scrollHeight > scroller.clientHeight + 1 : true, cardH: Math.round(cb.height),
       };
@@ -3161,6 +3219,7 @@ group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117
     seen.push(`${at}: "${r.text}" ${r.bg}, sentence ${r.lines} line${r.lines === 1 ? '' : 's'}, card ${r.cardH}px, P&L ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
     if (r.text !== 'Sponsor on GitHub' || r.bg !== 'rgb(35, 131, 226)' || r.target !== '_blank') bad.push(`${at}: the link is "${r.text}" on ${r.bg}, target ${r.target || 'self'}`);
     if (r.lines !== 1 || r.clipped) bad.push(`${at}: "Every move is a paid model call." on ${r.lines} lines${r.clipped ? ', clipped' : ''}`);
+    if (!r.below) bad.push(`${at}: the Sponsor link is not below "Every move is a paid model call." inside the card`);
     if (r.filled !== 1) bad.push(`${at}: ${r.filled} filled controls in the card`);
     if (w > 390 && !r.inWindow) bad.push(`${at}: the Sponsor link is outside the window`);
     if (r.rows < 2 || r.cut || r.scrolls) bad.push(`${at}: Profits & Losses ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
@@ -3510,6 +3569,51 @@ group(() => check('matchups-never-met', 'A pair with no hands together is an emp
   for (const c of cells) if (c.text.trim()) bad.push(`${c.key}: shows "${c.text}"`);
   for (const [i, t] of tips.entries()) if (!/never sat together/.test(t)) bad.push(`${keys[i]}: readout "${t}"`);
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${keys.join(' and ')}: empty cells, "${tips[0]}"` };
+}));
+// Owner, 2026-11-13: "why does a scrollbar sometimes appear on the matrix? and look the text barely fits in the popup
+// when i hover". The readout is drawn in the card's chrome, outside the matrix's scroller, hugging its text.
+group(() => check('matchups-tip-inside', 'Hovering a Matchups card cell (the four corners and the middle, at 1440x900 and 390x844) shows its readout whole inside the card, its text uncut, off the cell, and never changes the matrix scroller\'s scroll size', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [390, 844]]) {
+    const p = await pageAt(w, h, 'race');
+    await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
+    const n = await p.evaluate(() => document.querySelectorAll('#pairwise-card tbody tr').length);
+    if (n < 3) { bad.push(`${w}x${h}: ${n} rows`); await p.close(); continue; }
+    const m = n >> 1;
+    // The corners off the diagonal (a model's own cell has no readout), and one in the middle.
+    for (const [r, c] of [[0, 1], [0, n - 1], [n - 1, 0], [n - 1, n - 2], [m, m + 1]]) {
+      const at = await p.evaluate((r, c) => {
+        const td = document.querySelectorAll('#pairwise-card tbody tr')[r].querySelectorAll('td')[c];
+        td.scrollIntoView({ block: 'nearest', inline: 'center' }); // a phone's grid scrolls: bring the cell out from under the pinned names
+        const sc = document.querySelector('#pairwise-card .panel-scroll'), b = td.getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2;
+        return { x, y, key: td.dataset.cell, hit: td.contains(document.elementFromPoint(x, y)), size: [sc.scrollWidth, sc.scrollHeight] };
+      }, r, c);
+      if (!at.hit) { bad.push(`${w}x${h} ${at.key}: the cell is covered at its centre`); continue; }
+      await p.mouse.move(at.x - 3, at.y - 3); await p.mouse.move(at.x, at.y, { steps: 3 }); await sleep(400);
+      const t = await p.evaluate(key => {
+        const tip = document.querySelector('#pairwise-card [role=tooltip]');
+        if (!tip) return null;
+        const a = tip.getBoundingClientRect(), k = document.querySelector('#pairwise-card .card-chrome').getBoundingClientRect();
+        const cell = document.querySelector(`#pairwise-card td[data-cell="${CSS.escape(key)}"]`).getBoundingClientRect();
+        const sc = document.querySelector('#pairwise-card .panel-scroll');
+        return {
+          box: [a.left, a.top, a.right, a.bottom].map(Math.round), card: [k.left, k.top, k.right, k.bottom].map(Math.round),
+          inside: a.left >= k.left - 0.5 && a.right <= k.right + 0.5 && a.top >= k.top - 0.5 && a.bottom <= k.bottom + 0.5,
+          cut: tip.scrollWidth - tip.clientWidth, over: a.left < cell.right && a.right > cell.left && a.top < cell.bottom && a.bottom > cell.top,
+          size: [sc.scrollWidth, sc.scrollHeight],
+        };
+      }, at.key);
+      const where = `${w}x${h} ${at.key}`;
+      if (!t) { bad.push(`${where}: no readout`); continue; }
+      if (!t.inside) bad.push(`${where}: readout ${t.box} outside the card ${t.card}`);
+      if (t.cut) bad.push(`${where}: readout text ${t.cut}px wider than its box`);
+      if (t.over) bad.push(`${where}: readout covers the cell`);
+      if (t.size.join() !== at.size.join()) bad.push(`${where}: matrix scroll size ${at.size.join('x')} -> ${t.size.join('x')} on hover`);
+      seen.push(`${where} ${t.box[2] - t.box[0]}px`);
+    }
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 6).join('; ') : `readouts inside the card, uncut, scroll size unchanged: ${seen.join(', ')}` };
 }));
 group(() => check('leader-bb100', 'The Leader line is the best bb/100 among the models shown with at least 500 hands (Seated now, then All models on the Matchups card), in bb/100', async () => {
   const p = await pageAt(1440, 900, 'race');

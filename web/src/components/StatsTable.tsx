@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, memo, useEffect, useId, useState } from 'react';
+import { Fragment, memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { motion, type Transition } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
@@ -84,6 +84,19 @@ export const MINI_CHROME = 24 + 16 + 204 + 32;
 export function HeaderCell({ col, sort, onSort, className = 'p-2', mini, move = GLIDE }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string; mini?: boolean; move?: Transition }) {
   const [open, setOpen] = useState(false);
   const tipId = useId();
+  // Opened, the definition shifts sideways to stay whole inside the box that would cut it (the card's scroller; a
+  // phone's table, which scrolls sideways under its names), before it is painted.
+  const tip = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const t = tip.current;
+    if (!open || !t) return;
+    t.style.translate = '';
+    let box = t.parentElement;
+    while (box && getComputedStyle(box).overflowX === 'visible') box = box.parentElement;
+    if (!box) return;
+    const b = box.getBoundingClientRect(), r = t.getBoundingClientRect();
+    t.style.translate = `${Math.max(0, b.left + 8 - r.left) || -Math.max(0, r.right - b.right + 8)}px`;
+  }, [open]);
   const active = sort.key === col.key;
   const mark = { size: 12, className: 'inline ml-0.5 align-[-1px]', 'aria-hidden': true } as const;
   const words = col.label.split(' ');
@@ -129,6 +142,7 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', mini, move = 
       {/* Always in the DOM so aria-describedby resolves; hidden until opened. */}
       {!mini && (
         <span
+          ref={tip}
           id={tipId}
           role="tooltip"
           hidden={!open}
@@ -199,13 +213,14 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
   );
 });
 
-// bb/100 in its colour, one number at the other figures' weight; hovering it shows the 95% range.
+// bb/100 in its colour, one number at the other figures' weight; hovering it shows the 95% range (above it on a
+// group's last row, so it never hangs below the table and grows the card's scroller).
 export function Bb100({ m }: { m: ModelStats }) {
   const ci = ciTitle(m);
   return (
     <span className="group/ci relative inline-block" style={{ color: netColor(m.bb100) }}>
       {signedBrief(m.bb100)}
-      {ci && <span role="tooltip" className="pointer-events-none absolute right-0 top-full z-20 mt-1 hidden whitespace-nowrap rounded bg-white px-2 py-1 text-[13px] font-normal group-hover/ci:block" style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}>{ci}</span>}
+      {ci && <span role="tooltip" className="pointer-events-none absolute right-0 top-full z-20 mt-1 [tr:last-child_&]:top-auto [tr:last-child_&]:bottom-full [tr:last-child_&]:mt-0 [tr:last-child_&]:mb-1 hidden whitespace-nowrap rounded bg-white px-2 py-1 text-[13px] font-normal group-hover/ci:block" style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}>{ci}</span>}
     </span>
   );
 }

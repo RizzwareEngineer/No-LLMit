@@ -24,6 +24,14 @@ html:has([data-page]) {
 html:has(dialog[open]) {
   overflow: hidden;
 }
+/* About's prompt dialog holds the page behind it still (data-hold, about/content.tsx): no overscroll bounce, and every
+   CSS animation outside the dialog paused where it is, to go on from there when it closes. */
+html[data-hold] {
+  overscroll-behavior: none;
+}
+html[data-hold] body :not(dialog[open], dialog[open] *) {
+  animation-play-state: paused !important;
+}
 
 /* Quiet hover lift for table rows, grid cells and leaderboard rows. */
 .lift {

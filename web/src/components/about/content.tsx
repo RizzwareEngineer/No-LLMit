@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowUpRight, Heart, X } from '@phosphor-icons/react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import PlaySoonButton from '@/components/PlaySoonButton';
 import { motion, useInView, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
@@ -24,9 +24,9 @@ const DATASET_DATE = 'Wednesday, Nov 18';
 
 type Heading = 'h1' | 'h2' | 'h3';
 
-// Secondary text: 13px muted, the stats cards' definition lines.
+// Secondary text: 14px muted, under About's 16px body.
 function Label({ as: Tag = 'p', className = '', children, ...rest }: { as?: 'p' | 'li' | 'span'; className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLElement>) {
-  return <Tag {...rest} className={`text-[13px] leading-snug ${className}`} style={{ color: MUTED }}>{children}</Tag>;
+  return <Tag {...rest} className={`text-[14px] leading-normal ${className}`} style={{ color: MUTED }}>{children}</Tag>;
 }
 
 export function Eyebrow() {
@@ -85,7 +85,7 @@ export function Hours() {
   );
 }
 
-// A headline in the body's weight, then its lines in muted 13px.
+// A headline in the body's weight, then its lines in muted 14px.
 function Fact({ head, lines }: { head: string; lines: string[] }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -162,7 +162,7 @@ function Waitlist() {
           required
           autoComplete="email"
           placeholder="you@example.com"
-          className="min-w-0 w-52 rounded px-2.5 py-1 text-[14px] bg-white border outline-none focus:border-[rgb(35,131,226)]"
+          className="min-w-0 w-52 rounded px-2.5 py-1 text-[16px] bg-white border outline-none focus:border-[rgb(35,131,226)]"
           style={{ borderColor: 'rgba(55, 53, 47, 0.16)' }}
         />
         <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="sr-only" />
@@ -189,7 +189,7 @@ export function Support({ as: H, className = '' }: { as: Heading; className?: st
         href={SPONSORS}
         target="_blank"
         rel="noopener noreferrer"
-        className="self-start flex items-center gap-2 rounded-full px-5 py-2.5 text-[14px] font-semibold text-white shadow-sm hover:brightness-110 transition-[filter]"
+        className="self-start flex items-center gap-2 rounded-full px-5 py-2.5 text-[16px] font-semibold text-white shadow-sm hover:brightness-110 transition-[filter]"
         style={{ background: BLUE }}
       >
         <Heart size={16} weight="fill" aria-hidden />
@@ -208,7 +208,7 @@ function Out({ href, children }: { href: string; children: React.ReactNode }) {
 // The last row: the repo and the handle, centred, in a 29px row (its height when the owner picked this layout).
 export function Footer() {
   return (
-    <footer className="text-[13px]" style={{ color: MUTED }}>
+    <footer className="text-[14px]" style={{ color: MUTED }}>
       <p className="min-h-[29px] flex items-center justify-center text-center">
         <span>
           <Out href="https://github.com/RizzwareEngineer/No-LLMit">Open source on GitHub</Out>
@@ -223,11 +223,21 @@ export function Footer() {
 // The prompts, as code.
 function Code({ children }: { children: string }) {
   return (
-    <pre className="p-3 rounded-lg text-[12px] leading-relaxed overflow-x-auto whitespace-pre-wrap" style={{ background: 'rgba(55, 53, 47, 0.04)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+    <pre className="p-3 rounded-lg text-[13px] leading-relaxed overflow-x-auto whitespace-pre-wrap" style={{ background: 'rgba(55, 53, 47, 0.04)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
       {children}
     </pre>
   );
 }
+
+// While a prompt is open the page behind it holds still: <html data-hold> pauses its CSS animations and its overscroll
+// (globals.css), the race keeps its lines (useField), and the sticky bar may read the same flag.
+const HOLD = 'data-hold';
+const onHold = (cb: () => void) => {
+  const mo = new MutationObserver(cb);
+  mo.observe(document.documentElement, { attributeFilter: [HOLD] });
+  return () => mo.disconnect();
+};
+const useHold = () => useSyncExternalStore(onHold, () => document.documentElement.hasAttribute(HOLD), () => false);
 
 // "Read the system prompt" and "Read the user prompt": the real prompt text (lib/systemPrompt.ts, never copied here) in a modal
 // <dialog> over the page, so opening it never changes About's size (the page leaves wheel and keys inside a dialog alone).
@@ -241,7 +251,9 @@ export function PromptLinks() {
     const d = ref.current;
     if (view && !d?.open) d?.showModal();
     if (!view && d?.open) d.close();
+    document.documentElement.toggleAttribute(HOLD, !!view);
   }, [view]);
+  useEffect(() => () => document.documentElement.removeAttribute(HOLD), []);
   const close = () => setView(null);
   return (
     <>
@@ -264,10 +276,10 @@ export function PromptLinks() {
         aria-labelledby="about-prompt-title"
         onClose={close}
         onClick={e => e.target === e.currentTarget && close()} // the backdrop
-        className="m-auto p-0 border-0 w-[min(760px,calc(100vw-32px))] max-w-none max-h-[min(86dvh,960px)] rounded-lg bg-white backdrop:bg-[rgba(15,15,15,0.3)] max-md:mb-0 max-md:w-screen max-md:rounded-b-none"
+        className="m-auto p-0 border-0 overscroll-contain w-[min(760px,calc(100vw-32px))] max-w-none max-h-[min(86dvh,960px)] rounded-lg bg-white backdrop:bg-[rgba(15,15,15,0.3)] max-md:mb-0 max-md:w-screen max-md:rounded-b-none"
         style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0 0 0 1px, rgba(15, 15, 15, 0.2) 0 8px 24px' }}
       >
-        <div className="flex flex-col max-h-[inherit] text-[14px] leading-snug">
+        <div className="flex flex-col max-h-[inherit] text-[16px] leading-normal">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 pt-4 pb-3 border-b" style={{ borderColor: RULE }}>
             <h2 id="about-prompt-title" className={TITLE}>{view === 'user' ? 'The user prompt' : 'The system prompt'}</h2>
             <div className="flex items-center gap-3">
@@ -311,7 +323,10 @@ function useField() {
   const near = useRef<Element | null>(null);
   useLayoutEffect(() => { near.current = ref.current!.closest('[data-dial]') ?? ref.current; }, []);
   const seen = useInView(near, { once: true, margin: '0px 0px 300px 0px' });
-  const { data, error } = useStats(undefined, seen);
+  const { data: live, error } = useStats(undefined, seen);
+  // A refetch (partial stats, every 30 s) waits while a prompt is open, so the race stands still behind it.
+  const hold = useHold(), [data, setData] = useState(live);
+  if (!hold && data !== live) setData(live);
   const field = useMemo(() => (data ? ranked(seatedModels(data.models, data.seated).filter(m => m.hands > 0)) : []), [data]);
   return { ref, field, failed: !data && !!error };
 }
@@ -443,7 +458,7 @@ export function Race({ art, className = '' }: { art: string; className?: string 
           <div
             role="tooltip"
             data-race-tip
-            className="absolute z-10 pointer-events-none rounded bg-white px-2.5 py-2 text-[13px] leading-snug tabular-nums whitespace-nowrap"
+            className="absolute z-10 pointer-events-none rounded bg-white px-2.5 py-2 text-[14px] leading-snug tabular-nums whitespace-nowrap"
             style={{
               left: tip.x, top: tip.y < 64 ? tip.y + 16 : tip.y - 16,
               transform: `translate(${-tip.f * 100}%, ${tip.y < 64 ? '0' : '-100%'})`,
@@ -459,7 +474,7 @@ export function Race({ art, className = '' }: { art: string; className?: string 
         <Label>{failed ? 'The race isn’t available right now.' : 'Running bb/100 of each LLM at the table, best on top.'}</Label>
         {/* LLMLogo is a div: no <p> around it. Empty until the stats arrive, at the same height; the hands count only where
             the line has room for the full name (a phone-narrow About drops it). */}
-        <div className="flex items-center gap-1.5 min-w-0 min-h-[22px] whitespace-nowrap">
+        <div className="flex items-center gap-1.5 min-w-0 min-h-[24px] whitespace-nowrap">
           {leader ? (
             <>
               <LLMLogo model={leader.name} size={18} />
