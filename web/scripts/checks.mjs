@@ -2153,7 +2153,10 @@ const filmable = p => p.evaluate(() => {
     const t = document.querySelector(tile), c = card && document.querySelector(`${card} .card-chrome`);
     const onCard = !!c && document.getElementById(screen).getBoundingClientRect().top < 2;
     const el = onCard ? c : t;
-    const parts = [...el.querySelectorAll('[role=group], [data-scope], p, .add-in, [translate=no], span[aria-hidden]')].filter(shown).map(e => [part(e), R(e)]).filter(([k]) => k);
+    // A part drawn fully transparent (an add-in before its fade starts) paints nothing: its box would only measure what
+    // shows through it (the tile's own columns under the card's layout), read as the part appearing in one frame.
+    const seen = e => { for (let x = e; x && x !== el; x = x.parentElement) if (+getComputedStyle(x).opacity < 0.01) return false; return true; };
+    const parts = [...el.querySelectorAll('[role=group], [data-scope], p, .add-in, [translate=no], span[aria-hidden]')].filter(e => shown(e) && seen(e)).map(e => [part(e), R(e)]).filter(([k]) => k);
     const names = [...el.querySelectorAll('a[title] [translate=no]')];
     const rows = [...el.querySelectorAll('tbody tr')].map((tr, i) => {
       const cells = [...tr.querySelectorAll(card === '#pairwise-card' ? 'td[data-hands]' : 'td')].filter(d => shown(d) && /\d/.test(d.textContent)).map(R);
@@ -2162,7 +2165,7 @@ const filmable = p => p.evaluate(() => {
     }).filter(Boolean);
     const tip = [...el.querySelectorAll('[role=tooltip]')].find(e => shown(e) && getComputedStyle(e).visibility === 'visible');
     const sc = el.querySelector('.panel-scroll');
-    return { y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), title: R(el.querySelector('h2')) };
+    return { y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), st: sc ? sc.scrollTop + sc.scrollLeft : 0, title: R(el.querySelector('h2')) };
   };
   new ResizeObserver(() => {
     if (!F.on) return;
@@ -2324,8 +2327,10 @@ const judge = (fr, name, how, state) => {
       if (r[n - 1] >= 0.9 && r[n] <= 0.1) out.clean.push(`${name}: ${k} ${r[n + 1] >= 0.8 ? 'drops out for one frame' : 'vanishes in one frame'} (${at(n - 1)} → ${at(n)})`);
     }
   }
-  const torn = new Map(), tips = [], bars = [];
+  const torn = new Map(), tips = [], bars = [], jumps = [];
   seq.forEach((f, n) => {
+    // A scrolled card closes from where it is: its content never jumps to its top in one frame (it did as the glide back started).
+    if (n && gap(seq[n - 1], f) <= 1 && Math.abs(f.s.st - seq[n - 1].s.st) >= 30) jumps.push(`${seq[n - 1].s.st} → ${f.s.st}px (${at(n - 1)} → ${at(n)})`);
     const [l, t, r, b] = f.s.box;
     for (const row of f.s.rows) {
       if (row.cy[0] < Math.max(t, 44) || row.cy[1] > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar
@@ -2339,6 +2344,7 @@ const judge = (fr, name, how, state) => {
   for (const [row, n] of torn) out.clean.push(`${name}: row "${row}" has its numbers but no name (frame ${n})`);
   if (tips.length) out.clean.push(`${name}: a hover tooltip shows with the pointer still (frames ${tips[0]}–${tips.at(-1)})`);
   if (bars.length) out.clean.push(`${name}: a scrollbar shows on the gliding tile (frames ${bars[0]}–${bars.at(-1)})`);
+  if (jumps.length) out.clean.push(`${name}: the content's scroll jumps in one frame (${jumps.join(', ')})`);
   return out;
 };
 let filmed;
@@ -2404,7 +2410,7 @@ main(() => check('handover-no-blank', 'Opening and closing Trends, Profiles and 
   (fs, n) => `${n} opens and closes filmed, at least ${(100 * Math.min(...fs.map(f => f.cal.ink ?? 1))).toFixed(0)}% of the card's box painted in every frame`)));
 main(() => check('handover-same-picture', 'At each hand-over between tile and card (opening and closing, as opened and after the viewer changed the lineup, the sort, All models, picked rows or the scroll), the last frame before the swap and the first after it show the same picture in the card\'s box, the box itself within 2px', report('same',
   (fs, n) => `${n} hand-overs, changed pixels at the swap ≤ ${Math.max(...fs.map(f => f.cal.swap ?? 0))}, at rest ≤ ${Math.max(...fs.map(f => f.cal.still ?? 0))}`)));
-main(() => check('glide-clean', 'While a tile glides to its card and back: no scrollbar on it, no hover readout the pointer did not ask for (a real move still shows one), no row with numbers but no name, and nothing the card adds (Lineup, Total, extra columns, the definition and button rows, Open ↓, the Leader, the names) appears, vanishes or drops out in one frame', report('clean',
+main(() => check('glide-clean', 'While a tile glides to its card and back: no scrollbar on it, no hover readout the pointer did not ask for (a real move still shows one), no row with numbers but no name, no scroll jumping in one frame, and nothing the card adds (Lineup, Total, extra columns, the definition and button rows, Open ↓, the Leader, the names) appears, vanishes or drops out in one frame', report('clean',
   (fs, n) => `${n} glides, every frame clean`)));
 // Closing a card marked the room as leaving (what the card adds fades out) and nothing cleared it: a card reached
 // afterwards without its tile (wheel, keys, Next) showed no extra columns, group header, button row, definition or Total.

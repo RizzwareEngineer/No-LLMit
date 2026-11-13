@@ -44,13 +44,15 @@ html[data-hold] body :not(dialog[open], dialog[open] *) {
 .lift {
   transition: transform 150ms ease-out, background-color 150ms ease-out, box-shadow 150ms ease-out;
 }
-.lift:hover {
+/* Not under a pointer that has not moved since a stats tile opened or closed (data-still): the row it rests on mid-glide
+   would paint its background over the rows gliding past it. */
+.lift:not([data-still] *):hover {
   transform: translateY(-1px);
   background-color: #f9f9f8;
   box-shadow: 0 2px 6px rgba(15, 15, 15, 0.08);
 }
 /* Opaque, so the sticky first cell (bg-white) matches the rest of the row. */
-tr.lift:hover > th {
+tr.lift:not([data-still] *):hover > th {
   background-color: #f9f9f8;
 }
 /* Keep the focus ring when a focused row is also hovered. */
