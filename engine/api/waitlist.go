@@ -27,6 +27,8 @@ const (
 	waitlistPerAddress   = 5                // sign-up attempts one client address gets per hour
 )
 
+var waitlistBodyWait = 5 * time.Second // the longest a sign-up's body may take to arrive; a var for tests
+
 type waitlistStore interface {
 	add(email string) (added bool, err error) // added is false when the address was already listed
 	count() (int, error)
@@ -52,15 +54,18 @@ func waitlistHandler(store waitlistStore) http.HandlerFunc {
 		switch r.Method {
 		case http.MethodGet:
 		case http.MethodPost:
+			// The body is read before a row is reserved, under a deadline, so a slow sender holds no row.
+			var in struct {
+				Email string `json:"email"`
+			}
+			http.NewResponseController(w).SetReadDeadline(time.Now().Add(waitlistBodyWait)) // left set: the server reads any unread rest of the body under it too
+			decoded := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&in) == nil
 			if !limit.allow(clientAddr(r), time.Now()) {
 				writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many requests"})
 				return
 			}
-			var in struct {
-				Email string `json:"email"`
-			}
 			email, ok := "", false
-			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&in) == nil {
+			if decoded {
 				email, ok = cleanEmail(in.Email)
 			}
 			if !ok {

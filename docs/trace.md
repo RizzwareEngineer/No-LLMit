@@ -17,7 +17,7 @@ Code runs in these places:
 
 - **Browser.** The viewer's tab: the React components and hooks under `web/src`.
 - **Vercel.** Builds `web/` with `next build` and serves the output.
-- **Engine, main goroutine.** Wires the server, then blocks in `http.ListenAndServe`.
+- **Engine, main goroutine.** Wires the server, then blocks in `ListenAndServe`.
 - **Engine, table loop goroutine.** The only goroutine that changes the game. Every pacing sleep, model call and hand save happens on it.
 - **Engine, stats goroutine.** Loads the saved hands, recomputes the stats and publishes `stats` events.
 - **Engine, handler goroutine.** `net/http` starts one per request. For `GET /stream` it lives as long as the stream and is that viewer's only writer.
@@ -39,7 +39,7 @@ The engine and the llm service run on Railway. Railway's edge proxy sits in fron
 **2. Register the routes and listen.**
 - **Where / trigger:** engine, main goroutine. Step 1 continues in the same function.
 - **Code:** `engine/api/server.go` → `Start`; `engine/api/server.go` → `handleCORS`.
-- **Does:** Registers `/stream`, `/health`, `/api/usage`, `/api/stats`, `/api/stats/timeline` and `/api/waitlist` on the default mux, all but `/health` behind the CORS wrapper. Calls `http.ListenAndServe`, which blocks for the life of the process. The server sets no timeouts of its own: each stream sets a deadline before every write (steps 15 and 27).
+- **Does:** Registers `/stream`, `/health`, `/api/usage`, `/api/stats`, `/api/stats/timeline` and `/api/waitlist` on the default mux, all but `/health` behind the CORS wrapper. Calls `ListenAndServe` on an `http.Server` with a 10 s `ReadHeaderTimeout` and a 120 s `IdleTimeout`, which blocks for the life of the process. It sets no read or write timeout, which would cut the streams: each stream sets a deadline before every write (steps 15 and 27).
 - **Next:** `net/http` answers every request on its own handler goroutine from now on, even while steps 3 to 5 are still running.
 
 **3. Ask the llm service who is seated.**

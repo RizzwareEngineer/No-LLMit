@@ -45,7 +45,9 @@ func (s *Server) Start(port int) error {
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("Starting server on %s", addr)
-	return http.ListenAndServe(addr, nil)
+	// No ReadTimeout or WriteTimeout: they would cut every stream. Streams set their own write deadlines.
+	srv := &http.Server{Addr: addr, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
+	return srv.ListenAndServe()
 }
 
 func (s *Server) handleCORS(next http.HandlerFunc) http.HandlerFunc {

@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -333,6 +335,38 @@ func TestWaitlistDailyLimitHoldsUnderABurst(t *testing.T) {
 	wg.Wait()
 	if n, _ := list.count(); n != 50 {
 		t.Errorf("400 sign-ups at once stored %d rows, want exactly the day's 50", n)
+	}
+}
+
+// A sender that sends its body slowly holds no row of the day's while it does, and is cut off.
+func TestWaitlistSlowBodyHoldsNoRow(t *testing.T) {
+	t.Setenv("WAITLIST_DAILY_MAX", "1")
+	defer func(d time.Duration) { waitlistBodyWait = d }(waitlistBodyWait)
+	waitlistBodyWait = 300 * time.Millisecond
+	srv := httptest.NewServer(waitlistHandler(&memoryWaitlist{emails: map[string]bool{}}))
+	defer srv.Close()
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	fmt.Fprint(conn, "POST / HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 40\r\n\r\n{\"email\": \"sl")
+	time.Sleep(50 * time.Millisecond)
+	resp, err := http.Post(srv.URL, "application/json", strings.NewReader(`{"email": "real@example.com"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 201 {
+		t.Errorf("a sign-up while a slow body arrives: %d, want 201", resp.StatusCode)
+	}
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	slow, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("the slow sender got no answer before its deadline: %v", err)
+	}
+	if slow.StatusCode == 201 {
+		t.Error("the slow sender was signed up")
 	}
 }
 
