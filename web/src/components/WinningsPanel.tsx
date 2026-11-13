@@ -5,7 +5,7 @@ import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
-import { useRememberedBox } from "@/lib/boxes";
+import { useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED } from "@/lib/stats";
 
 interface WinningsPanelProps {
@@ -16,6 +16,7 @@ export default function WinningsPanel({ players }: WinningsPanelProps) {
   const bb = useBigBlind();
   // No state yet: a blank box at its size (a phone's is as tall as its rows: remembered).
   const [box, size, attrs] = useRememberedBox<HTMLDivElement>('pnl', players.length > 0);
+  useFillIn(box, players.length > 0);
   return (
     <div 
       ref={box}

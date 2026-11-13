@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { UsageData } from '@/components/UsageIndicator';
 import { formatLocalTime, zonedHourToday } from '@/lib/time';
 import { MUTED } from '@/lib/stats';
+import { useFillIn } from '@/lib/boxes';
 
 const DAY = 86_400_000;
 
@@ -31,8 +32,10 @@ export default function SessionProgress({ table }: { table?: UsageData['table'] 
     closes = formatLocalTime(new Date(close));
   }
 
+  const ref = useRef<HTMLDivElement>(null);
+  useFillIn(ref, fill !== null);
   return (
-    <div className="w-full max-w-[720px] mb-1.5" style={{ visibility: fill === null ? 'hidden' : undefined }} aria-hidden={fill === null}>
+    <div ref={ref} className="w-full max-w-[720px] mb-1.5" style={{ visibility: fill === null ? 'hidden' : undefined }} aria-hidden={fill === null}>
       <div
         className="h-[2px] w-full rounded-full overflow-hidden"
         style={{ background: 'rgba(55, 53, 47, 0.09)' }}

@@ -7,6 +7,7 @@ import { motion } from "motion/react"
 interface CardProps {
   value: string;
   className?: string;
+  rise?: boolean; // rises into place as it mounts (a board card dealt while watching); otherwise it is simply there
 }
 
 const RANK_NAMES: Record<string, string> = {
@@ -20,7 +21,7 @@ const SUITS: Record<string, [typeof Heart, string, string]> = {
   s: [Spade, 'text-neutral-700', 'spades'],
 };
 
-const Card = ({ value, className = "" }: CardProps) => {
+const Card = ({ value, className = "", rise = false }: CardProps) => {
   const rank = value.slice(0, -1); // the ten is T, like every other rank: one letter, one size
   const [Suit, suitColor, suitName] = SUITS[value.slice(-1)] ?? [null, 'text-neutral-200', undefined];
   const rankName = RANK_NAMES[rank] ?? rank;
@@ -28,7 +29,7 @@ const Card = ({ value, className = "" }: CardProps) => {
   
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 20 }}
+      initial={rise ? { opacity: 0, y: 20 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
       role="img"

@@ -6,13 +6,15 @@ import { StatsResponse } from '@/lib/stats';
 import { ButtonDetermination, DisplayState, EMPTY_TABLE, Tables, applyMessage, applyStats, clockLeft } from '@/lib/stream';
 
 // How long the stream may be down before the page says Offline: the server ends every stream after 10 to 14 minutes,
-// and the reopen that follows should not flash the connection bar.
+// and the reopen that follows should not flash the connection bar. A page load waits as long for its first open.
 const OFFLINE_AFTER_MS = 4000;
+
+// Not known yet (the page has just loaded), open, or down for OFFLINE_AFTER_MS (or given up).
+export type Connection = 'connecting' | 'open' | 'down';
 
 interface UseGameStateReturn {
   gameState: GameState | null;
-  isConnected: boolean;
-  tried: boolean; // the first connect attempt has settled, or 3 s have passed
+  connection: Connection;
   gaveUp: boolean; // reconnect attempts exhausted
   tableNotice: TableNoticePayload | null; // table closed, capped, in an outage or saving
   displayState: DisplayState | null;
@@ -26,8 +28,7 @@ export function useGameState(): UseGameStateReturn {
   // Every table the stream reports, by table id; the page draws the only one.
   const [tables, setTables] = useState<Tables>({});
   const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [tried, setTried] = useState(false);
+  const [connection, setConnection] = useState<Connection>('connecting');
   const [gaveUp, setGaveUp] = useState(false);
   const streamRef = useRef<GameStream | null>(null);
 
@@ -47,7 +48,8 @@ export function useGameState(): UseGameStateReturn {
   useEffect(() => {
     const stream = new GameStream();
     streamRef.current = stream;
-    let offlineTimer: ReturnType<typeof setTimeout> | null = null;
+    // Started now, so a first attempt that errors, or hangs, says down once, OFFLINE_AFTER_MS after load.
+    let offlineTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => setConnection('down'), OFFLINE_AFTER_MS);
     stream.onMessage = (m) => {
       if (m.type === 'stats') setStats(s => applyStats(s, m.payload as StatsResponse));
       else {
@@ -58,30 +60,26 @@ export function useGameState(): UseGameStateReturn {
     // Nothing is cleared on open: the snapshot that follows replaces the tables.
     stream.onStatus = (status) => {
       setGaveUp(status === 'gave_up');
-      if (status === 'open') {
+      if (status === 'open' || status === 'gave_up') {
         if (offlineTimer) clearTimeout(offlineTimer);
         offlineTimer = null;
-        setIsConnected(true);
+        setConnection(status === 'open' ? 'open' : 'down');
       } else if (!offlineTimer) {
-        offlineTimer = setTimeout(() => setIsConnected(false), OFFLINE_AFTER_MS);
+        offlineTimer = setTimeout(() => setConnection('down'), OFFLINE_AFTER_MS);
       }
     };
     // A failed first attempt starts the reconnect loop; onStatus reports when it gives up.
-    stream.connect().catch(() => {}).finally(() => setTried(true));
-    // On a refresh the stream opens in a moment; the connection bar waits for that, or 3 s at most.
-    const triedTimer = setTimeout(() => setTried(true), 3000);
+    stream.connect().catch(() => {});
     return () => {
       stream.disconnect();
       streamRef.current = null;
       if (offlineTimer) clearTimeout(offlineTimer);
-      clearTimeout(triedTimer);
     };
   }, []);
 
   return {
     gameState: table.gameState,
-    isConnected,
-    tried,
+    connection,
     gaveUp,
     tableNotice: table.notice,
     displayState: table.display,

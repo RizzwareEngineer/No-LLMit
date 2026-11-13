@@ -851,6 +851,174 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 8).join('; ') + (bad.length > 8 ? ` and ${bad.length - 8} more` : '') : seen.join('; ') };
 }));
 
+// Owner, 2026-11-11: "On refresh everything fades in where it sits: no sliding (hole cards slide up today), nothing
+// popping in (the timer, Profits & Losses). On a mid-hand refresh the dealt cards just fade in." At 1440x900 and 390x844,
+// after a first visit (what lib/boxes remembers): a reload with the stream and every /api/ answer held 2.5 s, its
+// snapshot played as a turn in progress and then as the pause between hands (nothing live after it), sampled every frame
+// (requestAnimationFrame) for 3 s from the release. Each watched element (hole and board cards, the felt, the seats' text,
+// the status row, the Profits & Losses rows, the reasoning bar, API usage): never from under 0.1 opacity (with its
+// ancestors', hidden or absent: 0) to over 0.9 between two frames, never moved or resized by more than 1px between two
+// frames it shows in (over 0.1), and no card or chip flies. With reduced motion (1440x900, mid-hand) nothing fades: no
+// watched element is ever between its first and last opacity.
+const FADE_WATCH = () => {
+  const vis = e => e.getBoundingClientRect().width > 0, out = [];
+  const add = (k, list) => list.filter(vis).forEach((e, i) => out.push([`${k}${i}`, e]));
+  add('hole', [...document.querySelectorAll('[data-seat] [data-hole] > *')]);
+  add('board', [...document.querySelectorAll('[data-felt-cards] > *')]);
+  add('felt', [...document.querySelectorAll('[data-felt] > *')]);
+  add('seat', [...document.querySelectorAll('[data-seat] [title], [data-seat] [data-chips], [data-seat] [data-action], [data-seat] [data-position]')]);
+  add('status', [...(document.querySelector('section[data-screen]')?.children[2]?.querySelectorAll('span, button') ?? [])]);
+  add('pnl', [...document.querySelectorAll('#table ol li')]);
+  add('reason', [...document.querySelectorAll('.stage-zoom .h-\\[100px\\] > div > div')]);
+  const u = document.querySelector('#table a[href*="sponsors"]')?.closest('.rounded');
+  if (u) add('usage', [...u.children]);
+  add('sticky', [...document.querySelectorAll('div.fixed.top-0')]);
+  return out;
+};
+group(() => check('table-refresh-fades', 'On a refresh, mid-hand or between hands, everything on the table screen fades in where it sits: no card or text slides or moves, nothing pops in from nothing, nothing flies', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, reduced] of [[1440, 900], [390, 844], [1440, 900, true]]) {
+    const p = await newPage(); await p.setViewport({ width: w, height: h });
+    if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    try {
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => document.querySelector('[data-seat] [data-hole]') && document.querySelector('#table ol li'), { timeout: 120000 });
+      await sleep(3000); // the visit: lib/boxes remembers the filled boxes
+      await p.evaluateOnNewDocument(watch => {
+        const phase = sessionStorage.getItem('__phase');
+        let open; const held = new Promise(r => (open = r));
+        const fetch0 = window.fetch;
+        window.fetch = async (...a) => { if (String(a[0]?.url ?? a[0]).includes('/api/')) await held; return fetch0(...a); };
+        const Real = window.EventSource;
+        window.EventSource = class extends Real {
+          set onmessage(fn) {
+            super.onmessage = e => {
+              const m = JSON.parse(e.data);
+              if (m.type === 'stats') return held.then(() => fn(e));
+              if (m.type !== 'snapshot' || window.__snapped) return; // nothing live after the snapshot
+              window.__snapped = true;
+              const t = Object.values(m.payload.tables)[0], st = t.state, deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => r + x));
+              Object.assign(t, { notice: null, buttonCards: [], buttonWinner: null, turnApplied: false, turn: null });
+              st.players.forEach((q, i) => Object.assign(q, { status: 'active', holeCards: [deck[2 * i], deck[2 * i + 1]] }));
+              if (phase === 'between') Object.assign(st, { street: 'complete', nextHandInMs: 8000, currentPlayerIdx: -1, winners: [], peeked: [] });
+              else {
+                Object.assign(st, { street: 'flop', communityCards: ['Kh', '7d', '2c'], currentPlayerIdx: 2, peeked: [0, 1], winners: undefined, nextHandInMs: undefined });
+                t.turn = { type: 'llm_thinking', payload: { turn: 3, playerIdx: 2, playerName: st.players[2].name, budgetMs: 45000, elapsedMs: 3000 } };
+              }
+              held.then(() => fn(new MessageEvent('message', { data: JSON.stringify(m) })));
+            };
+          }
+          get onmessage() { return super.onmessage; }
+        };
+        // From the page's first frame to 3 s after the release, every frame: each watched element's opacity and box (in the
+        // page, so a restored scroll is no move; the fixed sticky bar in the window), and the flights (times from the
+        // release). Read once the frame's animation callbacks have all run: what it paints.
+        const W = new Function(`return (${watch})()`), s = [];
+        let t0 = Infinity, done;
+        window.__release = () => new Promise(d => { done = d; t0 = performance.now(); open(); });
+        const f = ts => setTimeout(() => {
+          const memo = new Map(), up = a => { if (!a) return 1; if (!memo.has(a)) memo.set(a, +getComputedStyle(a).opacity * up(a.parentElement)); return memo.get(a); };
+          const els = {};
+          for (const [k, e] of W()) { const b = e.getBoundingClientRect(), y = e.closest('.fixed') ? 0 : scrollY; els[k] = [getComputedStyle(e).visibility === 'hidden' ? 0 : up(e), b.left, b.top + y, b.width, b.height]; }
+          s.push({ t: ts, els, flights: document.querySelectorAll('[data-flight]').length });
+          if (ts - t0 < 3000) requestAnimationFrame(f); else done(s.map(x => ({ ...x, t: x.t - t0 })));
+        });
+        requestAnimationFrame(f);
+      }, FADE_WATCH.toString());
+      // Last, a reload below the table: the sticky bar shows at once, and fades in where it sits.
+      for (const phase of reduced ? ['mid-hand'] : w > 768 ? ['mid-hand', 'between', 'below the table'] : ['mid-hand', 'between']) {
+        await p.evaluate(ph => sessionStorage.setItem('__phase', ph), phase);
+        if (phase === 'below the table') await goto(p, 'stats');
+        await p.reload({ waitUntil: 'domcontentloaded', timeout: 120000 }); await sleep(2500);
+        if (phase === 'below the table' && !(await p.evaluate(() => scrollY > innerHeight / 2))) bad.push('below the table: the reload went back to the top');
+        const s = await p.evaluate(() => window.__release());
+        const tag = `${w}x${h} ${phase}${reduced ? ' reduced motion' : ''}`, keys = new Set(s.flatMap(x => Object.keys(x.els))), pops = [], moves = [], fades = [];
+        for (const k of keys) {
+          const ops = s.map(x => x.els[k]?.[0] ?? 0), lo = Math.min(ops[0], ops.at(-1)) + 0.05, hi = Math.max(ops[0], ops.at(-1)) - 0.05;
+          if (reduced && ops.some(o => o > lo && o < hi)) { fades.push(k); continue; }
+          if (reduced) continue;
+          for (let i = 1; i < s.length; i++) {
+            const a = s[i - 1].els[k] ?? [0], b = s[i].els[k] ?? [0];
+            if (a[0] < 0.1 && b[0] > 0.9) { pops.push(`${k} at ${s[i].t.toFixed(0)} ms, ${(s[i].t - s[i - 1].t).toFixed(0)} ms after the frame before`); break; }
+            if (a[0] > 0.1 && b[0] > 0.1 && Math.max(...[1, 2, 3, 4].map(j => Math.abs(a[j] - b[j]))) > 1) { moves.push(`${k} ${a.slice(1).map(v => v.toFixed(0)).join(',')} → ${b.slice(1).map(v => v.toFixed(0)).join(',')} at ${s[i].t.toFixed(0)} ms`); break; }
+          }
+        }
+        const flown = Math.max(0, ...s.map(x => x.flights)), last = s.at(-1).els;
+        const shown = Object.values(last).filter(v => v[0] > 0.9).length;
+        if (pops.length) bad.push(`${tag}: ${pops.length} popped in (${pops.slice(0, 5).join('; ')})`);
+        if (fades.length) bad.push(`${tag}: ${fades.length} faded (${fades.slice(0, 5).join(', ')})`);
+        if (moves.length) bad.push(`${tag}: ${moves.length} moved (${moves.slice(0, 5).join('; ')})`);
+        if (flown) bad.push(`${tag}: ${flown} flights`);
+        if (phase === 'below the table') { if (!last.sticky0 || last.sticky0[0] < 0.9) bad.push(`${tag}: no sticky bar`); }
+        else if (!Object.keys(last).some(k => k.startsWith('hole')) || shown < 20) bad.push(`${tag}: only ${shown} watched elements showing at the end`);
+        seen.push(`${tag}: ${shown} elements ${reduced ? 'shown at once' : 'faded in'} over ${s.length} frames`);
+      }
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join('; ') };
+}));
+
+// Owner, 2026-11-11: "The yellow connection bar must not flash on a normal refresh (today it shows, hides, shows again);
+// it shows only once, when the server is really unreachable." Nor does a normal load say Offline. Every frame
+// (requestAnimationFrame, from the page's first script) records whether the bar (its rgb(203, 145, 47) across the
+// window's bottom) or a visible Offline is drawn: at 1440x900, five plain reloads, one with the stream's request held
+// 3.5 s and one with the CPU 4x slower, each until 5 s after its snapshot: never. Then a load whose stream is refused:
+// the bar first drawn 3.5 to 6 s after the load, and in every frame after that for 20 s.
+group(() => check('table-bar-once', 'The connection bar and Offline never show on a normal load (a slow stream or a slow machine included); with the server unreachable the bar shows once, about 4 s after the load, and stays', async () => {
+  const bad = [], seen = [];
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  try {
+    await p.evaluateOnNewDocument(() => {
+      const Real = window.EventSource;
+      window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { if (!window.__snapAt && /"type":"snapshot"/.test(e.data)) window.__snapAt = performance.now(); fn(e); }; } get onmessage() { return super.onmessage; } };
+      const s = window.__bar = [];
+      const f = () => {
+        const bar = [...document.querySelectorAll('div.fixed')].some(e => { const b = e.getBoundingClientRect(); return getComputedStyle(e).backgroundColor === 'rgb(203, 145, 47)' && b.bottom >= innerHeight - 1 && b.width >= innerWidth - 1 && b.height >= 20; });
+        const off = [...document.querySelectorAll('section[data-screen] span')].some(e => /^Offline/.test(e.textContent) && e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== 'hidden' && +getComputedStyle(e).opacity > 0);
+        s.push({ t: performance.now(), bar, off });
+        requestAnimationFrame(f);
+      };
+      requestAnimationFrame(f);
+    });
+    let mode = 'plain';
+    await p.setRequestInterception(true);
+    p.on('request', r => {
+      const go = () => r.continue().catch(() => {});
+      if (!/\/stream$/.test(r.url())) go();
+      else if (mode === 'held') setTimeout(go, 3500);
+      else if (mode === 'refused') r.abort().catch(() => {});
+      else go();
+    });
+    const cdp = await p.createCDPSession();
+    const load = async (m, i) => {
+      mode = m;
+      if (m === 'slow') await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      if (m === 'refused') { await sleep(26000); }
+      else {
+        const ok = await p.waitForFunction(() => window.__snapAt, { timeout: 60000 }).then(() => true, () => false);
+        if (!ok) { bad.push(`${m} ${i}: no snapshot in 60 s`); return; }
+        await p.waitForFunction(() => performance.now() > window.__snapAt + 5000, { timeout: 60000, polling: 250 });
+      }
+      if (m === 'slow') await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      const s = await p.evaluate(() => window.__bar);
+      if (m === 'refused') {
+        const first = s.findIndex(x => x.bar), t = first < 0 ? null : s[first].t, gone = s.slice(first).filter(x => !x.bar && x.t < t + 20000).length;
+        if (t === null || t < 3500 || t > 6000) bad.push(`refused: the bar first drawn ${t === null ? 'never' : `at ${(t / 1000).toFixed(2)} s`}`);
+        else if (gone) bad.push(`refused: the bar missing from ${gone} frames after it first showed at ${(t / 1000).toFixed(2)} s`);
+        else seen.push(`refused: bar from ${(t / 1000).toFixed(2)} s, in all ${s.filter(x => x.t >= t).length} frames after`);
+        return;
+      }
+      const bars = s.filter(x => x.bar), offs = s.filter(x => x.off);
+      if (bars.length || offs.length) bad.push(`${m} ${i}: the bar in ${bars.length} of ${s.length} frames${bars.length ? ` (from ${(bars[0].t / 1000).toFixed(2)} s)` : ''}, Offline in ${offs.length}${offs.length ? ` (from ${(offs[0].t / 1000).toFixed(2)} s)` : ''}`);
+      else seen.push(`${m}${m === 'plain' ? ` ${i}` : ''}: ${s.length} frames clean`);
+    };
+    for (let i = 1; i <= 5; i++) await load('plain', i);
+    await load('held', 1); await load('slow', 1); await load('refused', 1);
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
+}));
+
 // Owner, 2026-11-09: "Any time I refresh the site, the loading skeleton is so much different compared to the shapes that
 // actually load in. When stuff is loading, there should just be blank squares that are the same size as all the squares
 // that are currently on the site." While the table's state and the stats load, every box (the table, its seats and felt,

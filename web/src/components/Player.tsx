@@ -3,12 +3,13 @@
 import Card from "@/components/Card";
 import HoleCard from "@/components/HoleCard";
 import LLMLogo from "@/components/LLMLogo";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE, DASH, MUTED, ModelStats, ciHalf, pct, signed } from "@/lib/stats";
 import { CARD_CLASS, Peel, useCardSize } from "@/lib/tableSwitches";
+import { useFillIn } from "@/lib/boxes";
 
 interface PlayerProps {
   player: PlayerState;
@@ -67,9 +68,13 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const seatBg = isWinner ? 'rgb(237, 253, 244)' : '#ffffff';
   // A picked bigger size reaches up into the hover band: its lines then sit on the hovered seat's colour, above the cards.
   const bandLine = size ? { background: `linear-gradient(rgba(55, 53, 47, 0.03), rgba(55, 53, 47, 0.03)), ${seatBg}` } : undefined;
+  // A seat mounts where the blank one stood (PokerTable) when the table fills: its content fades in.
+  const ref = useRef<HTMLDivElement>(null);
+  useFillIn(ref, true);
 
   return (
     <div 
+      ref={ref}
       data-seat={seatIdx}
       className={`overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`}
       style={{ 

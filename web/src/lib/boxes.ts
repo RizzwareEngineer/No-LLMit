@@ -58,3 +58,12 @@ export function useRememberedBox<T extends HTMLElement>(name: string, loaded: bo
   const attrs = { 'data-box': name, 'data-box-w': dims === 'wh' || undefined, suppressHydrationWarning: true };
   return [ref, loaded ? undefined : size, attrs] as const;
 }
+
+// The moment a blank box fills (its data arrived), the children it held invisible fade in where they sit (owner
+// 2026-11-11: on a refresh nothing slides or pops in). Once: a child added after that is not faded.
+export function useFillIn(ref: React.RefObject<HTMLElement | null>, filled: boolean) {
+  useLayoutEffect(() => {
+    if (!filled || !ref.current || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    for (const e of ref.current.children) e.animate({ opacity: [0, 1] }, { duration: 300, easing: 'ease-out' });
+  }, [filled, ref]);
+}

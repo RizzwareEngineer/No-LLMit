@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUp, SquaresFour } from '@phosphor-icons/react';
 import NumberFlow from '@number-flow/react';
@@ -10,6 +10,7 @@ import { amountParts, formatAmount, useBigBlind } from '@/lib/amounts';
 import { BLUE, MUTED, TEXT } from '@/lib/stats';
 import { backToOverview, useScreen } from '@/components/Section';
 import SoundToggle from '@/components/SoundToggle';
+import { useFillIn } from '@/lib/boxes';
 
 const ACTIONS: Record<string, string> = { FOLD: 'folds', CHECK: 'checks', CALL: 'calls', RAISE: 'raises to', BET: 'bets', ALL_IN: 'all-in' };
 
@@ -23,27 +24,29 @@ function acting(d: DisplayState | null, bb: number | null) {
   return 'thinking…';
 }
 
-// One-line bar fixed to the top once the live table has scrolled out of view.
-// `blank`: no table state yet: the bar at its size with nothing in it.
-function StickyBar({ show, blank = false, pot, handNumber, display }: { show: boolean; blank?: boolean; pot: number; handNumber: number; display: DisplayState | null }) {
+// One-line bar fixed to the top once the live table has scrolled out of view: it slides down on a scroll (`slide`) and
+// fades in where it sits on a load below the table. `blank`: no table state yet: the bar at its size with nothing in it.
+function StickyBar({ show, slide = true, blank = false, pot, handNumber, display }: { show: boolean; slide?: boolean; blank?: boolean; pot: number; handNumber: number; display: DisplayState | null }) {
   const bb = useBigBlind(); // the Chips/BB switch, as the felt's
   const doing = acting(display, bb);
   const screen = useScreen();
   const potIn = amountParts(pot, bb);
   const detail = screen === 'race' || screen === 'stats-table' || screen === 'pairwise';
+  const row = useRef<HTMLDivElement>(null);
+  useFillIn(row, !blank);
   return (
     <AnimatePresence>
       {show && (
         <motion.div
           className="fixed top-0 inset-x-0 z-40 border-b border-notion bg-white/85 backdrop-blur-md"
-          initial={{ y: '-100%', opacity: 0 }}
+          initial={{ y: slide ? '-100%' : 0, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: '-100%', opacity: 0 }}
           transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
         >
           {/* The page's padding, the stats column (--stage-w, page.tsx) and the cards' padding (16px from lg), so the
               bar's text lines up with the card content below. */}
-          <div className="px-3 lg:px-4"><div className={`max-w-(--stage-w) mx-auto h-11 px-3 lg:px-4 flex items-center gap-3 text-[13px] whitespace-nowrap ${blank ? '[&>*]:invisible' : ''}`} style={{ color: TEXT }}>
+          <div className="px-3 lg:px-4"><div ref={row} className={`max-w-(--stage-w) mx-auto h-11 px-3 lg:px-4 flex items-center gap-3 text-[13px] whitespace-nowrap ${blank ? '[&>*]:invisible' : ''}`} style={{ color: TEXT }}>
             <span className="font-bold hidden sm:inline">No-LLMit</span>
             {handNumber > 0 && <span className="tabular-nums hidden sm:inline" style={{ color: MUTED }}>#{handNumber}</span>}
             <span className="tabular-nums shrink-0">

@@ -5,7 +5,7 @@ import NumberFlow from '@number-flow/react';
 import { CircleNotch, Moon } from "@phosphor-icons/react";
 import ChipStack from "@/components/ChipStack";
 import Link from "next/link";
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Deck, DeckPhase } from "@/components/TableMotion";
 import { TableNoticePayload } from "@/lib/api";
@@ -13,6 +13,7 @@ import type { ButtonDetermination } from "@/lib/stream";
 import { amountParts, formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE } from "@/lib/stats";
 import { formatDuration, formatLocalTime } from "@/lib/time";
+import { useFillIn } from "@/lib/boxes";
 
 interface WinnerDisplay {
   name: string;
@@ -112,8 +113,15 @@ export default function TableFelt({
   const collected = Math.max(0, pot - betsOut);
   // Show button determination if in progress
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
+  const ref = useRef<HTMLDivElement>(null);
+  useFillIn(ref, !blank);
+  // Cards dealt while watching rise into place; the ones already out when the felt fills fade in with it.
+  const [live, setLive] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- after the commit that filled the felt
+  useEffect(() => { if (!blank) setLive(true); }, [blank]);
   return (
     <div 
+      ref={ref}
       data-felt
       className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'pt-[44px] pb-3' : 'py-2'} ${blank ? '[&>*]:invisible' : ''}`}
       style={{
@@ -170,7 +178,7 @@ export default function TableFelt({
             <div className="flex gap-1 justify-center">
               {buttonDetermination.cards.map((bc, i) => (
                 <div key={i} className="flex flex-col items-center gap-0.5">
-                  <Card value={bc.card} className="w-7 h-10" />
+                  <Card value={bc.card} className="w-7 h-10" rise={live} />
                   <span className="text-[11px] text-gray-600 truncate max-w-[40px]">{bc.playerName.split(' ')[0]}</span>
                 </div>
               ))}
@@ -186,7 +194,7 @@ export default function TableFelt({
         ) : (
           <>
             {!deck && cards.map((card, i) => (
-              <Card key={`${card}-${i}`} value={card} className="w-11 h-16" />
+              <Card key={`${card}-${i}`} value={card} className="w-11 h-16" rise={live} />
             ))}
             <AnimatePresence>{deck && <Deck key="deck" phase={deck} />}</AnimatePresence>
           </>

@@ -5,7 +5,7 @@ import { Lightning, Heart, Warning } from "@phosphor-icons/react";
 import { API_URL } from "@/lib/api";
 import { MUTED, BLUE } from "@/lib/stats";
 import { localHoursLabel } from "@/lib/time";
-import { useRememberedBox } from "@/lib/boxes";
+import { useFillIn, useRememberedBox } from "@/lib/boxes";
 import { SPONSORS } from "@/components/about/content";
 
 // What the engine's /api/usage reports
@@ -73,6 +73,7 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
   const calls = error || !table ? '???' : `${table.callsToday.toLocaleString()} / ${table.dailyCallCap.toLocaleString()}`;
   // Until the first answer: a blank box as tall as its lines were (remembered).
   const [box, size, attrs] = useRememberedBox<HTMLDivElement>('usage', !!usage);
+  useFillIn(box, !!(usage || error));
 
   return (
     <div
