@@ -5,7 +5,6 @@ import { Lightning, Heart, Warning } from "@phosphor-icons/react";
 import { API_URL } from "@/lib/api";
 import { localHoursLabel } from "@/lib/time";
 import { useRememberedBox } from "@/lib/boxes";
-import { useDraft } from "@/components/DonateDraft";
 import { SPONSORS } from "@/components/about/content";
 
 // What the engine's /api/usage reports
@@ -73,7 +72,6 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
   const calls = error || !table ? '???' : `${table.callsToday.toLocaleString()} / ${table.dailyCallCap.toLocaleString()}`;
   // Until the first answer: a blank box as tall as its lines were (remembered).
   const [box, size, attrs] = useRememberedBox<HTMLDivElement>('usage', !!usage);
-  const draft = useDraft();
 
   return (
     <div
@@ -127,36 +125,23 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
           </div>
         )}
 
-        {/* Donation draft A: what the calls above are, and a real button. */}
-        {draft === 'a' ? (
-          <div className="mt-2 pt-2 border-t border-notion flex flex-col gap-1.5">
-            <div className="text-[11px] leading-snug" style={{ color: 'rgb(55, 53, 47)' }}>
-              <p>Every decision is a paid model call.</p>
-              <p style={{ color: MUTED }}>Donations keep the models seated.</p>
-            </div>
-            <a
-              href={SPONSORS}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110 transition-[filter]"
-              style={{ background: 'rgb(35, 131, 226)' }}
-            >
-              <Heart size={12} weight="fill" aria-hidden />
-              Sponsor on GitHub
-            </a>
+        {/* The ask, beside the calls it pays for: the card's only filled control. */}
+        <div data-donate className="mt-2 pt-2 border-t border-notion flex flex-col gap-1.5">
+          <div className="text-[11px] leading-snug whitespace-nowrap" style={{ color: 'rgb(55, 53, 47)' }}>
+            <p>Every move is a paid model call.</p>
+            <p style={{ color: MUTED }}>Donations pay for these calls.</p>
           </div>
-        ) : (
           <a
             href={SPONSORS}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-2 pt-2 border-t border-notion flex items-center gap-1 text-[11px] hover:underline"
-            style={{ color: 'rgb(200, 50, 50)' }}
+            className="flex items-center justify-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110 transition-[filter]"
+            style={{ background: 'rgb(35, 131, 226)' }}
           >
-            <Heart size={11} weight="fill" aria-hidden />
-            Support this project
+            <Heart size={12} weight="fill" aria-hidden />
+            Sponsor on GitHub
           </a>
-        )}
+        </div>
       </div>
     </div>
   );

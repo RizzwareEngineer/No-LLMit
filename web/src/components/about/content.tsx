@@ -171,24 +171,21 @@ function Waitlist() {
   );
 }
 
-// The main ask: a stats card with the screen's only filled button (about-support-prominent). `band`: across About's top, its
-// words and button side by side where there is room (donation draft C).
+// The main ask: a stats card with the screen's only filled button (about-support-prominent).
 export const SPONSORS = 'https://github.com/sponsors/RizzwareEngineer';
-export function Support({ as: H, band = false, className = '' }: { as: Heading; band?: boolean; className?: string }) {
+export function Support({ as: H, className = '' }: { as: Heading; className?: string }) {
   return (
-    <section className={`${CARD} relative gap-3 ${band ? '@2xl:flex-row @2xl:items-center @2xl:justify-between @2xl:gap-6' : ''} ${className}`} style={{ boxShadow: CARD_SHADOW }}>
-      <div className={`flex flex-col ${band ? 'gap-3 @2xl:gap-1' : 'gap-3'}`}>
-        <H className={TITLE}>Keep the table running</H>
-        <div className="flex flex-col gap-0.5">
-          <p>Donations pay for the OpenRouter model calls and the servers.</p>
-          <Label>{band ? 'Every decision you watch is a paid model call.' : 'Even $5 goes a long way.'}</Label>
-        </div>
+    <section className={`${CARD} relative gap-3 ${className}`} style={{ boxShadow: CARD_SHADOW }}>
+      <H className={TITLE}>Keep the table running</H>
+      <div className="flex flex-col gap-0.5">
+        <p>Donations pay for the OpenRouter model calls and the servers.</p>
+        <Label>Even $5 goes a long way.</Label>
       </div>
       <a
         href={SPONSORS}
         target="_blank"
         rel="noopener noreferrer"
-        className={`self-start ${band ? '@2xl:self-center' : ''} shrink-0 flex items-center gap-2 rounded-full px-5 py-2.5 text-[14px] font-semibold text-white shadow-sm hover:brightness-110 transition-[filter]`}
+        className="self-start flex items-center gap-2 rounded-full px-5 py-2.5 text-[14px] font-semibold text-white shadow-sm hover:brightness-110 transition-[filter]"
         style={{ background: BLUE }}
       >
         <Heart size={16} weight="fill" aria-hidden />

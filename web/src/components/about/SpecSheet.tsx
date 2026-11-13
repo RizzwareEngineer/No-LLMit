@@ -3,7 +3,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MUTED, TEXT } from '@/lib/stats';
 import { Caveats, Eyebrow, Footer, Hours, How, Intro, LABEL, Next, RULE, Race, Support, Thesis } from '@/components/about/content';
-import { DraftSwitcher, useDraft } from '@/components/DonateDraft';
 
 // About's layout, a "spec sheet": the thesis, then the topics on a dial, each with its name in a gutter on the left (Arena's
 // labelled rules); the ask and the race in a column of their own on the right. On a phone: the thesis, the ask, the
@@ -155,11 +154,8 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
 
 export default function SpecSheet({ heading }: { heading: 'h1' | 'h2' }) {
   const Sub = heading === 'h1' ? 'h2' : 'h3';
-  const draft = useDraft();
   return (
     <article data-about className="@container flex flex-col gap-6 text-[14px] leading-snug" style={{ color: TEXT }}>
-      {/* Donation draft C: the ask leads, across the top. */}
-      {draft === 'c' && <Support as={Sub} band />}
       <div className="flex flex-col gap-6 @4xl:grid @4xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] @4xl:gap-x-14">
         {/* Each column's parts join one stack on a phone (display: contents), in reading order there. */}
         <div className="contents @4xl:flex @4xl:flex-col @4xl:min-w-0">
@@ -171,12 +167,11 @@ export default function SpecSheet({ heading }: { heading: 'h1' | 'h2' }) {
           <Dial as={Sub} />
         </div>
         <div className="contents @4xl:flex @4xl:flex-col @4xl:gap-8 @4xl:min-w-0">
-          {draft !== 'c' && <Support as={Sub} className="order-1 @4xl:order-none" />}
+          <Support as={Sub} className="order-1 @4xl:order-none" />
           <Race className="order-2 @4xl:order-none @4xl:flex-1" art="h-[clamp(200px,40cqw,300px)] @4xl:h-auto @4xl:flex-1 @4xl:min-h-[200px]" />
         </div>
       </div>
       <Footer />
-      <DraftSwitcher />
     </article>
   );
 }
