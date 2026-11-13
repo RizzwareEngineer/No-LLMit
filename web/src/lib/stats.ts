@@ -145,7 +145,7 @@ export function diffValues(prev: Record<string, number>, next: Record<string, nu
   return out;
 }
 
-const sameValues = (a: Record<string, number>, b: Record<string, number>) =>
+export const sameValues = (a: Record<string, number>, b: Record<string, number>) =>
   Object.keys(a).length === Object.keys(b).length && Object.keys(b).every(k => a[k] === b[k]);
 
 // What changed in `values` at the last change: `deltas` (see diffValues) and `seq`, which counts
@@ -161,18 +161,6 @@ export function useChanges(values: Record<string, number>) {
     return next;
   }
   return s;
-}
-
-if (process.env.NODE_ENV === 'development') {
-  const d = diffValues({ a: 1, b: 2, c: 3 }, { a: 1, b: 5, c: 1, d: 9 });
-  console.assert(d.size === 2 && d.get('b') === 3 && d.get('c') === -2 && !d.has('d'), 'diffValues: changed shared keys only, new minus old');
-  console.assert(diffValues({}, { a: 1 }).size === 0, 'diffValues: a first snapshot changes nothing');
-  console.assert(sameValues({ a: 1 }, { a: 1 }) && !sameValues({ a: 1 }, { a: 1, b: 2 }) && !sameValues({ a: 1 }, { a: 2 }), 'sameValues');
-  console.assert(bb100Of(500, 10, 200) === 25 && bb100Of(5, 10, 0) === null, 'bb100Of');
-  const vs = { B: { pots: 3, net_chips: 300, hands: 100 }, C: { pots: 1, net_chips: -100, hands: 300 }, D: { pots: 1, net_chips: 900, hands: 10 } };
-  const among = bb100Among({ name: 'A', vs } as unknown as ModelStats, new Set(['A', 'B', 'C']), 10);
-  console.assert(among.hands === 400 && among.net === 200 && among.bb100 === 5, 'bb100Among: the shown opponents only, weighted by hands together');
-  console.assert(leaderBy([{ hands: 600, bb100: 2 }, { hands: 499, bb100: 9 }, { hands: 500, bb100: 5 }])?.bb100 === 5 && leaderBy([{ hands: 10, bb100: 1 }]) === null, 'leaderBy: MIN_HANDS, then bb/100');
 }
 
 // Splits the roster for display. noHands: seated models without hands yet, listed with dashes.

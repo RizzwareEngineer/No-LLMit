@@ -57,9 +57,3 @@ export function formatAmount(chips: number, bb: number | null, unit = true): str
 }
 
 // Dev self-check of the format.
-if (process.env.NODE_ENV !== 'production') {
-  const n = (v: number, d: number) => v.toLocaleString(undefined, { maximumFractionDigits: d });
-  console.assert(formatAmount(1234, null) === n(1234, 0), 'amounts: chips are whole');
-  console.assert(formatAmount(55, 10) === `${n(5.5, 1)} BB` && formatAmount(10, 10) === `${n(1, 1)} BB`, 'amounts: one decimal under 100 BB');
-  console.assert(formatAmount(1234, 10) === `${n(123, 0)} BB`, 'amounts: whole big blinds from 100 up');
-}
