@@ -20,6 +20,8 @@ running the mock provider, with its prompts alongside.
 ## Reading a record
 
 - `parsed` is what we read from the model's reply; `applied` is what the engine did.
+  `parsed.amount` is the reply's size on a bet or raise and 0 on every other move (before
+  2026-11-13 a fold, call or all-in kept whatever number the reply wrote).
 - `status` is `ok` when they are the same decision. Otherwise the applied action is a
   fallback and the status says why. `unparseable` (no readable ACTION) and `illegal`
   (a move the rules do not allow) are the model's own miss; `timeout` and `api_error`

@@ -228,9 +228,6 @@ def parse_response(text: str) -> dict:
             result["size_problem"] = NO_SIZE
         else:
             result["amount"] = min(chips.pop(), MAX_AMOUNT)
-    elif amounts and (stated := re.match(r"[^\w\n$]*\$?(\d[\d,]*)", amounts[0][:MAX_VALUE])):
-        # A fold, check, call or all-in has no size to get wrong; the number is kept as written.
-        digits = stated.group(1).replace(",", "")
-        result["amount"] = min(int(digits), MAX_AMOUNT) if len(digits) <= 15 else MAX_AMOUNT
+    # A fold, check, call or all-in has no size: amount stays 0, whatever number the reply wrote.
     result["action"] = action
     return result

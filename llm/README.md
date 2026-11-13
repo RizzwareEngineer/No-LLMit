@@ -152,6 +152,8 @@ Response (`DecisionResponse`):
   count, and `finish_reason`, `generation_id`, `temperature` come from OpenRouter. The mock
   provider leaves them null.
 - `reason` is empty when the model gave no REASON; it is never filled in for the model.
+- `amount` is the reply's size for `RAISE` (a bet or a raise to a street total) and 0 for
+  every other move, whatever number the reply wrote on its AMOUNT line.
 
 ## Prompts
 
