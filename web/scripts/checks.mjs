@@ -66,7 +66,7 @@ const COVERS = [
 ];
 function changedChecks() { // a Set of ids, or null for every check
   const git = c => execSync(c, { cwd: new URL('../..', import.meta.url), encoding: 'utf8' }).split('\n').filter(Boolean);
-  const ref = process.env.BASE_REF || 'preview/ui', me = 'web/scripts/checks.mjs';
+  const ref = process.env.BASE_REF || 'origin/main', me = 'web/scripts/checks.mjs';
   const files = new Set(git(`git diff --name-only ${ref}...HEAD; git diff --name-only HEAD; git ls-files --others --exclude-standard --full-name`).filter(f => f.startsWith('web/')));
   const src = SRC, all = IDS, ids = new Set();
   for (const f of files) {

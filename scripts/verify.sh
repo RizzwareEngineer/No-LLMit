@@ -9,7 +9,7 @@
 # Only one UI phase (build, server, headless Chrome) runs at a time on this machine: /tmp/nollmit-checks.lock.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-export BASE_REF="${BASE_REF:-preview/ui}"
+export BASE_REF="${BASE_REF:-origin/main}"
 git -C "$ROOT" rev-parse -q --verify "$BASE_REF^{commit}" >/dev/null || { echo "BASE_REF $BASE_REF not found: set BASE_REF"; exit 2; }
 UI=1; BASE=""; CHANGED=0; PASS=(); LANES=()
 while [ $# -gt 0 ]; do

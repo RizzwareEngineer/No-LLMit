@@ -27,7 +27,7 @@ aspect) is fixed before they start.
 
 ## The loop
 Each worker builds, runs `scripts/verify.sh --changed` (only the checks tied to the files it changed
-against preview/ui; a change to a check's own block runs that check), fixes, and repeats. The full
+against `$BASE_REF`, origin/main unless set: a worker on the preview branch sets `BASE_REF=preview/ui`; a change to a check's own block runs that check), fixes, and repeats. The full
 `scripts/verify.sh` runs once before merge. A check still failing after 3 attempts goes back to the
 orchestrator: the plan is wrong, not the code.
 
