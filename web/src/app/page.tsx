@@ -96,21 +96,11 @@ export default function Home() {
 
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
-  const [usageRefreshTrigger, setUsageRefreshTrigger] = useState(0);
-  const { usage, error: usageError } = useUsage(usageRefreshTrigger);
+  const { usage, error: usageError } = useUsage();
   const watching = usageError ? undefined : usage?.table?.spectators;
   const isLive = isConnected && !tableNotice;
   // The connection bar waits for the first attempt: a bar shown until then moved every screen by its height (--bar-h) twice.
   const bar = tried && !isConnected;
-
-  // Refresh usage stats when an LLM action is revealed
-  useEffect(() => {
-    if (displayState?.phase === 'revealed') {
-      // Mirrors a server event (an action revealed) into a refetch key; runs once per reveal.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setUsageRefreshTrigger(prev => prev + 1);
-    }
-  }, [displayState?.phase]);
 
   // Timer effect - update elapsed time every second using server's gameStartTime
   useEffect(() => {

@@ -26,8 +26,9 @@ export interface UsageData {
 
 const USAGE_POLL_MS = 30_000;
 
-// Polls /api/usage on an interval and whenever refreshTrigger changes.
-export function useUsage(refreshTrigger?: number) {
+// Polls /api/usage every 30 s from when the page opened, so viewers' requests are spread out, never sent together on an
+// event every page sees at once.
+export function useUsage() {
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [error, setError] = useState(false);
 
@@ -45,7 +46,7 @@ export function useUsage(refreshTrigger?: number) {
     fetchUsage();
     const interval = setInterval(fetchUsage, USAGE_POLL_MS);
     return () => clearInterval(interval);
-  }, [refreshTrigger]);
+  }, []);
 
   return { usage, error };
 }
