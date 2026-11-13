@@ -3,7 +3,7 @@ import type { ButtonCardPayload, ButtonWinnerPayload, GameState, ServerMessage, 
 import type { ModelStats, StatsResponse } from './stats';
 
 // Display phases for each LLM turn
-export type DisplayPhase = 'thinking' | 'reasoning' | 'revealed';
+type DisplayPhase = 'thinking' | 'reasoning' | 'revealed';
 
 // What's currently being displayed to the user
 export interface DisplayState {
@@ -17,10 +17,9 @@ export interface DisplayState {
 }
 
 // Button determination state
-export type ButtonCard = ButtonCardPayload;
 
 export interface ButtonDetermination {
-  cards: ButtonCard[];
+  cards: ButtonCardPayload[];
   winnerIdx: number | null;
   winnerName: string | null;
   isComplete: boolean;

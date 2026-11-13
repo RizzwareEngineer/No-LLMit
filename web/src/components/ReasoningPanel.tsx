@@ -107,7 +107,7 @@ export default function ReasoningPanel({
               </div>
               {reason && (
                 <p className={`${reasonFontSize} italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
-                  <TypewriterText key={reason} text={reason} speed={25} />
+                  <TypewriterText key={reason} text={reason} />
                 </p>
               )}
             </>

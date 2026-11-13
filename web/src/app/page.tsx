@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect, useRef, useSyncExternalStore } from "reac
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
-import PokerTable, { getPlayerLayout } from "@/components/PokerTable";
+import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel from "@/components/ReasoningPanel";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
@@ -128,7 +128,6 @@ export default function Home() {
 
   // Derived state
   const players = gameState?.players || [];
-  const layout = getPlayerLayout(players.length || 9);
   const pot = gameState?.pot || 0;
   const communityCards = gameState?.communityCards || [];
   const street = gameState?.street || 'preflop';
@@ -395,7 +394,6 @@ export default function Home() {
               {/* Main game grid */}
               <PokerTable
                 players={players}
-                layout={layout}
                 currentPlayerIdx={currentPlayerIdx}
                 communityCards={communityCards}
                 pot={pot}
@@ -404,7 +402,6 @@ export default function Home() {
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
                 peeked={displayState ? [...peeked, displayState.playerIdx] : peeked}
                 buttonDetermination={buttonDetermination}
-                hidePositions={!!buttonDetermination}
                 notice={tableNotice}
                 street={street}
                 handNumber={handNumber}

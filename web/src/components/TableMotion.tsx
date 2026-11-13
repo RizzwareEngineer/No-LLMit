@@ -9,12 +9,12 @@ import { CARD_SIZES, cardSizeNow, deckSize, useCardSize } from "@/lib/tableSwitc
 
 // Seconds. A dealer pitching cards (owner 2026-11-09: the old 0.04 s deal "sounds like smacks"): a card leaves the deck
 // every DEAL_STAGGER and slides for CARD_FLIGHT, so two rounds to nine seats land in about 2.7 s. Chips fly for FLIGHT.
-export const DEAL_STAGGER = 0.14;
+const DEAL_STAGGER = 0.14;
 export const CARD_FLIGHT = 0.28;
-export const FLIGHT = 0.4;
+const FLIGHT = 0.4;
 
 // Deal order: the seat left of the button gets the first card.
-export function dealOrder(players: PlayerState[], idx: number) {
+function dealOrder(players: PlayerState[], idx: number) {
   const button = Math.max(0, players.findIndex(p => p.isButton));
   return (idx - button - 1 + players.length) % players.length;
 }

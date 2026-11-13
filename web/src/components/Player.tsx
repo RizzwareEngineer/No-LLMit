@@ -14,7 +14,6 @@ interface PlayerProps {
   player: PlayerState;
   active?: boolean;
   position?: string;
-  folded?: boolean;
   winAmount?: number;
   winDesc?: string;
   isThinking?: boolean;
@@ -56,11 +55,12 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peel = 1 }: PlayerProps) {
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peel = 1 }: PlayerProps) {
   const [hovered, setHovered] = useState(false);
   const bb = useBigBlind();
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
+  const folded = player.status === 'folded';
   const isWinner = winAmount !== undefined && winAmount > 0;
   const size = useCardSize();
   const cardClass = CARD_CLASS[size];

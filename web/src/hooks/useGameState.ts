@@ -5,8 +5,6 @@ import { GameStream, GameState, TableNoticePayload } from '@/lib/api';
 import { StatsResponse } from '@/lib/stats';
 import { ButtonDetermination, DisplayState, EMPTY_TABLE, Tables, applyMessage, applyStats, clockLeft } from '@/lib/stream';
 
-export type { DisplayState } from '@/lib/stream';
-
 // How long the stream may be down before the page says Offline: the server ends every stream after 10 to 14 minutes,
 // and the reopen that follows should not flash the connection bar.
 const OFFLINE_AFTER_MS = 4000;
