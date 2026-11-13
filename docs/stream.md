@@ -59,6 +59,11 @@ The payloads are the Go structs in `engine/api/messages.go`.
 `turn` numbers the hand's turns from 1; a turn's `llm_thinking` and `llm_action` carry the
 same number.
 
+In `game_state`, each player's `position` is the name the model in that seat is told and the
+saved hand keeps (`game.PositionName`), clockwise from the button: 9 seats `BTN SB BB UTG
+UTG+1 MP MP+1 HJ CO`; 8 drops `CO`; 7 drops `HJ` too; 6 `BTN SB BB UTG MP CO`; 5 `BTN SB BB
+UTG MP`; 4 `BTN SB BB UTG`; 3 `BTN SB BB`; heads-up `BTN BB` (the button posts the small blind).
+
 In `game_state`, each of `winners` is one pot won: `amount` is the chips that pot paid the
 winner (`potNumber` 0 is a pot won by everyone else folding, and its `amount` is the whole
 pot, the winner's own chips included), the same number the saved hand's `result.pots` holds.
