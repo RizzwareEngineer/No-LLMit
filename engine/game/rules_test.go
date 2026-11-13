@@ -263,7 +263,7 @@ func TestRaiseNeedsAnOpponentWhoCanRespond(t *testing.T) {
 			}
 			for _, typ := range []ActionType{ActionRaise, ActionAllIn} {
 				a := Action{Type: typ, Amount: gs.CurrentBet + gs.MinRaise, PlayerIdx: gs.CurrentPlayerIdx}
-				if _, err := gs.CheckAction(a); !slices.Contains(c.want, typ) && err == nil {
+				if _, err := gs.TryAction(a); !slices.Contains(c.want, typ) && err == nil {
 					t.Errorf("the engine accepts %v, which it does not offer", typ)
 				}
 			}
@@ -300,10 +300,10 @@ func TestCumulativeShortAllInsReopenRaising(t *testing.T) {
 	if raise == nil || raise.MinAmount != 290 || raise.MaxAmount != 1000 {
 		t.Fatalf("D should be offered a raise from 290 to 1000; got %+v", gs.GetValidActions())
 	}
-	if _, err := gs.CheckAction(Action{Type: ActionRaise, Amount: 289, PlayerIdx: 3}); err == nil {
+	if _, err := gs.TryAction(Action{Type: ActionRaise, Amount: 289, PlayerIdx: 3}); err == nil {
 		t.Error("engine accepted a re-raise below the minimum")
 	}
-	if _, err := gs.CheckAction(Action{Type: ActionRaise, Amount: 400, PlayerIdx: 3}); err != nil {
+	if _, err := gs.TryAction(Action{Type: ActionRaise, Amount: 400, PlayerIdx: 3}); err != nil {
 		t.Errorf("engine refused D's re-raise to 400: %v", err)
 	}
 }
@@ -474,5 +474,33 @@ func TestPositionNames(t *testing.T) {
 				t.Errorf("%d seats, %d from the button: %s, want %s", n, d, got, name)
 			}
 		}
+	}
+}
+
+// TryAction plays the move on a copy, the same as ProcessAction would, and leaves the game
+// alone: the engine shows the copy's move and then makes the copy the table.
+func TestTryActionPlaysOnACopy(t *testing.T) {
+	gs := newTable(1000, 1000, 1000)
+	if err := gs.StartHand(); err != nil {
+		t.Fatal(err)
+	}
+	act(t, gs, ActionCall, 0) // the button limps, so the history is not empty
+	before, played := *gs, *gs
+	before.Players, before.LLMActionsThisHand = slices.Clone(gs.Players), slices.Clone(gs.LLMActionsThisHand)
+	played.Players, played.LLMActionsThisHand = slices.Clone(gs.Players), slices.Clone(gs.LLMActionsThisHand)
+	act(t, &played, ActionRaise, 40)
+
+	next, err := gs.TryAction(Action{Type: ActionRaise, Amount: 40, PlayerIdx: gs.CurrentPlayerIdx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(*gs, before) {
+		t.Errorf("TryAction changed the game")
+	}
+	if !reflect.DeepEqual(*next, played) {
+		t.Errorf("TryAction's copy differs from ProcessAction's game")
+	}
+	if _, err := gs.TryAction(Action{Type: ActionCheck, PlayerIdx: gs.CurrentPlayerIdx}); err == nil {
+		t.Error("a check facing a bet was accepted")
 	}
 }

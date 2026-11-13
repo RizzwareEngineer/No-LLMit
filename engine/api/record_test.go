@@ -61,9 +61,7 @@ func playTable(t *testing.T, names []string, stacks []int, holes [][]string, boa
 		rec.beginDecision(gs, legal)
 
 		turn := decideLLMTurn(gs, ask)
-		if err := gs.ProcessAction(turn.action); err != nil {
-			t.Fatalf("decideLLMTurn chose an action the engine rejects: %v", err)
-		}
+		*gs = *turn.next
 		rec.endDecision(turn)
 
 		if gs.NeedToAdvanceStreet() {

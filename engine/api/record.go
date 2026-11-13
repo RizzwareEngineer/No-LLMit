@@ -88,14 +88,11 @@ func (r *handRecorder) beginDecision(gs *game.GameState, legal []game.LLMValidAc
 	r.prompts = append(r.prompts, HandPrompt{PromptID: r.pending.PromptID, N: n})
 }
 
-// appliedAction is the move the engine makes of a legal action, as the stream's llm_action and
-// the saved hand name it: chips added on a CALL, the street total on a BET, RAISE or ALL_IN,
+// appliedAction is the move seat idx made in next, the table after it, as the stream's
+// llm_action and the saved hand name it: chips added on a CALL, the street total on a BET, RAISE or ALL_IN,
 // 0 on FOLD and CHECK.
-func appliedAction(gs *game.GameState, action game.Action) history.AppliedAction {
-	applied, err := gs.CheckAction(action)
-	if err != nil {
-		return history.AppliedAction{Type: "FOLD"} // the caller checked it; ProcessAction folds too
-	}
+func appliedAction(next *game.GameState, idx int) history.AppliedAction {
+	applied := next.Players[idx].LastAction
 	name := applied.Name()
 	if applied.Type == game.ActionAllIn {
 		name = "ALL_IN"

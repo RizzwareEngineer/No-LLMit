@@ -170,8 +170,8 @@ These steps repeat for every turn, with or without viewers.
 
 **22. Check the move against the rules.**
 - **Where / trigger:** engine, table loop goroutine. The HTTP call of step 19 returns.
-- **Code:** `engine/api/table.go` → `decideLLMTurn`; `engine/api/table.go` → `checkLLMDecision`; `engine/api/table.go` → `fallbackAction`; `engine/api/record.go` → `appliedAction`; `engine/game/action.go` → `CheckAction`.
-- **Does:** A transport error or a non-200 answer becomes a decision with status `service_error`. Otherwise the action name and the amount are checked against the game state. If the status is not `ok` or that check fails, the move to play is the fallback: `CHECK` when legal, else `FOLD`. `appliedAction` (in `engine/api/record.go`) then runs the move on a copy of the game (`CheckAction` returns the move it would apply) and names it: the action, as `BET`, `RAISE`, `ALL_IN` and so on, with the chips added on a `CALL`, the street total on a `BET`, `RAISE` or `ALL_IN`, and 0 on `FOLD` and `CHECK`. The `llm_action` of step 23 and the saved hand's `applied` of step 24 both read that one value.
+- **Code:** `engine/api/table.go` → `decideLLMTurn`; `engine/api/table.go` → `checkLLMDecision`; `engine/api/table.go` → `fallbackAction`; `engine/api/record.go` → `appliedAction`; `engine/game/action.go` → `TryAction`.
+- **Does:** A transport error or a non-200 answer becomes a decision with status `service_error`. Otherwise the action and the amount are played on a copy of the game (`TryAction` runs `ProcessAction` on the copy). If the status is not `ok` or the game refuses the move, the fallback is played on a fresh copy instead: `CHECK` when legal, else `FOLD`. That copy is the table after the move. `appliedAction` (in `engine/api/record.go`) names the seat's move in it: the action, as `BET`, `RAISE`, `ALL_IN` and so on, with the chips added on a `CALL`, the street total on a `BET`, `RAISE` or `ALL_IN`, and 0 on `FOLD` and `CHECK`. The `llm_action` of step 23 and the saved hand's `applied` of step 24 both read that one value.
 - **Next:** Step 23.
 
 **23. Publish `llm_action`.**
@@ -182,8 +182,8 @@ These steps repeat for every turn, with or without viewers.
 
 **24. Apply the action and publish `game_state`.**
 - **Where / trigger:** engine, table loop goroutine. The reasoning sleep ends.
-- **Code:** `engine/api/table.go` → `playTurn`; `engine/game/action.go` → `ProcessAction`; `engine/api/record.go` → `endDecision`; `engine/api/table.go` → `advanceStreet`; `engine/api/table.go` → `stateMessage`.
-- **Does:** Under `t.mu` it applies the move to the game, records the reply and the applied action in the hand's record, and advances the street if the betting round is over. It sets `turnApplied` true and publishes `game_state`, which carries the new street, the board and, when the hand ended, `winners`. Then it sleeps `postActionDelay` (5 s). If the game rejects the checked move (not expected), it logs it, marks the turn as a fallback and applies `FOLD` for that seat before recording, although the `llm_action` already published showed another move.
+- **Code:** `engine/api/table.go` → `playTurn`; `engine/api/record.go` → `endDecision`; `engine/api/table.go` → `advanceStreet`; `engine/api/table.go` → `stateMessage`.
+- **Does:** Under `t.mu` it makes the copy of step 22 the game, so the table gets exactly the move the `llm_action` showed, records the reply and the applied action in the hand's record, and advances the street if the betting round is over. It sets `turnApplied` true and publishes `game_state`, which carries the new street, the board and, when the hand ended, `winners`. Then it sleeps `postActionDelay` (5 s).
 - **Next:** Back to step 17.
 
 ## The event reaches every viewer
