@@ -344,7 +344,7 @@ export default memo(function StatsSections({
   // Each card's body, in its tile (`card` false: the tile's content alone) and in the card. The tile's
   // table or matrix stays the same element when it opens and grows into the card's; what the card adds
   // around it fades in (`fade`), never the content itself.
-  const statsBody = (card: boolean, fade = false) => !ready ? message : (
+  const statsBody = (card: boolean, fade = false, snap = false) => !ready ? message : (
     <>
       {card && (
         <Added still={!fade}>
@@ -356,7 +356,7 @@ export default memo(function StatsSections({
           </Definition>
         </Added>
       )}
-      <SyncedProfiles tl={tl} models={models} seated={seated} mini={!card} view={profView} />
+      <SyncedProfiles tl={tl} models={models} seated={seated} mini={!card} snap={snap} view={profView} />
     </>
   );
   const pairwiseBody = (card: boolean, snap = false) => !ready ? message : (
@@ -438,7 +438,7 @@ export default memo(function StatsSections({
                 blank={blank}
                 {...tile('stats-table')}
               >
-                {statsBody(on === 'stats-table', !snap)}
+                {statsBody(on === 'stats-table', !snap, snap)}
               </Panel>
 
               <Panel
@@ -556,9 +556,9 @@ function useProfilesAt(tl: Timeline | null, models: ModelStats[]) {
 
 // Profiles' table, on the tile (`mini`: fewer columns, short rows) and in the card: one element, so
 // opening the tile grows this table into the card's.
-function SyncedProfiles({ tl, models, seated, mini = false, view }: { tl: Timeline | null; models: ModelStats[]; seated?: string[]; mini?: boolean; view: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
+function SyncedProfiles({ tl, models, seated, mini = false, snap = false, view }: { tl: Timeline | null; models: ModelStats[]; seated?: string[]; mini?: boolean; snap?: boolean; view: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
   const { shown, pending, hand } = useProfilesAt(tl, models);
-  return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} mini={mini} view={view} /></div>;
+  return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} mini={mini} snap={snap} view={view} /></div>;
 }
 
 const FADE_MS = 120; // closing: what the card adds fades out (globals.css, [data-leaving])

@@ -4,7 +4,7 @@ import { Fragment, memo, useEffect, useId, useState } from 'react';
 import { motion, type Transition } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
-import { GLIDE, GLIDE_MS } from '@/components/Section';
+import { GLIDE, GLIDE_MS, NONE } from '@/components/Section';
 import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
 interface Column {
@@ -81,7 +81,7 @@ export const MINI_CHROME = 24 + 16 + 204 + 32;
 // `mini` set (Profiles' tile and card): the header glides between the two, the tile's being the label alone.
 // The label flows inline: a long one wraps between its words, never inside one (C-bet at its hyphen), the sort mark
 // stays on its last word, and the info button sits beside it when there is room, else under it.
-export function HeaderCell({ col, sort, onSort, className = 'p-2', mini }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string; mini?: boolean }) {
+export function HeaderCell({ col, sort, onSort, className = 'p-2', mini, move = GLIDE }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string; mini?: boolean; move?: Transition }) {
   const [open, setOpen] = useState(false);
   const tipId = useId();
   const active = sort.key === col.key;
@@ -125,7 +125,7 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', mini }: { col
       onMouseEnter={mini ? undefined : () => setOpen(true)}
       onMouseLeave={mini ? undefined : () => setOpen(false)}
     >
-      {mini === undefined ? label : <Glides at={mini} move={GLIDE}>{mini ? col.label : label}</Glides>}
+      {mini === undefined ? label : <Glides at={mini} move={move}>{mini ? col.label : label}</Glides>}
       {/* Always in the DOM so aria-describedby resolves; hidden until opened. */}
       {!mini && (
         <span
@@ -152,7 +152,7 @@ export type TableView = { sort: { key: string; desc: boolean }; everyone: boolea
 export const TABLE_VIEW: TableView = { sort: { key: 'bb100', desc: true }, everyone: false, picked: new Set() };
 // `view`: the sort, "All models" and the picked rows, when they are shared (Profiles' opened tile and its card show
 // the same); the overview tile keeps the default.
-export default memo(function StatsTable({ models, seated, pending = [], mini = false, view }: { models: ModelStats[]; seated?: string[]; pending?: string[]; mini?: boolean; view?: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
+export default memo(function StatsTable({ models, seated, pending = [], mini = false, snap = false, view }: { models: ModelStats[]; seated?: string[]; pending?: string[]; mini?: boolean; snap?: boolean; view?: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
   const own = useState(TABLE_VIEW);
   const [shared, setView] = view ?? own;
   const { sort, everyone, picked } = mini ? TABLE_VIEW : shared;
@@ -185,7 +185,7 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div className={`@container relative min-w-0 ${mini ? '' : 'max-md:overflow-x-auto'}`}>
-        <Grid groups={mini ? MINI : GROUPS} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={!mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} picked={picked} onPick={isolate} mini={mini} />
+        <Grid groups={mini ? MINI : GROUPS} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={!mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} picked={picked} onPick={isolate} mini={mini} snap={snap} />
       </div>
       {!mini && <div className="add-in mt-2 flex flex-wrap gap-x-5 gap-y-1">
         {seated && more > 0 && (
@@ -235,6 +235,7 @@ function Grid({
   picked,
   onPick,
   mini,
+  snap,
 }: {
   groups: typeof GROUPS;
   rows: ModelStats[];
@@ -246,13 +247,15 @@ function Grid({
   picked: Set<string>; // rows clicked to compare; the others fade
   onPick: (name: string) => void;
   mini: boolean; // the overview tile: plain headers, short rows, names as text (the tile opens the card)
+  snap: boolean; // switch between tile and card without gliding (the stage is hidden under the card)
 }) {
   const columns = groups.flatMap(g => g.columns);
   // Just switched between tile and card: every cell's content glides with the card (GLIDE), else a
-  // moved row's content slides (SLIDE).
+  // moved row's content slides (SLIDE). A snap (under the card, on close) moves nothing: the card hands over to it at once.
   const [was, setWas] = useState(mini);
   const [gliding, setGliding] = useState(false);
-  if (was !== mini) { setWas(mini); setGliding(true); }
+  if (was !== mini) { setWas(mini); setGliding(!snap); }
+  const glide = snap ? NONE : GLIDE;
   useEffect(() => {
     if (!gliding) return;
     const t = setTimeout(() => setGliding(false), GLIDE_MS + 50);
@@ -294,7 +297,7 @@ function Grid({
   const row = (m: ModelStats, i: number | null) => {
     // What moves the row's content: the glide, a re-sort, or the row changing place.
     const at = `${mini}|${sort.key}|${sort.desc}|${i}`;
-    const move = gliding ? GLIDE : SLIDE;
+    const move = snap ? NONE : gliding ? GLIDE : SLIDE;
     return (
     <tr
       key={m.name}
@@ -340,8 +343,8 @@ function Grid({
           </tr>
         )}
         <tr className={`border-b border-notion ${mini ? rowH : ''}`}>
-          <th scope="col" className={`${head} ${pin} text-left font-medium align-bottom`} style={{ color: MUTED }}><Glides at={mini} move={GLIDE}><span className={mini ? '@max-2xs:sr-only' : ''}>Model</span></Glides></th>
-          {columns.map(c => <HeaderCell key={c.key} col={c} sort={sort} onSort={mini ? undefined : () => onSort(c)} className={`${head} ${added(c)}`} mini={mini} />)}
+          <th scope="col" className={`${head} ${pin} text-left font-medium align-bottom`} style={{ color: MUTED }}><Glides at={mini} move={glide}><span className={mini ? '@max-2xs:sr-only' : ''}>Model</span></Glides></th>
+          {columns.map(c => <HeaderCell key={c.key} col={c} sort={sort} onSort={mini ? undefined : () => onSort(c)} className={`${head} ${added(c)}`} mini={mini} move={glide} />)}
         </tr>
       </thead>
       <tbody className="divide-y divide-black/10">
