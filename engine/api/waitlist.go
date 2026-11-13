@@ -46,8 +46,8 @@ func newWaitlist() waitlistStore {
 }
 
 // waitlistHandler answers GET with {"count": N}; POST with 201 {"count": N} for a valid
-// address, the same whether it was new or already listed, so the reply never tells whether
-// someone signed up; 400 for an invalid one (bodies over 1 KB included) and 429 past the
+// address, new or already listed (the count goes up only for a new one, so comparing it
+// with a GET can tell whether an address was listed); 400 for an invalid one (bodies over 1 KB included) and 429 past the
 // sign-up limits; 415 for a body that is not application/json and 403 for a browser on
 // another site (SITE_URL, default https://nollmit.vercel.app, and local dev servers may
 // post); 503 when the store fails; 405 otherwise. A sign-up that was stored is
