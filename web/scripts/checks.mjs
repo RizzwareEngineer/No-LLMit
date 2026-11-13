@@ -380,6 +380,20 @@ group(() => check('table-no-turn-glow', 'The seat on the clock glows; once the h
   } finally { await p.close(); }
 }));
 
+group(() => check('table-reason-empty', 'An action that came with no reason still shows in the reasoning panel (its label and the action), and is announced', async () => {
+  const p = await scriptedTable(1440, 900);
+  try {
+    await p.evaluate(() => { const s = window.__sock, q = s.last.players[2]; s.scripted = true;
+      s.feed({ type: 'llm_thinking', payload: { turn: 1, playerIdx: 2, playerName: q.name, budgetMs: 45000, elapsedMs: 0 } });
+      s.feed({ type: 'llm_action', payload: { turn: 1, playerIdx: 2, playerName: q.name, action: 'CALL', amount: 10, reason: '' } }); });
+    await sleep(800);
+    const r = await p.evaluate(() => { const live = [...document.querySelectorAll('p.sr-only[aria-live]')].find(e => e.closest('.h-\\[100px\\]'));
+      const panel = live?.parentElement; return { text: panel ? panel.innerText.replace(/\s+/g, ' ').trim() : null, said: live?.textContent ?? '' }; });
+    const ok = !!r.text && /Reasoning/.test(r.text) && /CALL/.test(r.text) && /call/.test(r.said);
+    return { pass: ok, detail: `panel: '${r.text}'; announced: '${r.said}'` };
+  } finally { await p.close(); }
+}));
+
 group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns every amount on the table screen (stacks, actions, bets, pot, P&L, the reasoning action) into big blinds and back, the model\'s words aside; kept across a reload; no size changes, nothing newly cut, wrapped or clipped', async () => {
   const bad = [], seen = [];
   const fmt = (chips, bb, unit) => { const v = chips / bb; return v.toLocaleString('en-US', { maximumFractionDigits: v < 100 ? 1 : 0 }) + (unit ? ' BB' : ''); };
