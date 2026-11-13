@@ -2597,6 +2597,278 @@ group(() => check('about-race-hover', 'Hovering each ridge\'s hit area and each 
 // Opens a card from the overview the way a visitor does (a click on its tile), and waits for the glide.
 const median = a => { if (!a.length) return 0; const b = [...a].sort((x, y) => x - y); return Math.round(b[b.length >> 1]); };
 const openTile = async (p, tile) => { await goto(p, 'stats'); await sleep(900); await clickCenter(p, tile); await sleep(1300); await p.mouse.move(p.viewport().width / 2, p.viewport().height / 2); };
+// Owner, 2026-11-12: "make the how it works, caveats, hours and what's next a scroll carousel. Or like the Apple Watch dial
+// ... how it works is first and the rows below it can still be seen but it's blurry ... then you scroll down like a wheel";
+// "if I put my cursor closer to the dial then scrolling up or down or just clicking should bring it up and down. Then if
+// cursor elsewhere then scroll normally". The four topics on a dial: one row sharp in front, the others blurred behind.
+// Each dial row as painted: its index, whether it is the focused one, opacity, blur, scale, and its box against the dial's.
+const dialRows = p => p.evaluate(() => {
+  const dial = document.querySelector('[data-dial]');
+  if (!dial) return null;
+  const b = dial.getBoundingClientRect();
+  return [...dial.querySelectorAll('[data-dial-row]')].map((e, i) => {
+    const s = getComputedStyle(e), r = e.getBoundingClientRect(), m = new DOMMatrix(s.transform === 'none' ? undefined : s.transform);
+    return {
+      i, title: e.dataset.dialRow, current: e.getAttribute('aria-current') === 'true', opacity: +s.opacity,
+      blur: +(s.filter.match(/blur\(([\d.]+)px\)/)?.[1] ?? 0), scale: Math.round(Math.hypot(m.a, m.b) * 1000) / 1000,
+      inside: r.top >= b.top - 1 && r.bottom <= b.bottom + 1 && r.left >= b.left - 1 && r.right <= b.right + 1,
+    };
+  });
+});
+const dialAt = async p => (await dialRows(p))?.findIndex(r => r.current) ?? -1;
+// The dial's own box and a point on its focused row (the pointer "on the dial").
+const dialPoint = p => p.evaluate(() => { const e = document.querySelector('[data-dial] [aria-current="true"]') ?? document.querySelector('[data-dial]'); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, Math.max(r.top, 0) + Math.min(r.height, innerHeight - r.top) / 2]; });
+// The blue pixels painted in boxes of the window (a focus ring), counted on one screenshot of the window drawn on a canvas.
+const bluePixels = async (p, boxes) => {
+  const png = await p.screenshot({ encoding: 'base64' });
+  return p.evaluate(async (src, boxes) => {
+    const img = new Image(); img.src = `data:image/png;base64,${src}`; await img.decode();
+    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+    const k0 = img.width / innerWidth;
+    return boxes.map(b => {
+      const d = g.getImageData(Math.round(b.x * k0), Math.round(b.y * k0), Math.max(1, Math.round(b.width * k0)), Math.max(1, Math.round(b.height * k0))).data; let n = 0;
+      for (let k = 0; k < d.length; k += 4) if (d[k + 2] > 180 && d[k] < 120 && d[k + 2] - d[k] > 80) n++;
+      return n;
+    });
+  }, png, boxes);
+};
+// The page's /about, or the home page paged to About.
+const dialPage = async (w, h, path, opts = {}) => {
+  if (path === '/') return pageAt(w, h, 'about');
+  const p = await newPage();
+  if (opts.touch) await p.emulate({ viewport: { width: w, height: h, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: (await browser.userAgent()) });
+  else await p.setViewport({ width: w, height: h });
+  if (opts.reduce) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await p.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await aboutReady(p); await sleep(1500);
+  return p;
+};
+group(() => check('about-dial', 'About\'s four topics are a dial at 1440x900, 1728x1117 and 390x844 (home page About screen and /about): it opens on How it works; exactly one row is sharp (no blur, opacity 1, unscaled) and fully inside the dial\'s box; the others are blurred 2px or more, opacity 0.5 or less and scaled down; a focus ring is painted round it when it has keyboard focus', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) for (const path of ['/', '/about']) {
+    const at = `${w}x${h} ${path}`;
+    const p = await dialPage(w, h, path);
+    await p.evaluate(() => document.querySelector('[data-dial]')?.scrollIntoView({ block: 'nearest', behavior: 'instant' })); await sleep(600);
+    const rows = await dialRows(p);
+    if (!rows) { bad.push(`${at}: no dial`); await p.close(); continue; }
+    const sharp = rows.filter(r => r.blur === 0 && r.opacity === 1 && r.scale === 1);
+    if (sharp.length !== 1 || !sharp[0].current) bad.push(`${at}: sharp rows ${sharp.map(r => r.title).join(', ') || 'none'}`);
+    if (rows[0].current !== true) bad.push(`${at}: opens on ${rows.find(r => r.current)?.title ?? 'nothing'}`);
+    if (sharp[0] && !sharp[0].inside) bad.push(`${at}: the focused row is cut by the dial's box`);
+    const soft = rows.filter(r => !r.current && !(r.blur >= 2 && r.opacity <= 0.5 && r.scale < 1));
+    if (soft.length) bad.push(`${at}: not blurred behind: ${soft.map(r => `${r.title} blur ${r.blur} opacity ${r.opacity} scale ${r.scale}`).join(', ')}`);
+    // Keyboard focus (no pointer has touched this page, so a scripted focus shows as keyboard focus), then the ring's blue round its box.
+    await p.focus('[data-dial]');
+    const focused = await p.evaluate(() => document.activeElement?.matches('[data-dial]:focus-visible'));
+    if (!focused) bad.push(`${at}: the dial takes no keyboard focus`);
+    else {
+      await sleep(700);
+      const b = await p.evaluate(() => { const r = document.querySelector('[data-dial]').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+      // The ring's four sides: strips 4px either side of each edge (a ring may sit just inside or just outside), in the window.
+      const strip = (x, y, cw, ch) => ({ x: Math.max(0, x), y: Math.max(0, y), width: Math.max(1, Math.min(cw, w - Math.max(0, x))), height: Math.max(1, Math.min(ch, h - Math.max(0, y))) });
+      const sides = [strip(b.x + 8, b.y - 4, b.w - 16, 8), strip(b.x + 8, b.y + b.h - 4, b.w - 16, 8), strip(b.x - 4, b.y + 8, 8, b.h - 16), strip(b.x + b.w - 4, b.y + 8, 8, b.h - 16)];
+      const inWindow = s => s.y + s.height <= h && s.x + s.width <= w && s.y < h - 1;
+      const counts = await bluePixels(p, sides.filter(inWindow));
+      const n = sides.map(s => (inWindow(s) ? counts.shift() : -1));
+      if (n.filter(v => v >= 0).some(v => v < 10)) bad.push(`${at}: focus ring blue pixels by side (top, bottom, left, right) ${n.join('/')}`);
+      seen.push(`${at}: ring ${n.join('/')}`);
+    }
+    seen.push(`${at}: ${rows.map(r => `${r.title}${r.current ? '*' : ''} ${r.blur}px ${r.opacity}`).join(', ')}`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// One gesture at the pointer, then the page at rest (still for 450 ms on a screen edge, 5 s at most): its screen and scrollY.
+const DIAL_GESTURES = {
+  'wheel notch': (p, dir) => p.mouse.wheel({ deltaY: 100 * dir }),
+  'trackpad swipe': (p, dir) => fireWheel(p, SWIPE, dir),
+  'phased gesture': async (p, dir, x, y) => { p.__cdp ??= await p.target().createCDPSession(); await p.__cdp.send('Input.synthesizeScrollGesture', { x: Math.round(x), y: Math.round(y), yDistance: -300 * dir, gestureSourceType: 'mouse', speed: 1500 }); },
+};
+const dialStep = async (p, kind, dir, x, y) => {
+  await p.evaluate(() => { const m = (window.__dm = { y: scrollY, last: performance.now(), done: false }); const f = () => { if (scrollY !== m.y) { m.y = scrollY; m.last = performance.now(); } if (!m.done) requestAnimationFrame(f); }; requestAnimationFrame(f); });
+  await DIAL_GESTURES[kind](p, dir, x, y);
+  await sleep(600);
+  for (let t = Date.now(); Date.now() - t < 5000; await sleep(60)) {
+    const r = await p.evaluate(() => ({ quiet: performance.now() - __dm.last, edge: [...document.querySelectorAll('[data-screen]')].some(e => Math.abs(e.getBoundingClientRect().top) < 2) }));
+    if (r.quiet >= 450 && r.edge) break;
+  }
+  return p.evaluate(() => { __dm.done = true; const hit = [...document.querySelectorAll('[data-screen]')].find(e => Math.abs(e.getBoundingClientRect().top) < 2); return { id: hit ? (hit.id || 'table') : null, y: Math.round(scrollY) }; });
+};
+late(() => check('about-dial-wheel', 'With the pointer on About\'s dial (1440x900), one wheel gesture (notch, trackpad swipe, phased) turns it exactly one row and the page stays (scrollY unchanged): down to What’s next, where down stays on About; up back to How it works, where up pages to the overview. With the pointer in the side margin the page pages and the dial does not turn', async () => {
+  const bad = [], seen = [];
+  const p = await pageAt(1440, 900, 'about');
+  for (const kind of Object.keys(DIAL_GESTURES)) {
+    await goto(p, 'about'); await sleep(900);
+    const [x, y] = await dialPoint(p);
+    await p.mouse.move(x, y);
+    const got = [];
+    let at = await dialAt(p);
+    if (at !== 0) { bad.push(`${kind}: starts on row ${at}`); continue; }
+    for (const [dir, want] of [[1, 1], [1, 2], [1, 3], [1, 'about'], [-1, 2], [-1, 1], [-1, 0], [-1, 'stats']]) {
+      const y0 = Math.round(await p.evaluate(() => scrollY));
+      const res = await dialStep(p, kind, dir, x, y);
+      at = await dialAt(p);
+      got.push(`${dir > 0 ? '↓' : '↑'}${typeof want === 'number' ? at : res.id}`);
+      if (typeof want === 'number') {
+        if (at !== want || res.y !== y0) { bad.push(`${kind}: ${dir > 0 ? '↓' : '↑'} turned to row ${at} (want ${want}), scrollY ${y0} → ${res.y}`); break; }
+      } else if (res.id !== want || at !== (dir > 0 ? 3 : 0)) { bad.push(`${kind}: ${dir > 0 ? '↓' : '↑'} past the end → ${res.id ?? `mid-way (y ${res.y})`}, dial on row ${at}`); break; }
+      await sleep(900);
+    }
+    seen.push(`${kind}: ${got.join(' ')}`);
+  }
+  // Pointer in the side margin of About: the page has the wheel (up pages to the overview), the dial stays.
+  for (const kind of Object.keys(DIAL_GESTURES)) {
+    await goto(p, 'about'); await sleep(900);
+    await p.mouse.move(20, 450);
+    const r = await dialStep(p, kind, -1, 20, 450), at = await dialAt(p);
+    seen.push(`margin ${kind} ↑: ${r.id}, row ${at}`);
+    if (r.id !== 'stats' || at !== 0) bad.push(`margin ${kind} ↑ → ${r.id ?? `mid-way (y ${r.y})`}, dial on row ${at}`);
+    await sleep(900);
+  }
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('about-dial-click-keys', 'On About\'s dial (/about, 1440x900): a click on a blurred row brings it forward and does nothing else (no dialog, no navigation); a click on "Read the system prompt" in the focused row opens it; ArrowDown and ArrowUp on the focused dial turn it; Tab into a blurred row\'s control brings that row forward', async () => {
+  const bad = [], seen = [];
+  const p = await dialPage(1440, 900, '/about');
+  const url = p.url();
+  const opened = () => p.evaluate(() => !!document.querySelector('dialog[open]'));
+  const read = () => p.evaluate(() => { const b = [...document.querySelectorAll('[data-dial] button')].find(e => /^Read the system prompt/.test(e.textContent.trim())); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, row: [...document.querySelectorAll('[data-dial-row]')].indexOf(b.closest('[data-dial-row]')) }; });
+  // ArrowDown then ArrowUp with focus on the dial.
+  await p.focus('[data-dial]');
+  await p.keyboard.press('ArrowDown'); await sleep(600);
+  const down = await dialAt(p);
+  await p.keyboard.press('ArrowUp'); await sleep(600);
+  const up = await dialAt(p);
+  seen.push(`↓ row ${down}, ↑ row ${up}`);
+  if (down !== 1 || up !== 0) bad.push(`ArrowDown → row ${down}, ArrowUp → row ${up}`);
+  // A click on the next row (blurred): it comes forward, nothing else.
+  const pt = await p.evaluate(() => { const e = document.querySelectorAll('[data-dial-row]')[1], d = document.querySelector('[data-dial]').getBoundingClientRect(), r = e.getBoundingClientRect(); return [r.left + 160, Math.min(r.top + 30, d.bottom - 10)]; });
+  await p.mouse.click(pt[0], pt[1]); await sleep(600);
+  const clicked = await dialAt(p);
+  seen.push(`click on row 1 → row ${clicked}`);
+  if (clicked !== 1) bad.push(`a click on the blurred row 1 → row ${clicked}`);
+  // The prompt button now sits in a blurred row: a click on it only brings its row back, opening nothing.
+  const btn = await read();
+  if (!btn) bad.push('no "Read the system prompt" button in the dial');
+  else {
+    await p.mouse.click(btn.x, btn.y); await sleep(600);
+    const a = await dialAt(p), o = await opened();
+    seen.push(`click on the blurred prompt button → row ${a}, dialog ${o}`);
+    if (a !== btn.row || o) bad.push(`a click on the blurred row's prompt button → row ${a}, dialog ${o ? 'opened' : 'closed'}`);
+    if (o) { await p.keyboard.press('Escape'); await sleep(300); }
+    const b2 = await read();
+    await p.mouse.click(b2.x, b2.y); await sleep(600);
+    const o2 = await opened();
+    seen.push(`click on it in the focused row → dialog ${o2}`);
+    if (!o2) bad.push('a click on "Read the system prompt" in the focused row opens nothing');
+    await p.keyboard.press('Escape'); await sleep(400);
+  }
+  if (p.url() !== url) bad.push(`the page navigated to ${p.url()}`);
+  // Tab from the dial into the rows: the first stop in a row behind brings that row forward.
+  await p.focus('[data-dial]');
+  let moved = null;
+  for (let k = 0; k < 20 && !moved; k++) {
+    await p.keyboard.press('Tab'); await sleep(50);
+    const r = await p.evaluate(() => { const e = document.activeElement?.closest('[data-dial-row]'); return e ? [...document.querySelectorAll('[data-dial-row]')].indexOf(e) : -1; });
+    if (r < 0) break;
+    if (r !== 0) moved = r;
+  }
+  await sleep(600);
+  const tabbed = await dialAt(p);
+  seen.push(`Tab into row ${moved} → row ${tabbed}`);
+  if (moved === null || tabbed !== moved) bad.push(`Tab into row ${moved} left the dial on row ${tabbed}`);
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+group(() => check('about-dial-touch-motion', 'At 390x844 with touch, one vertical swipe on About\'s dial turns it exactly one row (swipe up: the next) and the page stays; past How it works the page scrolls instead. Under reduced motion a turn shows the new row in focus at once, with no transition', async () => {
+  const bad = [], seen = [];
+  const p = await dialPage(390, 844, '/about', { touch: true });
+  const cdp = await p.target().createCDPSession();
+  await p.evaluate(() => document.querySelector('[data-dial]').scrollIntoView({ block: 'center', behavior: 'instant' })); await sleep(500);
+  // A finger's swipe on the dial (up: dir 1): touch start, 160px of moves 16 ms apart, release.
+  const swipe = async dir => {
+    const [x, y] = await dialPoint(p), at = dy => [{ x: Math.round(x), y: Math.round(y + dy) }];
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: at(0) });
+    for (let k = 1; k <= 10; k++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: at(-16 * k * dir) }); await sleep(16); }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await sleep(800);
+  };
+  const got = [];
+  // Past How it works (a swipe down there): not the dial's, the page scrolls up.
+  {
+    const y0 = await p.evaluate(() => scrollY);
+    await swipe(-1);
+    const at = await dialAt(p), y1 = await p.evaluate(() => scrollY);
+    got.push(`down at the top: row ${at}, scrolled ${Math.round(y1 - y0)}`);
+    if (at !== 0 || y0 - y1 < 8) bad.push(`a swipe down on How it works: row ${at}, the page scrolled ${Math.round(y1 - y0)}px`);
+    await p.evaluate(() => document.querySelector('[data-dial]').scrollIntoView({ block: 'center', behavior: 'instant' })); await sleep(500);
+  }
+  for (const want of [1, 2, 3]) {
+    const y0 = await p.evaluate(() => scrollY);
+    await swipe(1);
+    const at = await dialAt(p), y1 = await p.evaluate(() => scrollY);
+    got.push(`row ${at}${y1 !== y0 ? ` (scrolled ${Math.round(y1 - y0)})` : ''}`);
+    if (at !== want || Math.abs(y1 - y0) > 1) { bad.push(`swipe ${want}: row ${at} (want ${want}), scrollY ${Math.round(y0)} → ${Math.round(y1)}`); break; }
+  }
+  seen.push(`swipes: ${got.join(', ')}`);
+  await p.close();
+  // Reduced motion: the frame after ArrowDown already shows Caveats sharp and How it works behind, nothing animating.
+  const q = await dialPage(1440, 900, '/about', { reduce: true });
+  await q.focus('[data-dial]');
+  const frame = await q.evaluate(() => new Promise(res => {
+    document.querySelector('[data-dial]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const rows = [...document.querySelectorAll('[data-dial-row]')];
+      res({ at: rows.findIndex(e => e.getAttribute('aria-current') === 'true'), o: +getComputedStyle(rows[1]).opacity, f: getComputedStyle(rows[1]).filter, back: +getComputedStyle(rows[0]).opacity, anims: document.querySelector('[data-dial]').getAnimations({ subtree: true }).length });
+    }));
+  }));
+  seen.push(`reduced motion, next frame: row ${frame.at}, opacity ${frame.o}, filter ${frame.f}, behind ${frame.back}, ${frame.anims} animations`);
+  if (frame.at !== 1 || frame.o !== 1 || frame.f !== 'none' || frame.back > 0.5 || frame.anims) bad.push(`reduced motion: the frame after ArrowDown shows row ${frame.at} at opacity ${frame.o} (${frame.f}), the row behind at ${frame.back}, ${frame.anims} animations running`);
+  await q.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+// Owner, 2026-11-12: "the donation part is not like... apparent". The ask sits on the table screen, in the API usage card
+// beside the calls it pays for: a filled "Sponsor on GitHub" link, its sentence on one line, and Profits & Losses above
+// still shows every seat.
+group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117 and 390x844, the API usage card says "Every move is a paid model call." on one line and has a filled "Sponsor on GitHub" link to GitHub Sponsors (new tab), the card\'s only filled control, inside the window; Profits & Losses shows every seat\'s row unclipped and unscrolled', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) {
+    const p = await newPage(); await p.setViewport({ width: w, height: h });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => document.querySelectorAll('#table ol li').length >= 2 && document.querySelector('#table a[href*="sponsors"]'), { timeout: 60000, polling: 250 }).catch(() => {});
+    await sleep(2500);
+    const r = await p.evaluate(() => {
+      const a = [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].find(e => e.getBoundingClientRect().width > 0);
+      if (!a) return null;
+      const card = a.closest('.rounded'), cb = card.getBoundingClientRect(), ab = a.getBoundingClientRect();
+      const line = [...card.querySelectorAll('p')].find(e => e.textContent.trim() === 'Every move is a paid model call.');
+      const lines = line ? (() => { const rg = document.createRange(); rg.selectNodeContents(line); return new Set([...rg.getClientRects()].map(q => Math.round(q.top))).size; })() : 0;
+      const clipped = line ? line.scrollWidth > line.clientWidth + 1 || line.getBoundingClientRect().right > cb.right + 1 : true;
+      const filled = [...card.querySelectorAll('a, button')].filter(e => { const c = getComputedStyle(e).backgroundColor; return c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent'; });
+      const pnl = [...document.querySelectorAll('#table h2')].find(e => /Profits/.test(e.textContent))?.closest('.rounded');
+      const list = pnl?.querySelector('ol'), scroller = list?.parentElement, pb = scroller?.getBoundingClientRect();
+      const rows = list ? [...list.children] : [];
+      const cut = rows.filter(li => { const q = li.getBoundingClientRect(); return q.top < pb.top - 1 || q.bottom > pb.bottom + 1; }).length;
+      return {
+        text: a.textContent.trim(), bg: getComputedStyle(a).backgroundColor, target: a.target, lines, clipped, filled: filled.length,
+        inWindow: ab.top >= 0 && ab.bottom <= innerHeight + 1 && ab.left >= 0 && ab.right <= innerWidth, rows: rows.length, cut,
+        scrolls: scroller ? scroller.scrollHeight > scroller.clientHeight + 1 : true, cardH: Math.round(cb.height),
+      };
+    });
+    const at = `${w}x${h}`;
+    if (!r) { bad.push(`${at}: no GitHub Sponsors link on the table screen`); await p.close(); continue; }
+    seen.push(`${at}: "${r.text}" ${r.bg}, sentence ${r.lines} line${r.lines === 1 ? '' : 's'}, card ${r.cardH}px, P&L ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
+    if (r.text !== 'Sponsor on GitHub' || r.bg !== 'rgb(35, 131, 226)' || r.target !== '_blank') bad.push(`${at}: the link is "${r.text}" on ${r.bg}, target ${r.target || 'self'}`);
+    if (r.lines !== 1 || r.clipped) bad.push(`${at}: "Every move is a paid model call." on ${r.lines} lines${r.clipped ? ', clipped' : ''}`);
+    if (r.filled !== 1) bad.push(`${at}: ${r.filled} filled controls in the card`);
+    if (w > 390 && !r.inWindow) bad.push(`${at}: the Sponsor link is outside the window`);
+    if (r.rows < 2 || r.cut || r.scrolls) bad.push(`${at}: Profits & Losses ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
 late(() => check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, notch, phased) and key (PageDown/Up, arrows, Space) moves exactly one screen, both ways, landing on a screen edge, at 1440x900 and 1728x1117: overview ↔ About, and Trends ↔ Profiles ↔ Matchups once a tile opened them; down and up move at the same speed and fade the card underneath alike; a gesture\'s ambiguous first wheel event is claimed', async () => {
   const bad = [], seen = [];
   const KEYS = new Set(['PageDown', 'ArrowDown', 'Space']);
