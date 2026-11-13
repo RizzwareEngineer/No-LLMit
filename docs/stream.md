@@ -59,6 +59,10 @@ The payloads are the Go structs in `engine/api/messages.go`.
 `turn` numbers the hand's turns from 1; a turn's `llm_thinking` and `llm_action` carry the
 same number.
 
+In `game_state`, each of `winners` is one pot won: `amount` is the chips that pot paid the
+winner (`potNumber` 0 is a pot won by everyone else folding, and its `amount` is the whole
+pot, the winner's own chips included), the same number the saved hand's `result.pots` holds.
+
 `budgetMs` is how long the model has for this turn: `turn_budget_s` from the LLM service's
 `GET /models` (`llm/decide.py` `TURN_BUDGET`), read once at startup, or the engine's own
 50 s decide timeout when the service did not say. `elapsedMs` is how long the turn has run:

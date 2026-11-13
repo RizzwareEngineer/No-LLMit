@@ -415,3 +415,24 @@ func TestLoneStackWithNothingToCallIsNotAsked(t *testing.T) {
 		}
 	})
 }
+
+// A hand everyone folds pays the winner the whole pot, and Amount says so, as at showdown.
+func TestUncontestedWinnerAmountIsThePot(t *testing.T) {
+	gs := newTable(1000, 1000, 1000, 1000) // button A(0), SB B(1), BB C(2), UTG D(3)
+	if err := gs.StartHand(); err != nil {
+		t.Fatal(err)
+	}
+	act(t, gs, ActionRaise, 30) // D
+	for range 3 {
+		act(t, gs, ActionFold, 0)
+	}
+	for gs.NeedToAdvanceStreet() {
+		gs.AdvanceStreet()
+	}
+	if len(gs.Winners) != 1 || gs.Winners[0].PlayerIdx != 3 || gs.Winners[0].Amount != 45 {
+		t.Fatalf("winners %+v, want D paid the 45 pot", gs.Winners)
+	}
+	if gs.Players[3].Stack != 1015 || gs.Players[3].Winnings != 15 {
+		t.Errorf("D has %d, winnings %d; want 1015 and 15", gs.Players[3].Stack, gs.Players[3].Winnings)
+	}
+}
