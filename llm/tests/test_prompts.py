@@ -80,12 +80,19 @@ def test_covered_call_is_one_move():
     assert "You are Player 8 (SB), 60 (6 BB), holding Qh Qs." in render_user_prompt(r)
 
 
-def test_all_in_is_the_only_raise_when_too_short_to_min_raise():
-    assert render_legal_actions(short_raise_request()) == "fold, call 100, raise all-in 150"
+def test_all_in_alone_when_too_short_to_min_raise():
+    assert render_legal_actions(short_raise_request()) == "fold, call 100, all-in 150"
+
+
+def test_bet_or_raise_is_the_engines_name():
+    """The word is the type the engine listed, not one worked out again from the street's actions."""
+    r = turn_check_request()
+    r = with_(r, legal_actions=[a if a["type"] != "BET" else {**a, "type": "RAISE"} for a in r.model_dump()["legal_actions"]])
+    assert render_legal_actions(r) == "fold, check, raise to 10–1,930, raise all-in 1,930"
 
 
 def test_big_blind_option_raises_rather_than_bets():
-    """to_call is 0 but the blind is a bet: the option is a raise, as the action line says."""
+    """to_call is 0 but the blind is a bet: the engine lists the option as a RAISE."""
     actions = preflop_request().streets[0].actions + [{"seat": s, "action": "fold"} for s in range(7)] + [{"seat": 7, "action": "call", "amount": 5}]
     r = preflop_request(streets=[{"street": "preflop", "actions": actions}], seat=8, position="BB", hole_cards=["7h", "2d"],
                         pot=20, to_call=0, stack=1990,

@@ -7,7 +7,7 @@ import time
 import requests
 
 from parsing import parse_response
-from prompts import bet_word, render_retry_prompt, render_user_prompt, system_prompt
+from prompts import render_retry_prompt, render_user_prompt, system_prompt
 from providers.openrouter import ProviderError
 from schemas import DecisionRequest
 
@@ -35,18 +35,18 @@ def check_legal(parsed: dict, request: DecisionRequest) -> str:
     legal = {a.type.replace("-", "_"): a for a in request.legal_actions}
     action, amount, all_in = parsed["action"], parsed["amount"], legal.get("ALL_IN")
     if action == "RAISE":
-        sizing, word = legal.get("BET") or legal.get("RAISE"), bet_word(request)
+        sizing = legal.get("BET") or legal.get("RAISE")
         if not sizing:
             if all_in and amount == all_in.amount and not parsed.get("size_problem"):
                 parsed["action"] = "ALL_IN"
                 return ""
             if all_in and request.to_call < request.stack:
-                return f"the only {word} here is all-in {all_in.amount:,}"
-            return f"no {word} is legal here"
+                return f"the only bet or raise here is all-in {all_in.amount:,}"
+            return "no bet or raise is legal here"
         if parsed.get("size_problem"):
             # "30 BB" played as 30 chips, or the first number of a sum, would not be the model's bet.
             return parsed["size_problem"]
-        said = f"{word} to {amount:,}" if word == "raise" else f"{word} {amount:,}"
+        said = f"raise to {amount:,}" if sizing.type == "RAISE" else f"bet {amount:,}"
         if amount < sizing.min:
             return f"{said} is below the minimum {sizing.min:,}"
         if amount > sizing.max:

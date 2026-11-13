@@ -169,11 +169,12 @@ convention: `calls N` is chips added; `bets N`, `raises to N` and `all-in for N`
 player's total on that street.
 
 The legal-actions line lists, in this order, `fold`, `check`, `call N`, `bet N–M` or
-`raise to N–M` (street totals; `bet` while nothing has been bet on the street, so the big
-blind's preflop option is a raise), then the all-in: `call all-in N` when the bet covers the
-stack (N the whole stack, the only way to call), `bet all-in N` or `raise all-in N` otherwise
-(N the street total). Facing a lone all-in the engine lists no raise, so the line is
-`fold, call 100`; too short to min-raise it is `fold, call 100, raise all-in 150`.
+`raise to N–M` (street totals; the word is the engine's `BET` or `RAISE`: `BET` while nothing
+has been bet on the street, so the big blind's preflop option is a raise), then the all-in:
+`call all-in N` when the bet covers the stack (N the whole stack, the only way to call),
+`bet all-in N` or `raise all-in N` otherwise (N the street total), or `all-in N` when no bet
+or raise is listed. Facing a lone all-in the engine lists no raise, so the line is
+`fold, call 100`; too short to min-raise it is `fold, call 100, all-in 150`.
 
 The reply format is ACTION, AMOUNT, REASON in that order for every model. Models with a
 reasoning channel think there before the first line; models without one commit first and
