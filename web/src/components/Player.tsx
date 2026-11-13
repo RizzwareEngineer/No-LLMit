@@ -27,15 +27,15 @@ interface PlayerProps {
   peel?: Peel; // how they turn up (HoleCard): the picked peel for a seat's turn, motion 1 for the hand's end
 }
 
-// Position badge colors
+// Position badge colors, for exactly the engine's names (game.PositionName)
 const POSITION_COLORS: Record<string, string> = {
   'BTN': 'bg-amber-700 text-white',
   'SB': 'bg-blue-600 text-white',
   'BB': 'bg-blue-700 text-white',
   'UTG': 'bg-red-700 text-white',
   'UTG+1': 'bg-red-600 text-white',
-  'UTG+2': 'bg-orange-700 text-white',
-  'LJ': 'bg-purple-700 text-white',
+  'MP': 'bg-orange-700 text-white',
+  'MP+1': 'bg-purple-700 text-white',
   'HJ': 'bg-purple-600 text-white',
   'CO': 'bg-green-700 text-white',
 };
@@ -48,8 +48,8 @@ function getPositionFullName(pos: string): string {
     'BB': 'Big Blind',
     'UTG': 'Under The Gun',
     'UTG+1': 'Under The Gun +1',
-    'UTG+2': 'Under The Gun +2',
-    'LJ': 'Lojack',
+    'MP': 'Middle Position',
+    'MP+1': 'Middle Position +1',
     'HJ': 'Hijack',
     'CO': 'Cutoff',
   };
@@ -96,6 +96,7 @@ export default function Player({ player, active, position, folded = false, winAm
           {/* Position badge, top-right */}
           {position && (
             <div 
+              data-position
               className={`w-8 py-0.5 rounded text-[8px] font-bold shrink-0 text-center ${positionColor}`}
               title={getPositionFullName(position)}
             >

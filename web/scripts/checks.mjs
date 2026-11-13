@@ -198,14 +198,14 @@ const scriptSocket = p => p.evaluateOnNewDocument(() => {
       players: l.players.map((q, i) => ({ ...q, currentBet: 0, stack: i === 0 ? q.stack + l.pot : q.stack })),
       winners: [{ playerIdx: 0, amount: l.pot, handType: 'Pair', handDesc: 'Pair of Kings', eligiblePlayers: l.players.map((_, i) => i), potNumber: 1 }] } });
   };
-  // The next hand: the button moves on, two cards to every seat, the blinds posted.
+  // The next hand: the button and the engine's position names move on a seat, two cards to every seat, the blinds posted.
   s.deal = () => {
     const l = s.last, n = l.players.length, btn = (l.players.findIndex(q => q.isButton) + 1) % n;
     const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => r + x));
     const blind = i => (i === (btn + 1) % n ? 5 : i === (btn + 2) % n ? 10 : 0);
     return play({ type: 'hand_start', payload: { handNumber: l.handNumber + 1 } }, { type: 'game_state', payload: { ...l, handNumber: l.handNumber + 1, street: 'preflop',
       pot: 15, currentBet: 10, communityCards: [], winners: undefined, nextHandInMs: undefined, currentPlayerIdx: (btn + 3) % n,
-      players: l.players.map((q, i) => ({ ...q, isButton: i === btn, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: blind(i), stack: q.stack - blind(i) })) } });
+      players: l.players.map((q, i) => ({ ...q, isButton: i === btn, position: l.players[(i + n - 1) % n].position, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: blind(i), stack: q.stack - blind(i) })) } });
   };
 });
 // A page at a window size on the live table, its game stream scripted, once the engine's state is in.
@@ -316,6 +316,31 @@ group(async () => {
 // Losses (bare, its unit in the panel's header) and the reasoning panel's action; the model's own words stay as written.
 // Text only: the locked sizes never move (seats 200x128, 250x160 at 1870x1200; the table 1000px), and big blinds wrap,
 // clip or cut short nothing that chips leave whole, phones included. Bets and a raise are scripted (scriptSocket).
+group(() => check('table-positions', 'Each seat\'s badge is the position the engine sent for it (the name the model is told), in one of the nine engine names\' own colours with a full name, and it moves with the button on the next deal', async () => {
+  const p = await scriptedTable(1440, 900), bad = [], seen = [];
+  const NAMES = ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO'];
+  const read = () => p.evaluate(() => ({ want: window.__sock.last.players.map(q => q.position ?? ''),
+    got: [...document.querySelectorAll('td [data-seat]')].map(e => { const b = e.querySelector('[data-position]'); return { seat: +e.dataset.seat, text: b?.textContent.trim() ?? '', title: b?.title ?? '', grey: !!b?.className.includes('bg-gray-600') }; }) }));
+  const test = async when => {
+    const { want, got } = await read();
+    seen.push(`${when}: ${want.join(' ')}`);
+    if (got.length !== want.length) bad.push(`${when}: ${got.length} seats drawn for ${want.length} players`);
+    for (const g of got) {
+      if (g.text !== want[g.seat]) bad.push(`${when}: seat ${g.seat} shows '${g.text}', the engine sent '${want[g.seat]}'`);
+      if (g.text && !NAMES.includes(g.text)) bad.push(`${when}: seat ${g.seat}: '${g.text}' is not an engine name`);
+      if (g.text && (g.grey || !g.title || g.title === g.text)) bad.push(`${when}: seat ${g.seat}: '${g.text}' has ${g.grey ? 'the grey fallback' : 'no full name'}`);
+    }
+  };
+  try {
+    // Dealt from the engine's last state (its hand_start ends any draw for the button, which hides the badges).
+    await p.evaluate(() => window.__sock.deal()); await sleep(1500);
+    await test('deal');
+    await p.evaluate(() => window.__sock.deal()); await sleep(1500);
+    await test('next deal');
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+
 group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns every amount on the table screen (stacks, actions, bets, pot, P&L, the reasoning action) into big blinds and back, the model\'s words aside; kept across a reload; no size changes, nothing newly cut, wrapped or clipped', async () => {
   const bad = [], seen = [];
   const fmt = (chips, bb, unit) => { const v = chips / bb; return v.toLocaleString('en-US', { maximumFractionDigits: v < 100 ? 1 : 0 }) + (unit ? ' BB' : ''); };
@@ -660,7 +685,7 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
       const st = await p.evaluate(() => { const l = window.__sock.last, n = l.players.length, btn = (l.players.findIndex(q => q.isButton) + 1) % n;
         const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => r + x));
         return { ...l, handNumber: l.handNumber + 1, street: 'preflop', pot: 15, currentBet: 10, communityCards: [], winners: undefined, nextHandInMs: undefined, currentPlayerIdx: (btn + 3) % n, peeked: [],
-          players: l.players.map((q, i) => ({ ...q, isButton: i === btn, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: 0 })) }; });
+          players: l.players.map((q, i) => ({ ...q, isButton: i === btn, position: l.players[(i + n - 1) % n].position, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: 0 })) }; });
       await feed([{ type: 'hand_start', payload: { handNumber: st.handNumber } }, { type: 'game_state', payload: st }]);
       await sleep(3600);
       const seats = await holeBoxes(p), boxes = seats.flatMap(s => s.cards), idx = seats.map(s => s.seat);

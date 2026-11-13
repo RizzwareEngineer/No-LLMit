@@ -9,7 +9,7 @@ import { missPct } from '@/components/StatsTable';
 import { SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
 import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, ciHalf, modelSlug, netColor, pct, signed, chips } from '@/lib/stats';
 
-const POSITION_ORDER = ['UTG', 'UTG+1', 'UTG+2', 'MP', 'LJ', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
+const POSITION_ORDER = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']; // the engine's names, in seat order
 
 // Accepts the display-name slug in any case, the URL-encoded name, or the model id.
 export function findModel(models: ModelStats[], param: string) {

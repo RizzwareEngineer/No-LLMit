@@ -142,7 +142,6 @@ export default function Home() {
   const pot = gameState?.pot || 0;
   const communityCards = gameState?.communityCards || [];
   const street = gameState?.street || 'preflop';
-  const buttonIdx = gameState?.buttonIdx ?? -1;
   // Use displayState.playerIdx for highlight when actively displaying a player's turn
   // This keeps the highlight on the current player during reasoning + 5s wait
   const currentPlayerIdx = displayState?.playerIdx ?? (gameState?.currentPlayerIdx ?? -1);
@@ -409,7 +408,6 @@ export default function Home() {
                 players={players}
                 layout={layout}
                 currentPlayerIdx={currentPlayerIdx}
-                buttonIdx={buttonIdx}
                 communityCards={communityCards}
                 pot={pot}
                 winnersByIdx={winnersByIdx}
