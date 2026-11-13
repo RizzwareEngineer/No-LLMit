@@ -239,7 +239,7 @@ export default function Panel({
           {aside}
           <AnimatePresence initial={false}>
             {extra && <Swap key="extra" snap={snap}>{extra}</Swap>}
-            {hands && overview && <Swap key="open" snap={snap}>{OPEN}</Swap>}
+            {hands && overview && <Swap key="open" snap={snap} stay>{OPEN}</Swap>}
           </AnimatePresence>
           {!hands && overview && OPEN}
         </div>
@@ -255,11 +255,20 @@ export default function Panel({
 
 const OPEN = <span aria-hidden className="text-[14px] font-medium whitespace-nowrap" style={{ color: 'rgb(35, 131, 226)' }}>Open ↓</span>;
 // A header extra or "Open ↓" coming or going: fades in place; one leaving steps out of the header's flow at its right
-// end, so the header never wraps or shifts while the two cross-fade.
-function Swap({ snap, children }: { snap: boolean; children: React.ReactNode }) {
+// end, so the header never wraps or shifts while the two cross-fade. `stay`: it leaves where it was in the tile ("Open ↓"
+// as the tile opens: the header takes the card's width at once, and its right end lies outside the tile's box).
+function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean; children: React.ReactNode }) {
   const present = useIsPresent();
+  const ref = useRef<HTMLDivElement>(null), at = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current, box = el?.offsetParent as HTMLElement | null;
+    if (!stay || !el || !box) return;
+    // Layout offsets (no transforms), from the box's offset parent (the section), which the header does not move.
+    if (present) at.current = el.offsetLeft + box.offsetLeft;
+    else if (at.current !== null) el.style.left = `${at.current - box.offsetLeft}px`;
+  });
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: snap ? NONE : IN }} exit={{ opacity: 0, transition: OUT }} className={present ? '' : 'absolute right-0 inset-y-0 flex items-center'}>
+    <motion.div ref={ref} initial={{ opacity: 0 }} animate={{ opacity: 1, transition: snap ? NONE : IN }} exit={{ opacity: 0, transition: OUT }} className={present ? '' : `absolute ${stay ? '' : 'right-0'} inset-y-0 flex items-center`}>
       {children}
     </motion.div>
   );
