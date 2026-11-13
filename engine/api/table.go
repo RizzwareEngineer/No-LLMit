@@ -32,13 +32,6 @@ const (
 	nextHandDelay     = 7 * time.Second
 )
 
-// Seats the table when the LLM service cannot say who is seated (llm/registry.py
-// DEFAULT_LINEUP). The real lineup comes from GET /models at startup; see lineup.
-var defaultPlayers = []string{
-	"GPT-OSS 20B", "Claude Haiku 5.5", "Gemma 3 12B", "Llama 3.1 8B", "Mistral Nemo",
-	"DeepSeek V4 Flash", "Phi-4", "Qwen 3.7 Flash", "Cohere Command R7B",
-}
-
 const (
 	tableStartingStack = 2000
 	tableSmallBlind    = 5
@@ -100,7 +93,6 @@ func NewTable(h *hub, onSaved func(history.HandRecord)) *Table {
 		pace:         envFloat("TABLE_PACE", 1),
 		openHour:     envInt("TABLE_OPEN_HOUR", 0),
 		closeHour:    envInt("TABLE_CLOSE_HOUR", 24),
-		seated:       defaultPlayers,
 		now:          time.Now,
 		pause:        time.Sleep,
 	}
@@ -336,35 +328,29 @@ func (t *Table) lineup() []string {
 		}
 		session = len(ids)
 	}
-	return seatedPlayers(func() ([]string, error) { return client.GetSeated(session) }, lineupTries, lineupWait)
+	return seatedPlayers(func() ([]string, error) { return client.GetSeated(session) }, lineupWait)
 }
 
-// About a minute: long enough for the LLM service to boot after the engine, so a custom
-// LINEUP is not silently replaced by the default nine.
-const (
-	lineupTries = 12
-	lineupWait  = 5 * time.Second
-)
+const lineupWait = 5 * time.Second
 
-// seatedPlayers returns what fetch reports, asking up to tries times wait apart, or
-// defaultPlayers when every attempt fails.
-func seatedPlayers(fetch func() ([]string, error), tries int, wait time.Duration) []string {
-	var err error
-	for i := 0; i < tries; i++ {
-		if i > 0 {
-			time.Sleep(wait)
-		}
-		var names []string
-		if names, err = fetch(); err == nil && len(names) < 2 {
+// seatedPlayers returns what fetch reports, asking wait apart until it answers with two or
+// more names: the lineup and every shot clock's budget come from the LLM service, and while
+// it is down no hand could be played anyway.
+func seatedPlayers(fetch func() ([]string, error), wait time.Duration) []string {
+	for i := 1; ; i++ {
+		names, err := fetch()
+		if err == nil && len(names) < 2 {
 			err = fmt.Errorf("only %d seated", len(names))
 		}
 		if err == nil {
 			log.Printf("Lineup: %v", names)
 			return names
 		}
+		if i%12 == 0 { // about once a minute
+			log.Printf("!!! Lineup unavailable after %d tries (%v); waiting for the LLM service", i, err)
+		}
+		time.Sleep(wait)
 	}
-	log.Printf("!!! Lineup unavailable after %d tries (%v); seating the default nine, LINEUP is ignored until restart", tries, err)
-	return defaultPlayers
 }
 
 // dealHand deals the next hand and publishes hand_start with it; the last hand's turn ends here.
