@@ -12,3 +12,7 @@ Every document in this repository, in reading order.
 8. [../dataset/README.md](../dataset/README.md): the nightly export to the open dataset.
 9. [agent-workflow.md](agent-workflow.md): the test gate and how agent work is merged.
 10. [backlog.md](backlog.md): work not started yet.
+
+Also in the repository: [../web/AGENTS.md](../web/AGENTS.md) (written by `next dev`: read Next's own docs before changing `web/`),
+[../.github/pull_request_template.md](../.github/pull_request_template.md) (the pull request layout), the `.env.example` file in
+`engine/`, `llm/` and `web/` (every setting each one reads), and [table.png](table.png) (the picture in the README).

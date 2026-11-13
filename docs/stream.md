@@ -38,7 +38,7 @@ after a random 10 to 14 minutes, chosen when it opens; the client then reconnect
   `stats` written after it carries the counter of the publish that set those stats. The
   client never reads it.
 - `table`: the table id, `tbl_` and 16 hex digits. `snapshot` and `stats` have no `table`.
-- `type` and `payload`: below. No type is called `error`; `get_state` and `error` are gone.
+- `type` and `payload`: below.
 
 ## Table messages
 
