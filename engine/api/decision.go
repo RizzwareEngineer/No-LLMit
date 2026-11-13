@@ -20,7 +20,7 @@ func buildDecisionRequest(gs *game.GameState, validActions []game.LLMValidAction
 		BigBlind:   gs.Stakes.BigBlind,
 		Seat:       idx,
 		Position:   gs.PositionName(idx),
-		HoleCards:  gs.GetLLMHoleCards(idx),
+		HoleCards:  game.CardStrings(you.HoleCards),
 		Pot:        gs.SimplifiedPotCalculation(),
 		ToCall:     max(gs.CurrentBet-you.CurrentBet, 0),
 		Stack:      you.Stack,
@@ -40,7 +40,7 @@ func buildDecisionRequest(gs *game.GameState, validActions []game.LLMValidAction
 	for i, p := range gs.Players {
 		seatOf[p.Name] = i
 	}
-	board := gs.GetLLMCommunityCards()
+	board := game.CardStrings(gs.CommunityCards)
 	boardSize := map[game.Street]int{game.StreetFlop: 3, game.StreetTurn: 4, game.StreetRiver: 5}
 	pot, next := 0, 0
 	for _, street := range []game.Street{game.StreetPreflop, game.StreetFlop, game.StreetTurn, game.StreetRiver} {

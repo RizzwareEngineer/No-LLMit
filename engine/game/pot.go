@@ -75,18 +75,6 @@ func (gs *GameState) SimplifiedPotCalculation() int {
 	return total
 }
 
-func (gs *GameState) GetTotalPot() int {
-	if len(gs.Pots) == 0 {
-		return gs.SimplifiedPotCalculation()
-	}
-
-	total := 0
-	for _, pot := range gs.Pots {
-		total += pot.Amount
-	}
-	return total
-}
-
 func (gs *GameState) CollectBetsIntoPot() {
 	for i := range gs.Players {
 		gs.Players[i].CurrentBet = 0

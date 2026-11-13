@@ -138,7 +138,7 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 	return GameStatePayload{
 		HandNumber:       gs.HandNumber,
 		Street:           gs.Street.String(),
-		Pot:              gs.GetTotalPot(),
+		Pot:              gs.SimplifiedPotCalculation(),
 		CommunityCards:   game.CardStrings(gs.CommunityCards),
 		CurrentPlayerIdx: gs.CurrentPlayerIdx,
 		ButtonIdx:        gs.ButtonIdx,

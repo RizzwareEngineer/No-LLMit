@@ -402,14 +402,6 @@ func (gs *GameState) PositionName(playerIdx int) string {
 	return middlePositions[numPlayers-3][distFromButton-3]
 }
 
-func (gs *GameState) GetLLMCommunityCards() []string {
-	return CardStrings(gs.CommunityCards)
-}
-
-func (gs *GameState) GetLLMHoleCards(playerIdx int) []string {
-	return CardStrings(gs.Players[playerIdx].HoleCards)
-}
-
 func generateGameID() string {
 	return fmt.Sprintf("game_%d", time.Now().UnixNano())
 }
