@@ -91,11 +91,7 @@ func (gs *GameState) ProcessAction(action Action) error {
 	// Record what actually happened (a short call or raise can become an all-in),
 	// with the amount the engine applied rather than the one the caller sent.
 	applied := player.LastAction
-	amount := applied.Amount
-	if applied.Type == ActionFold || applied.Type == ActionCheck {
-		amount = 0
-	}
-	gs.RecordActionForLLMs(player.Name, applied.Type.String(), amount)
+	gs.RecordActionForLLMs(player.Name, applied.Type.String(), applied.Amount)
 
 	return nil
 }
@@ -113,17 +109,21 @@ func (gs *GameState) raiseCanBeAnswered() bool {
 
 var errNoRaise = fmt.Errorf("no opponent can answer a raise; call or fold")
 
-// CheckAction reports whether ProcessAction would accept the action, without changing the game.
-func (gs *GameState) CheckAction(action Action) error {
+// CheckAction reports whether ProcessAction would accept the action, and the move it would
+// apply (its LastAction), without changing the game.
+func (gs *GameState) CheckAction(action Action) (Action, error) {
 	trial := *gs
 	trial.Players = append([]Player(nil), gs.Players...)
 	trial.LLMActionsThisHand = nil
-	return trial.ProcessAction(action)
+	if err := trial.ProcessAction(action); err != nil {
+		return Action{}, err
+	}
+	return *trial.Players[action.PlayerIdx].LastAction, nil
 }
 
 func (gs *GameState) processFold(player *Player, action Action) error {
 	player.Status = PlayerFolded
-	player.LastAction = &action
+	player.LastAction = &Action{Type: ActionFold, PlayerIdx: action.PlayerIdx}
 	gs.advanceToNextPlayer()
 	return nil
 }
@@ -135,7 +135,7 @@ func (gs *GameState) processCheck(player *Player, action Action) error {
 	}
 
 	player.HasActedThisRound = true
-	player.LastAction = &action
+	player.LastAction = &Action{Type: ActionCheck, PlayerIdx: action.PlayerIdx}
 	gs.advanceToNextPlayer()
 	return nil
 }

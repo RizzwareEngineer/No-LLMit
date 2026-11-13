@@ -57,13 +57,16 @@ The payloads are the Go structs in `engine/api/messages.go`.
 `turn` numbers the hand's turns from 1; a turn's `llm_thinking` and `llm_action` carry the
 same number.
 
-`llm_action` `action` is one of `FOLD`, `CHECK`, `CALL`, `BET`, `RAISE`, `ALL_IN`. A sized
-move is `BET` when nobody has bet on the street yet and `RAISE` otherwise
-(`game.RaiseName`, the rule that also names the move in the legal list the model was given);
-`amount` is the street total. A move the engine did not take from the model (a fallback)
-shows `CHECK` or `FOLD` with `amount` 0. A player's `lastAction` in `game_state` is the
-applied move by the same rule: `FOLD`, `CHECK`, `CALL`, `BET`, `RAISE` or `ALL-IN` (with a
-hyphen).
+`llm_action` `action` and `amount` are the move the engine applies, after its legality
+check and any fallback, never the model's own wording or number; the saved hand's `applied`
+holds the same pair. `action` is one of `FOLD`, `CHECK`, `CALL`, `BET`, `RAISE`, `ALL_IN`. A
+sized move is `BET` when nobody has bet on the street yet and `RAISE` otherwise
+(`game.RaiseName`, the rule that also names the move in the legal list the model was given).
+`amount` is the chips added on a `CALL`, the street total on a `BET`, `RAISE` or `ALL_IN`
+(a call or raise that takes the whole stack is an `ALL_IN`), and 0 on `FOLD` and `CHECK`. A
+move the engine did not take from the model (a fallback) shows `CHECK` or `FOLD` with
+`amount` 0. A player's `lastAction` and `lastAmount` in `game_state` are the same move:
+`FOLD`, `CHECK`, `CALL`, `BET`, `RAISE` or `ALL-IN` (with a hyphen), with the same amount.
 
 In `game_state`, each player's `position` is the name the model in that seat is told and the
 saved hand keeps (`game.PositionName`), clockwise from the button: 9 seats `BTN SB BB UTG

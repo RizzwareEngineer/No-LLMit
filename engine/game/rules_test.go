@@ -247,7 +247,7 @@ func TestRaiseNeedsAnOpponentWhoCanRespond(t *testing.T) {
 			}
 			for _, typ := range []ActionType{ActionRaise, ActionAllIn} {
 				a := Action{Type: typ, Amount: gs.CurrentBet + gs.MinRaise, PlayerIdx: gs.CurrentPlayerIdx}
-				if !slices.Contains(c.want, typ) && gs.CheckAction(a) == nil {
+				if _, err := gs.CheckAction(a); !slices.Contains(c.want, typ) && err == nil {
 					t.Errorf("the engine accepts %v, which it does not offer", typ)
 				}
 			}
@@ -284,10 +284,10 @@ func TestCumulativeShortAllInsReopenRaising(t *testing.T) {
 	if raise == nil || raise.MinAmount != 290 || raise.MaxAmount != 1000 {
 		t.Fatalf("D should be offered a raise from 290 to 1000; got %+v", gs.GetValidActions())
 	}
-	if err := gs.CheckAction(Action{Type: ActionRaise, Amount: 289, PlayerIdx: 3}); err == nil {
+	if _, err := gs.CheckAction(Action{Type: ActionRaise, Amount: 289, PlayerIdx: 3}); err == nil {
 		t.Error("engine accepted a re-raise below the minimum")
 	}
-	if err := gs.CheckAction(Action{Type: ActionRaise, Amount: 400, PlayerIdx: 3}); err != nil {
+	if _, err := gs.CheckAction(Action{Type: ActionRaise, Amount: 400, PlayerIdx: 3}); err != nil {
 		t.Errorf("engine refused D's re-raise to 400: %v", err)
 	}
 }

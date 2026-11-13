@@ -74,8 +74,8 @@ type LLMDecisionResponse struct {
 	LatencyMs int    `json:"latency_ms"`
 
 	// Status is ok; unparseable or illegal (the model's own miss, twice); timeout or
-	// api_error (the provider failed). Anything but ok means Action is the service's
-	// fallback (CHECK when legal, else FOLD), not the model's choice.
+	// api_error (the provider failed). Anything but ok means Action is at most the model's
+	// last parsed reply; the engine plays its own fallback (CHECK when legal, else FOLD).
 	Status      string `json:"status"`
 	Retried     bool   `json:"retried"`
 	Error       string `json:"error"`

@@ -553,13 +553,6 @@ func (t *Table) playTurn() {
 		time.Sleep(remaining)
 	}
 
-	shownAction, shownAmount := decision.Action, decision.Amount
-	switch {
-	case turn.fallback:
-		shownAction, shownAmount = turn.action.Type.String(), 0
-	case turn.action.Type == game.ActionRaise:
-		shownAction = t.gs.RaiseName() // the service says RAISE for a bet too
-	}
 	t.mu.Lock()
 	if decision.Retried {
 		t.calls++ // the service asked the model a second time
@@ -568,8 +561,8 @@ func (t *Table) playTurn() {
 		Turn:       turnNum,
 		PlayerIdx:  playerIdx,
 		PlayerName: playerName,
-		Action:     shownAction,
-		Amount:     shownAmount,
+		Action:     turn.applied.Type, // the engine's move, never the model's own wording or number
+		Amount:     turn.applied.Amount,
 		Reason:     decision.Reason,
 	}}
 	t.turn = &acted
@@ -583,10 +576,10 @@ func (t *Table) playTurn() {
 	if err := t.gs.ProcessAction(turn.action); err != nil {
 		// Not expected: decideLLMTurn already checked the action against this state.
 		log.Printf("Error processing LLM action: %v", err)
-		turn.fallback = true
+		turn.fallback, turn.applied = true, history.AppliedAction{Type: "FOLD"}
 		t.gs.ProcessAction(game.Action{Type: game.ActionFold, PlayerIdx: playerIdx})
 	}
-	t.recorder.endDecision(t.gs, turn)
+	t.recorder.endDecision(turn)
 	if t.gs.NeedToAdvanceStreet() {
 		t.advanceStreet()
 	}
@@ -599,8 +592,9 @@ func (t *Table) playTurn() {
 
 // llmTurn is one model decision and the move the engine will apply for it.
 type llmTurn struct {
-	decision   *client.LLMDecisionResponse // the service's reply: the model's move, or its fallback
+	decision   *client.LLMDecisionResponse // the service's reply, as the model gave it
 	action     game.Action
+	applied    history.AppliedAction // what the engine makes of action: the stream and the saved hand show this
 	serviceErr bool // the LLM service could not be reached
 	fallback   bool // action is not the model's own choice: CHECK when legal, otherwise FOLD
 }
@@ -614,9 +608,11 @@ func decideLLMTurn(gs *game.GameState, ask func() (*client.LLMDecisionResponse, 
 	d, err := ask()
 	if err != nil {
 		log.Printf("❌ LLM ERROR for %s: %v", name, err)
+		action := fallbackAction(gs, idx)
 		return llmTurn{
 			decision:   &client.LLMDecisionResponse{Action: "FOLD", Status: "service_error"},
-			action:     fallbackAction(gs, idx),
+			action:     action,
+			applied:    appliedAction(gs, action),
 			serviceErr: true,
 			fallback:   true,
 		}
@@ -633,7 +629,7 @@ func decideLLMTurn(gs *game.GameState, ask func() (*client.LLMDecisionResponse, 
 	if d.Status != "ok" || reason != "" {
 		action, turn.fallback = fallbackAction(gs, idx), true
 	}
-	turn.action = action
+	turn.action, turn.applied = action, appliedAction(gs, action)
 	return turn
 }
 
@@ -644,7 +640,7 @@ func checkLLMDecision(gs *game.GameState, idx int, d *client.LLMDecisionResponse
 		return game.Action{}, fmt.Sprintf("%q is not a legal action", d.Action)
 	}
 	action := game.Action{Type: actionType, Amount: d.Amount, PlayerIdx: idx}
-	if err := gs.CheckAction(action); err != nil {
+	if _, err := gs.CheckAction(action); err != nil {
 		return action, err.Error()
 	}
 	return action, ""
@@ -653,7 +649,7 @@ func checkLLMDecision(gs *game.GameState, idx int, d *client.LLMDecisionResponse
 // fallbackAction is CHECK when checking is legal, otherwise FOLD.
 func fallbackAction(gs *game.GameState, idx int) game.Action {
 	check := game.Action{Type: game.ActionCheck, PlayerIdx: idx}
-	if gs.CheckAction(check) == nil {
+	if _, err := gs.CheckAction(check); err == nil {
 		return check
 	}
 	return game.Action{Type: game.ActionFold, PlayerIdx: idx}

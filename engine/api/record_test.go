@@ -73,7 +73,7 @@ func playTable(t *testing.T, names []string, stacks []int, holes [][]string, boa
 		if err := gs.ProcessAction(turn.action); err != nil {
 			t.Fatalf("decideLLMTurn chose an action the engine rejects: %v", err)
 		}
-		rec.endDecision(gs, turn)
+		rec.endDecision(turn)
 
 		if gs.NeedToAdvanceStreet() {
 			if gs.CountActivePlayers() > 1 && gs.CountActiveNonAllInPlayers() <= 1 && board != nil {
