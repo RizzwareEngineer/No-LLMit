@@ -3883,9 +3883,11 @@ group(() => check('usage-card-one-line', 'At 1440x900, 1728x1117 and 390x844 eve
       const a = [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].find(e => e.getBoundingClientRect().width > 0);
       if (!a) return null;
       const lines = [...a.closest('.rounded').querySelectorAll('*')].filter(e => [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+      // Lines are counted from the element's own text, not its child elements: an icon beside the words (the
+      // Sponsor pill's 11px heart) has a box of its own whose top is not the text's, and is not a second line.
       return lines.map(e => {
-        const rg = document.createRange(); rg.selectNodeContents(e);
-        return { text: e.textContent.trim(), n: new Set([...rg.getClientRects()].filter(q => q.width > 0).map(q => Math.round(q.top))).size };
+        const rects = [...e.childNodes].filter(n => n.nodeType === 3 && n.textContent.trim()).flatMap(n => { const rg = document.createRange(); rg.selectNodeContents(n); return [...rg.getClientRects()]; });
+        return { text: e.textContent.trim(), n: new Set(rects.filter(q => q.width > 0).map(q => Math.round(q.top))).size };
       });
     });
     const at = `${w}x${h}`;
