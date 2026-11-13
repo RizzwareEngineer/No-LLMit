@@ -22,7 +22,7 @@ const BB100: Column = { key: 'bb100', label: 'bb/100', value: m => m.bb100, rend
 export const missPct = (m: ModelStats) => (m.miss_rate == null ? DASH : `${(m.miss_rate * 100).toFixed(1)}%`);
 
 // A row's slide to its new place when the order changes, like Profits & Losses' rows.
-const SLIDE = { duration: 0.3 } as const;
+export const SLIDE = { duration: 0.3 } as const;
 
 // A cell's content, moved by motion layout (Chrome ignores transforms on a table row, so the cells'
 // content moves, not the rows). On the tile↔card glide it travels with the card at its own size (the
@@ -76,12 +76,12 @@ const MINI = [{ label: 'Core', columns: [byKey('hands'), byKey('vpip'), byKey('p
 // the number columns (204) and the tile's padding (32). StatsSections sizes the tile with it.
 export const MINI_CHROME = 24 + 16 + 204 + 32;
 
-// A column header with its definition on hover or focus. Without `onSort` it is a plain label
-// (a fixed-order table); `sort` then only marks the column the rows are ordered by.
-// `mini` set (Profiles' tile and card): the header glides between the two, the tile's being the label alone.
+// A column header with its definition on hover or focus. Without `onSort` (the tile) it is a plain label
+// and `sort` only marks the column the rows are ordered by.
+// `mini` (Profiles' tile and card): the header glides between the two, the tile's being the label alone.
 // The label flows inline: a long one wraps between its words, never inside one (C-bet at its hyphen), the sort mark
 // stays on its last word, and the info button sits beside it when there is room, else under it.
-export function HeaderCell({ col, sort, onSort, className = 'p-2', mini, move = GLIDE }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className?: string; mini?: boolean; move?: Transition }) {
+function HeaderCell({ col, sort, onSort, className, mini, move }: { col: { key: string; label: string }; sort: { key: string; desc: boolean }; onSort?: () => void; className: string; mini: boolean; move: Transition }) {
   const [open, setOpen] = useState(false);
   const tipId = useId();
   // Opened, the definition shifts sideways to stay whole inside the box that would cut it (the card's scroller; a
@@ -102,7 +102,7 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', mini, move = 
   const words = col.label.split(' ');
   const label = (
     <>
-      {onSort ? (
+      {onSort && (
         <button onClick={onSort} className="hover:underline text-right">
           {words.map((w, i) => (
             <Fragment key={i}>
@@ -114,7 +114,7 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', mini, move = 
             </Fragment>
           ))}
         </button>
-      ) : col.label}{' '}
+      )}{' '}
       <button
         onClick={() => setOpen(true)} // not a toggle: hover and focus already opened it
         onFocus={() => setOpen(true)}
@@ -133,12 +133,12 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', mini, move = 
     <th
       scope="col"
       aria-sort={active ? (sort.desc ? 'descending' : 'ascending') : onSort ? 'none' : undefined}
-      className={`${className.includes('sticky') ? '' : 'relative'} ${className} font-medium text-right align-bottom leading-tight`}
+      className={`${className} font-medium text-right align-bottom leading-tight`}
       style={{ color: active ? TEXT : MUTED }}
       onMouseEnter={mini ? undefined : () => setOpen(true)}
       onMouseLeave={mini ? undefined : () => setOpen(false)}
     >
-      {mini === undefined ? label : <Glides at={mini} move={move}>{mini ? col.label : label}</Glides>}
+      <Glides at={mini} move={move}>{mini ? col.label : label}</Glides>
       {/* Always in the DOM so aria-describedby resolves; hidden until opened. */}
       {!mini && (
         <span
@@ -164,11 +164,10 @@ export function HeaderCell({ col, sort, onSort, className = 'p-2', mini, move = 
 // opening the card keeps this table and adds the rest around it.
 export type TableView = { sort: { key: string; desc: boolean }; everyone: boolean; picked: Set<string> };
 export const TABLE_VIEW: TableView = { sort: { key: 'bb100', desc: true }, everyone: false, picked: new Set() };
-// `view`: the sort, "All models" and the picked rows, when they are shared (Profiles' opened tile and its card show
-// the same); the overview tile keeps the default.
-export default memo(function StatsTable({ models, seated, pending = [], mini = false, snap = false, view }: { models: ModelStats[]; seated?: string[]; pending?: string[]; mini?: boolean; snap?: boolean; view?: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
-  const own = useState(TABLE_VIEW);
-  const [shared, setView] = view ?? own;
+// `view`: the sort, "All models" and the picked rows, shared (Profiles' opened tile and its card show the same); the
+// overview tile keeps the default.
+export default memo(function StatsTable({ models, seated, pending = [], mini = false, snap = false, view }: { models: ModelStats[]; seated?: string[]; pending?: string[]; mini?: boolean; snap?: boolean; view: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
+  const [shared, setView] = view;
   const { sort, everyone, picked } = mini ? TABLE_VIEW : shared;
   const setSort = (f: (s: TableView['sort']) => TableView['sort']) => setView(v => ({ ...v, sort: f(v.sort) }));
   const setEveryone = (f: (e: boolean) => boolean) => setView(v => ({ ...v, everyone: f(v.everyone) }));
@@ -215,7 +214,7 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
 
 // bb/100 in its colour, one number at the other figures' weight; hovering it shows the 95% range (above it on a
 // group's last row, so it never hangs below the table and grows the card's scroller).
-export function Bb100({ m }: { m: ModelStats }) {
+function Bb100({ m }: { m: ModelStats }) {
   const ci = ciTitle(m);
   return (
     <span className="group/ci relative inline-block" style={{ color: netColor(m.bb100) }}>

@@ -322,10 +322,7 @@ const ranked = (ms: ModelStats[]) =>
 
 function useField() {
   const ref = useRef<HTMLElement>(null);
-  // On About's dial the form is clipped out of view until its row turns forward: watch the dial's window instead.
-  const near = useRef<Element | null>(null);
-  useLayoutEffect(() => { near.current = ref.current!.closest('[data-dial]') ?? ref.current; }, []);
-  const seen = useInView(near, { once: true, margin: '0px 0px 300px 0px' });
+  const seen = useInView(ref, { once: true, margin: '0px 0px 300px 0px' });
   const page = useContext(PageStats), fetched = useStats(seen && !page);
   const { data, error } = page ?? fetched, live = seen ? data : null;
   // A refetch (partial stats, every 30 s) waits while a prompt is open, so the race stands still behind it.
@@ -340,7 +337,7 @@ function useField() {
 // average over SMOOTH points each side; PAD units clear at the top and bottom.
 const W = 600, H = 300, SWING = 1.6, SMOOTH = 2, PAD = 3;
 
-// One ridge per LLM: its running bb/100 over its own hands (from RATE_FROM, as Profiles' sparkline), each spanning the
+// One ridge per LLM: its running bb/100 over its own hands (from RATE_FROM), each spanning the
 // art, drawn about its latest value so it ends on its row, where its logo sits: the leader on the top row. One scale for
 // all, so a calm line stays calm beside a wild one; the rows' extent fills the box (no empty band above or below). Each
 // ridge's fill is the page's own colour (about-race-fill): it hides the rows behind it, so only the lines show.

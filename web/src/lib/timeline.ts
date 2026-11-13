@@ -95,6 +95,7 @@ export function handsTogetherAt(tl: Timeline, a: string, b: string, hand: number
 export function useTimeline(refreshKey?: number): Timeline | null {
   const [tl, setTl] = useState<Timeline | null>(null);
   useEffect(() => {
+    if (refreshKey === undefined) return; // the stats have not arrived: the first fetch would be wasted
     let cancelled = false;
     fetch(`${API_URL}/api/stats/timeline`)
       .then(res => { if (!res.ok) throw new Error(`timeline ${res.status}`); return res.json(); })
@@ -126,15 +127,14 @@ export function playedAt(tl: Timeline, name: string, hand: number) {
   return h0 + ((h1 - h0) * (hand - s0)) / (s1 - s0);
 }
 
-// Profiles at snapshot i: each model seated by then with that snapshot's figures, its curve cut at
-// its hands then (the Last 50 hands line). The figures the timeline does not carry are null (a dash), never today's,
+// Profiles at snapshot i: each model seated by then with that snapshot's figures. The figures the timeline does not carry are null (a dash), never today's,
 // so a row shows one time only. `pending`: no hands yet.
 const NOT_IN_TIMELINE = { bb100_ci: null, aiev_bb100: null, three_bet: null, cbet: null, fold_to_cbet: null, wtsd: null, wsd: null, fold_when_check_free: null, miss_rate: null };
 export function profilesAt(tl: Timeline, models: ModelStats[], i: number) {
   const snap = tl.profiles[i];
   const shown = models.flatMap(m => {
     const r = snap?.get(m.name);
-    return r ? [{ ...m, ...NOT_IN_TIMELINE, ...r, cumulative_bb: m.cumulative_bb.filter(([n]) => n <= r.hands) }] : [];
+    return r ? [{ ...m, ...NOT_IN_TIMELINE, ...r }] : [];
   });
   return { shown, pending: models.filter(m => !snap?.has(m.name)).map(m => m.name) };
 }
@@ -173,6 +173,6 @@ if (process.env.NODE_ENV === 'development') {
   const at = (h: number) => matchupsAt(tl, [{ name: 'A' }, { name: 'B' }] as ModelStats[], h);
   const live = { name: 'A', cumulative_bb: [[50, 9]], three_bet: 0.1, aiev_bb100: 7, bb100_ci: [1, 2] } as unknown as ModelStats;
   const [row] = profilesAt(tl, [live], 0).shown;
-  console.assert(row.hands === 25 && row.bb100 === 10 && row.three_bet === null && row.aiev_bb100 === null && row.bb100_ci === null && row.cumulative_bb.length === 0, 'profilesAt: only the snapshot\'s figures, the rest null');
+  console.assert(row.hands === 25 && row.bb100 === 10 && row.three_bet === null && row.aiev_bb100 === null && row.bb100_ci === null, 'profilesAt: only the snapshot\'s figures, the rest null');
   console.assert(!('B' in at(2)[0].vs) && at(39)[0].vs.B.net_chips === 40 && at(39)[0].vs.B.hands === 7 && at(40)[1].vs.A.net_chips === -25, 'matchupsAt: running pair sums both ways, with hands together');
 }

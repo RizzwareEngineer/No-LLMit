@@ -6,9 +6,9 @@ import LLMLogo from '@/components/LLMLogo';
 import About from '@/components/About';
 import { PageStats } from '@/components/about/content';
 import { ArrowDown, Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, Segmented, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
-import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
-import StatsTable, { MINI_CHROME, TABLE_VIEW, type TableView } from '@/components/StatsTable';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OUT, Segmented, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
+import CumulativeChart, { H, LEGEND_H, W, sampleAt } from '@/components/CumulativeChart';
+import StatsTable, { MINI_CHROME, SLIDE, TABLE_VIEW, type TableView } from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
 import { StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, StatsResponse } from '@/lib/stats';
@@ -23,14 +23,8 @@ import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, u
 // Main scroll: table, overview, About. The cards are a loop entered from the overview's tiles: paging
 // moves History, Profiles, Matchups, and up on History or down on Matchups goes back to the overview
 // (data-back, read by pageBy). The URL never names a screen (only the model drawer's #model=).
-const SCREENS = [
-  { id: 'stats', label: 'Overview' },
-  { id: 'about', label: 'About' },
-  { id: 'race', label: 'Trends' },
-  { id: 'stats-table', label: 'Profiles' },
-  { id: 'pairwise', label: 'Matchups' },
-] as const;
-type Screen = (typeof SCREENS)[number]['id'];
+const SCREENS = ['stats', 'about', 'race', 'stats-table', 'pairwise'] as const;
+type Screen = (typeof SCREENS)[number];
 type Tile = Exclude<Screen, 'stats' | 'about'>;
 // Each detail screen's overview tile, and the element that takes focus on landing there.
 const TILES: Record<Tile, { panel: string; land: string }> = {
@@ -77,7 +71,7 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
     const tile = sec?.parentElement; // the grid cell keeps the tile's size while the card is out
     if (!sec || !tile) return;
     const fit = () => {
-      // The chart's root: its filter bar, then its box (the tallest child), whose own legend reserve is LEGEND.
+      // The chart's root: its filter bar, then its box (the tallest child), whose own legend reserve is LEGEND_H.
       const root = sec.querySelector('.panel-scroll')?.lastElementChild;
       const kids = root ? [...root.children] as HTMLElement[] : [];
       const box = kids.reduce<HTMLElement | null>((a, c) => (!a || c.offsetHeight > a.offsetHeight ? c : a), null);
@@ -94,12 +88,12 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
         // The box is the chart's last child (a phone's filter bar can be taller).
         let above = 0;
         for (let e = root?.lastElementChild as HTMLElement | null; e && e !== sec; e = e.offsetParent as HTMLElement | null) above += e.offsetTop;
-        // Under the plot, the card's legend: LEGEND reserved, more where a phone wraps it to more rows.
+        // Under the plot, the card's legend: LEGEND_H reserved, more where a phone wraps it to more rows.
         const area = root?.lastElementChild as HTMLElement | null;
         // Its content's extent, not the box's height (which follows the card's: that would feed back).
         const parts = area ? ([...area.children] as HTMLElement[]) : [];
         const under = Math.max(0, ...parts.map(k => k.offsetTop + k.offsetHeight)) - (parts[0]?.offsetHeight ?? 0);
-        const legend = zoomedNow ? Math.max(LEGEND, under) : 0;
+        const legend = zoomedNow ? Math.max(LEGEND_H, under) : 0;
         const h = Math.ceil(above + ((sec.clientWidth - 32) * H) / W + legend + 16);
         remember(name, 0, h);
         (zoomedNow ? setRaceFit : setRaceTile)(keep(h));
@@ -108,7 +102,7 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
       // The card's filter bar, measured over the chart; before the chart is in (a blank card), the height it last had.
       const bar = zoomedNow && root && box ? root.clientHeight - box.offsetHeight : (remembered('race-bar')?.[1] ?? 64 + 8);
       if (zoomedNow && root && box) remember('race-bar', 0, bar);
-      setRaceFit(keep(Math.ceil(tile.offsetHeight + bar + LEGEND)));
+      setRaceFit(keep(Math.ceil(tile.offsetHeight + bar + LEGEND_H)));
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -397,17 +391,17 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
       // A click on the page around a detail screen's card (not on the card) goes back to the overview.
       onClick={e => !(e.target as Element).closest('.card-chrome') && backToOverview()}
     >
-      {SCREENS.map(s => (
+      {SCREENS.map(id => (
         <div
-          key={s.id}
-          id={s.id}
-          ref={s.id === 'stats-table' ? statsScreen : s.id === 'pairwise' ? pairwiseScreen : undefined}
+          key={id}
+          id={id}
+          ref={id === 'stats-table' ? statsScreen : id === 'pairwise' ? pairwiseScreen : undefined}
           data-screen
-          data-end={s.id === 'about' || undefined}
-          data-back={s.id === 'race' ? 'up' : s.id === 'pairwise' ? 'down' : undefined}
+          data-end={id === 'about' || undefined}
+          data-back={id === 'race' ? 'up' : id === 'pairwise' ? 'down' : undefined}
           aria-hidden
           className="h-svh snap-start snap-always"
-          style={{ viewTimelineName: s.id === 'stats-table' ? '--card-stats' : s.id === 'pairwise' ? '--card-pairwise' : undefined }}
+          style={{ viewTimelineName: id === 'stats-table' ? '--card-stats' : id === 'pairwise' ? '--card-pairwise' : undefined }}
         />
       ))}
       <div data-stage className="absolute inset-0">
@@ -513,7 +507,7 @@ function leaderAt(tl: Timeline | null, models: ModelStats[], hand: number | null
   if (hand !== null && !tl) return null;
   const rows = models.map(m => {
     const hands = hand === null ? m.hands : Math.floor(playedAt(tl!, m.name, hand));
-    return { m, hands, bb100: hand === null ? m.bb100 : hands ? (valueAt(m.cumulative_bb, hands) / hands) * 100 : 0 };
+    return { m, hands, bb100: hand === null ? m.bb100 : hands ? (sampleAt(m.cumulative_bb, [hands])[0] / hands) * 100 : 0 };
   });
   return leaderBy(rows);
 }
@@ -571,8 +565,8 @@ function SyncedProfiles({ tl, models, seated, mini = false, snap = false, view }
   return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} mini={mini} snap={snap} view={view} /></div>;
 }
 
-const FADE_MS = 120; // closing: what the card adds fades out (globals.css, [data-leaving])
-const SLIDE_MS = 320; // a Profiles row's slide (StatsTable's SLIDE), and a frame to spare
+const FADE_MS = OUT.duration * 1000; // closing: what the card adds fades out (globals.css, [data-leaving])
+const SLIDE_MS = SLIDE.duration * 1000 + 20; // a Profiles row's slide, and a frame to spare
 const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1 min-w-0'; // a card header's extras
 
 // The overview block and every card take the table stage's column (--stage-w, from page.tsx's fit()), so the table
@@ -596,7 +590,6 @@ const AREA = 1.51; // Trends' tile at least this times Matchups' area (1.5, over
 // Trends' row at least this tall (or half the room, on a short window): CumulativeChart keeps its text at 13px on
 // screen down to a 1/1.5 scale of its H-tall layout (history-type).
 const R1_MIN = Math.ceil(H / 1.5 + 72);
-const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
 const A = (H / W).toFixed(5);
 const ROOM = `(100svh - 44px - var(--bar-h, 0px) - ${MARGIN} - ${BELOW})`; // the block's height at most
 const BLOCK = 'h-full w-full md:max-w-(--block-w) mx-auto flex flex-col justify-center';

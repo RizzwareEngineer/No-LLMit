@@ -261,6 +261,7 @@ html:has([data-screen]) {
 @keyframes recede { to { transform: scale(0.94); --dim: 0.14; opacity: 0; } }
 @keyframes recede-hide { to { opacity: 0; } }
 /* What a card adds to its overview tile's content (Profiles' extra columns and controls) fades in once, on mount. */
+/* Their times are Section's IN and OUT. */
 @keyframes add-in { from { opacity: 0; } }
 @keyframes add-out { to { opacity: 0; } }
 @media (prefers-reduced-motion: no-preference) {
