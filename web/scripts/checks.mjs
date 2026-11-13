@@ -519,7 +519,9 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
       pressed: group && btn('BB')?.getAttribute('aria-pressed') === 'true',
       amounts: [...sec.querySelectorAll('[data-chips]')].filter(vis).map(e => ({
         chips: +e.dataset.chips, text: (e.getAttribute('aria-label')?.replace(/^Pot /, '') ?? e.textContent).trim().replace(/^[+−-]/, ''),
-        where: e.closest('[data-seat]') ? 'seat' : e.closest('[data-bet]') ? 'bet' : e.closest('ol') ? 'pnl' : e.hasAttribute('aria-label') ? 'pot' : e.closest('[data-pot]') ? 'collected' : 'reasoning',
+        // A seat's first amount is its stack; any after it is the seat's own bet line (BET 35, RAISE 35), which is where a
+        // phone shows a bet: the felt's edge bets are desktop only (3b93f02).
+        where: e.closest('[data-seat]') ? (e === e.closest('[data-seat]').querySelector('[data-chips]') ? 'seat' : 'seat bet') : e.closest('[data-bet]') ? 'bet' : e.closest('ol') ? 'pnl' : e.hasAttribute('aria-label') ? 'pot' : e.closest('[data-pot]') ? 'collected' : 'reasoning',
         lines: lines(e), clipped: clipped(e),
       })),
       unit: !!sec.querySelector('[data-unit]'),
@@ -567,7 +569,8 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
         if (a.clipped && !c?.clipped) bad.push(`${size} BB: ${a.where} "${a.text}" is clipped`);
       });
       const where = new Set(big.amounts.map(a => a.where));
-      for (const k of ['seat', 'bet', 'pot', 'pnl', 'reasoning']) if (!where.has(k)) bad.push(`${size}: no ${k} amount to check`);
+      for (const k of ['seat', phone ? 'seat bet' : 'bet', 'pot', 'pnl', 'reasoning']) if (!where.has(k)) bad.push(`${size}: no ${k} amount to check`);
+      if (phone && where.has('bet')) bad.push(`${size}: the felt draws its desktop edge bets on a phone`);
       if (!big.unit || chips.unit) bad.push(`${size}: Profits & Losses header unit ${chips.unit ? 'shown in chips' : 'missing in BB'}`);
       if (!/Raising to 35\b/.test(big.words)) bad.push(`${size}: the model's words changed in BB ("${big.words.slice(0, 40)}")`);
       const moved = big.boxes.filter((b, i) => b !== chips.boxes[i]).length;
