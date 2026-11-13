@@ -243,7 +243,7 @@ const useHold = () => useSyncExternalStore(onHold, () => document.documentElemen
 type View = 'system' | 'user';
 const VIEWS: { label: string; value: View }[] = [{ label: 'System prompt', value: 'system' }, { label: 'User prompt', value: 'user' }];
 
-export function PromptLinks() {
+function PromptLinks() {
   const [view, setView] = useState<View | null>(null);
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {

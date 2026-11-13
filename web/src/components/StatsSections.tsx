@@ -47,8 +47,6 @@ const useNativeTimeline = () =>
 // The three panels under the live table, all time. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
 export default memo(function StatsSections({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
-  const [selected, setSelected] = useState('');
-  const [highlight, setHighlight] = useState<string | undefined>();
   // The tile filling the stage (null: the overview grid); `lift`, the one focused last, stays on top
   // while it glides back. Race fills it on every screen after the overview: the cards slide over it.
   const [tiles, setTiles] = useState<{ on: Tile | null; snap: boolean; lift: Tile | null }>({ on: null, snap: false, lift: null });
@@ -368,7 +366,7 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
     <AtHand tl={tl} models={card ? muModels : field}>
       {(ms, hand) => (
         <div {...syncAttrs(tl, hand)} className="contents">
-          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} snap={snap} fitTo={field.length} leader={leaderAt(tl, ms, hand)?.m.name} />
+          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} mini={!card} snap={snap} fitTo={field.length} leader={leaderAt(tl, ms, hand)?.m.name} />
         </div>
       )}
     </AtHand>
@@ -428,7 +426,7 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
               <Panel id="race-panel" title="Trends" away={{ y: -1 }} className="row-start-1 md:col-span-2 max-md:h-(--race-tile)" aside={lead} fit={raceFit} blank={blank} {...tile('race')}>
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
-                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} timeline={tl} selected={selected} highlight={highlight} onHighlight={setHighlight} onSelect={zoomed ? setSelected : undefined} />
+                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
                 ) : message}
               </Panel>
 

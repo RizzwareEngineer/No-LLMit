@@ -3,11 +3,10 @@
 import { useEffect, useRef } from 'react';
 import { X } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
-import HeadToHead from '@/components/HeadToHead';
 import CumulativeChart from '@/components/CumulativeChart';
 import { missPct } from '@/components/StatsTable';
 import { SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
-import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, ciHalf, modelSlug, netColor, pct, signed, chips } from '@/lib/stats';
+import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, ciHalf, modelHref, modelSlug, netColor, pct, signed, chips } from '@/lib/stats';
 
 const POSITION_ORDER = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']; // the engine's names, in seat order
 
@@ -34,6 +33,38 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
       <h3 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: TEXT }}>{title}</h3>
       {children}
     </section>
+  );
+}
+
+// One model's opponents, by net chips.
+function Opponents({ m }: { m: ModelStats }) {
+  const rows = Object.entries(m.vs ?? {}).sort((a, b) => b[1].net_chips - a[1].net_chips);
+  if (rows.length === 0) return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
+  return (
+    <table className="w-full text-[12px] tabular-nums">
+      <caption className="sr-only">{m.name} against each opponent</caption>
+      <thead>
+        <tr className="border-b border-notion" style={{ color: MUTED }}>
+          <th scope="col" className="text-left font-medium p-2">Opponent</th>
+          <th scope="col" className="text-right font-medium p-2">Pots</th>
+          <th scope="col" className="text-right font-medium p-2">Net</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-black/10">
+        {rows.map(([name, v]) => (
+          <tr key={name} className="lift">
+            <th scope="row" className="text-left font-medium p-2">
+              <a href={modelHref(name)} className="flex items-center gap-2 hover:underline" style={{ color: TEXT }}>
+                <LLMLogo model={name} size={18} />
+                {name}
+              </a>
+            </th>
+            <td className="text-right p-2">{v.pots}</td>
+            <td className="text-right p-2 font-bold" style={{ color: netColor(v.net_chips) }}>{chips(v.net_chips)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -157,7 +188,7 @@ export default function ModelDrawer({
             </Block>
 
             <Block title="Head to head">
-              <HeadToHead models={models} focus={m} />
+              <Opponents m={m} />
             </Block>
 
             <Block title="Biggest pots">
