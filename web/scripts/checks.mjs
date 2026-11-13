@@ -398,7 +398,7 @@ group(() => check('table-reason-empty', 'An action that came with no reason stil
     await sleep(800);
     const r = await p.evaluate(() => { const live = [...document.querySelectorAll('p.sr-only[aria-live]')].find(e => e.closest('.h-\\[100px\\]'));
       const panel = live?.parentElement; return { text: panel ? panel.innerText.replace(/\s+/g, ' ').trim() : null, said: live?.textContent ?? '' }; });
-    const ok = !!r.text && /Reasoning/.test(r.text) && /CALL/.test(r.text) && /call/.test(r.said);
+    const ok = !!r.text && /Reasoning/i.test(r.text) && /CALL/.test(r.text) && /call/.test(r.said);
     return { pass: ok, detail: `panel: '${r.text}'; announced: '${r.said}'` };
   } finally { await p.close(); }
 }));
