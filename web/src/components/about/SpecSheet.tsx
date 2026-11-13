@@ -37,14 +37,18 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
   const atRef = useRef(0);
   const turn = (i: number) => { atRef.current = i; setAt(i); };
   const box = useRef<HTMLDivElement>(null), list = useRef<HTMLDivElement>(null);
-  const [geo, setGeo] = useState<{ tops: number[]; hs: number[]; total: number } | null>(null);
+  // The rows' heights, measured on the client; until then only the first row shows (the window's height is CSS's own).
+  const [hs, setHs] = useState<number[] | null>(null);
+  const [ready, setReady] = useState(false);
   useLayoutEffect(() => {
-    const l = list.current!, rows = [...l.children] as HTMLElement[];
-    const measure = () => setGeo({ tops: rows.map(r => r.offsetTop), hs: rows.map(r => r.offsetHeight), total: l.offsetHeight });
+    const rows = [...list.current!.children] as HTMLElement[];
+    const measure = () => setHs(rows.map(r => r.offsetHeight));
     measure();
     const ro = new ResizeObserver(measure);
     rows.forEach(r => ro.observe(r));
-    return () => ro.disconnect();
+    // Rows slide only after they first took their places (they fade in there).
+    const f = requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
+    return () => { ro.disconnect(); cancelAnimationFrame(f); };
   }, []);
 
   useEffect(() => {
@@ -102,15 +106,18 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
     turn(next);
   };
 
-  // The visible window: the tallest row with a peek above and two below; the list slides so the focused row sits a peek
-  // from the top, held at either end so no empty band shows. The edge that hides rows fades out.
-  const H = geo && Math.min(geo.total, Math.max(...geo.hs) + 3 * PEEK);
-  const y = geo && H ? Math.min(Math.max(geo.tops[at] - PEEK, 0), geo.total - H) : 0;
-  const fadeTop = y > 0 ? PEEK : 0, fadeBottom = geo && H && y < geo.total - H - 1 ? PEEK : 0;
+  // The visible window: the tallest row with a peek above and two below (the rows share one grid cell, so its height
+  // is CSS's before any measuring); the rows slide so the focused one sits a peek from the top, held at either end so no
+  // empty band shows. The edge that hides rows fades out.
+  const tops = hs ? hs.map((_, i) => hs.slice(0, i).reduce((x, h) => x + h, 0)) : null;
+  const total = hs ? hs.reduce((x, h) => x + h, 0) : 0, H = hs ? Math.max(...hs) + 3 * PEEK : 0;
+  const y = tops ? Math.min(Math.max(tops[at] - PEEK, 0), Math.max(total - H, 0)) : 0;
+  const fadeTop = y > 0 ? PEEK : 0, fadeBottom = !tops || y < total - H - 1 ? PEEK : 0;
   const mask = `linear-gradient(to bottom, transparent, #000 ${fadeTop}px, #000 calc(100% - ${fadeBottom}px), transparent)`;
   // Whether the row under a press was in focus before it: a click on a blurred row only brings it forward.
   const wasAt = useRef<boolean | null>(null);
   return (
+    // The focus ring is on this outer box: the inner one is masked and clipped, which would fade or cut it.
     <div
       ref={box}
       data-dial
@@ -118,35 +125,39 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
       aria-label="About, one topic at a time (↑ ↓ to turn)"
       tabIndex={0}
       onKeyDown={onKey}
-      className="order-3 @4xl:order-none relative overflow-clip border-b outline-none focus-visible:ring-2 focus-visible:ring-[rgb(35,131,226)] rounded-sm motion-safe:transition-[height] motion-safe:duration-300"
-      style={{ borderColor: RULE, height: H ?? undefined, maskImage: mask, WebkitMaskImage: mask }}
+      className="order-3 @4xl:order-none border-b outline-none focus-visible:ring-2 focus-visible:ring-[rgb(35,131,226)] focus-visible:ring-offset-2 rounded-sm"
+      style={{ borderColor: RULE }}
     >
-      <div
-        ref={list}
-        className="motion-safe:transition-transform motion-safe:duration-[400ms]"
-        style={{ transform: `translateY(${-y}px)`, transitionTimingFunction: EASE }}
-      >
-        {TOPICS.map(([title, Body], i) => {
-          const d = Math.min(Math.abs(i - at), 2);
-          return (
-            <div
-              key={title}
-              data-dial-row={title}
-              aria-current={i === at || undefined}
-              onPointerDownCapture={() => { wasAt.current = i === at; }}
-              onClickCapture={e => {
-                if ((e.target as Element).closest('dialog')) return;
-                if (wasAt.current === false) { e.preventDefault(); e.stopPropagation(); turn(i); }
-                wasAt.current = null;
-              }}
-              onFocusCapture={() => i !== atRef.current && turn(i)}
-              className={`motion-safe:transition-[transform,filter,opacity] motion-safe:duration-[400ms] ${d ? 'cursor-pointer select-none' : ''}`}
-              style={{ ...BACK[d], transitionTimingFunction: EASE }}
-            >
-              <Row as={as} title={title}><Body /></Row>
-            </div>
-          );
-        })}
+      <div className="overflow-clip" style={{ paddingBottom: 3 * PEEK, maskImage: mask, WebkitMaskImage: mask }}>
+        <div ref={list} className="grid items-start [&>*]:[grid-area:1/1]">
+          {TOPICS.map(([title, Body], i) => {
+            const d = Math.min(Math.abs(i - at), 2), back = BACK[d];
+            const shift = tops ? tops[i] - y : 0;
+            return (
+              <div
+                key={title}
+                data-dial-row={title}
+                aria-current={i === at || undefined}
+                onPointerDownCapture={() => { wasAt.current = i === at; }}
+                onClickCapture={e => {
+                  if ((e.target as Element).closest('dialog')) return;
+                  if (wasAt.current === false) { e.preventDefault(); e.stopPropagation(); turn(i); }
+                  wasAt.current = null;
+                }}
+                onFocusCapture={() => i !== atRef.current && turn(i)}
+                className={`${ready ? 'motion-safe:transition-[transform,filter,opacity]' : 'motion-safe:transition-opacity'} motion-safe:duration-[400ms] ${d ? 'cursor-pointer select-none' : ''}`}
+                style={{
+                  transform: `translateY(${shift}px)${back.transform === 'none' ? '' : ` ${back.transform}`}`,
+                  filter: back.filter,
+                  opacity: tops || !i ? back.opacity : 0,
+                  transitionTimingFunction: EASE,
+                }}
+              >
+                <Row as={as} title={title}><Body /></Row>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
