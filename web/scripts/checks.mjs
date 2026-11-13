@@ -1057,7 +1057,7 @@ group(() => check('table-bar-once', 'The connection bar and Offline never show o
       window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { if (!window.__snapAt && /"type":"snapshot"/.test(e.data)) window.__snapAt = performance.now(); fn(e); }; } get onmessage() { return super.onmessage; } };
       const s = window.__bar = [];
       const f = () => {
-        const bar = [...document.querySelectorAll('div.fixed')].some(e => { const b = e.getBoundingClientRect(); return getComputedStyle(e).backgroundColor === 'rgb(203, 145, 47)' && b.bottom >= innerHeight - 1 && b.width >= innerWidth - 1 && b.height >= 20; });
+        const bar = [...document.querySelectorAll('div.fixed')].some(e => { const b = e.getBoundingClientRect(); return getComputedStyle(e).backgroundColor === 'rgb(203, 145, 47)' && b.bottom >= innerHeight - 1 && b.width >= document.body.clientWidth - 1 && b.height >= 20; }); // the page's width: a classic scrollbar's reserved gutter is not the bar's
         const off = [...document.querySelectorAll('section[data-screen] span')].some(e => /^Offline/.test(e.textContent) && e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== 'hidden' && +getComputedStyle(e).opacity > 0);
         s.push({ t: performance.now(), bar, off });
         requestAnimationFrame(f);
