@@ -117,10 +117,9 @@ export function Next() {
 
 // The dataset's waitlist (lib/waitlist.ts): an email and a secondary button, then how many have joined (fetched once About
 // comes near the window). A bot that fills the hidden "website" field is told it joined, and nothing is sent.
-type Status = 'pending' | 'joined' | 'already' | 'invalid' | 'failed';
+type Status = 'pending' | 'joined' | 'invalid' | 'failed';
 const SAID: Partial<Record<Status, string>> = {
   joined: 'You’re on the list.',
-  already: 'You’re already on the list.',
   invalid: 'That doesn’t look like an email.',
   failed: 'Couldn’t join right now, try again.',
 };
@@ -145,7 +144,7 @@ function Waitlist() {
       const r = await joinWaitlist(String(data.get('email')).trim());
       if (r === 'invalid') return setStatus('invalid');
       if (typeof r.count === 'number') setCount(r.count);
-      setStatus(r.already ? 'already' : 'joined');
+      setStatus('joined');
     } catch {
       setStatus('failed');
     }

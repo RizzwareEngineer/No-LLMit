@@ -90,19 +90,19 @@ export function handsTogetherAt(tl: Timeline, a: string, b: string, hand: number
   return n;
 }
 
-// The timeline for a scope ('' all time, or a session id), refetched when `refreshKey` changes (the
-// scope's hand count). null until it loads, and if it fails: the cards then show now, unsynced.
-export function useTimeline(session: string, refreshKey?: number): Timeline | null {
-  const [state, setState] = useState<{ session: string; tl: Timeline | null }>({ session: '', tl: null });
+// The all-time timeline, refetched when `refreshKey` changes. null until it loads, and if it fails: the cards then
+// show now, unsynced.
+export function useTimeline(refreshKey?: number): Timeline | null {
+  const [tl, setTl] = useState<Timeline | null>(null);
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_URL}/api/stats/timeline${session ? `?session=${encodeURIComponent(session)}` : ''}`)
+    fetch(`${API_URL}/api/stats/timeline`)
       .then(res => { if (!res.ok) throw new Error(`timeline ${res.status}`); return res.json(); })
-      .then(j => { if (!cancelled) setState({ session, tl: parse(j) }); })
-      .catch(() => {}); // keeps the last good timeline for this scope, if any
+      .then(j => { if (!cancelled) setTl(parse(j)); })
+      .catch(() => {}); // keeps the last good timeline, if any
     return () => { cancelled = true; };
-  }, [session, refreshKey]);
-  return state.session === session ? state.tl : null;
+  }, [refreshKey]);
+  return tl;
 }
 
 // The hand the replay has reached, or null while it is not replaying `tl` (the cards show now).

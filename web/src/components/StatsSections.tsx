@@ -345,7 +345,7 @@ export default memo(function StatsSections({
   const bigBlind = data?.scope.big_blind ?? 10;
   // One scope for History, Profiles and Matchups (all time) and one clock: History's replay,
   // which the other two follow through the timeline.
-  const tl = useTimeline('', data?.scope.hands);
+  const tl = useTimeline(data?.scope.hands);
   // The leader, in one unit and one scope on every screen: bb/100 over the range shown, among the models shown.
   const lead = ready && <Leader tl={tl} models={field} />;
   // The Matchups card's lineup: the models seated now (the tile's, and Trends' default) or everyone with hands.

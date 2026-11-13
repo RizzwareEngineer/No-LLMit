@@ -1,6 +1,6 @@
 import { API_URL } from '@/lib/api';
 
-// The open dataset's waitlist on the engine: GET → {count}; POST {email} → 201 {count} | 200 {count, already: true} | 400 |
+// The open dataset's waitlist on the engine: GET → {count}; POST {email} → 201 {count} (an address already listed too) | 400 |
 // 429 (too many tries). A sign-up that was stored but could not be counted answers without count.
 const URL_ = `${API_URL}/api/waitlist`;
 
@@ -10,7 +10,7 @@ export async function waitlistCount(): Promise<number> {
   return (await r.json()).count;
 }
 
-export type Joined = { count?: number; already?: boolean } | 'invalid';
+export type Joined = { count?: number } | 'invalid';
 
 export async function joinWaitlist(email: string): Promise<Joined> {
   const r = await fetch(URL_, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
