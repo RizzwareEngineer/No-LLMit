@@ -28,7 +28,6 @@ type ServerMessage struct {
 }
 
 type GameStatePayload struct {
-	ID               string               `json:"id"`
 	HandNumber       int                  `json:"handNumber"`
 	Street           string               `json:"street"`
 	Pot              int                  `json:"pot"`
@@ -137,7 +136,6 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 	}
 
 	return GameStatePayload{
-		ID:               gs.ID,
 		HandNumber:       gs.HandNumber,
 		Street:           gs.Street.String(),
 		Pot:              gs.GetTotalPot(),
