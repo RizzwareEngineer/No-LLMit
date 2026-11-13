@@ -710,14 +710,14 @@ group(() => check('table-card-sizes', 'Hole card sizes (?cards=1|2|3; none: as t
 // Filming (every frame Chrome presented, via the CDP screencast, each acked) and pixel stats of boxes in those frames,
 // computed in a page of their own: per box, the share of pixels near the card back's #37352f and near white, and a
 // sample of its pixels (two frames with the same sample paint the box the same).
-const filmFrames = async (p, run) => {
+const filmFrames = async (p, run, cast = { format: 'png' }) => {
   const cdp = await p.createCDPSession(), frames = [];
   // The screencast paints only what the window shows (headless Chrome's window is 756x556 here), so the window is made
   // bigger than the viewport first: every frame then holds the whole viewport at its own pixels.
   const { windowId } = await cdp.send('Browser.getWindowForTarget'), [vw, vh] = await p.evaluate(() => [innerWidth, innerHeight]);
   await cdp.send('Browser.setWindowBounds', { windowId, bounds: { width: vw + 200, height: vh + 200 } });
   cdp.on('Page.screencastFrame', f => { frames.push({ data: f.data, ts: f.metadata.timestamp * 1000 }); cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {}); });
-  await cdp.send('Page.startScreencast', { format: 'png', everyNthFrame: 1 });
+  await cdp.send('Page.startScreencast', { ...cast, everyNthFrame: 1 });
   try { await run(); } finally { await cdp.send('Page.stopScreencast').catch(() => {}); await cdp.detach().catch(() => {}); }
   return frames;
 };
@@ -1019,6 +1019,69 @@ group(() => check('table-bar-once', 'The connection bar and Offline never show o
     await load('held', 1); await load('slow', 1); await load('refused', 1);
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
+}));
+
+// Owner, 2026-11-11: "The shuffle sound must line up with the shuffle animation." Scripted at 1440x900, sound stored on
+// and unlocked by a real click on an empty spot; the hand ends with the next due in 4 s and the deck is riffled. Every
+// Web Audio start is recorded (its time heard, in page time: when scheduled plus the output's latency), and each frame
+// (requestAnimationFrame) where each riffled card lands back on the pile and where the pile is squared; filmed (the CDP
+// screencast), each of those is the first frame painted at or after it. Each card's flicks (three, in landing order)
+// must start from 30 ms before to 60 ms after its painted landing, the tap likewise at the squared pile; nothing before
+// the click.
+group(() => check('table-shuffle-sound', 'The shuffle sound is in time with the riffle: each card\'s flicks are heard as it lands on the pile, the tap as the deck is squared; no sound before a click', async () => {
+  const bad = [];
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  try {
+    await p.evaluateOnNewDocument(() => {
+      const snd = window.__snd = [];
+      const start = AudioBufferSourceNode.prototype.start;
+      AudioBufferSourceNode.prototype.start = function (when = 0, offset, duration) {
+        const c = this.context;
+        snd.push({ heard: performance.now() + (Math.max(when, c.currentTime) - c.currentTime + (c.outputLatency || 0)) * 1000, duration });
+        return start.apply(this, arguments);
+      };
+      try { localStorage.setItem('nollmit:sound', 'on'); } catch {}
+    });
+    await scriptStream(p);
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+    await sleep(2000);
+    const early = await p.evaluate(() => window.__snd.length);
+    await p.mouse.click(4, 4); await sleep(300); // the first trusted click unlocks audio
+    // Each frame while a deck shows: when each card first lands back on the pile (x back to 0 after its spread) and when
+    // every card is squared (no x, no rotation). Read once the frame's animation callbacks have all run (what it paints),
+    // timed at the frame's start.
+    await p.evaluate(() => {
+      const r = window.__riffle = { land: [], squared: null };
+      const f = ts => setTimeout(() => {
+        const d = [...document.querySelectorAll('[data-deck]')].find(e => e.getBoundingClientRect().width > 0);
+        if (d) {
+          const now = performance.timeOrigin + ts, m = [...d.children].map(c => new DOMMatrix(getComputedStyle(c).transform));
+          m.forEach((x, k) => { const at = Math.abs(x.m41); if (at > 10) r.land[k] = r.land[k] ?? 0; else if (at < 0.5 && r.land[k] === 0) r.land[k] = now; });
+          if (r.land.length === m.length && r.land.every(Boolean) && r.squared === null && m.every(x => Math.abs(x.m41) < 0.5 && Math.abs(Math.atan2(x.m12, x.m11)) < 0.005)) r.squared = now;
+        }
+        if (r.squared === null) requestAnimationFrame(f);
+      });
+      requestAnimationFrame(f);
+    });
+    const n0 = await p.evaluate(() => window.__snd.length);
+    // Small JPEG frames: only their times are read, and the screencast skips fewer frames when each is cheap to send.
+    const frames = await filmFrames(p, async () => { await p.evaluate(() => window.__stream.end(4000)); await sleep(3500); }, { format: 'jpeg', quality: 10, maxWidth: 320, maxHeight: 200 });
+    const { land, squared, snd, origin } = await p.evaluate(n0 => ({ ...window.__riffle, snd: window.__snd.slice(n0), origin: performance.timeOrigin }), n0);
+    const painted = t => frames.find(f => f.ts >= t)?.ts;
+    // sound.ts: a flick is 0.01 s of noise, the tap 0.05 s (a board card's deal sound, 0.065 s, plays as the hand ends).
+    const flicks = snd.filter(s => s.duration === 0.01).map(s => origin + s.heard).sort((a, b) => a - b), tap = snd.find(s => s.duration === 0.05);
+    const off = (heard, t) => { const fr = painted(t); return fr === undefined ? null : heard - fr; };
+    const out = (d, what) => { if (d === null) bad.push(`${what}: no frame painted after it`); else if (d < -30 || d > 60) bad.push(`${what} heard ${d.toFixed(0)} ms ${d < 0 ? 'before' : 'after'} its frame`); };
+    if (early) bad.push(`${early} sounds before the click`);
+    if (land.length !== 12 || land.some(x => !x)) bad.push(`${land.filter(Boolean).length} cards seen landing`);
+    else if (flicks.length !== 3 * land.length) bad.push(`${flicks.length} flicks for ${land.length} cards`);
+    const offs = flicks.length === 3 * land.length ? land.slice().sort((a, b) => a - b).map((t, k) => off(flicks[3 * k], t)) : [];
+    if (land.length === 12 && !land.some(x => !x) && offs.length) offs.forEach((d, k) => out(d, `card ${k + 1}'s flicks`));
+    if (!squared || !tap) bad.push(`${squared ? 'squared' : 'never squared'}, ${tap ? 'a tap' : 'no tap'}`);
+    else out(off(origin + tap.heard, squared), 'the tap');
+    return { pass: !bad.length, detail: bad.length ? bad.slice(0, 8).join('; ') : `${land.length} cards, ${flicks.length} flicks, each card's heard ${Math.min(...offs).toFixed(0)} to ${Math.max(...offs).toFixed(0)} ms from its painted landing; the tap ${off(origin + tap.heard, squared).toFixed(0)} ms from the squared pile; ${frames.length} frames; nothing before the click` };
+  } finally { await p.close(); }
 }));
 
 // Owner, 2026-11-09: "Any time I refresh the site, the loading skeleton is so much different compared to the shapes that

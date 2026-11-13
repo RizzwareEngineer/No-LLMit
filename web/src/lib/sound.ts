@@ -6,8 +6,9 @@
 type SoundKind = 'deal' | 'chip' | 'showdown' | 'shuffle' | 'overtake' | 'lead';
 
 // The riffle between hands, in seconds, shared by its picture (TableMotion's Deck) and its sound: the deck splits,
-// `cards` cards fall together `gap` apart from `start`, it is squared at `square`, and it is done at `length`.
-export const RIFFLE = { start: 0.22, gap: 0.04, cards: 12, square: 0.8, length: 0.9 };
+// `cards` cards fall together `gap` apart from `start`, each landing on the pile `land` after it starts to fall, the
+// pile is squared from `square` and done (squared) at `length`.
+export const RIFFLE = { start: 0.22, gap: 0.04, land: 0.08, cards: 12, square: 0.8, length: 0.9 };
 
 const STORAGE_KEY = 'nollmit:sound';
 let ctx: AudioContext | null = null;
@@ -161,13 +162,14 @@ export function playSound(kind: SoundKind) {
     src.start(at, 0, 0.065);
     dealUntil = at + 0.065;
   } else if (kind === 'shuffle') {
-    // The riffle: card edges flicking past each other, three to each card drawn falling and a little uneven, then a
-    // soft, lower tap as the deck is squared.
-    const n = RIFFLE.cards * 3;
-    for (let i = 0; i < n; i++) {
-      flick(c, now + RIFFLE.start + (i / n) * RIFFLE.cards * RIFFLE.gap + Math.random() * 0.004, 0.01, 2800 + Math.random() * 2400, 0.06 + Math.random() * 0.08);
+    // The riffle, from the frame its picture starts (Deck): three card edges flicking as each card lands on the pile, a
+    // little uneven, then a soft, lower tap as the deck is squared. Early by the output's latency, so heard on time.
+    const at = now - (c.outputLatency || 0);
+    for (let i = 0; i < RIFFLE.cards * 3; i++) {
+      const land = RIFFLE.start + Math.floor(i / 3) * RIFFLE.gap + RIFFLE.land + (i % 3) * (RIFFLE.gap / 3);
+      flick(c, Math.max(now, at + land + Math.random() * 0.004), 0.01, 2800 + Math.random() * 2400, 0.06 + Math.random() * 0.08);
     }
-    flick(c, now + RIFFLE.square, 0.05, 900, 0.2);
+    flick(c, Math.max(now, at + RIFFLE.length), 0.05, 900, 0.2);
   } else if (kind === 'chip') {
     // Two quick clicks: chips landing on each other.
     tone(c, 2400, now, 0.05, 'triangle', 0.12);
