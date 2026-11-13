@@ -449,3 +449,19 @@ func TestSupabaseHandsSince(t *testing.T) {
 		t.Errorf("queries %v", queries)
 	}
 }
+
+// Over many random hands saved the way the table saves them, the stats lose no chip: the
+// models' nets add up to zero, and so do their all-in EV results once every all-in is worked out.
+func TestStatsOfRandomHandsAddUp(t *testing.T) {
+	hands := playRandomHands(t, 5, 2)
+	stats.WarmAIEV(hands, -1)
+	s := stats.Compute(hands)
+	net, aiev := 0, 0.0
+	for _, m := range s.Models {
+		net += m.NetChips
+		aiev += m.AIEVBB100 * float64(m.Hands) / 100
+	}
+	if s.Partial || net != 0 || math.Abs(aiev) > 1e-6 {
+		t.Errorf("partial %v, nets add up to %d chips, all-in EV to %.9f BB; want false, 0, 0", s.Partial, net, aiev)
+	}
+}

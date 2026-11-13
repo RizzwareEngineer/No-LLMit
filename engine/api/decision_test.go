@@ -2,12 +2,14 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"math/rand/v2"
 	"reflect"
 	"testing"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 // threeHanded deals A, B, C with 5/10 blinds and plays the given steps.
@@ -168,19 +170,30 @@ func TestDecideLLMTurnServiceDown(t *testing.T) {
 // saved is the one the engine then applied, and the hand retold to the model adds up to the
 // pot, the bet to call and each seat's stack.
 func TestEveryToldMoveIsPlayedAndTheRetoldHandAddsUp(t *testing.T) {
-	rng := rand.New(rand.NewPCG(3, 4))
+	playRandomHands(t, 3, 40)
+}
+
+// playRandomHands plays 40 hands at each of games tables of 2 to 6 seats with random
+// stacks, checks every turn as above, and returns the saved records, each checked against
+// the stacks the engine left.
+func playRandomHands(t *testing.T, seed uint64, games int) []history.HandRecord {
+	t.Helper()
+	rng := rand.New(rand.NewPCG(seed, 4))
 	reply := map[string]string{"FOLD": "FOLD", "CHECK": "CHECK", "CALL": "CALL", "BET": "RAISE", "RAISE": "RAISE", "ALL-IN": "ALL_IN"}
-	for game_ := range 40 {
-		names := []string{"A", "B", "C", "D", "E", "F"}[:2+game_%5]
+	var records []history.HandRecord
+	for g := range games {
+		names := []string{"A", "B", "C", "D", "E", "F"}[:2+g%5]
 		gs := game.NewGame(game.GameConfig{PlayerNames: names, StartingStack: 1000, Stakes: game.Stakes{SmallBlind: 5, BigBlind: 10}})
 		for i := range gs.Players {
 			gs.Players[i].Stack = 1 + rng.IntN(400)
 		}
 		for range 40 {
-			gs.RebuyBrokePlayers(400)
+			rebought := gs.RebuyBrokePlayers(400)
+			before := startOf(gs).stacks
 			if err := gs.StartHand(); err != nil {
 				t.Fatal(err)
 			}
+			rec := newHandRecorder(gs, fmt.Sprintf("tbl_rand%d_%d", seed, g), rebought)
 			for !gs.IsHandComplete() {
 				if !gs.IsWaitingForAction() {
 					gs.AdvanceStreet()
@@ -190,6 +203,7 @@ func TestEveryToldMoveIsPlayedAndTheRetoldHandAddsUp(t *testing.T) {
 				legal := buildLLMValidActions(gs)
 				req := buildDecisionRequest(gs, legal)
 				checkRetold(t, gs, req)
+				rec.beginDecision(gs, legal)
 
 				l := legal[rng.IntN(len(legal))]
 				amount := l.Amount
@@ -205,6 +219,7 @@ func TestEveryToldMoveIsPlayedAndTheRetoldHandAddsUp(t *testing.T) {
 				if err := gs.ProcessAction(turn.action); err != nil {
 					t.Fatal(err)
 				}
+				rec.endDecision(turn)
 				done := *gs.Players[idx].LastAction
 				name := done.Name()
 				if done.Type == game.ActionAllIn {
@@ -217,8 +232,21 @@ func TestEveryToldMoveIsPlayedAndTheRetoldHandAddsUp(t *testing.T) {
 					gs.AdvanceStreet()
 				}
 			}
+			h, _ := rec.finish(gs)
+			sum := 0
+			for _, s := range h.Seats {
+				if net := h.Result.Net[fmt.Sprint(s.Seat)]; net != gs.Players[s.Seat].Stack-before[s.Seat] {
+					t.Fatalf("%s: seat %d saved net %d, the engine moved its stack by %d", h.HandID, s.Seat, net, gs.Players[s.Seat].Stack-before[s.Seat])
+				}
+				sum += h.Result.Net[fmt.Sprint(s.Seat)]
+			}
+			if sum != 0 {
+				t.Fatalf("%s: saved nets add up to %d", h.HandID, sum)
+			}
+			records = append(records, h)
 		}
 	}
+	return records
 }
 
 // checkRetold replays the streets the model is told and checks they add up to the request's
