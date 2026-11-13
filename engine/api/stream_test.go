@@ -461,6 +461,28 @@ func TestGameStateAndSnapshotShareTheNextHandCountdown(t *testing.T) {
 	}
 }
 
+// Every stream ends between 10 and 14 minutes, before Railway's 15-minute cut, spread over
+// the whole range; the heartbeat is one SSE comment line, sent well inside that.
+func TestStreamLifeAndHeartbeat(t *testing.T) {
+	lo, hi := 14*time.Minute, 10*time.Minute
+	for range 2000 {
+		d := streamLife()
+		if d < 10*time.Minute || d >= 14*time.Minute {
+			t.Fatalf("stream life %v is outside 10 to 14 minutes", d)
+		}
+		lo, hi = min(lo, d), max(hi, d)
+	}
+	if lo > 10*time.Minute+30*time.Second || hi < 13*time.Minute+30*time.Second {
+		t.Errorf("stream lives span only %v to %v", lo, hi)
+	}
+	if hb := string(heartbeat); !strings.HasPrefix(hb, ":") || strings.Index(hb, "\n") != len(hb)-2 || !strings.HasSuffix(hb, "\n\n") {
+		t.Errorf("heartbeat %q is not one SSE comment line", hb)
+	}
+	if heartbeatEvery <= 0 || heartbeatEvery > 30*time.Second {
+		t.Errorf("heartbeat every %v", heartbeatEvery)
+	}
+}
+
 // One address gets maxStreamsPerAddr streams; other addresses are not affected.
 func TestStreamCapPerAddress(t *testing.T) {
 	h := newHub()

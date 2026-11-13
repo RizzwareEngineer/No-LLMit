@@ -23,7 +23,7 @@ const (
 	heartbeatEvery    = 20 * time.Second
 	eventWriteWait    = 10 * time.Second
 	snapshotWriteWait = 60 * time.Second
-	streamLifetime    = 10 * time.Minute // plus a random 0 to 4 minutes, so a burst's reconnects spread out
+	streamLifetime    = 10 * time.Minute // plus a random 0 to 4 minutes (streamLife)
 )
 
 type frame struct {
@@ -166,6 +166,10 @@ func (v view) snapshotFrame() ([]byte, error) {
 
 var heartbeat = []byte(": hb\n\n")
 
+// streamLife is how long one stream stays open: a random 10 to 14 minutes, under Railway's
+// 15-minute cut, so a burst's reconnects spread out.
+func streamLife() time.Duration { return streamLifetime + rand.N(4*time.Minute) }
+
 func (h *hub) handleStream(w http.ResponseWriter, r *http.Request) {
 	if addr := clientAddr(r); addr != "" {
 		h.addrMu.Lock()
@@ -203,7 +207,7 @@ func (h *hub) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	beat := time.NewTicker(heartbeatEvery)
 	defer beat.Stop()
-	life := time.NewTimer(streamLifetime + rand.N(4*time.Minute))
+	life := time.NewTimer(streamLife())
 	defer life.Stop()
 	var last uint64
 	for first := true; ; first = false {
