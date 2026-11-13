@@ -5,7 +5,7 @@ import { motion, type Transition } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
 import { GLIDE, GLIDE_MS, NONE } from '@/components/Section';
-import { MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
+import { BLUE, MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
 interface Column {
   key: keyof typeof STAT_DEFINITIONS;
@@ -202,11 +202,11 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
       </div>
       {!mini && <div className="add-in mt-2 flex flex-wrap gap-x-5 gap-y-1">
         {seated && more > 0 && (
-          <button onClick={() => setEveryone(v => !v)} aria-expanded={everyone} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>
+          <button onClick={() => setEveryone(v => !v)} aria-expanded={everyone} className={toggle} style={{ color: BLUE }}>
             {everyone ? 'Seated models only' : `All models (${more} more)`}
           </button>
         )}
-        {picked.size > 0 && <button onClick={() => setPicked(new Set())} className={toggle} style={{ color: 'rgb(35, 131, 226)' }}>Show all rows</button>}
+        {picked.size > 0 && <button onClick={() => setPicked(new Set())} className={toggle} style={{ color: BLUE }}>Show all rows</button>}
       </div>}
     </div>
   );

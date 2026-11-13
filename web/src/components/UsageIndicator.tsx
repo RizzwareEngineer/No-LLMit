@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Lightning, Heart, Warning } from "@phosphor-icons/react";
 import { API_URL } from "@/lib/api";
+import { MUTED, BLUE } from "@/lib/stats";
 import { localHoursLabel } from "@/lib/time";
 import { useRememberedBox } from "@/lib/boxes";
 import { SPONSORS } from "@/components/about/content";
@@ -51,7 +52,6 @@ export function useUsage() {
   return { usage, error };
 }
 
-const MUTED = 'rgba(55, 53, 47, 0.65)';
 const WARN_TEXT = 'rgb(140, 95, 20)'; // darker mustard, readable on white
 
 export default function UsageIndicator({ usage, error }: { usage: UsageData | null; error: boolean }) {

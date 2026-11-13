@@ -7,7 +7,7 @@ import NumberFlow from '@number-flow/react';
 import LLMLogo from '@/components/LLMLogo';
 import type { DisplayState } from '@/lib/stream';
 import { amountParts, formatAmount, useBigBlind } from '@/lib/amounts';
-import { MUTED, TEXT } from '@/lib/stats';
+import { BLUE, MUTED, TEXT } from '@/lib/stats';
 import { backToOverview, useScreen } from '@/components/Section';
 import SoundToggle from '@/components/SoundToggle';
 
@@ -63,7 +63,7 @@ function StickyBar({ show, blank = false, pot, handNumber, display }: { show: bo
               <button
                 onClick={backToOverview}
                 className="shrink-0 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-[rgba(55,53,47,0.06)]"
-                style={{ color: 'rgb(35, 131, 226)' }}
+                style={{ color: BLUE }}
               >
                 <SquaresFour size={13} weight="bold" aria-hidden />
                 <span className="hidden sm:inline">Back to overview</span>
@@ -73,7 +73,7 @@ function StickyBar({ show, blank = false, pot, handNumber, display }: { show: bo
             <button
               onClick={() => window.scrollTo({ top: 0 })} // smooth via scroll-behavior in globals.css
               className="shrink-0 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-[rgba(55,53,47,0.06)]"
-              style={{ color: 'rgb(35, 131, 226)' }}
+              style={{ color: BLUE }}
             >
               <ArrowUp size={13} weight="bold" aria-hidden />
               <span className="hidden sm:inline">Back to table</span>

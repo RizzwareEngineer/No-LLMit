@@ -7,14 +7,13 @@ import { motion, useInView, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { RATE_FROM, series } from '@/components/CumulativeChart';
 import { CARD, CARD_SHADOW, Segmented, TITLE } from '@/components/Section';
-import { MIN_HANDS, MUTED, ModelStats, StatsResponse, TEXT, chips, netColor, seatedModels, signed, useStats } from '@/lib/stats';
+import { BLUE, MIN_HANDS, MUTED, ModelStats, StatsResponse, TEXT, chips, netColor, seatedModels, signed, useStats } from '@/lib/stats';
 import { EXAMPLE_REPLY, EXAMPLE_USER_PROMPT, SYSTEM_PROMPT } from '@/lib/systemPrompt';
 import { joinWaitlist, waitlistCount } from '@/lib/waitlist';
 
 // The About copy and its parts (about-content-complete); About arranges them. Every line is one sentence that fits its
 // line at About's widths (one sentence per line).
 
-const BLUE = 'rgb(35, 131, 226)';
 export const RULE = 'rgba(55, 53, 47, 0.16)'; // hairlines between sections
 // A small uppercase label (13px muted, the stats' label size): a section's name, an eyebrow.
 export const LABEL = 'text-[13px] leading-snug font-medium uppercase tracking-[0.08em]';

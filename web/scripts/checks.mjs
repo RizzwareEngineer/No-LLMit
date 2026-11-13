@@ -1598,7 +1598,7 @@ main(() => check('history-type', 'Trends type: x and y ticks alike, axis titles 
     if (keys.length > 1) bad.push(`${role}: ${keys.length} styles`);
     for (const [k, v] of Object.entries(want)) if (xs[0][k] !== v) bad.push(`${role} ${k} ${xs[0][k]} (want ${v})`);
   };
-  const MUTED = 'rgba(55, 53, 47, 0.65)';
+  const MUTED = 'rgba(55, 53, 47, 0.72)';
   one('ticks', [...r.y, ...r.x], { family: 'body', px: 13, color: MUTED, tab: true });
   one('axis titles', r.titles, { family: 'body', px: 13, color: MUTED });
   one('pill names', r.names.map(({ color, ...s }) => s), { family: 'body', px: 13, weight: '500' }); // each in its line's colour (trends-labels-plain)
@@ -2581,7 +2581,7 @@ main(() => check('matchups-card-hugs', 'The opened Matchups card spans the table
 // checked by history-type and history-number-style): titles 20px bold; model names and data figures 14px; controls 14px
 // medium; column headers and secondary text 13px (muted); the Matchups tile's figures one size (11px).
 main(() => check('stats-type-scale', 'Every text role on the stats tiles and cards uses the agreed family, size, weight and colour', async () => {
-  const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)';
+  const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.72)', BLUE = 'rgb(31, 111, 196)';
   // [role, selector, size px, weights, colours (null: any), figures must be tabular]
   const roles = {
     stats: [
@@ -2878,7 +2878,7 @@ main(() => check('about-fits', 'About is on the stats type scale (thesis 28px bo
     const clear = await p.waitForFunction(() => getComputedStyle(document.querySelector('[data-page]')).getPropertyValue('--bar-h').trim() === '0px', { timeout: 30000, polling: 200 }).then(() => true, () => false);
     if (!clear) bad.push(`${w}x${h}: the connection bar never cleared (measured with it)`);
     const r = await p.evaluate(() => {
-      const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)', WHITE = 'rgb(255, 255, 255)', NET = ['rgb(15, 123, 108)', 'rgb(200, 50, 50)'];
+      const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.72)', BLUE = 'rgb(31, 111, 196)', WHITE = 'rgb(255, 255, 255)', NET = ['rgb(15, 123, 108)', 'rgb(200, 50, 50)'];
       const about = document.querySelector('section[aria-label=About]'), race = document.getElementById('race-panel');
       const view = about.querySelector('[data-about]');
       const why = new Set();
@@ -3140,7 +3140,7 @@ group(() => check('about-waitlist', 'About\'s dataset waitlist: a labelled email
     if (!parts.input || !parts.required) bad.push('no required email input');
     if (!parts.label) bad.push('the email input has no label');
     if (parts.button !== 'Join the waitlist') bad.push(`button says "${parts.button}"`);
-    if (parts.bg === 'rgb(35, 131, 226)') bad.push('the button is filled blue');
+    if (parts.bg === 'rgb(31, 111, 196)') bad.push('the button is filled blue');
   }
   if (!(await wait(p, 'Be the first on the waitlist.'))) bad.push(`at 0 it says "${await said(p)}"`);
   await p.close();
@@ -3558,7 +3558,7 @@ group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117
     const at = `${w}x${h}`;
     if (!r) { bad.push(`${at}: no GitHub Sponsors link on the table screen`); await p.close(); continue; }
     seen.push(`${at}: "${r.text}" ${r.bg}, sentence ${r.lines} line${r.lines === 1 ? '' : 's'}, card ${r.cardH}px, P&L ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
-    if (r.text !== 'Sponsor on GitHub' || r.bg !== 'rgb(35, 131, 226)' || r.target !== '_blank') bad.push(`${at}: the link is "${r.text}" on ${r.bg}, target ${r.target || 'self'}`);
+    if (r.text !== 'Sponsor on GitHub' || r.bg !== 'rgb(31, 111, 196)' || r.target !== '_blank') bad.push(`${at}: the link is "${r.text}" on ${r.bg}, target ${r.target || 'self'}`);
     if (r.lines !== 1 || r.clipped) bad.push(`${at}: "Every move is a paid model call." on ${r.lines} lines${r.clipped ? ', clipped' : ''}`);
     if (!r.below) bad.push(`${at}: the Sponsor link is not below "Every move is a paid model call." inside the card`);
     if (r.filled !== 1) bad.push(`${at}: ${r.filled} filled controls in the card`);

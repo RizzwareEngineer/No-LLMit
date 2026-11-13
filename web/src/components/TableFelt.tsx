@@ -11,6 +11,7 @@ import { Deck, DeckPhase } from "@/components/TableMotion";
 import { TableNoticePayload } from "@/lib/api";
 import type { ButtonDetermination } from "@/lib/stream";
 import { amountParts, formatAmount, useBigBlind } from "@/lib/amounts";
+import { BLUE } from "@/lib/stats";
 import { formatDuration, formatLocalTime } from "@/lib/time";
 
 interface WinnerDisplay {
@@ -68,7 +69,7 @@ function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
             : notice.message}
         </div>
       )}
-      <Link href="/about" className="text-[12px] hover:underline" style={{ color: 'rgb(35, 131, 226)' }}>
+      <Link href="/about" className="text-[12px] hover:underline" style={{ color: BLUE }}>
         What is this? About No-LLMit
       </Link>
     </div>
@@ -202,7 +203,7 @@ export default function TableFelt({
           className="flex items-center gap-2 bg-white px-4 py-1.5 rounded"
           style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
         >
-          <CircleNotch size={14} className="animate-spin" style={{ color: 'rgb(35, 131, 226)' }} />
+          <CircleNotch size={14} className="animate-spin" style={{ color: BLUE }} />
           <span className="text-[12px]" style={{ color: 'rgb(55, 53, 47)' }}>
             Next hand in <span className="font-bold">{nextHandCountdown}s</span>
           </span>
