@@ -107,7 +107,7 @@ A service without `TABLE_TIMEZONE` runs the table 24 hours a day.
 | A slow viewer | Its writer blocks on its own socket. The 10 s write deadline ends that stream and the client reconnects. If it falls 51 or more behind, it gets a snapshot. Other viewers are unaffected. |
 | The engine restarts | Every stream ends and Railway's edge answers 502 until the process is back. Clients keep retrying. The hand in progress is lost, and at most one shown but unsaved hand. The table gets a new 8-byte random id so hand ids cannot collide with saved ones. Stats reload from Supabase. |
 | Postgres (Supabase) is down | The save retries forever with backoff. The table pauses with the "saving" notice. Streams stay open. Stats do not change until the save succeeds. |
-| The LLM service or OpenRouter is down | Each failed call is a check or fold. If no call in a hand returns a playable move and at least one failed at the provider or the LLM service, the hand is voided: stacks, winnings and button are restored (its hand number is skipped), the outage notice is set, nothing is saved, and the table pauses 5 minutes times `TABLE_PACE`. |
+| The LLM service or OpenRouter is down | Each failed call is a check or fold. If no call in a hand returns a playable move and at least one failed at the provider or the LLM service, the hand is voided: stacks, winnings and button are restored and its winners cleared (its hand number is skipped), the outage notice is set, nothing is saved, and the table pauses 5 minutes times `TABLE_PACE`. |
 | More than 6,000 streams, or 50 from one address | `/stream` answers 503 (total) or 429 (address) before any stream header. The client retries with backoff and shows Retry after 10 failures. |
 
 ## Alternatives rejected

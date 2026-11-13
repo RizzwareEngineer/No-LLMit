@@ -141,6 +141,9 @@ func TestVoidedHandRestoresStacksAndButton(t *testing.T) {
 	if gs.ButtonIdx != 0 {
 		t.Errorf("button %d, want 0 back", gs.ButtonIdx)
 	}
+	if len(gs.Winners) != 0 {
+		t.Errorf("winners %+v kept, so seats would show chips the hand no longer gave", gs.Winners)
+	}
 }
 
 // A rebuy made for a hand that is then voided is flagged on the next hand that is saved.
@@ -161,6 +164,17 @@ func TestRebuyInAVoidedHandIsFlaggedOnTheNextHand(t *testing.T) {
 	tbl.playHand() // every call fails: voided
 	if len(saved) != 0 || tbl.gs.Players[1].Stack != tableStartingStack {
 		t.Fatalf("voided hand: %d saved, B has %d", len(saved), tbl.gs.Players[1].Stack)
+	}
+	var last string
+	for _, f := range tbl.hub.since(0, false).frames {
+		for _, m := range parseFrames(t, f) {
+			if m.Type == MsgGameState {
+				last = string(m.Payload)
+			}
+		}
+	}
+	if strings.Contains(last, `"winners"`) {
+		t.Errorf("the voided hand's last game_state still names winners: %s", last)
 	}
 	status = "ok"
 	tbl.playHand()
