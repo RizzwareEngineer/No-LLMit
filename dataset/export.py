@@ -57,7 +57,7 @@ DECISIONS = pa.schema([
     ("status", pa.string()), ("retried", pa.bool_()), ("applied_action", pa.string()),
     ("applied_amount", pa.int64()), ("latency_ms", pa.int64()), ("tokens_in", pa.int64()),
     ("tokens_out", pa.int64()), ("cost_usd", pa.float64()), ("prompt_id", pa.string()),
-    ("prompt", pa.string()), ("raw_reply", pa.string()),
+    ("prompt", pa.string()), ("raw_reply", pa.string()), ("retry_prompt", pa.string()),
 ])
 
 
@@ -104,7 +104,7 @@ def load_supabase(base, key, day=None, back=0):
     for i in range(0, len(ids), 50):  # keep the URL short
         chunk = ",".join(f'"{x}"' for x in ids[i:i + 50])
         prompts += _paged(base, key, "decision_prompts",
-                          {"select": "prompt_id,n,prompt,raw_reply", "hand_id": f"in.({chunk})"}, "prompt_id")
+                          {"select": "prompt_id,n,prompt,raw_reply,retry_prompt", "hand_id": f"in.({chunk})"}, "prompt_id")
     systems = _paged(base, key, "system_prompts", {"select": "prompt_version,system_prompt,created_at"}, "prompt_version")
     return hands, prompts, systems
 
@@ -171,7 +171,7 @@ def flatten(hands, prompts):
                 "applied_action": applied["type"], "applied_amount": applied.get("amount"),
                 "latency_ms": a.get("latency_ms"), "tokens_in": a.get("tokens_in"), "tokens_out": a.get("tokens_out"),
                 "cost_usd": a.get("cost_usd"), "prompt_id": a["prompt_id"], "prompt": p["prompt"],
-                "raw_reply": p["raw_reply"],
+                "raw_reply": p["raw_reply"], "retry_prompt": p.get("retry_prompt"),
             })
     return hand_rows, seat_rows, decision_rows
 
@@ -253,6 +253,7 @@ DECISION_NOTES = {
     "tokens_in": "null when the provider did not report it (also tokens_out, cost_usd)",
     "prompt": "exact user prompt the model was sent",
     "raw_reply": "raw model reply; a retried decision holds both replies separated by `--- retry ---`",
+    "retry_prompt": "the follow-up message a retried decision was sent between its two replies; null when not retried, and on hands saved to the database before 2026-11-13",
 }
 
 
