@@ -3952,7 +3952,11 @@ group(() => check('matchups-tip-inside', 'Hovering a Matchups card cell (the fou
       const at = await p.evaluate((r, c) => {
         const td = document.querySelectorAll('#pairwise-card tbody tr')[r].querySelectorAll('td')[c];
         td.scrollIntoView({ block: 'nearest', inline: 'center' }); // a phone's grid scrolls: bring the cell out from under the pinned names
-        const sc = document.querySelector('#pairwise-card .panel-scroll'), b = td.getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2;
+        const sc = document.querySelector('#pairwise-card .panel-scroll');
+        // scrollIntoView centres it in the whole scroller, half under the pinned names: centre it in the part beside them.
+        const pin = sc.querySelector('.sticky.left-0').getBoundingClientRect(), s = sc.getBoundingClientRect(), b0 = td.getBoundingClientRect();
+        sc.scrollLeft += (b0.left + b0.right) / 2 - (pin.right + s.right) / 2;
+        const b = td.getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2;
         return { x, y, key: td.dataset.cell, hit: td.contains(document.elementFromPoint(x, y)), size: [sc.scrollWidth, sc.scrollHeight] };
       }, r, c);
       if (!at.hit) { bad.push(`${w}x${h} ${at.key}: the cell is covered at its centre`); continue; }
