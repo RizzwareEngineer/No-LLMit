@@ -168,3 +168,68 @@ func TestRebuyInAVoidedHandIsFlaggedOnTheNextHand(t *testing.T) {
 		t.Errorf("next hand: %d saved, seats %+v", len(saved), saved)
 	}
 }
+
+// fakeClock runs a table's waits without sleeping: each pause moves the clock on by its duration.
+func fakeClock(tbl *Table, at time.Time) *time.Time {
+	now := at
+	tbl.now = func() time.Time { return now }
+	tbl.pause = func(d time.Duration) { now = now.Add(d) }
+	return &now
+}
+
+// Outside its hours the table says it is closed and when it reopens, waits until then, and clears the notice.
+func TestClosedTableWaitsForOpenHours(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("no tzdata")
+	}
+	tbl := testTable(t)
+	tbl.openHour, tbl.closeHour, tbl.hoursZone = 9, 21, ny
+	now := fakeClock(tbl, time.Date(2026, 11, 13, 22, 30, 0, 0, ny))
+	var seen TableNoticePayload
+	var open bool
+	pause := tbl.pause
+	tbl.pause = func(d time.Duration) {
+		if seen.Kind == "" {
+			seen, open = tbl.notice, tbl.Usage().Open
+		}
+		pause(d)
+	}
+
+	tbl.waitForOpenHours()
+	if want := "2026-11-14T09:00:00-05:00"; seen.Kind != "closed" || seen.ReopensAt != want || open {
+		t.Errorf("while closed: notice %+v, usage open %v; want closed, reopening %s", seen, open, want)
+	}
+	if opened := time.Date(2026, 11, 14, 9, 0, 0, 0, ny); now.Before(opened) || now.Sub(opened) >= 10*time.Second {
+		t.Errorf("waited until %v, want within 10 s after %v", *now, opened)
+	}
+	if got := noticeKinds(tbl.hub); !reflect.DeepEqual(got, []string{"closed", ""}) || tbl.notice.Kind != "" {
+		t.Errorf("notices %q, left %+v; want closed then cleared", got, tbl.notice)
+	}
+}
+
+// At the day's call cap the table says so and when it resumes, waits for the next UTC day, then plays on.
+func TestCapWaitsForTheNextUTCDay(t *testing.T) {
+	tbl := testTable(t)
+	now := fakeClock(tbl, time.Date(2026, 11, 13, 18, 30, 0, 0, time.UTC))
+	tbl.dailyCallCap, tbl.calls, tbl.callsDay = 2, 2, "2026-11-13"
+	var seen TableNoticePayload
+	pause := tbl.pause
+	tbl.pause = func(d time.Duration) {
+		if seen.Kind == "" {
+			seen = tbl.notice
+		}
+		pause(d)
+	}
+
+	tbl.waitForBudget()
+	if want := "2026-11-14T00:00:00Z"; seen.Kind != "cap" || seen.ReopensAt != want {
+		t.Errorf("at the cap: notice %+v, want cap reopening %s", seen, want)
+	}
+	if midnight := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC); now.Before(midnight) || now.Sub(midnight) >= 10*time.Second {
+		t.Errorf("waited until %v, want within 10 s after %v", *now, midnight)
+	}
+	if got := noticeKinds(tbl.hub); !reflect.DeepEqual(got, []string{"cap", ""}) || tbl.calls != 0 || tbl.callsDay != "2026-11-14" {
+		t.Errorf("notices %q, calls %d on %s; want cap then cleared, 0 calls on 2026-11-14", got, tbl.calls, tbl.callsDay)
+	}
+}
