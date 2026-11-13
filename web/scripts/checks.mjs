@@ -815,7 +815,7 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   try {
     await p.evaluateOnNewDocument(() => { const look = () => { if (document.querySelector('[data-seat] [data-hole] [data-back]')) window.__cardsAt = performance.timeOrigin + performance.now(); else requestAnimationFrame(look); }; requestAnimationFrame(look); });
-    await p.evaluateOnNewDocument(() => { const Real = window.EventSource; window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'snapshot' && !window.__snap) { const t = Object.values(m.payload.tables)[0]; window.__snap = t && { peeked: t.state.peeked, street: t.state.street, players: t.state.players.length, at: performance.now() }; } } catch {} fn(e); }; } get onmessage() { return super.onmessage; } }; });
+    await p.evaluateOnNewDocument(() => { const Real = window.EventSource; window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'snapshot' && !window.__snap) { const t = Object.values(m.payload.tables)[0]; window.__snap = t && { peeked: t.state.peeked, street: t.state.street, players: t.state.players.length, at: performance.now() }; } if (m.type === 'game_state') window.__now = { peeked: m.payload.peeked, street: m.payload.street, players: m.payload.players.length }; } catch {} fn(e); }; } get onmessage() { return super.onmessage; } }; });
     let ok = null, lastSnap = null;
     for (let tries = 0; tries < 12 && !ok; tries++) {
       let none = false;
@@ -826,7 +826,9 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
       });
       if (none) { bad.push('live: no hole card with a face-down side within 60 s of the reload'); break; }
       const snap = await p.evaluate(() => window.__snap);
-      if (!snap?.peeked || snap.street === 'complete' || !snap.peeked.length || snap.peeked.length >= snap.players) { lastSnap = snap; await sleep(1500); continue; }
+      // Not mid-hand with a seat peeked and one not: at the live pace that moment is the first orbit of a hand, so wait (up
+      // to 4 minutes) until the live table is in it again, then reload.
+      if (!snap?.peeked || snap.street === 'complete' || !snap.peeked.length || snap.peeked.length >= snap.players) { lastSnap = snap; await p.waitForFunction(() => { const s = window.__now; return s?.peeked?.length && s.peeked.length < s.players - 1 && s.street !== 'complete'; }, { timeout: 240000, polling: 250 }).catch(() => {}); continue; }
       const seats = await holeBoxes(p), cardsAt = await p.evaluate(() => window.__cardsAt);
       const from = frames.findIndex(f => f.ts >= cardsAt);
       ok = { snap, seats, stats: from < 0 ? [] : await boxStats(frames.slice(from), seats.flatMap(s => s.cards)), from };
