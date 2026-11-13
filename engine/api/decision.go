@@ -60,9 +60,6 @@ func buildDecisionRequest(gs *game.GameState, validActions []game.LLMValidAction
 		req.Streets = append(req.Streets, st)
 	}
 
-	req.LegalActions = []client.LegalAction{}
-	for _, va := range validActions {
-		req.LegalActions = append(req.LegalActions, client.LegalAction{Type: va.Type, Amount: va.Amount, Min: va.Min, Max: va.Max})
-	}
+	req.LegalActions = validActions
 	return req
 }

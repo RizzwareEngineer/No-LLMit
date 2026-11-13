@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/rizzwareengineer/no-LLMit/engine/game"
 )
 
 func TestGetSeated(t *testing.T) {
@@ -60,7 +62,7 @@ func TestGetLLMDecisionPostsTheStateAndReadsTheMove(t *testing.T) {
 	req := DecisionRequest{PlayerName: "Phi-4", SmallBlind: 5, BigBlind: 10, Seat: 2, Position: "UTG", HoleCards: []string{"Ks", "4d"},
 		Seats:        []Seat{{Seat: 0, Position: "SB", Stack: 1995}},
 		Streets:      []Street{{Street: "preflop", Actions: []StreetAction{{Seat: 0, Action: "post", Amount: 5}}}},
-		LegalActions: []LegalAction{{Type: "FOLD"}, {Type: "CALL", Amount: 10}}}
+		LegalActions: []game.LLMValidAction{{Type: "FOLD"}, {Type: "CALL", Amount: 10}}}
 	d, err := GetLLMDecision(req)
 	if err != nil {
 		t.Fatal(err)

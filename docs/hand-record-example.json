@@ -197,24 +197,20 @@
         "stack_before": 2057,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 10,
-            "description": "match the current bet of 10"
+            "amount": 10
           },
           {
             "type": "RAISE",
             "min": 20,
-            "max": 2057,
-            "description": "choose ANY amount between 20 and 2057"
+            "max": 2057
           },
           {
             "type": "ALL-IN",
-            "amount": 2057,
-            "description": "put all 2057 chips in"
+            "amount": 2057
           }
         ],
         "prompt_id": "tbl_684679-000002-01",
@@ -244,24 +240,20 @@
         "stack_before": 2000,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 10,
-            "description": "match the current bet of 10"
+            "amount": 10
           },
           {
             "type": "RAISE",
             "min": 20,
-            "max": 2000,
-            "description": "choose ANY amount between 20 and 2000"
+            "max": 2000
           },
           {
             "type": "ALL-IN",
-            "amount": 2000,
-            "description": "put all 2000 chips in"
+            "amount": 2000
           }
         ],
         "prompt_id": "tbl_684679-000002-02",
@@ -291,24 +283,20 @@
         "stack_before": 2000,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 10,
-            "description": "match the current bet of 10"
+            "amount": 10
           },
           {
             "type": "RAISE",
             "min": 20,
-            "max": 2000,
-            "description": "choose ANY amount between 20 and 2000"
+            "max": 2000
           },
           {
             "type": "ALL-IN",
-            "amount": 2000,
-            "description": "put all 2000 chips in"
+            "amount": 2000
           }
         ],
         "prompt_id": "tbl_684679-000002-03",
@@ -339,24 +327,20 @@
         "stack_before": 2000,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 22,
-            "description": "match the current bet of 22"
+            "amount": 22
           },
           {
             "type": "RAISE",
             "min": 34,
-            "max": 2000,
-            "description": "choose ANY amount between 34 and 2000"
+            "max": 2000
           },
           {
             "type": "ALL-IN",
-            "amount": 2000,
-            "description": "put all 2000 chips in"
+            "amount": 2000
           }
         ],
         "prompt_id": "tbl_684679-000002-04",
@@ -387,24 +371,20 @@
         "stack_before": 2000,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 100,
-            "description": "match the current bet of 100"
+            "amount": 100
           },
           {
             "type": "RAISE",
             "min": 178,
-            "max": 2000,
-            "description": "choose ANY amount between 178 and 2000"
+            "max": 2000
           },
           {
             "type": "ALL-IN",
-            "amount": 2000,
-            "description": "put all 2000 chips in"
+            "amount": 2000
           }
         ],
         "prompt_id": "tbl_684679-000002-05",
@@ -434,24 +414,20 @@
         "stack_before": 1990,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 100,
-            "description": "match the current bet of 100"
+            "amount": 100
           },
           {
             "type": "RAISE",
             "min": 178,
-            "max": 1990,
-            "description": "choose ANY amount between 178 and 1990"
+            "max": 1990
           },
           {
             "type": "ALL-IN",
-            "amount": 1990,
-            "description": "put all 1990 chips in"
+            "amount": 1990
           }
         ],
         "prompt_id": "tbl_684679-000002-06",
@@ -482,24 +458,20 @@
         "stack_before": 1995,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 100,
-            "description": "match the current bet of 100"
+            "amount": 100
           },
           {
             "type": "RAISE",
             "min": 178,
-            "max": 1995,
-            "description": "choose ANY amount between 178 and 1995"
+            "max": 1995
           },
           {
             "type": "ALL-IN",
-            "amount": 1995,
-            "description": "put all 1995 chips in"
+            "amount": 1995
           }
         ],
         "prompt_id": "tbl_684679-000002-07",
@@ -529,24 +501,20 @@
         "stack_before": 1953,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 95,
-            "description": "match the current bet of 95"
+            "amount": 95
           },
           {
             "type": "RAISE",
             "min": 178,
-            "max": 1958,
-            "description": "choose ANY amount between 178 and 1958"
+            "max": 1958
           },
           {
             "type": "ALL-IN",
-            "amount": 1958,
-            "description": "put all 1958 chips in"
+            "amount": 1958
           }
         ],
         "prompt_id": "tbl_684679-000002-08",
@@ -576,24 +544,20 @@
         "stack_before": 1990,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 90,
-            "description": "match the current bet of 90"
+            "amount": 90
           },
           {
             "type": "RAISE",
             "min": 178,
-            "max": 2000,
-            "description": "choose ANY amount between 178 and 2000"
+            "max": 2000
           },
           {
             "type": "ALL-IN",
-            "amount": 2000,
-            "description": "put all 2000 chips in"
+            "amount": 2000
           }
         ],
         "prompt_id": "tbl_684679-000002-09",
@@ -624,24 +588,20 @@
         "stack_before": 1978,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 78,
-            "description": "match the current bet of 78"
+            "amount": 78
           },
           {
             "type": "RAISE",
             "min": 178,
-            "max": 2000,
-            "description": "choose ANY amount between 178 and 2000"
+            "max": 2000
           },
           {
             "type": "ALL-IN",
-            "amount": 2000,
-            "description": "put all 2000 chips in"
+            "amount": 2000
           }
         ],
         "prompt_id": "tbl_684679-000002-10",
@@ -671,23 +631,19 @@
         "stack_before": 1900,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
-            "type": "CHECK",
-            "description": "pass without betting"
+            "type": "CHECK"
           },
           {
             "type": "BET",
             "min": 10,
-            "max": 1900,
-            "description": "choose ANY amount between 10 and 1900"
+            "max": 1900
           },
           {
             "type": "ALL-IN",
-            "amount": 1900,
-            "description": "put all 1900 chips in"
+            "amount": 1900
           }
         ],
         "prompt_id": "tbl_684679-000002-11",
@@ -718,24 +674,20 @@
         "stack_before": 1900,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 12,
-            "description": "match the current bet of 12"
+            "amount": 12
           },
           {
             "type": "RAISE",
             "min": 24,
-            "max": 1900,
-            "description": "choose ANY amount between 24 and 1900"
+            "max": 1900
           },
           {
             "type": "ALL-IN",
-            "amount": 1900,
-            "description": "put all 1900 chips in"
+            "amount": 1900
           }
         ],
         "prompt_id": "tbl_684679-000002-12",
@@ -766,24 +718,20 @@
         "stack_before": 1890,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 12,
-            "description": "match the current bet of 12"
+            "amount": 12
           },
           {
             "type": "RAISE",
             "min": 24,
-            "max": 1890,
-            "description": "choose ANY amount between 24 and 1890"
+            "max": 1890
           },
           {
             "type": "ALL-IN",
-            "amount": 1890,
-            "description": "put all 1890 chips in"
+            "amount": 1890
           }
         ],
         "prompt_id": "tbl_684679-000002-13",
@@ -814,23 +762,19 @@
         "stack_before": 1888,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
-            "type": "CHECK",
-            "description": "pass without betting"
+            "type": "CHECK"
           },
           {
             "type": "BET",
             "min": 10,
-            "max": 1888,
-            "description": "choose ANY amount between 10 and 1888"
+            "max": 1888
           },
           {
             "type": "ALL-IN",
-            "amount": 1888,
-            "description": "put all 1888 chips in"
+            "amount": 1888
           }
         ],
         "prompt_id": "tbl_684679-000002-14",
@@ -861,24 +805,20 @@
         "stack_before": 1888,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 12,
-            "description": "match the current bet of 12"
+            "amount": 12
           },
           {
             "type": "RAISE",
             "min": 24,
-            "max": 1888,
-            "description": "choose ANY amount between 24 and 1888"
+            "max": 1888
           },
           {
             "type": "ALL-IN",
-            "amount": 1888,
-            "description": "put all 1888 chips in"
+            "amount": 1888
           }
         ],
         "prompt_id": "tbl_684679-000002-15",
@@ -909,24 +849,20 @@
         "stack_before": 1878,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
             "type": "CALL",
-            "amount": 12,
-            "description": "match the current bet of 12"
+            "amount": 12
           },
           {
             "type": "RAISE",
             "min": 24,
-            "max": 1878,
-            "description": "choose ANY amount between 24 and 1878"
+            "max": 1878
           },
           {
             "type": "ALL-IN",
-            "amount": 1878,
-            "description": "put all 1878 chips in"
+            "amount": 1878
           }
         ],
         "prompt_id": "tbl_684679-000002-16",
@@ -956,23 +892,19 @@
         "stack_before": 1876,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
-            "type": "CHECK",
-            "description": "pass without betting"
+            "type": "CHECK"
           },
           {
             "type": "BET",
             "min": 10,
-            "max": 1876,
-            "description": "choose ANY amount between 10 and 1876"
+            "max": 1876
           },
           {
             "type": "ALL-IN",
-            "amount": 1876,
-            "description": "put all 1876 chips in"
+            "amount": 1876
           }
         ],
         "prompt_id": "tbl_684679-000002-17",
@@ -1002,23 +934,19 @@
         "stack_before": 1876,
         "legal_actions": [
           {
-            "type": "FOLD",
-            "description": "give up your hand"
+            "type": "FOLD"
           },
           {
-            "type": "CHECK",
-            "description": "pass without betting"
+            "type": "CHECK"
           },
           {
             "type": "BET",
             "min": 10,
-            "max": 1876,
-            "description": "choose ANY amount between 10 and 1876"
+            "max": 1876
           },
           {
             "type": "ALL-IN",
-            "amount": 1876,
-            "description": "put all 1876 chips in"
+            "amount": 1876
           }
         ],
         "prompt_id": "tbl_684679-000002-18",

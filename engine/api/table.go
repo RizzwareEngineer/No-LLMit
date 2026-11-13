@@ -666,35 +666,20 @@ func buildLLMValidActions(gs *game.GameState) []game.LLMValidAction {
 	player := gs.Players[gs.CurrentPlayerIdx]
 
 	for _, va := range validActions {
-		actionType := va.Type.String()
-
-		if va.Type == game.ActionRaise {
-			actionType = gs.RaiseName()
-		}
-
-		llmAction := game.LLMValidAction{
-			Type: actionType,
-		}
-		if va.Type == game.ActionCall {
+		llmAction := game.LLMValidAction{Type: va.Type.String()}
+		switch va.Type {
+		case game.ActionCall:
 			llmAction.Amount = va.MinAmount
-			llmAction.Description = fmt.Sprintf("match the current bet of %d", va.MinAmount)
-		} else if va.Type == game.ActionRaise {
+		case game.ActionRaise:
+			llmAction.Type = gs.RaiseName()
 			llmAction.Min = va.MinAmount
 			llmAction.Max = va.MaxAmount
-			llmAction.Description = fmt.Sprintf("choose ANY amount between %d and %d", va.MinAmount, va.MaxAmount)
-		} else if va.Type == game.ActionAllIn {
+		case game.ActionAllIn:
 			if toCall := gs.CurrentBet - player.CurrentBet; toCall >= player.Stack {
 				// The bet covers the stack: the engine plays CALL as an all-in, so offer it.
-				llmActions = append(llmActions, game.LLMValidAction{
-					Type: "CALL", Amount: player.Stack, Description: fmt.Sprintf("call all-in for your last %d", player.Stack),
-				})
+				llmActions = append(llmActions, game.LLMValidAction{Type: "CALL", Amount: player.Stack})
 			}
 			llmAction.Amount = va.MaxAmount
-			llmAction.Description = fmt.Sprintf("put all %d chips in", va.MaxAmount)
-		} else if va.Type == game.ActionFold {
-			llmAction.Description = "give up your hand"
-		} else if va.Type == game.ActionCheck {
-			llmAction.Description = "pass without betting"
 		}
 		llmActions = append(llmActions, llmAction)
 	}
