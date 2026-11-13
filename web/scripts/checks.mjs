@@ -3108,9 +3108,9 @@ group(() => check('about-home-no-fetch', 'On the home page About\'s race is draw
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await waitStats(p); await sleep(2000);
     await goto(p, 'about');
-    const drawn = await p.waitForFunction(() => document.querySelector('#about [data-race-row]'), { timeout: 30000, polling: 250 }).then(() => true, () => false);
+    const drawn = await p.waitForFunction(() => document.querySelector('section[aria-label=About] [data-race-row]'), { timeout: 30000, polling: 250 }).then(() => true, () => false);
     await sleep(1500);
-    const rows = await p.evaluate(() => document.querySelectorAll('#about [data-race-row]').length);
+    const rows = await p.evaluate(() => document.querySelectorAll('section[aria-label=About] [data-race-row]').length);
     return { pass: drawn && !asked.length, detail: `${rows} race rows; ${asked.length} GET /api/stats${asked.length ? ` (${asked[0]})` : ''}` };
   } finally { await p.close(); }
 }));
