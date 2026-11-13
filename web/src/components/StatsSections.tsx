@@ -151,6 +151,9 @@ export default memo(function StatsSections({
   // A phone's overview scrolls inside its stage: a tile opening starts from the stage's top, where its card sits.
   useLayoutEffect(() => {
     if (tiles.on && innerWidth < 768) stage.current?.scrollTo({ top: 0, behavior: 'instant' });
+    // A close is over once the tile is back to its overview content (nothing it adds is mounted): a card reached
+    // afterwards by scrolling shows all of itself again.
+    if (!tiles.on) room.current?.removeAttribute('data-leaving');
   }, [tiles.on]);
 
   // The screen crossing the middle of the window sets the stage; the table screen counts as the

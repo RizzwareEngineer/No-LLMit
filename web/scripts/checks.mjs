@@ -1831,6 +1831,24 @@ main(() => check('handover-same-picture', 'At each hand-over between tile and ca
   (fs, n) => `${n} hand-overs, changed pixels at the swap ≤ ${Math.max(...fs.map(f => f.cal.swap ?? 0))}, at rest ≤ ${Math.max(...fs.map(f => f.cal.still ?? 0))}`)));
 main(() => check('glide-clean', 'While a tile glides to its card and back: no scrollbar on it, no hover readout the pointer did not ask for (a real move still shows one), no row with numbers but no name, and nothing the card adds (Lineup, Total, extra columns, the definition and button rows, Open ↓, the Leader, the names) appears, vanishes or drops out in one frame', report('clean',
   (fs, n) => `${n} glides, every frame clean`)));
+// Closing a card marked the room as leaving (what the card adds fades out) and nothing cleared it: a card reached
+// afterwards without its tile (wheel, keys, Next) showed no extra columns, group header, button row, definition or Total.
+main(() => check('card-adds-after-close', 'After Profiles or Matchups is opened and closed with Back to overview, its card reached by paging shows everything it adds (extra columns, group header, button row, definition line, Total) at full opacity', async () => {
+  const low = [];
+  for (const [tile, card, screen] of [['#stats-panel', '#stats-card', 'stats-table'], ['#pairwise-panel', '#pairwise-card', 'pairwise']]) {
+    await goto(pg, 'stats'); await sleep(1500);
+    await pg.mouse.click(...await pg.evaluate(s => { const b = document.querySelector(s).getBoundingClientRect(); return [b.left + b.width / 2, b.top + 20]; }, tile));
+    await sleep(3000); await clickPrefix(pg, 'Back to overview'); await sleep(2500);
+    await goto(pg, screen); await sleep(1500);
+    const r = await pg.evaluate(c => {
+      const ps = [...document.querySelectorAll(`${c} :is(.add-in, .added)`)].filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; });
+      return { n: ps.length, lo: Math.min(1, ...ps.map(e => +getComputedStyle(e).opacity)) };
+    }, card);
+    if (!r.n || r.lo < 0.99) low.push(`${screen}: ${r.n} parts, lowest opacity ${r.lo.toFixed(2)}`);
+  }
+  await goto(pg, 'stats'); await sleep(500);
+  return { pass: !low.length, detail: low.length ? low.join('; ') : 'every part the cards add at opacity 1' };
+}));
 
 // --- Matchups and Profiles opened ---
 main(() => check('matchups-no-fade', 'Opening Matchups grows the matrix without fading it', async () => {
