@@ -50,17 +50,9 @@ export interface ModelStats {
   vs: Record<string, VsStats>;
 }
 
-interface StatsSession {
-  id: string;
-  started_at: string;
-  ended_at: string | null;
-  hands: number;
-}
-
 export interface StatsResponse {
   generated_at: string;
-  scope: { table_id: string; prompt_version: string; big_blind: number; hands: number; sessions: number };
-  sessions: StatsSession[];
+  scope: { table_id: string; prompt_version: string; big_blind: number; hands: number };
   models: ModelStats[];
   partial: boolean; // all-in EV still computing in the background; aiev_bb100 is provisional
   seated?: string[]; // the table's current lineup
@@ -99,7 +91,7 @@ async function fetchStats(): Promise<StatsResponse> {
   if (res.status === 503) throw new StatsLoadingError(); // engine still building its first snapshot
   if (!res.ok) throw new Error(`stats ${res.status}`);
   const json = await res.json();
-  if (!Array.isArray(json?.models) || !Array.isArray(json?.sessions)) throw new Error('stats: unexpected shape');
+  if (!Array.isArray(json?.models)) throw new Error('stats: unexpected shape');
   return json as StatsResponse;
 }
 
