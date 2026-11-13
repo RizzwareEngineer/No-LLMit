@@ -46,7 +46,8 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
     measure();
     const ro = new ResizeObserver(measure);
     rows.forEach(r => ro.observe(r));
-    // Rows slide only after they first took their places (they fade in there).
+    // Rows slide only after they first took their places (they fade in there); focus moving into a row jumps it forward,
+    // so the focused control is at once where it stays (as the browser's own focus scroll is instant).
     const f = requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
     return () => { ro.disconnect(); cancelAnimationFrame(f); };
   }, []);
@@ -60,8 +61,8 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || off(e) || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
       const now = e.timeStamp, dir = e.deltaY > 0 ? 1 : -1;
-      // A gesture that began off the dial (the flick that paged here) stays the page's.
-      if (now < elsewhereUntil) { elsewhereUntil = now + 250; return; }
+      // A gesture that began off the dial (the flick that paged here), or a wheel the pointer is not over, stays the page's.
+      if (now < elsewhereUntil || !el.matches(':hover')) { elsewhereUntil = now + 250; return; }
       if (now < lockUntil && (dir === lockDir || Math.abs(e.deltaY) < 10)) {
         e.preventDefault(); // the page leaves a prevented wheel alone
         lockUntil = Math.max(lockUntil, now + 200);
@@ -117,7 +118,8 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
   // Whether the row under a press was in focus before it: a click on a blurred row only brings it forward.
   const wasAt = useRef<boolean | null>(null);
   return (
-    // The focus ring is on this outer box: the inner one is masked and clipped, which would fade or cut it.
+    // The focus ring is on this outer box, drawn inside its edge: the inner box is masked and clipped (it would fade the
+    // ring), and About's screen clips what is outside the dial.
     <div
       ref={box}
       data-dial
@@ -125,7 +127,7 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
       aria-label="About, one topic at a time (↑ ↓ to turn)"
       tabIndex={0}
       onKeyDown={onKey}
-      className="order-3 @4xl:order-none border-b outline-none focus-visible:ring-2 focus-visible:ring-[rgb(35,131,226)] focus-visible:ring-offset-2 rounded-sm"
+      className="order-3 @4xl:order-none border-b outline-none focus-visible:[outline:2px_solid_rgb(35,131,226)] focus-visible:[outline-offset:-2px] rounded-sm"
       style={{ borderColor: RULE }}
     >
       <div className="overflow-clip" style={{ paddingBottom: 3 * PEEK, maskImage: mask, WebkitMaskImage: mask }}>
@@ -144,7 +146,7 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
                   if (wasAt.current === false) { e.preventDefault(); e.stopPropagation(); turn(i); }
                   wasAt.current = null;
                 }}
-                onFocusCapture={() => i !== atRef.current && turn(i)}
+                onFocusCapture={() => { if (i !== atRef.current) { setReady(false); turn(i); requestAnimationFrame(() => requestAnimationFrame(() => setReady(true))); } }}
                 className={`${ready ? 'motion-safe:transition-[transform,filter,opacity]' : 'motion-safe:transition-opacity'} motion-safe:duration-[400ms] ${d ? 'cursor-pointer select-none' : ''}`}
                 style={{
                   transform: `translateY(${shift}px)${back.transform === 'none' ? '' : ` ${back.transform}`}`,
