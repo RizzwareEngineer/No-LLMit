@@ -55,5 +55,3 @@ export function formatAmount(chips: number, bb: number | null, unit = true): str
   const { value, format, suffix } = amountParts(chips, bb);
   return value.toLocaleString(undefined, format) + (unit ? suffix : '');
 }
-
-// Dev self-check of the format.
