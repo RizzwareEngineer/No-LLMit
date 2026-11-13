@@ -326,7 +326,7 @@ function useField() {
   const near = useRef<Element | null>(null);
   useLayoutEffect(() => { near.current = ref.current!.closest('[data-dial]') ?? ref.current; }, []);
   const seen = useInView(near, { once: true, margin: '0px 0px 300px 0px' });
-  const page = useContext(PageStats), fetched = useStats(undefined, seen && !page);
+  const page = useContext(PageStats), fetched = useStats(seen && !page);
   const { data, error } = page ?? fetched, live = seen ? data : null;
   // A refetch (partial stats, every 30 s) waits while a prompt is open, so the race stands still behind it.
   const hold = useHold(), [shown, setShown] = useState(live);

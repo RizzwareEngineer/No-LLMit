@@ -143,10 +143,8 @@ export default function Home() {
   const isHandComplete = street === 'complete';
 
   // All-time stats feed the leaderboard, the drawer and the stats sections; the stream sends them on connect and as each hand is saved.
-  // The stream has no sample: loading means no stats event yet, and once the stream has given up with none, that is the error.
-  // StatsSections still takes useStats' shape.
-  const all = useMemo(() => ({ data: stats, sample: false, loading: !stats && !gaveUp, error: !stats && gaveUp ? "can't reach the game server" : null, current: true }), [stats, gaveUp]);
-  const seated = stats?.seated; // who is at the table now
+  // No stats event yet means loading; once the stream has given up with none, that is the error.
+  const statsError = !stats && gaveUp ? "can't reach the game server" : null;
   // Hover stats on the seats: all-time.
   const seatStats = useMemo(() => (stats ? Object.fromEntries(stats.models.map(m => [m.name, m])) : undefined), [stats]);
 
@@ -442,15 +440,12 @@ export default function Home() {
       <script dangerouslySetInnerHTML={{ __html: BEFORE_PAINT }} />
 
       {/* Screens 2-5: the overview, then race, stats and pairwise one at a time. */}
-      <StatsSections
-        all={all}
-        seated={seated}
-      />
+      <StatsSections stats={stats} error={statsError} />
       <script dangerouslySetInnerHTML={{ __html: BEFORE_PAINT }} />
       </main>
 
       <StickyBar show={!tableInView} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />
-      <ModelDrawer models={all.data?.models ?? []} error={all.error} slug={drawerSlug} onClose={closeModel} />
+      <ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status */}
       {bar && (

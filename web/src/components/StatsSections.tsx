@@ -10,12 +10,10 @@ import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUT
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
 import StatsTable, { MINI_CHROME, TABLE_VIEW, type TableView } from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
-import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
-import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, useStats } from '@/lib/stats';
+import { StatsMessage } from '@/components/StatsPanel';
+import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, StatsResponse } from '@/lib/stats';
 import { remember, remembered, useRememberedBox } from '@/lib/boxes';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
-
-type Stats = ReturnType<typeof useStats>;
 
 // Screens 2-6, each an empty full-height snap point in the page flow. Over them sits one layer:
 // the overview stage, About (the main scroll's last screen, under the overview in the flow: the two move
@@ -54,14 +52,7 @@ const useNativeTimeline = () =>
 
 // The three panels under the live table, all time. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
-export default memo(function StatsSections({
-  all,
-  seated: lineup,
-}: {
-  all: Stats;
-  seated?: string[]; // the page's lineup (with its fallback for an older engine)
-}) {
-  const { data, sample, loading, error, current } = all;
+export default memo(function StatsSections({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
   const [selected, setSelected] = useState('');
   const [highlight, setHighlight] = useState<string | undefined>();
   // The tile filling the stage (null: the overview grid); `lift`, the one focused last, stays on top
@@ -71,10 +62,9 @@ export default memo(function StatsSections({
   const statsCard = useRef<HTMLElement>(null);
   const statsScreen = useRef<HTMLDivElement>(null);
   const pairwiseScreen = useRef<HTMLDivElement>(null);
-  // A failed refetch keeps the last good data on screen, with the problem as a status line.
-  const ready = !!data && current;
+  const ready = !!data;
   // Still loading (not failed): every tile and card stands in blank at its place and size.
-  const blank = !ready && !(current && error);
+  const blank = !ready && !error;
   // The Trends card's height: its tile's, plus the filter bar and the legend the card adds, so the
   // chart keeps its size (the stage's height at most: past that the chart shrinks a little, evenly).
   // Phones (PHONE): the tile and the card are what is around the chart plus the chart at their full width,
@@ -332,16 +322,10 @@ export default memo(function StatsSections({
     };
   }, []);
 
-  const message = <StatsMessage error={current ? error : null} />;
-  const stale = ready && (error || loading) && (
-    <p className="mb-2 text-[13px]" style={{ color: MUTED }} role="status">
-      {error ? 'Could not refresh the stats; showing the last good numbers.' : 'Stats are refreshing…'}
-    </p>
-  );
+  const message = <StatsMessage error={error} />;
   const models = ready ? data.models : [];
-  // History, the overview and Matchups show the models at the table now (past sessions carry no
-  // lineup: everyone). The Profiles screen has its own "All models" toggle.
-  const seated = data?.seated ?? lineup;
+  // History, the overview and Matchups show the models at the table now. The Profiles screen has its own "All models" toggle.
+  const seated = data?.seated;
   const field = useMemo(() => seatedModels(data?.models ?? [], seated), [data, seated]);
   const bigBlind = data?.scope.big_blind ?? 10;
   // One scope for History, Profiles and Matchups (all time) and one clock: History's replay,
@@ -376,7 +360,6 @@ export default memo(function StatsSections({
     <>
       {card && (
         <Added still={!fade}>
-          {stale}
           <Definition>
             Click rows to compare them.
             {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
@@ -449,7 +432,6 @@ export default memo(function StatsSections({
               } as React.CSSProperties}
             >
               <Panel id="race-panel" title="Trends" away={{ y: -1 }} className="row-start-1 md:col-span-2 max-md:h-(--race-tile)" aside={lead} fit={raceFit} blank={blank} {...tile('race')}>
-                {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
                   <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} timeline={tl} selected={selected} highlight={highlight} onHighlight={setHighlight} onSelect={zoomed ? setSelected : undefined} />
@@ -458,7 +440,7 @@ export default memo(function StatsSections({
 
               <Panel
                 id="stats-panel"
-                title={<>Profiles {sample && <SampleBadge />}</>}
+                title="Profiles"
                 away={{ x: -1 }}
                 className="row-start-2 md:col-start-1"
                 extra={on === 'stats-table' && <div className={ASIDE}>{lead}</div>}
@@ -513,7 +495,7 @@ export default memo(function StatsSections({
         {/* The History screen's scroll range: the stage stays as it is. */}
         <div className="h-svh" aria-hidden />
 
-        <Card id="stats-card" title={<>Profiles {sample && <SampleBadge />}</>} aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit blank={blank}>
+        <Card id="stats-card" title="Profiles" aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit blank={blank}>
           {statsBody(true)}
         </Card>
 
