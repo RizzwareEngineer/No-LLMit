@@ -1,35 +1,22 @@
-# LLM Service
+# LLM service
 
-Python service that handles LLM API calls for No-LLMit poker.
+The Python (FastAPI) service that turns the engine's game state into a prompt, asks the seat's model on OpenRouter and returns a legal move.
 
-## Setup
+## Run and test
 
-```bash
+```sh
 cd llm
-uv venv
-source .venv/bin/activate
-uv pip install -r requirements-dev.txt   # requirements.txt alone in production
+uv venv -p 3.11 && uv pip install -r requirements-dev.txt   # requirements.txt alone in production
+LLM_PROVIDER=mock .venv/bin/python -m uvicorn app:app --port 5001
+.venv/bin/python -m pytest -q
 ```
 
-`requirements.txt` and the `Dockerfile` (Python 3.11) are the source of truth for dependencies.
-
-## Environment
-
-Create `.env` file:
-```
-OPENROUTER_API_KEY=sk-or-your_api_key_here
-PORT=5001
-```
-
-Without `OPENROUTER_API_KEY` the service runs the mock provider, which plays random legal
-actions and calls no model. Set `LLM_PROVIDER=mock` or `LLM_PROVIDER=openrouter` to force one.
-
-`LINEUP` picks the nine seated models: comma-separated display names from the roster below,
-for example `LINEUP="GPT-OSS 120B,Qwen3 32B,DeepSeek V3.2,..."`. Unset means the default nine.
-A name not in the roster, a repeat, or a count other than nine stops the service at startup.
-The engine reads the lineup from `GET /models` when it starts. With the mock provider the
-lineup instead rotates over the whole roster, nine seats per engine session, so every model
-gets mock hands locally.
+`scripts/dev.sh` at the repo root runs it with the engine and the site. Settings are in [`.env.example`](.env.example):
+without `OPENROUTER_API_KEY` (or with `LLM_PROVIDER=mock`) the service runs mock models that play random legal moves
+and call nothing. `LINEUP` picks the nine seated models by name from the roster below; unset means the first nine. A
+name not in the roster, a repeat, or a count other than nine stops the service at startup. With mock models the lineup
+instead rotates over the whole roster, nine seats per engine session, so every model gets hands locally.
+`test_every_roster_slug_is_on_openrouter` is marked `network` and skips when OpenRouter is unreachable.
 
 ## Roster
 
@@ -58,37 +45,22 @@ list prices in USD per million tokens, checked against https://openrouter.ai/api
 | GPT-OSS 120B | `openai/gpt-oss-120b` | 0.022 | 0.083 | |
 | Nemotron 3.5 Super | `nvidia/nemotron-3.5-super-vl` | 0.15 | 0.50 | |
 
-MiniMax M2 is not listed: `minimax/minimax-m2` is no longer on OpenRouter (M2.5 and M2.7 are).
 `web/src/lib/constants.ts` `ALL_LLMS` mirrors the roster; `tests/test_registry.py` keeps them in sync.
 
-## Run
+## Endpoints
 
-```bash
-source .venv/bin/activate
-uvicorn app:app --reload --port 5001
-```
+- `GET /health`: `{"status", "provider"}`; 503 when `openrouter` has no key
+- `GET /usage`: `{"provider", "spend"}`, the OpenRouter spend against the key's limit (null for mock)
+- `GET /prompt`: the system prompt and the prompt version
+- `GET /models?session=N`: `{"provider", "seated", "turn_budget_s"}`; the engine reads its lineup and shot clock here
+  at startup; `session` only matters to the mock rotation
+- `POST /decide`: the seat's move for a game state
 
-## Test
+## POST /decide
 
-```bash
-.venv/bin/python -m pytest -q
-```
-
-`test_every_roster_slug_is_on_openrouter` is marked `network` and skips when OpenRouter is unreachable.
-
-## API Endpoints
-
-- `GET /health` - Health check
-- `GET /usage` - `{"provider", "spend"}`: the provider and OpenRouter spend against the key's limit
-- `GET /prompt` - The system prompt and the prompt version
-- `GET /models?session=N` - `{"provider", "seated", "turn_budget_s"}`; `turn_budget_s` is `TURN_BUDGET` in decide.py, the seconds a whole turn may take; `session` only matters to the mock provider's rotation
-- `POST /decide` - The seat's move for a game state
-
-### POST /decide
-
-The engine sends the game state as data; the service renders the prompts, asks the seat's
-model, parses and checks the reply, retries, and returns the move. Players are never named
-to the model: it sees `Player N (POS)`, N being the seat number.
+The engine sends the game state as data; the service renders the prompts, asks the model, parses and checks the reply,
+retries, and returns the move. The model never sees a model name: players are `Player N (POS)`, N being the seat index
+plus one.
 
 Request (`schemas.py` `DecisionRequest`):
 ```json
@@ -108,14 +80,11 @@ Request (`schemas.py` `DecisionRequest`):
 }
 ```
 
-`seats` run clockwise from the seat after the button, button last, with current stacks: the
-small blind first, or heads-up the big blind first (the button posts the small blind). Action amounts are chips
-added for `post` and `call` and the street total for `raise` and `all_in`; `pot` on a street
-is the pot when it began. When the bet covers the player's stack the engine lists `CALL`
-with the player's remaining chips beside the `ALL-IN`; the prompt shows them as one move,
-`call all-in N`, and `call` or `all-in` in the reply both play as that all-in. A raise is
-only listed while an opponent can still respond: facing a lone all-in the list is fold and
-call (or fold and `call all-in N` when covered).
+`seats` run clockwise from the seat after the button, button last, with current stacks (heads-up: the big blind, then
+the button). Action amounts are chips added for `post` and `call` and the street total for `raise` and `all_in`; a
+street's `pot` is the pot when it began. When the bet covers the player's stack the engine lists `CALL` with the
+remaining chips beside `ALL-IN`; the prompt shows them as one move, `call all-in N`. A raise is listed only while an
+opponent can still respond, so facing a lone all-in the list is fold and call.
 
 Response (`DecisionResponse`):
 ```json
@@ -131,83 +100,60 @@ Response (`DecisionResponse`):
 }
 ```
 
-- `status`: `ok`; `unparseable` (no readable ACTION, twice) or `illegal` (a move outside the
-  legal list, twice) are the model's own miss; `timeout` and `api_error` mean the provider
-  failed (network, 429, 5xx, empty reply) after retries within the turn budget. When the
-  status is not `ok`, `action`/`amount` are the model's last parsed reply (`FOLD 0` when none
-  came) and the engine plays its own fallback: CHECK when legal, otherwise FOLD.
-- `retried`: the first reply was unparseable or illegal and the model got one follow-up
-  message (`retry_prompt`: its own reply back, the reason and the legal list). `raw` holds
+- `status`: `ok`, or why the engine plays its fallback (`CHECK` when legal, otherwise `FOLD`) instead: `unparseable`
+  or `illegal` (the model's own miss, twice), `timeout` or `api_error` (the provider failed after retries within the
+  turn budget), or `service_error` (our parser failed). [docs/hand-history.md](../docs/hand-history.md) says how each is recorded.
+- `action`/`amount`: the model's last parsed reply (`FOLD 0` when none came). `amount` is the size for `RAISE` (a bet
+  or a raise to a street total) and 0 for every other move.
+- `retried`: the first reply was unparseable or illegal and the model got one follow-up (`retry_prompt`). `raw` holds
   both replies separated by `--- retry ---`. A provider failure never counts as a retry.
-- `prompt` is the user prompt rendered for this turn; the engine stores it with the hand.
-- `prompt_version` hashes `prompts.py`, `parsing.py`, `decide.py` and
-  `providers/openrouter.py`: the system prompt, the user prompt template, the parser, the
-  legality check, retry and time budget, and the sampling settings (temperature, token
-  limits). A change to any of them starts a new version.
-- `model` and `upstream_provider` are what OpenRouter reports serving the call and
-  `reasoning_tokens` its count of thinking tokens. The mock provider leaves the last two null.
-- `reason` is empty when the model gave no REASON; it is never filled in for the model.
-- `amount` is the reply's size for `RAISE` (a bet or a raise to a street total) and 0 for
-  every other move, whatever number the reply wrote on its AMOUNT line.
+- `reason` is empty when the model gave none; it is never filled in for the model.
+- `prompt` is the user prompt for this turn; the engine saves it with the hand.
+- `prompt_version` hashes `prompts.py`, `parsing.py`, `decide.py` and `providers/openrouter.py`: the prompts, the
+  parser, the legality check, the retry and time budget, and the sampling settings. Any change starts a new version.
+- `model`, `upstream_provider` and `reasoning_tokens` are what OpenRouter reports; the last two are null for mock.
 
 ## Prompts
 
-`prompts.py` holds the system prompt (`system_prompt`) and renders the user prompt
-(`render_user_prompt`) and the retry message (`render_retry_prompt`). The same two prompts
-go to every model; no model name, hand number or "still in the hand" list appears in them.
-`web/src/lib/systemPrompt.ts` shows copies on the About page; `tests/test_prompts.py` fails
-when they drift.
+`prompts.py` holds the system prompt and renders the user prompt and the retry message. Every model gets the same
+two. `web/src/lib/systemPrompt.ts` shows copies on the About page; `tests/test_prompts.py` fails when they drift.
 
-The system prompt says what each message holds and asks for the three-line reply. The user
-prompt is a hand history: the blinds, the opponents' current stacks (chips, BB in
-parentheses), one line for the player (`You are Player 4 (UTG+1), 1,130 (113 BB), holding
-As Kd.`), one line per street with the board so far and the cards dealt on it, every action
-and the pot after them (`Turn [Qh 7s 2c] [9d]: Player 1 (SB) bets 100. Pot 250.`), then one
-line of legal actions.
-Players are `Player N (POS)`, N the seat number. Action amounts follow hand-history
-convention: `calls N` is chips added; `bets N`, `raises to N` and `all-in for N` are the
-player's total on that street.
+The user prompt is a hand history: the blinds, the opponents' current stacks (chips, BB in parentheses), one line for
+the player (`You are Player 4 (UTG+1), 1,130 (113 BB), holding As Kd.`), one line per street with the board, every
+action and the pot after them (`Turn [Qh 7s 2c] [9d]: Player 1 (SB) bets 100. Pot 250.`), then the legal actions.
+`calls N` is chips added; `bets N`, `raises to N` and `all-in for N` are the player's street total.
 
-The legal-actions line lists, in this order, `fold`, `check`, `call N`, `bet N–M` or
-`raise to N–M` (street totals; the word is the engine's `BET` or `RAISE`: `BET` while nothing
-has been bet on the street, so the big blind's preflop option is a raise), then the all-in:
-`call all-in N` when the bet covers the stack (N the whole stack, the only way to call),
-`bet all-in N` or `raise all-in N` otherwise (N the street total), or `all-in N` when no bet
-or raise is listed. Facing a lone all-in the engine lists no raise, so the line is
-`fold, call 100`; too short to min-raise it is `fold, call 100, all-in 150`.
+The legal-actions line lists, in this order: `fold`, `check`, `call N`, `bet N–M` or `raise to N–M` (street totals;
+`bet` while nothing has been bet on the street, so the big blind's preflop option is a raise), then the all-in:
+`call all-in N` when the bet covers the stack, `bet all-in N` or `raise all-in N` otherwise, or `all-in N` when no bet
+or raise is listed. Facing a lone all-in it is `fold, call 100`; too short to min-raise, `fold, call 100, all-in 150`.
 
-The reply format is ACTION, AMOUNT, REASON in that order for every model. Models with a
-reasoning channel think there before the first line; models without one commit first and
-explain after. Putting REASON first would turn it into a thinking dump that the site has to
-display, and a long one risks being cut off before the ACTION line, the worst failure. The
-parser holds a reply to that format and forgives only dress (markdown, case, list numbers,
-quotes, emoji, field order, spellings of the all-in, commas in numbers): a reply is read as
-the move it states or as a miss that gets the retry, never as a different move. Three
-reviews each found a looser parser playing moves the model had not made, so:
+## Reading the reply
 
-- A label counts only at the start of a line, and a reply holds one answer: ACTION lines
-  that differ are `unparseable` (a draft before the answer and a plan after it look the
-  same). A one-line reply (`ACTION: fold | AMOUNT: 0 | REASON: ...`) and a label alone on
-  its line with the value on the next are read.
-- The ACTION line is only the move: `fold`, `check`, `call`, `bet`, `raise`, or the all-in
-  (`all-in`, `raise all-in`, `bet all-in`, `go all-in`), with a size after bet or raise
-  (`raise to 300`). Anything more is `unparseable`: `calling`, `shove`, `call the raise`,
-  `fold (too weak)`, `call - actually all-in`. `call all-in` is a call, so `call the
-  all-in` never shoves over a smaller bet; `call` when the bet covers the stack is that
-  all-in.
-- A bet or raise needs one whole number of chips, on the AMOUNT line (`300`, `$1,130`,
-  `raise to 300`, `300 chips`) or right after the word. Big blinds, multiples, percentages,
-  signs, decimals, arithmetic, and an ACTION and AMOUNT that disagree are `illegal` with a
-  message that says which; `AMOUNT: all-in` is the all-in.
-- With no ACTION label, only a reply whose first line is the move alone counts, with
-  nothing else outside labelled fields (`RAISE: 150`).
-- A reply the token limit cut off before the REASON that ends its answer is `unparseable`,
-  and so is one over 20,000 characters. A parser error is ours: status `service_error`, no
-  retry, never a 500 and never the model's miss.
+The reply is ACTION, AMOUNT, REASON, in that order, for every model. Models with a reasoning channel think there
+first; the rest commit first and explain after. REASON first would turn it into a thinking dump the site has to show,
+and a long one could be cut off before the ACTION line.
 
-`bet` where the legal action is RAISE is a raise; a raise to the all-in total is a raise when
-one is legal and the all-in otherwise. The retry message after a bad reply is `That reply wasn't legal: <reason>.
-Reply again in the three-line format with one of: <the legal-actions line>.`
+The parser forgives only dress (markdown, case, list numbers, quotes, emoji, field order, spellings of the all-in,
+commas in numbers). A reply is read as the move it states, or as a miss that gets the retry, never as a different move:
+
+- A label counts only at the start of a line. ACTION lines that differ are `unparseable`. A one-line reply
+  (`ACTION: fold | AMOUNT: 0 | REASON: ...`) and a label alone with its value on the next line are read.
+- The ACTION line is only the move: `fold`, `check`, `call`, `bet`, `raise`, or the all-in (`all-in`, `raise all-in`,
+  `bet all-in`, `go all-in`), with a size after bet or raise (`raise to 300`). Anything more is `unparseable`
+  (`calling`, `shove`, `call the raise`, `fold (too weak)`). `call all-in` is a call, so it never shoves over a smaller
+  bet; `call` when the bet covers the stack is that all-in.
+- A bet or raise needs one whole number of chips, on the AMOUNT line (`300`, `$1,130`, `300 chips`) or right after the
+  word. Big blinds, multiples, percentages, signs, decimals, arithmetic, and an ACTION and AMOUNT that disagree are
+  `illegal`, with a message saying which. `AMOUNT: all-in` is the all-in.
+- With no ACTION label, only a reply whose first line is the move alone counts (`RAISE: 150`).
+- A reply cut off by the token limit before its REASON, or over 20,000 characters, is `unparseable`. A parser crash is
+  ours: `service_error`, no retry, never the model's miss.
+- `bet` where the legal action is RAISE is a raise; a raise to the all-in total is a raise when one is legal and the
+  all-in otherwise.
+
+The retry message is `That reply wasn't legal: <reason>. Reply again in the three-line format with one of: <the
+legal-actions line>.`
 
 ## Budget and timeouts
 
@@ -215,35 +161,21 @@ One budget for every model (`providers/openrouter.py`, `decide.py`):
 
 | Setting | Value | Why |
 |---|---|---|
-| `max_tokens` | 1536 | reasoning counts against it on most providers; leaves 512 for the three-line reply |
-| `reasoning.max_tokens` | 1024 | Anthropic's minimum; effort-only models get the effort OpenRouter derives from it; non-reasoning models ignore it |
-| `temperature` | 0.7 | sent explicitly so every host samples the same way |
-| `REQUEST_TIMEOUT` | 25 s | a full 1024-token think plus the reply at ~50 tok/s |
+| `max_tokens` | 1536 | reasoning counts against it on most providers; leaves 512 for the reply |
+| `reasoning.max_tokens` | 1024 | Anthropic's minimum; effort-only models get the effort OpenRouter derives from it |
+| `temperature` | 0.7 | sent so every host samples the same way |
+| `REQUEST_TIMEOUT` | 25 s | a full 1024-token think plus the reply at ~50 tokens/s |
 | `TURN_BUDGET` | 45 s | the whole turn: one slow request, one retry, backoffs |
 | `BACKOFF` | 1 s, 2 s | pauses before retrying a provider failure, while the budget allows |
-| engine timeout | 50 s | `engine/client/llm.go`, the turn budget plus slack |
-
-See https://openrouter.ai/docs/use-cases/reasoning-tokens for how OpenRouter maps a token
-budget to an effort level and vice versa.
-
-## Architecture
-
-- **Go** manages game state, lists the legal moves and sends the state as data
-- **Python** renders the prompts, calls the seat's model on OpenRouter, parses and checks the
-  reply, retries once on the model's miss and while time remains on provider failures
-- **Go** checks the returned move against the rules again (it stays the source of truth),
-  applies it or its fallback, and records the decision
-- Each prompt describes the current hand only; there is no memory of previous hands
+| engine timeout | 50 s | `engine/client/llm.go`: the turn budget plus slack |
 
 ## Files
 
-- `app.py` - FastAPI server
-- `decide.py` - One turn: prompts, call, parse, legality check, retries, fallback status
-- `prompts.py` - The system prompt, the user prompt renderer and the version
-- `parsing.py` - Turns a raw reply into an action
-- `registry.py` - Seat names and the OpenRouter model behind each
-- `providers/openrouter.py` - OpenRouter client and the token budget
-- `providers/mock.py` - Random legal actions for local development
-- `schemas.py` - `/decide` request and response
-- `tests/` - pytest tests for prompt rendering (golden examples), parsing, the decision loop, `/decide` with the mock provider, and the OpenRouter client
-
+- `app.py`: the FastAPI server
+- `decide.py`: one turn: prompts, call, parse, legality check, retries, status
+- `prompts.py`: the system prompt, the user prompt, the retry message and the version
+- `parsing.py`: turns a raw reply into a move
+- `registry.py`: the roster and the lineup
+- `providers/openrouter.py`, `providers/mock.py`: the two providers
+- `schemas.py`: the `/decide` request and response
+- `tests/`: prompt rendering (golden examples), parsing (a corpus of real replies), the decision loop, the app, the roster
