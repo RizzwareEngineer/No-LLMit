@@ -17,6 +17,7 @@ import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
 import { NEXT_BUTTON, NEXT_STYLE, isPaging, pageBy, pageTo, resnap, scrollsInside } from "@/components/Section";
 import { holdBoxes } from "@/lib/boxes";
+import { useTypeSwitch } from "@/lib/tableSwitches";
 import { MUTED, BLUE } from "@/lib/stats";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
@@ -82,6 +83,7 @@ const BEFORE_PAINT = `(${fitStage})();(${holdBoxes})(true)`;
 const PAGE_KEYS: Record<string, 1 | -1> = { ArrowDown: 1, ArrowRight: 1, PageDown: 1, ArrowUp: -1, ArrowLeft: -1, PageUp: -1 };
 
 export default function Home() {
+  useTypeSwitch(); // ?type=2
   const {
     gameState,
     isConnected,
