@@ -35,13 +35,8 @@ export interface ModelStats {
   fold_to_cbet: number | null;
   wtsd: number | null;
   wsd: number | null;
-  avg_bet_pct_pot: number | null;
   fold_when_check_free: number | null;
-  error_rate: number | null;
-  retry_rate: number | null;
   miss_rate?: number | null; // absent from older engines
-  avg_latency_ms: number;
-  cost_usd: number;
   biggest_pot_won: number;
   biggest_pot_lost: number;
   by_position: Record<string, PositionStats>;

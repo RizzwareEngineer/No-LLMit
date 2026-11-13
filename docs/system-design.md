@@ -69,6 +69,7 @@ Without it: Railway ends every HTTP request at 15 minutes. WebSockets are exempt
 | Egress at 5,000 viewers | about 3.5 MB/s at one table, 21 to 26 MB/s at ten | estimated |
 | Egress price | $0.05/GB on Railway | Railway's price list |
 | Bytes per reconnect | about 185 KB (snapshot plus full stats) | estimated |
+| Bytes of one per-hand `stats` event | 84,388 before the unused row fields and session list were cut, 83,136 after (9 changed rows, 2,000 hands); production rows with more models and opponents are bigger, about 100 KB | measured: `go test -run TestStatsEventSize -v ./api/` |
 | Memory for 5,000 connections | 100 to 200 MB | estimated |
 | Memory for stats | about 16 KB per saved hand, all loaded at boot (about 880 MB per year at one table), on top of the above | estimated |
 | CPU per event at 5,000 viewers | 10 to 25 ms | estimated |

@@ -32,7 +32,6 @@ func (s *Server) Start(port int) error {
 	go func() {
 		s.table.seated = s.table.lineup()
 		stats.seated = s.table.seated
-		stats.tableID, stats.tableFrom = s.table.id, time.Now().UTC()
 		go stats.run()
 		s.table.Run()
 	}()

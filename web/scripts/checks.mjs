@@ -459,7 +459,7 @@ group(() => check('history-splash-survives-hand', 'A hand saved while Trends rep
     // A splash on screen, then the next hand's stats (its count one up), as the engine sends them.
     const flying = await p.waitForFunction(() => document.querySelector('[data-burst]'), { timeout: 20000 }).then(() => true, () => false);
     if (!flying) return { pass: false, detail: 'no splash in 20 s of replay' };
-    const { models, sessions, ...envelope } = e.stats;
+    const { models, ...envelope } = e.stats;
     await p.evaluate(m => { window.__splash.armed = true; window.__stream.scripted = true; window.__stream.feed(m); },
       { type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: envelope.scope.hands + 1 }, model_names: models.map(m => m.name), changed: [] } });
     await sleep(1500);
@@ -489,7 +489,7 @@ group(() => check('history-timeline-fetches', 'Thirty hands of stats events fetc
     if (!e) return { pass: false, detail: 'no engine stream seen' };
     await sleep(1500);
     p.on('request', r => { if (/\/api\/stats\/timeline/.test(r.url())) urls.push(r.url()); });
-    const base = e.stats.scope.hands, { models, sessions, ...envelope } = e.stats;
+    const base = e.stats.scope.hands, { models, ...envelope } = e.stats;
     for (let h = base + 1; h <= base + 30; h++) {
       await p.evaluate(m => { window.__stream.scripted = true; window.__stream.feed(m); },
         { type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: h }, model_names: models.map(m => m.name), changed: [] } });
@@ -498,7 +498,7 @@ group(() => check('history-timeline-fetches', 'Thirty hands of stats events fetc
     await sleep(2500);
     const ends = await p.evaluate(() => [...new Set([...document.querySelectorAll('[data-sync-hand]')].map(e => +e.dataset.syncHand))]);
     const ok = urls.length <= 2 && ends.length > 0 && ends.every(h => h === base + 30);
-    return { pass: ok, detail: `hands ${base + 1}-${base + 30}: ${urls.length} timeline fetches (sessions held: ${sessions.length}); synced cards end at ${ends.join(', ') || 'none'}` };
+    return { pass: ok, detail: `hands ${base + 1}-${base + 30}: ${urls.length} timeline fetches; synced cards end at ${ends.join(', ') || 'none'}` };
   } finally { await p.close(); }
 }));
 

@@ -1,8 +1,8 @@
 # Stats
 
 `GET /api/stats` on the engine returns these numbers for every model, in the shape of
-[`stats-api-contract.json`](stats-api-contract.json), over every saved hand; `sessions`
-lists each session, for now one table id. The code is `engine/stats`; to check a file of
+[`stats-api-contract.json`](stats-api-contract.json), over every saved hand; `scope.sessions`
+counts the sessions, for now the table ids. The code is `engine/stats`; to check a file of
 hands offline, run `go run ./cmd/stats -in data/hands.jsonl` from `engine/`.
 
 The engine loads every saved hand once at startup and adds each hand as soon as it is saved,
@@ -14,8 +14,7 @@ stats endpoints send gzip to clients that accept it: the demo's 191 KB of stats 
 
 All-ins are worked out a few hands at a time after a restart, so serving never waits on
 them. While some are left, `partial` is `true` and those hands count at their actual result
-in all-in EV bb/100. `ended_at` is `null` only for the table being played now (right
-after a restart that is a new session with no hands yet, not the session of the latest hand).
+in all-in EV bb/100.
 
 ## Which decisions count
 
@@ -85,12 +84,14 @@ A rate with nothing to count, such as c-bet for a model that never had the chanc
   it reached showdown.
 - **W$SD (won money at showdown)**: of the hands where it reached showdown, the share
   where it won at least one pot.
-- **Average bet as % of pot**: over the model's flop, turn and river bets (the first
-  chips in on a street), the average of bet ÷ pot before the bet.
+- **Average bet as % of pot** (printed by `go run ./cmd/stats` only): over the model's flop,
+  turn and river bets (the first chips in on a street), the average of bet ÷ pot before the bet.
 - **Fold when check was free**: of the decisions where checking was legal, the share
   where the model folded anyway.
 
 ## Reliability and cost
+
+Only the miss rate is in `/api/stats`; `go run ./cmd/stats` also prints the others.
 
 - **Error rate**: decisions whose status is not `ok`, over all decisions.
 - **Retry rate**: decisions that needed a second ask (`retried`), over all decisions.
