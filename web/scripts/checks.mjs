@@ -422,6 +422,35 @@ group(() => check('table-notice-says-why', 'Closed for the day or at the daily c
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 
+// A hand saved while Trends replays stretches the chart to the new hand count (an axis tween, overtakes not counted while
+// it runs). It cleared the splashes as a Skip does: every one in flight vanished in one frame, and the queued were dropped.
+group(() => check('history-splash-survives-hand', 'A hand saved while Trends replays leaves the overtake splashes in flight: none vanishes with its dots still out', async () => {
+  const p = await scriptedTable(1440, 900);
+  try {
+    const e = await engineStats(p);
+    if (!e) return { pass: false, detail: 'no engine stream seen' };
+    await goto(p, 'race'); await sleep(2000);
+    await clickText(p, 'Skip'); await sleep(1000);
+    await p.evaluate(() => {
+      window.__replaySpeed = 4; const log = window.__splash = { cut: 0, gone: 0, tween: false };
+      new MutationObserver(ms => { for (const m of ms) for (const n of m.removedNodes) if (n.dataset?.burst != null && log.armed) { log.gone++; if (n.childElementCount) log.cut++; } }).observe(document.body, { childList: true, subtree: true });
+      const plot = () => [...document.querySelectorAll('[data-plot]')].find(x => x.getBoundingClientRect().width > 0);
+      const f = () => { if (log.armed && plot()?.dataset.live == null) log.tween = true; requestAnimationFrame(f); }; requestAnimationFrame(f);
+    });
+    if (!await clickText(p, 'Replay')) return { pass: false, detail: 'no Replay button' };
+    await p.evaluate(() => { window.__replaySpeed = 1; });
+    // A splash on screen, then the next hand's stats (its count one up), as the engine sends them.
+    const flying = await p.waitForFunction(() => document.querySelector('[data-burst]'), { timeout: 20000 }).then(() => true, () => false);
+    if (!flying) return { pass: false, detail: 'no splash in 20 s of replay' };
+    const { models, sessions, ...envelope } = e.stats;
+    await p.evaluate(m => { window.__splash.armed = true; window.__stream.scripted = true; window.__stream.feed(m); },
+      { type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: envelope.scope.hands + 1 }, model_names: models.map(m => m.name), changed: [] } });
+    await sleep(1500);
+    const r = await p.evaluate(() => window.__splash);
+    return { pass: r.tween && !r.cut, detail: `${r.tween ? 'the axis retweened' : 'no axis tween seen (nothing tested)'}; ${r.gone} splashes ended, ${r.cut} of them with their dots still out` };
+  } finally { await p.close(); }
+}));
+
 group(() => check('table-reason-empty', 'An action that came with no reason still shows in the reasoning panel (its label and the action), and is announced', async () => {
   const p = await scriptedTable(1440, 900);
   try {
