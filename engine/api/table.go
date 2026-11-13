@@ -505,25 +505,20 @@ func (t *Table) saveHand() (voided bool) {
 // Callers hold t.mu.
 func (t *Table) settleStreets() {
 	for i := 0; i < 5 && !t.gs.IsHandComplete() && !t.gs.IsWaitingForAction() && t.gs.NeedToAdvanceStreet(); i++ {
-		t.publish(append(t.advanceStreet(), t.stateMessage())...)
+		t.advanceStreet()
+		t.publish(t.stateMessage())
 	}
 }
 
-// advanceStreet moves to the next street and returns its announcement, and the result if
-// the hand ended, for the caller to publish. Callers hold t.mu.
-func (t *Table) advanceStreet() []ServerMessage {
+// advanceStreet moves to the next street and, when that ends the hand, sets when the next
+// one is dealt; the caller publishes the game_state. Callers hold t.mu.
+func (t *Table) advanceStreet() {
 	if err := t.gs.AdvanceStreet(); err != nil {
 		log.Printf("Error advancing street: %v", err)
 	}
-	msgs := []ServerMessage{{Type: MsgStreetChange, Payload: map[string]interface{}{"street": t.gs.Street.String()}}}
 	if t.gs.IsHandComplete() {
 		t.nextHandAt = time.Now().Add(time.Duration(float64(postActionDelay+nextHandDelay) * t.pace))
-		msgs = append(msgs, ServerMessage{Type: MsgHandComplete, Payload: HandCompletePayload{
-			Winners:    convertWinners(t.gs.Winners),
-			HandNumber: t.gs.HandNumber,
-		}})
 	}
-	return msgs
 }
 
 var askLLM = client.GetLLMDecision // a test swaps in scripted replies
@@ -592,12 +587,11 @@ func (t *Table) playTurn() {
 		t.gs.ProcessAction(game.Action{Type: game.ActionFold, PlayerIdx: playerIdx})
 	}
 	t.recorder.endDecision(t.gs, turn)
-	var msgs []ServerMessage
 	if t.gs.NeedToAdvanceStreet() {
-		msgs = t.advanceStreet()
+		t.advanceStreet()
 	}
 	t.turnApplied = true // the action stays the turn, shown as revealed, until the next llm_thinking or hand_start
-	t.publish(append(msgs, t.stateMessage())...)
+	t.publish(t.stateMessage())
 	t.mu.Unlock()
 
 	t.sleep(postActionDelay)
@@ -707,4 +701,3 @@ func buildLLMValidActions(gs *game.GameState) []game.LLMValidAction {
 
 	return llmActions
 }
-

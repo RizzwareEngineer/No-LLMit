@@ -13,8 +13,6 @@ type MessageType string
 const (
 	MsgGameState    MessageType = "game_state"
 	MsgHandStart    MessageType = "hand_start"
-	MsgStreetChange MessageType = "street_change"
-	MsgHandComplete MessageType = "hand_complete"
 	MsgLLMThinking  MessageType = "llm_thinking"
 	MsgLLMAction    MessageType = "llm_action"
 	MsgButtonCard   MessageType = "button_card"   // Card dealt for button determination
@@ -78,11 +76,6 @@ type TableNoticePayload struct {
 	Kind      string `json:"kind"`
 	Message   string `json:"message"`
 	ReopensAt string `json:"reopensAt,omitempty"` // RFC3339
-}
-
-type HandCompletePayload struct {
-	Winners    []WinnerPayload `json:"winners"`
-	HandNumber int             `json:"handNumber"`
 }
 
 // Turn numbers a hand's turns from 1; a turn's llm_thinking and llm_action share it.

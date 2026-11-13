@@ -282,7 +282,10 @@ func TestSnapshotKeepsTheAppliedActionUntilTheNextHand(t *testing.T) {
 // the turn carries 20 s elapsed, so a late joiner's shot clock shows what is left.
 func TestThinkingCarriesBudgetAndElapsed(t *testing.T) {
 	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
-	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := reply("FOLD", 0); return &r, nil }
+	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) {
+		r := reply("FOLD", 0)
+		return &r, nil
+	}
 	tbl := testTable(t)
 	tbl.pace = 1e-6
 	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
@@ -319,7 +322,10 @@ func TestThinkingCarriesBudgetAndElapsed(t *testing.T) {
 // seat, as the legal list it was given named the move.
 func TestOpeningBetIsShownAsBet(t *testing.T) {
 	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
-	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := reply("RAISE", 20); return &r, nil }
+	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) {
+		r := reply("RAISE", 20)
+		return &r, nil
+	}
 	tbl := testTable(t)
 	tbl.pace = 1e-6
 	for _, typ := range []game.ActionType{game.ActionCall, game.ActionCall, game.ActionCheck} {
