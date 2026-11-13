@@ -10,9 +10,11 @@ Every hand the shared table finishes is saved once, when it ends.
   `retry_prompt`, the follow-up message the model was sent (Supabase dropped it before the
   2026-11-13 migration, so older rows have it null; the local `prompts.jsonl` always kept it).
 - **`system_prompts`** holds each system prompt once, keyed by the `prompt_version` in the
-  hand's `config`. The version covers the system prompt, the user prompt template and the
-  parser (`llm/prompts.py` and `llm/parsing.py`); a change to any of them starts a new one,
-  and every action records it too.
+  hand's `config`. The version covers the system prompt, the user prompt template, the
+  parser, the legality check, retry and time budget, and the sampling settings
+  (`llm/prompts.py`, `llm/parsing.py`, `llm/decide.py` and `llm/providers/openrouter.py`;
+  versions before 2026-11-13 covered only the first two); a change to any of them starts a
+  new one, and every action records it too.
 
 [`hand-record-example.json`](hand-record-example.json) is a real record from a local table
 running the mock provider, with its prompts alongside.

@@ -119,9 +119,11 @@ def render_retry_prompt(problem: str, request: DecisionRequest) -> str:
             f"Reply again in the three-line format with one of: {render_legal_actions(request)}.")
 
 
-# One version for the system prompt, the user prompt template (this file) and the parser.
-# Any change to either file starts a new version; hands record it on every decision.
+# One version for everything that sets what a model is sent and how its reply is judged:
+# the prompts (this file), the parser, the legality check, retry and time budget (decide.py)
+# and the sampling settings (providers/openrouter.py). Any change to them starts a new
+# version; hands record it on every decision.
 _here = Path(__file__).parent
-prompt_version = hashlib.sha256(
-    (_here / "prompts.py").read_bytes() + (_here / "parsing.py").read_bytes()
-).hexdigest()[:7]
+prompt_version = hashlib.sha256(b"".join(
+    (_here / f).read_bytes() for f in ("prompts.py", "parsing.py", "decide.py", "providers/openrouter.py")
+)).hexdigest()[:7]
