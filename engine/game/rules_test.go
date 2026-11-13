@@ -3,6 +3,7 @@
 package game
 
 import (
+	"math/rand/v2"
 	"reflect"
 	"slices"
 	"testing"
@@ -502,5 +503,66 @@ func TestTryActionPlaysOnACopy(t *testing.T) {
 	}
 	if _, err := gs.TryAction(Action{Type: ActionCheck, PlayerIdx: gs.CurrentPlayerIdx}); err == nil {
 		t.Error("a check facing a bet was accepted")
+	}
+}
+
+// Many seeded random hands, every move picked from GetValidActions: each offered move is
+// accepted, no stack goes below zero, every chip stays on the table (rebuys aside), the
+// winnings add up to zero, and every hand ends.
+func TestRandomPlayKeepsEveryChip(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+	for game := range 60 {
+		n := 2 + game%5
+		stacks := make([]int, n)
+		for i := range stacks {
+			stacks[i] = 1 + rng.IntN(400) // short stacks make blinds, side pots and short all-ins common
+		}
+		gs := newTable(stacks...)
+		chips := 0
+		for _, s := range stacks {
+			chips += s
+		}
+		for hand := range 50 {
+			for _, i := range gs.RebuyBrokePlayers(1 + rng.IntN(400)) {
+				chips += gs.Players[i].Stack
+			}
+			if err := gs.StartHand(); err != nil {
+				t.Fatal(err)
+			}
+			for step := 0; !gs.IsHandComplete(); step++ {
+				if step > 500 {
+					t.Fatalf("game %d hand %d never ends", game, hand)
+				}
+				if !gs.IsWaitingForAction() {
+					if err := gs.AdvanceStreet(); err != nil {
+						t.Fatal(err)
+					}
+					continue
+				}
+				valid := gs.GetValidActions()
+				if len(valid) == 0 {
+					t.Fatalf("game %d hand %d: player %d is asked but offered nothing", game, hand, gs.CurrentPlayerIdx)
+				}
+				va := valid[rng.IntN(len(valid))]
+				amount := va.MinAmount
+				if va.MaxAmount > va.MinAmount {
+					amount += rng.IntN(va.MaxAmount - va.MinAmount + 1)
+				}
+				if err := gs.ProcessAction(Action{Type: va.Type, Amount: amount, PlayerIdx: gs.CurrentPlayerIdx}); err != nil {
+					t.Fatalf("game %d hand %d: offered %v %d was refused: %v", game, hand, va.Type, amount, err)
+				}
+			}
+			total, winnings := 0, 0
+			for _, p := range gs.Players {
+				if p.Stack < 0 {
+					t.Fatalf("game %d hand %d: %s has %d", game, hand, p.Name, p.Stack)
+				}
+				total += p.Stack
+				winnings += p.Winnings
+			}
+			if total != chips || winnings != 0 {
+				t.Fatalf("game %d hand %d: %d chips on the table (want %d), winnings add up to %d (want 0)", game, hand, total, chips, winnings)
+			}
+		}
 	}
 }

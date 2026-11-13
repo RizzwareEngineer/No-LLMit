@@ -169,3 +169,18 @@ test("the shot clock counts the engine's budget, from the time the turn had alre
   assert.equal(applyMessage({}, thinking(undefined, undefined), 1000)[T].clock, null);
   assert.equal(applyMessage({}, snap({ turn: thinking(undefined, 5000) }), 1000)[T].clock, null);
 });
+
+test("hand_start clears the last hand's turn, clock and notice, and turn numbers that start over never carry a turn into the next hand", () => {
+  const thinking = (turn, playerIdx) => ({ type: 'llm_thinking', payload: { turn, playerIdx, playerName: 'B', budgetMs: 45000, elapsedMs: 0 } });
+  let t = applyMessage({}, { seq: 1, table: T, type: 'game_state', payload: state(4) }, 0);
+  t = applyMessage(t, { seq: 2, table: T, type: 'table_notice', payload: { kind: 'saving', message: 'x' } }, 0);
+  t = applyMessage(t, { seq: 3, table: T, ...thinking(1, 2) }, 1000);
+  assert.equal(applyMessage(t, { seq: 4, table: T, type: 'table_notice', payload: { kind: '', message: '' } }, 0)[T].notice, null, 'an empty notice clears it');
+  const next = applyMessage(t, { seq: 4, table: T, type: 'hand_start', payload: {} }, 2000)[T];
+  assert.deepEqual([next.display, next.clock, next.notice], [null, null, null]);
+  // Hand 5's turn 1 by another seat, seen only in a snapshot: it is shown fresh, not as hand 4's turn 1.
+  const joined = applyMessage(t, snap({ state: state(5), turn: thinking(1, 3) }), 3000)[T];
+  assert.notEqual(joined.display, t[T].display);
+  assert.equal(joined.display.playerIdx, 3);
+  assert.equal(joined.clock.received, 3000);
+});

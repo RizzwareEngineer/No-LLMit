@@ -10,6 +10,7 @@ register('data:text/javascript,' + encodeURIComponent(`export const resolve = (s
 const { bb100Among, bb100Of, diffValues, leaderBy, sameValues } = await import('./stats.ts');
 const { handsTogetherAt, lastAtOrBefore, matchupsAt, parse, playedAt, profilesAt } = await import('./timeline.ts');
 const { formatAmount } = await import('./amounts.ts');
+const { formatDuration, zonedHourToday } = await import('./time.ts');
 
 test('diffValues: changed shared keys only, new minus old', () => {
   const d = diffValues({ a: 1, b: 2, c: 3 }, { a: 1, b: 5, c: 1, d: 9 });
@@ -62,4 +63,15 @@ test('formatAmount: chips whole, big blinds one decimal under 100 BB, whole from
   assert.equal(formatAmount(55, 10), `${n(5.5, 1)} BB`);
   assert.equal(formatAmount(10, 10), `${n(1, 1)} BB`);
   assert.equal(formatAmount(1234, 10), `${n(123, 0)} BB`);
+});
+
+test("zonedHourToday: the table's hour today in its own zone, whatever the UTC date; formatDuration", () => {
+  for (const [hour, zone, now, want] of [
+    [9, 'America/New_York', '2026-11-13T15:00:00.567Z', '2026-11-13T14:00:00.000Z'],
+    [9, 'America/New_York', '2026-11-14T03:00:00Z', '2026-11-13T14:00:00.000Z'], // still the 13th in New York
+    [21, 'America/New_York', '2026-07-01T12:00:00Z', '2026-07-02T01:00:00.000Z'], // summer time
+    [24, 'America/New_York', '2026-11-13T15:00:00Z', '2026-11-14T05:00:00.000Z'], // the next midnight
+    [9, 'Asia/Kolkata', '2026-11-13T20:00:00Z', '2026-11-14T03:30:00.000Z'], // already the 14th in India
+  ]) assert.equal(zonedHourToday(hour, zone, new Date(now)).toISOString(), want, `${hour}:00 ${zone} at ${now}`);
+  assert.deepEqual([59_999, 60_000, 3_599_999, 3_600_000, 22_320_000].map(formatDuration), ['under a minute', '1m', '59m', '1h 0m', '6h 12m']);
 });
