@@ -90,7 +90,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
               <div className="text-[11px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-              <div data-chips={player.stack} className="text-[10px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
+              <div data-chips={player.stack} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
             </div>
           </div>
           {/* Position badge, top-right */}
@@ -122,7 +122,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           <div className="flex items-center gap-2 min-w-0 mb-0.5">
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
-                <span data-chips={winAmount} className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+{formatAmount(winAmount, bb)}</span>
+                <span data-chips={winAmount} className="font-bold text-[11px] shrink-0 tabular-nums" style={{ color: 'rgb(15, 123, 108)' }}>+{formatAmount(winAmount, bb)}</span>
                 <span className="text-[11px] truncate min-w-0" style={{ color: 'rgb(15, 123, 108)' }}>({winDesc})</span>
               </div>
             ) : player.lastAction && showAction ? (

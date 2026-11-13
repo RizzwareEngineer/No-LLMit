@@ -133,7 +133,7 @@ export default function TableFelt({
             {winners.slice(0, 1).map((w, i) => (
               <div key={i} className="text-center">
                 <span className="text-green-700 font-bold text-xs">{w.name}</span>
-                <span data-chips={w.amount} className="text-green-700 text-xs whitespace-nowrap"> +{formatAmount(w.amount, bb)}</span>
+                <span data-chips={w.amount} className="text-green-700 text-xs whitespace-nowrap tabular-nums"> +{formatAmount(w.amount, bb)}</span>
                 <div className="text-green-700 text-[11px] truncate">{w.handDesc}</div>
               </div>
             ))}
@@ -147,8 +147,8 @@ export default function TableFelt({
           // stack with a bare amount, like the stacks in front of the seats; no second label.
           <div className="flex flex-col items-center gap-3">
             <div data-chips={pot} className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm" aria-label={`Pot ${formatAmount(pot, bb)}`}>
-              <div className="text-xs uppercase tracking-widest text-gray-600">POT</div>
-              <div className="text-lg text-gray-700 font-bold tabular-nums">
+              <div className="text-xs uppercase tracking-wider text-gray-600">POT</div>
+              <div className="text-[20px] leading-7 text-gray-700 font-bold tabular-nums">
                 <NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} />
               </div>
             </div>
@@ -205,7 +205,7 @@ export default function TableFelt({
         >
           <CircleNotch size={14} className="animate-spin" style={{ color: BLUE }} />
           <span className="text-[12px]" style={{ color: 'rgb(55, 53, 47)' }}>
-            Next hand in <span className="font-bold">{nextHandCountdown}s</span>
+            Next hand in <span className="font-bold tabular-nums">{nextHandCountdown}s</span>
           </span>
         </div>
       )}

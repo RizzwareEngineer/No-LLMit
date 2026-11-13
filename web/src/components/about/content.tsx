@@ -16,7 +16,7 @@ import { joinWaitlist, waitlistCount } from '@/lib/waitlist';
 
 export const RULE = 'rgba(55, 53, 47, 0.16)'; // hairlines between sections
 // A small uppercase label (13px muted, the stats' label size): a section's name, an eyebrow.
-export const LABEL = 'text-[13px] leading-snug font-medium uppercase tracking-[0.08em]';
+export const LABEL = 'text-[13px] leading-snug font-medium uppercase tracking-wider';
 
 // The day the open dataset ships: one constant, so moving it is a one-word change.
 const DATASET_DATE = 'Wednesday, Nov 18';

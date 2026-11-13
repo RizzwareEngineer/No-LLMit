@@ -116,7 +116,7 @@ export default function ReasoningPanel({
           )}
           
           {isIdle && (
-            <div className="text-xs italic" style={{ color: MUTED }}>
+            <div className="text-[13px] italic" style={{ color: MUTED }}>
               Waiting for next action…
             </div>
           )}

@@ -25,10 +25,10 @@ export default function WinningsPanel({ players }: WinningsPanelProps) {
     >
       <div className="flex items-start justify-between p-3 border-b border-notion">
         <div className="flex flex-col">
-          <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
+          <h2 className="text-[13px] leading-4 font-medium uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
         </div>
         {/* In big blinds the column's unit sits here, so the rows stay as narrow as in chips and no name is cut shorter. */}
-        {bb && <span data-unit className="text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>BB</span>}
+        {bb && <span data-unit className="text-[13px] leading-4 font-medium uppercase tracking-wider" style={{ color: MUTED }}>BB</span>}
       </div>
       <div className="flex-1 overflow-auto">
         {players.length > 0 && <Rankings players={players} />}
