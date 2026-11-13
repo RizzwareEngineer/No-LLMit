@@ -260,6 +260,8 @@ html:has([data-screen]) {
   /* Closing a card (StatsSections' back): what it adds fades out, in the card and in the tile standing in under it,
      before the tile glides back. An animation: a transition never starts on a property an animation holds. */
   .stats-room[data-leaving] :is(.add-in, .added) { animation: add-out 0.12s ease-out both; }
+  /* The tile standing in under the card (unseen until the swap) has them gone at once: it may mount a frame late. */
+  .stats-room[data-leaving] :is(#stats-panel, #pairwise-panel) :is(.add-in, .added) { animation: none; opacity: 0 !important; }
 }
 /* Until the pointer moves after a tile opens or closes, no hover readout (content moved under a still pointer). */
 .stats-room[data-still] [role=tooltip] { display: none !important; }

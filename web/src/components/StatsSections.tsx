@@ -233,16 +233,20 @@ export default memo(function StatsSections({
         const card = document.querySelector(`#${TILES[tile].land} .panel-scroll`);
         if (card) card.scrollTop = 0;
         // For two frames the landed tile stays shown under the card, unreceded: a card not yet fully painted in its
-        // first frame after the jump shows the same tile through, not the page.
+        // first frame after the jump would show the page through, or a frame of its chrome without its rows.
         const el = stage.current;
+        // ...and the card is drawn all but transparent meanwhile, so its layers are painted before it shows.
+        const chrome = tile === 'race' ? null : document.querySelector<HTMLElement>(`#${TILES[tile].land} .card-chrome`);
         handing = true;
         el?.style.setProperty('animation', 'none');
+        chrome?.style.setProperty('opacity', '0.001');
         jump(tile);
         document.getElementById(TILES[tile].land)?.focus({ preventScroll: true });
         requestAnimationFrame(() => requestAnimationFrame(() => {
           handing = false;
           busy = false;
           el?.style.removeProperty('animation');
+          chrome?.style.removeProperty('opacity');
           hideUnder();
           if (currentScreen() === tile) put('race', true); // as arriving under a card does (show)
         }));
@@ -261,8 +265,14 @@ export default memo(function StatsSections({
       if (at !== 'race') still();
       room.current?.toggleAttribute('data-leaving', fade > 0);
       put(at, true);
-      // The fade, then two frames: the snapped stage is painted under the card before the card leaves.
-      setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+      // The fade, then two frames: the snapped stage is painted under the card before the card leaves. The fade is
+      // waited for (its animations), not timed: mounting the stand-in can hold the main thread past FADE_MS.
+      const faded = () => Promise.race([
+        Promise.all((document.getElementById(TILES[at].land)?.getAnimations({ subtree: true }) ?? [])
+          .filter(a => (a as CSSAnimation).animationName === 'add-out').map(a => a.finished.catch(() => {}))),
+        new Promise(r => setTimeout(r, 500)),
+      ]);
+      setTimeout(() => faded().then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
         busy = false;
         // The tile standing in is scrolled as the card was.
         const from = document.querySelector(`#${TILES[at].land} .panel-scroll`), to = document.querySelector(`#${TILES[at].panel} .panel-scroll`);
@@ -277,7 +287,7 @@ export default memo(function StatsSections({
         hideUnder(); // now, not at the next frame's scroll event: that frame would paint the stage still hidden (blank)
         put(null);
         document.getElementById(TILES[at].panel)?.focus({ preventScroll: true });
-      })), fade);
+      }))), fade);
     };
     // Hover waits for the pointer to move: content gliding (or a card landing) under a still pointer shows no readout.
     let rest: number[] | null = null, last = [NaN, NaN];
