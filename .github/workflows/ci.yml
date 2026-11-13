@@ -1,0 +1,58 @@
+# The gate's non-browser steps from scripts/verify.sh, on every pull request.
+# No secrets, no deploy, no browser: the headless UI checks stay in scripts/verify.sh.
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: engine/go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: engine, go vet and go test
+        working-directory: engine
+        run: go vet ./... && go test ./...
+      - name: engine, race detector on api
+        working-directory: engine
+        run: go test -race ./api/...
+
+      - name: llm, pytest
+        working-directory: llm
+        run: pip install -r requirements-dev.txt && PYTHONPATH=. pytest -q
+      - name: dataset, pytest
+        working-directory: dataset
+        run: pip install -r requirements.txt && pytest -q
+
+      - name: web, install
+        working-directory: web
+        run: npm ci
+      - name: web, node tests
+        working-directory: web
+        run: node --experimental-strip-types --test src/lib/*.test.mjs
+      - name: web, tsc
+        working-directory: web
+        run: npx tsc --noEmit -p .
+      - name: web, eslint
+        working-directory: web
+        run: npx eslint src

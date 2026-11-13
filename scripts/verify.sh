@@ -78,8 +78,8 @@ fi
 if [ "$UI" = 1 ] && [ -z "$BASE" ]; then
   step "ui: production build (web/.next-verify)"
   export NEXT_DIST_DIR=.next-verify
-  # Rebuild only when web/ (the check scripts aside) differs from the last build's tree.
-  key=$(cd "$ROOT" && { git rev-parse HEAD:web; git diff HEAD -- web ':!web/scripts'; git ls-files -z --others --exclude-standard -- web ':!web/scripts' | xargs -0 cat; } | shasum | cut -c1-40)
+  # Rebuild only when web/ (the check scripts aside) or the engine address baked into the build (NEXT_PUBLIC_WS_URL) differs from the last build's.
+  key=$(cd "$ROOT" && { echo "${NEXT_PUBLIC_WS_URL-}"; git rev-parse HEAD:web; git diff HEAD -- web ':!web/scripts'; git ls-files -z --others --exclude-standard -- web ':!web/scripts' | xargs -0 cat; } | shasum | cut -c1-40)
   # Turbopack cannot follow a worker worktree's symlinked node_modules; webpack can.
   [ -L "$ROOT/web/node_modules" ] && bundler=--webpack || bundler=
   if [ "$(cat "$ROOT/web/.next-verify/VERIFY_KEY" 2>/dev/null)" = "$key" ]; then echo "unchanged since the last build: reused"
