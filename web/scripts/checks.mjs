@@ -135,25 +135,26 @@ const pageAt = async (w, h, id = 'stats', ctx = lane.getStore() ?? browser) => {
 };
 // One page per window size for the checks that only read it (each scrolls to its screen): a fresh page costs a load
 // and 5 s of settling. Checks that click, page, replay or navigate keep a fresh page of their own.
-// A parked page is frozen (no script, no frames), so it never takes CPU from the check that is running. Shared pages
-// live in a context of their own: a page left open in the main page's window would leave the main page a background
+// A parked page is a background tab behind a blank one (no frames, its timers throttled), so it takes little CPU from the
+// check that is running; the page asked for is brought to the front again, where it draws (a page frozen through CDP came
+// back hidden and drew nothing: its observers and scroll-driven state stood still at the screen it was left on). Shared
+// pages live in a context of their own: a page left open in the main page's window would leave the main page a background
 // tab, with no frames.
 const shared = () => ((lane.getStore() ?? browser).__shared ??= new Map());
-const life = (p, state) => p.__life.send('Page.setWebLifecycleState', { state });
 const sharedAt = async (w, h, id = 'stats') => {
   const p = shared().get(`${w}x${h}`), owner = lane.getStore() ?? browser;
   if (!p) {
-    const q = await pageAt(w, h, id, owner === browser ? (browser.__sharedCtx ??= await browser.createBrowserContext()) : owner);
-    q.__life = await q.createCDPSession(); shared().set(`${w}x${h}`, q); return q;
+    const ctx = owner === browser ? (browser.__sharedCtx ??= await browser.createBrowserContext()) : owner;
+    const q = await pageAt(w, h, id, ctx);
+    shared().__park ??= await ctx.newPage(); shared().set(`${w}x${h}`, q); await q.bringToFront(); return q;
   }
-  await life(p, 'active');
-  // A resumed page reconnects for a moment; measure once its connection bar is gone. Timer polling: a page
-  // in a background tab draws no frames, so frame polling would never run.
+  await p.bringToFront();
+  // A resumed page reconnects for a moment; measure once its connection bar is gone.
   await p.waitForFunction(() => getComputedStyle(document.querySelector('[data-page]')).getPropertyValue('--bar-h').trim() === '0px', { polling: 250, timeout: 15000 }).catch(() => {});
   await goto(p, id); await sleep(2000);
   return p;
 };
-const parkShared = () => Promise.all([...shared().values()].map(p => life(p, 'frozen').catch(() => {})));
+const parkShared = () => shared().__park?.bringToFront().catch(() => {});
 // The table's game stream, scripted (test-only). Before the page's scripts run, EventSource is wrapped: the engine's
 // messages reach the page until a check takes over, then only the messages the check plays, built from the engine's
 // last state (a game_state or a snapshot's) and sent to its table. So a check can put bets out, end a hand and deal the
