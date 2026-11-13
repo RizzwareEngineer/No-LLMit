@@ -370,7 +370,9 @@ func TestLoadSupabaseHandsWithSmallRowCap(t *testing.T) {
 	}
 }
 
-// After the first load, only hands newer than the newest one held are fetched, and they are added.
+// After the first load, only hands saved since the last load are fetched, and they are added.
+// The poll asks by save time: another writer's hand can start before this engine's newest
+// hand yet land after the load, and asking by start time would never fetch it.
 func TestStatsPollsOnlyNewHands(t *testing.T) {
 	hands := statsHands(t)
 	var mu sync.Mutex
@@ -379,17 +381,23 @@ func TestStatsPollsOnlyNewHands(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		loads++
-		return hands[:3:3], nil
+		return hands[:2:2], nil
 	})
 	c.loadSince = func(s time.Time) ([]history.HandRecord, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		since = append(since, s)
-		return []history.HandRecord{hands[2], hands[3]}, nil // the newest held comes back too
+		if len(since) == 1 {
+			return nil, nil
+		}
+		return []history.HandRecord{hands[2], hands[3]}, nil // the other writer's late hand, and ours again
 	}
 	c.pollEvery = 20 * time.Millisecond
 	c.seated = []string{"A", "B"}
+	start := time.Now()
 	go c.run()
+	waitFor(t, "2 hands", func() bool { _, s := c.get("/api/stats"); return s.Scope.Hands == 2 })
+	c.Add(hands[3]) // this engine's own hand, started after hands[2]
 	waitFor(t, "4 hands", func() bool { _, s := c.get("/api/stats"); return s.Scope.Hands == 4 })
 	time.Sleep(60 * time.Millisecond) // more polls: nothing new, nothing added twice
 	mu.Lock()
@@ -397,8 +405,13 @@ func TestStatsPollsOnlyNewHands(t *testing.T) {
 	if _, s := c.get("/api/stats"); s.Scope.Hands != 4 || loads != 1 {
 		t.Errorf("%d hands after %d full loads, want 4 after 1", s.Scope.Hands, loads)
 	}
-	if len(since) < 2 || !since[0].Equal(hands[2].StartedAt) || !since[len(since)-1].Equal(hands[3].StartedAt) {
-		t.Errorf("polled since %v, want %v first and %v once it was held", since, hands[2].StartedAt, hands[3].StartedAt)
+	if len(since) < 2 || since[0].Before(start.Add(-time.Minute)) || since[0].After(time.Now().Add(-time.Minute)) {
+		t.Fatalf("polled since %v, want a minute before the load at %v", since, start)
+	}
+	for i := 1; i < len(since); i++ {
+		if since[i].Before(since[i-1]) {
+			t.Errorf("polled since %v, want each poll to start where the last one did", since)
+		}
 	}
 }
 
@@ -413,7 +426,7 @@ func TestSupabaseHandsSince(t *testing.T) {
 	if _, err := loadSupabaseHands(srv.URL, "k", since); err != nil {
 		t.Fatal(err)
 	}
-	if len(queries) != 1 || !strings.Contains(queries[0], "started_at=gte.2026-11-10T01%3A56%3A46.280093Z") {
+	if len(queries) != 1 || !strings.Contains(queries[0], "created_at=gte.2026-11-10T01%3A56%3A46.280093Z") {
 		t.Errorf("queries %v", queries)
 	}
 }
