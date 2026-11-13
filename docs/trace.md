@@ -190,8 +190,8 @@ These steps repeat for every turn, with or without viewers.
 
 **25. Build the table's snapshot.**
 - **Where / trigger:** engine, table loop goroutine, holding `t.mu`. Every publish of steps 5, 6, 17, 18, 23, 24, 40 and 42 calls it.
-- **Code:** `engine/api/table.go` → `publish`; `engine/api/messages.go` → `ConvertGameState`.
-- **Does:** Builds a new `tableSnap` from the table's fields: `State`, `Turn`, `TurnApplied`, a copy of `ButtonCards`, `ButtonWinner`, `Notice` when its kind is not empty, and `nextHandAt` when the hand is complete. `State` includes every seat's hole cards: viewers see them all.
+- **Code:** `engine/api/table.go` → `publish`, `nextHandMs`; `engine/api/messages.go` → `ConvertGameState`.
+- **Does:** Builds a new `tableSnap` from the table's fields: `State`, `Turn`, `TurnApplied`, a copy of `ButtonCards`, `ButtonWinner`, `Notice` when its kind is not empty, and `nextHandAt` when the hand is complete. `State` includes every seat's hole cards: viewers see them all. A `game_state` among the publish's messages (`stateMessage` leaves its payload empty) gets this same `State`, with `nextHandInMs` from `nextHandMs`, the one rule step 15's snapshot also uses.
 - **Next:** Passes the snapshot and this publish's messages to the hub (step 26).
 
 **26. Append to the ring and swap the snapshot.**

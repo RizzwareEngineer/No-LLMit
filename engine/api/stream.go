@@ -145,9 +145,7 @@ func (v view) snapshotFrame() ([]byte, error) {
 	tables := make(map[string]tableSnap, len(v.tables))
 	for id, s := range v.tables {
 		c := *s
-		if ms := int(time.Until(c.nextHandAt).Milliseconds()); ms > 0 {
-			c.State.NextHandInMs = ms
-		}
+		c.State.NextHandInMs = nextHandMs(c.nextHandAt)
 		if c.Turn != nil {
 			if p, ok := c.Turn.Payload.(LLMThinkingPayload); ok { // the shot clock resumes where it is
 				p.ElapsedMs = int(time.Since(p.startedAt).Milliseconds())

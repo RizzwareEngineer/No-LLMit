@@ -206,7 +206,8 @@ func envFloat(key string, fallback float64) float64 {
 }
 
 // publish sends one table step to every viewer and swaps in the table's snapshot with it.
-// Callers hold t.mu.
+// The table is converted once: a game_state among msgs gets the snapshot's state as its
+// payload. Callers hold t.mu.
 func (t *Table) publish(msgs ...ServerMessage) {
 	snap := &tableSnap{
 		State:        ConvertGameState(t.gs),
@@ -222,18 +223,21 @@ func (t *Table) publish(msgs ...ServerMessage) {
 	if t.gs.IsHandComplete() {
 		snap.nextHandAt = t.nextHandAt
 	}
+	for i := range msgs {
+		if msgs[i].Type == MsgGameState {
+			state := snap.State
+			state.NextHandInMs = nextHandMs(snap.nextHandAt)
+			msgs[i].Payload = state
+		}
+	}
 	t.hub.publish(t.id, snap, nil, msgs...)
 }
 
-func (t *Table) stateMessage() ServerMessage {
-	payload := ConvertGameState(t.gs)
-	if t.gs.IsHandComplete() {
-		if ms := int(time.Until(t.nextHandAt).Milliseconds()); ms > 0 {
-			payload.NextHandInMs = ms
-		}
-	}
-	return ServerMessage{Type: MsgGameState, Payload: payload}
-}
+// stateMessage is a game_state; publish fills in its payload.
+func (t *Table) stateMessage() ServerMessage { return ServerMessage{Type: MsgGameState} }
+
+// nextHandMs is the whole milliseconds until at, 0 once it has passed or when at is zero.
+func nextHandMs(at time.Time) int { return max(int(time.Until(at).Milliseconds()), 0) }
 
 func (t *Table) sleep(d time.Duration) {
 	time.Sleep(time.Duration(float64(d) * t.pace))

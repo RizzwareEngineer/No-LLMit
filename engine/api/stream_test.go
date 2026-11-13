@@ -432,6 +432,35 @@ func TestSettledHandEndsWithTheFinalState(t *testing.T) {
 	}
 }
 
+// A settled hand's game_state and a snapshot taken then count down to the same next hand,
+// and a game_state carries the table as it is at publish time.
+func TestGameStateAndSnapshotShareTheNextHandCountdown(t *testing.T) {
+	tbl := testTable(t)
+	tbl.gs.Street = game.StreetComplete
+	tbl.nextHandAt = time.Now().Add(10 * time.Second)
+	tbl.publish(tbl.stateMessage())
+	frames := tbl.hub.since(0, false).frames
+	var live GameStatePayload
+	json.Unmarshal(parseFrames(t, frames[len(frames)-1])[0].Payload, &live)
+	b, _ := tbl.hub.since(0, true).snapshotFrame()
+	var snap struct{ Tables map[string]tableSnap }
+	json.Unmarshal(parseFrames(t, b)[0].Payload, &snap)
+	got := snap.Tables["tbl_test"].State
+	if live.NextHandInMs < 9000 || live.NextHandInMs > 10000 || got.NextHandInMs < 9000 || got.NextHandInMs > live.NextHandInMs {
+		t.Errorf("nextHandInMs live %d, snapshot %d", live.NextHandInMs, got.NextHandInMs)
+	}
+	if live.Street != "complete" || len(live.Players) != 3 || got.Street != "complete" {
+		t.Errorf("live %+v, snapshot %+v", live, got)
+	}
+
+	tbl.nextHandAt = time.Now().Add(-time.Second) // passed: no countdown
+	tbl.publish(tbl.stateMessage())
+	frames = tbl.hub.since(0, false).frames
+	if f := string(frames[len(frames)-1]); strings.Contains(f, "nextHandInMs") {
+		t.Errorf("a passed next hand still counts down: %s", f)
+	}
+}
+
 // One address gets maxStreamsPerAddr streams; other addresses are not affected.
 func TestStreamCapPerAddress(t *testing.T) {
 	h := newHub()
