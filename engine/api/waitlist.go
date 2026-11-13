@@ -8,13 +8,17 @@ package api
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"mime"
 	"net/http"
 	"net/mail"
 	"net/netip"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,16 +48,29 @@ func newWaitlist() waitlistStore {
 // waitlistHandler answers GET with {"count": N}; POST with 201 {"count": N} for a valid
 // address, the same whether it was new or already listed, so the reply never tells whether
 // someone signed up; 400 for an invalid one (bodies over 1 KB included) and 429 past the
-// sign-up limits; 503 when the store fails; 405 otherwise. A sign-up that was stored is
+// sign-up limits; 415 for a body that is not application/json and 403 for a browser on
+// another site (SITE_URL, default https://nollmit.vercel.app, and local dev servers may
+// post); 503 when the store fails; 405 otherwise. A sign-up that was stored is
 // never reported as failed: when only the count after it fails, the answer is the 201
 // without "count".
 func waitlistHandler(store waitlistStore) http.HandlerFunc {
 	limit := newWaitlistLimiter()
+	site := strings.TrimSuffix(cmp.Or(os.Getenv("SITE_URL"), "https://nollmit.vercel.app"), "/")
 	return func(w http.ResponseWriter, r *http.Request) {
 		status, out := http.StatusOK, map[string]any{}
 		switch r.Method {
 		case http.MethodGet:
 		case http.MethodPost:
+			// Only JSON, so another site's page cannot post without a preflight, and only from the
+			// site itself or a local dev server, so it cannot make its visitors' browsers sign up.
+			if ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct != "application/json" {
+				writeJSON(w, http.StatusUnsupportedMediaType, map[string]any{"error": "send application/json"})
+				return
+			}
+			if o := r.Header.Get("Origin"); o != "" && o != site && !isLocalOrigin(o) {
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+				return
+			}
 			// The body is read before a row is reserved, under a deadline, so a slow sender holds no row.
 			var in struct {
 				Email string `json:"email"`
@@ -102,6 +119,12 @@ func waitlistHandler(store waitlistStore) http.HandlerFunc {
 		}
 		writeJSON(w, status, out)
 	}
+}
+
+// isLocalOrigin reports whether o is a page served from this machine (a dev server).
+func isLocalOrigin(o string) bool {
+	u, err := url.Parse(o)
+	return err == nil && u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1")
 }
 
 // waitlistLimiter bounds what one sender, and all senders together, can add.

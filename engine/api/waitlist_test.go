@@ -16,7 +16,9 @@ import (
 func waitlistCall(t *testing.T, h http.Handler, method, body string) (int, map[string]any) {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(method, "/api/waitlist", strings.NewReader(body)))
+	req := httptest.NewRequest(method, "/api/waitlist", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
 	var out map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("%s: body is not JSON: %q", method, rec.Body.String())
@@ -242,6 +244,7 @@ func TestWaitlistCountsOnceUnderABurst(t *testing.T) {
 
 func waitlistFrom(h http.Handler, addr, email string) int {
 	req := httptest.NewRequest("POST", "/api/waitlist", strings.NewReader(`{"email": "`+email+`"}`))
+	req.Header.Set("Content-Type", "application/json")
 	if addr != "" {
 		req.Header.Set("X-Real-IP", addr)
 	}
@@ -339,6 +342,52 @@ func TestWaitlistDailyLimitHoldsUnderABurst(t *testing.T) {
 }
 
 // A sender that sends its body slowly holds no row of the day's while it does, and is cut off.
+// Another site's page cannot sign its visitors up: a simple form or text/plain post (no
+// preflight) is refused, and so is JSON from a foreign Origin, before any row is reserved.
+func TestWaitlistRefusesOtherSites(t *testing.T) {
+	t.Setenv("WAITLIST_DAILY_MAX", "1")
+	t.Setenv("SITE_URL", "https://site.example/")
+	list := &memoryWaitlist{emails: map[string]bool{}}
+	h := waitlistHandler(list)
+	post := func(ct, origin, email string) int {
+		req := httptest.NewRequest("POST", "/api/waitlist", strings.NewReader(`{"email": "`+email+`"}`))
+		if ct != "" {
+			req.Header.Set("Content-Type", ct)
+		}
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for _, c := range []struct {
+		ct, origin string
+		want       int
+	}{
+		{"text/plain", "https://evil.example", 415},
+		{"", "", 415},
+		{"application/x-www-form-urlencoded", "", 415},
+		{"application/json", "https://evil.example", 403},
+		{"application/json", "https://site.example.evil.example", 403},
+	} {
+		if code := post(c.ct, c.origin, "junk@example.com"); code != c.want {
+			t.Errorf("%q from %q: %d, want %d", c.ct, c.origin, code, c.want)
+		}
+	}
+	if n, _ := list.count(); n != 0 {
+		t.Errorf("%d junk rows stored", n)
+	}
+	for i, origin := range []string{"https://site.example", "http://localhost:3000", "http://127.0.0.1:3230", ""} {
+		if code := post("application/json; charset=utf-8", origin, fmt.Sprintf("ok%d@example.com", i)); code != 201 && !(i > 0 && code == 429) {
+			t.Errorf("from %q: %d", origin, code)
+		}
+	}
+	if n, _ := list.count(); n != 1 {
+		t.Errorf("the site's sign-up was not stored first: %d rows", n)
+	}
+}
+
 func TestWaitlistSlowBodyHoldsNoRow(t *testing.T) {
 	t.Setenv("WAITLIST_DAILY_MAX", "1")
 	defer func(d time.Duration) { waitlistBodyWait = d }(waitlistBodyWait)
