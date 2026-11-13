@@ -91,6 +91,11 @@ Environment variables the engine and the web read. Set them in Railway and Verce
 | `WAITLIST_DAILY_MAX` | 5000 | not in the repo | New waitlist rows per UTC day. |
 | `LLM_SERVICE_URL` | `http://localhost:5001` | not in the repo | Where the engine posts `/decide`. |
 | `NEXT_PUBLIC_SITE_URL` | `https://nollmit.vercel.app` | not in the repo | Base URL for page metadata (web). |
+| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8080/ws` | not in the repo; the engine's Railway address | The engine's address (web). `ws` becomes `http` and a trailing `/ws` is dropped; the stream and every API call go there. Unset, the site talks to localhost. |
+| `SUPABASE_URL` | unset | not in the repo | Supabase project URL (engine). With `SUPABASE_SERVICE_KEY`, hands, stats and the waitlist use Supabase; without both, hands go to `HAND_LOG_DIR` and are lost on a Railway restart. |
+| `SUPABASE_SERVICE_KEY` | unset | not in the repo; a secret | Supabase service-role key (engine). |
+| `HAND_LOG_DIR` | `data` | unset | Folder for `hands.jsonl` when Supabase is not set (engine). |
+| `PORT` | 8080 | set by Railway | Port the engine listens on. |
 
 A service without `TABLE_TIMEZONE` runs the table 24 hours a day.
 
