@@ -1979,6 +1979,8 @@ main(() => check('profiles-rows-no-overlap', 'During the replay, no two Profiles
 // Owner, 2026-11-07: "the animation that you use to switch rows in profits and losses, I want that same
 // animation for profiles". While the replay reorders Profiles, a row's content is seen mid-slide.
 main(() => check('profiles-rows-slide', 'When the replay reorders Profiles, rows slide to their new place (not snap)', async () => {
+  // The replay must be playing: the Trends checks before this one end it (Skip), so the tile's Replay restarts it.
+  await goto(pg, 'stats'); await sleep(1200); await pg.evaluate(() => document.querySelector('#race-panel [data-tile-replay]')?.click()); await sleep(300);
   await goto(pg, 'stats-table'); await sleep(300);
   const r = await pg.evaluate(src => new Promise(res => {
     const read = (0, eval)(src);
