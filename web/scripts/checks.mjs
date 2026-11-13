@@ -4072,8 +4072,9 @@ group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/
     }
     if (!v?.hands) { if (c.text) bad.push(`${c.key}: "${c.text}" for a pair without hands together`); continue; }
     if (col) n++;
-    const x = bb100(v, bb), want = bbText(x), whole = `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.round(Math.abs(x))}`; // a whole where the decimal does not fit
-    if (c.text !== want && c.text !== whole) bad.push(`${c.key}: shows "${c.text}", engine ${v.net_chips} chips over ${v.hands} hands = ${want}`);
+    // The figure in full where it fits (owner, 2026-11-09: not "+1k", "+2.4k"; HeadToHead's fitFigure), else a whole, else short.
+    const x = bb100(v, bb), want = bbText(x), sign = x > 0 ? '+' : x < 0 ? '−' : '', full = `${sign}${Math.abs(x).toFixed(1)}`, whole = `${sign}${Math.round(Math.abs(x))}`;
+    if (![full, whole, want].includes(c.text)) bad.push(`${c.key}: shows "${c.text}", engine ${v.net_chips} chips over ${v.hands} hands = ${full}`);
     if (+c.hands !== v.hands) bad.push(`${c.key}: data-hands ${c.hands}, engine ${v.hands}`);
   }
   if (n < 20) bad.push(`only ${n} pairs with hands together`);
