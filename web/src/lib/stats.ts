@@ -26,7 +26,7 @@ export interface ModelStats {
   net_chips: number;
   bb100: number;
   bb100_ci: [number, number] | null; // null below 2 hands
-  aiev_bb100: number;
+  aiev_bb100: number | null; // null only on a replayed Profiles row (lib/timeline profilesAt)
   vpip: number;
   pfr: number;
   three_bet: number | null;

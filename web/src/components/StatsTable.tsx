@@ -39,7 +39,7 @@ const GROUPS: { label: string; columns: Column[] }[] = [
     columns: [
       { key: 'hands', label: 'Hands', value: m => m.hands, render: m => m.hands.toLocaleString() },
       BB100,
-      { key: 'aiev_bb100', label: 'All-in adj.', value: m => m.aiev_bb100, render: m => signedBrief(m.aiev_bb100) },
+      { key: 'aiev_bb100', label: 'All-in adj.', value: m => m.aiev_bb100, render: m => (m.aiev_bb100 === null ? DASH : signedBrief(m.aiev_bb100)) },
     ],
   },
   {

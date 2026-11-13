@@ -114,7 +114,7 @@ export default function ModelDrawer({
               />
               <Fact label="Hands" value={m.hands.toLocaleString()} />
               <Fact label="Net" value={chips(m.net_chips)} color={netColor(m.net_chips)} />
-              <Fact label="All-in EV bb/100" value={signed(m.aiev_bb100)} />
+              <Fact label="All-in EV bb/100" value={m.aiev_bb100 === null ? DASH : signed(m.aiev_bb100)} />
             </dl>
             {m.hands < MIN_HANDS && (
               <div className="mt-4">

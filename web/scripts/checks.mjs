@@ -1682,6 +1682,30 @@ main(() => check('sync-in-step', 'While Trends replays, Profiles and Matchups st
 // two rows that swap cross mid-slide by design: the rule is judged on rows at rest.
 // Each row's name (the content that moves) and its offset from the row's top; rows without one (dash rows) are left out.
 const nameOffsets = () => [...document.querySelectorAll('#stats-card tbody tr')].map(r => { const s = r.querySelector('th > span.inline-block'); return s ? { o: s.getBoundingClientRect().top - r.getBoundingClientRect().top, b: s.getBoundingClientRect() } : null; }).filter(Boolean);
+group(() => check('profiles-replay-one-time', 'While the replay plays, a Profiles row shows no figure from today: 3-bet, C-bet, Fold to c-bet, WTSD, W$SD, Fold when check free, Misses and All-in adj. are dashes (the timeline does not carry them); at rest they are back', async () => {
+  const p = await pageAt(1440, 900, 'race');
+  try {
+    if (!(await p.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0)))) await clickText(p, 'Replay');
+    await sleep(1500); await goto(p, 'stats-table'); await sleep(1500);
+    const LACK = ['3-bet', 'C-bet', 'Fold to c-bet', 'WTSD', 'W$SD', 'Fold when check free', 'Misses', 'All-in adj.'];
+    const read = () => p.evaluate(lack => {
+      const ths = [...document.querySelectorAll('#stats-card thead tr:last-child th')];
+      const cols = lack.map(l => ths.findIndex(th => (th.querySelector('button') ?? th).textContent.trim() === l));
+      const playing = !!document.querySelector('[data-race-clock]'); // Trends' clock shows only while the replay plays
+      return { cols, playing, rows: [...document.querySelectorAll('#stats-card tbody tr')].filter(tr => tr.querySelector('th a')).map(tr => cols.map(i => (i < 0 ? null : tr.children[i]?.textContent.trim()))) };
+    }, LACK);
+    const during = await read();
+    const bad = [];
+    if (during.cols.some(i => i < 0)) bad.push(`columns missing: ${LACK.filter((_, k) => during.cols[k] < 0).join(', ')}`);
+    if (!during.playing) bad.push('the replay was not playing');
+    const today = during.rows.flatMap(r => r.filter(c => c !== null && c !== '—'));
+    if (today.length) bad.push(`while replaying, ${today.length} figures from today (e.g. ${today.slice(0, 3).join(', ')})`);
+    await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(800); await goto(p, 'stats-table'); await sleep(1500);
+    const after = await read();
+    if (!after.rows.some(r => r.some(c => c !== null && c !== '—'))) bad.push('at rest, still only dashes');
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${during.rows.length} rows: dashes while replaying, figures at rest` };
+  } finally { await p.close(); }
+}));
 main(() => check('profiles-rows-no-overlap', 'During the replay, no two Profiles rows overlap (rows at rest)', async () => {
   await goto(pg, 'race'); await sleep(800); // Skip and Replay live on the Trends card
   const playing = () => pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
@@ -2284,6 +2308,8 @@ main(() => check('profiles-no-llm-cost', 'No Errors, Latency or Cost columns in 
 // that'd be great to track". The card's Misses column shows the engine's miss_rate for each row (one decimal; a dash
 // from an engine without it), its header says what it counts, and it sorts lowest first (lower is better).
 main(() => check('profiles-misses', 'The Profiles card\'s Misses column shows the engine\'s miss_rate per model, defines it, and sorts lowest first', async () => {
+  // At rest: a replayed row shows a dash for Misses (the timeline does not carry it), so a replay still playing is skipped.
+  await goto(pg, 'race'); await sleep(800); await clickText(pg, 'Skip'); await sleep(800);
   await goto(pg, 'stats-table'); await sleep(1500);
   // The all-time stats, from the engine the page's build points at.
   const e = await engineStats(pg);
