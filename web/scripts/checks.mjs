@@ -320,6 +320,22 @@ group(async () => {
   });
 });
 
+// The felt's edge bets line up with the desktop ring of seats. On a phone the seats sit in a grid below the felt and
+// each shows its own bet, so the felt draws none (they lined up with no seat and could cover the board).
+group(() => check('phone-felt-no-bets', 'With bets out, the felt draws them at 1440x900 and draws none at 390x844', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, want] of [[1440, 900, true], [390, 844, false]]) {
+    const p = await scriptedTable(w, h);
+    await p.evaluate(() => window.__stream.bets()); await sleep(1000);
+    const r = await p.evaluate(() => { const all = [...document.querySelectorAll('[data-bet]')]; return { all: all.length, shown: all.filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 || b.height > 0; }).length }; });
+    seen.push(`${w}x${h}: ${r.shown} of ${r.all} bets drawn`);
+    if (!r.all) bad.push(`${w}x${h}: no bets in the page`);
+    else if (want ? r.shown < 3 : r.shown) bad.push(`${w}x${h}: ${r.shown} of ${r.all} bets drawn on the felt`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+
 // The table's amounts in chips or in big blinds (owner 2026-11-08: "a toggle view if someone cares about looking at the
 // game by big blinds versus just the absolute size of the stack"). One switch in the header's status row, kept across a
 // reload. Every amount on the table screen follows it in one format: seat stacks and actions, bets, the pot, Profits &

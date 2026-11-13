@@ -77,12 +77,13 @@ function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
   );
 }
 
-// A small chip stack and the amount, like CoinPoker: each street's bets sit in front of the seats.
+// A small chip stack and the amount, like CoinPoker: each street's bets sit in front of the seats. Not on a phone: its
+// seats sit in a grid below the felt and show their own bets, so edge bets would line up with none (and cover the board).
 function BetStack({ seat, amount, style }: { seat: number; amount: number; style: CSSProperties }) {
   const bb = useBigBlind();
   if (amount <= 0) return null;
   return (
-    <div data-bet={seat} className="absolute flex items-center gap-1.5" style={style} title={`Bet ${formatAmount(amount, bb)}`}>
+    <div data-bet={seat} className="absolute flex items-center gap-1.5 max-md:hidden" style={style} title={`Bet ${formatAmount(amount, bb)}`}>
       <ChipStack amount={amount} />
       <span data-chips={amount} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(amount, bb)}</span>
     </div>
