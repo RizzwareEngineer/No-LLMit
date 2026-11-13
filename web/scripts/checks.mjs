@@ -3870,6 +3870,46 @@ group(() => check('about-dial-touch-motion', 'At 390x844 with touch, one vertica
   await q.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
+// Every line of the API usage card fits on one line (owner's rule: UI text fits one line); the mock provider's test-mode
+// line wrapped "called" onto a second line at 1440x900.
+group(() => check('usage-card-one-line', 'At 1440x900, 1728x1117 and 390x844 every text line in the API usage card sits on one line', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) {
+    const p = await newPage(); await p.setViewport({ width: w, height: h });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].some(e => e.getBoundingClientRect().width > 0 && e.closest('.rounded')?.textContent.includes('/')), { timeout: 60000, polling: 250 }).catch(() => {});
+    await sleep(1500);
+    const r = await p.evaluate(() => {
+      const a = [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].find(e => e.getBoundingClientRect().width > 0);
+      if (!a) return null;
+      const lines = [...a.closest('.rounded').querySelectorAll('*')].filter(e => [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+      return lines.map(e => {
+        const rg = document.createRange(); rg.selectNodeContents(e);
+        return { text: e.textContent.trim(), n: new Set([...rg.getClientRects()].filter(q => q.width > 0).map(q => Math.round(q.top))).size };
+      });
+    });
+    const at = `${w}x${h}`;
+    if (!r) { bad.push(`${at}: no usage card`); await p.close(); continue; }
+    const wrapped = r.filter(l => l.n > 1);
+    seen.push(`${at}: ${r.length} lines`);
+    for (const l of wrapped) bad.push(`${at}: "${l.text}" on ${l.n} lines`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// The watching count's first answer already counts the page asking: the usage poll starts once the page's own stream
+// is open, as the hub counts a stream only when its request arrives (a fetch at mount read "0 watching" for 30 s).
+group(() => check('watching-counts-me', 'A fresh table page\'s status label, when it first reads "· N watching", has N of at least 1, since the page itself is watching', async () => {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  const first = await p.waitForFunction(() => {
+    const m = [...document.querySelectorAll('span')].map(e => e.textContent.match(/· ([\d,]+) watching/)).find(Boolean);
+    return m ? m[1] : false;
+  }, { timeout: 20000, polling: 50 }).then(h => h.jsonValue()).catch(() => null);
+  await p.close();
+  const n = first === null ? null : +first.replace(/,/g, '');
+  return { pass: n !== null && n >= 1, detail: n === null ? 'no "· N watching" within 20 s' : `first read "· ${first} watching"` };
+}));
 // Owner, 2026-11-12: "the donation part is not like... apparent". The ask sits on the table screen, in the API usage card
 // beside the calls it pays for: a filled "Sponsor on GitHub" link, its sentence on one line, and Profits & Losses above
 // still shows every seat.

@@ -98,7 +98,7 @@ export default function Home() {
 
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
-  const { usage, error: usageError } = useUsage();
+  const { usage, error: usageError } = useUsage(connection !== 'connecting'); // the hub counts this page once its stream opens
   const watching = usageError ? undefined : usage?.table?.spectators;
   const isLive = connection === 'open' && !tableNotice;
   // The connection bar only once the server has been unreachable for a while (useGameState): a bar shown and hidden on a
