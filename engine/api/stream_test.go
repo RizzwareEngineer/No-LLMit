@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -510,4 +511,54 @@ func TestStreamCapPerAddress(t *testing.T) {
 		_, held := h.addrs["5.6.7.8"]
 		return !held && h.addrs["1.2.3.4"] == maxStreamsPerAddr
 	})
+}
+
+// peeked: [] once a hand is dealt, the seat added at its llm_thinking, carried by the live game_state and the snapshot.
+func TestPeekedFollowsTheTurns(t *testing.T) {
+	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
+	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) {
+		r := reply("CALL", 0)
+		return &r, nil
+	}
+	tbl := testTable(t)
+	if _, err := tbl.dealHand(); err != nil {
+		t.Fatal(err)
+	}
+	snap := func() *tableSnap { return tbl.hub.since(0, true).tables[tbl.id] }
+	if p := snap().State.Peeked; p == nil || len(p) != 0 {
+		t.Fatalf("after hand_start: peeked %v, want []", p)
+	}
+	if b, _ := json.Marshal(tbl.stateMessage().Payload); !strings.Contains(string(b), `"peeked":[]`) {
+		t.Errorf("game_state without peeked: %s", b)
+	}
+	seat := tbl.gs.CurrentPlayerIdx
+	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+	from := tbl.hub.seq
+	tbl.playTurn()
+	thinking := false
+	for _, f := range tbl.hub.since(from, false).frames {
+		if strings.Contains(string(f), `"type":"llm_thinking"`) {
+			thinking = true
+		}
+		if strings.Contains(string(f), `"type":"game_state"`) && !strings.Contains(string(f), fmt.Sprintf(`"peeked":[%d]`, seat)) {
+			t.Errorf("game_state after seat %d's turn: %s", seat, f)
+		}
+	}
+	if !thinking {
+		t.Error("no llm_thinking")
+	}
+	if p := snap().State.Peeked; len(p) != 1 || p[0] != seat {
+		t.Errorf("snapshot peeked %v, want [%d]", p, seat)
+	}
+	v := tbl.hub.since(0, true)
+	b, err := v.snapshotFrame()
+	if err != nil || !strings.Contains(string(b), fmt.Sprintf(`"peeked":[%d]`, seat)) {
+		t.Errorf("snapshotFrame without peeked [%d]: %s %v", seat, b, err)
+	}
+	if _, err := tbl.dealHand(); err != nil {
+		t.Fatal(err)
+	}
+	if p := snap().State.Peeked; len(p) != 0 {
+		t.Errorf("next hand: peeked %v", p)
+	}
 }
