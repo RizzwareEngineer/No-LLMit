@@ -365,6 +365,21 @@ group(() => check('table-shot-clock', 'The shot clock shows the turn\'s budgetMs
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 
+group(() => check('table-no-turn-glow', 'The seat on the clock glows; once the hand is complete no seat does, through the next-hand pause', async () => {
+  const p = await scriptedTable(1440, 900), seen = [];
+  const glowing = () => p.evaluate(() => [...document.querySelectorAll('td [data-seat].border-animation')].map(e => +e.dataset.seat));
+  try {
+    await p.evaluate(() => window.__sock.bets()); await sleep(1000);
+    const during = await glowing();
+    await p.evaluate(() => window.__sock.end(8000)); await sleep(500);
+    const after = await glowing();
+    await sleep(3000);
+    const later = await glowing();
+    seen.push(`seat 3 acting: [${during}]`, `hand complete: [${after}]`, `3.5 s into the pause: [${later}]`);
+    return { pass: during.length === 1 && during[0] === 3 && !after.length && !later.length, detail: seen.join('; ') };
+  } finally { await p.close(); }
+}));
+
 group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns every amount on the table screen (stacks, actions, bets, pot, P&L, the reasoning action) into big blinds and back, the model\'s words aside; kept across a reload; no size changes, nothing newly cut, wrapped or clipped', async () => {
   const bad = [], seen = [];
   const fmt = (chips, bb, unit) => { const v = chips / bb; return v.toLocaleString('en-US', { maximumFractionDigits: v < 100 ? 1 : 0 }) + (unit ? ' BB' : ''); };

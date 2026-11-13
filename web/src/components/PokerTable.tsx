@@ -90,7 +90,7 @@ export default function PokerTable({
   const seat = (idx: number) => blank ? <div data-seat={idx} className="h-full w-full rounded bg-white" style={cardStyle} /> : players[idx] && (
     <Player
       player={players[idx]}
-      active={idx === currentPlayerIdx}
+      active={idx === currentPlayerIdx && street !== 'complete'} // between hands nobody is on the clock
       position={hidePositions ? '' : players[idx].position}
       folded={players[idx]?.status === 'folded'}
       winAmount={winnersByIdx[idx]?.amount}
