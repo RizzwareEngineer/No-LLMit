@@ -69,9 +69,21 @@ move the engine did not take from the model (a fallback) shows `CHECK` or `FOLD`
 `FOLD`, `CHECK`, `CALL`, `BET`, `RAISE` or `ALL-IN` (with a hyphen), with the same amount.
 
 In `game_state`, each player's `position` is the name the model in that seat is told and the
-saved hand keeps (`game.PositionName`), clockwise from the button: 9 seats `BTN SB BB UTG
-UTG+1 MP MP+1 HJ CO`; 8 drops `CO`; 7 drops `HJ` too; 6 `BTN SB BB UTG MP CO`; 5 `BTN SB BB
-UTG MP`; 4 `BTN SB BB UTG`; 3 `BTN SB BB`; heads-up `BTN BB` (the button posts the small blind).
+saved hand keeps (`game.PositionName`), clockwise from the button. The seat before the
+button is always `CO`:
+
+| Seats | Positions |
+|---|---|
+| 2 | `BTN BB` (the button posts the small blind) |
+| 3 | `BTN SB BB` |
+| 4 | `BTN SB BB CO` |
+| 5 | `BTN SB BB UTG CO` |
+| 6 | `BTN SB BB UTG MP CO` |
+| 7 | `BTN SB BB UTG MP HJ CO` |
+| 8 | `BTN SB BB UTG UTG+1 MP HJ CO` |
+| 9 | `BTN SB BB UTG UTG+1 MP MP+1 HJ CO` |
+
+Hands saved before this rule at 4, 5, 7 or 8 seats name those seats differently (no `CO`).
 
 In `game_state`, each of `winners` is one pot won: `amount` is the chips that pot paid the
 winner (`potNumber` 0 is a pot won by everyone else folding, and its `amount` is the whole

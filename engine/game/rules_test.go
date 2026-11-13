@@ -437,17 +437,17 @@ func TestUncontestedWinnerAmountIsThePot(t *testing.T) {
 	}
 }
 
-// Position names by table size, from the button clockwise. Heads-up the button posts the
-// small blind, so the other seat is the big blind.
+// Position names by table size, from the button clockwise: the seat before the button is
+// always CO. Heads-up the button posts the small blind, so the other seat is the big blind.
 func TestPositionNames(t *testing.T) {
 	want := map[int][]string{
 		2: {"BTN", "BB"},
 		3: {"BTN", "SB", "BB"},
-		4: {"BTN", "SB", "BB", "UTG"},
-		5: {"BTN", "SB", "BB", "UTG", "MP"},
+		4: {"BTN", "SB", "BB", "CO"},
+		5: {"BTN", "SB", "BB", "UTG", "CO"},
 		6: {"BTN", "SB", "BB", "UTG", "MP", "CO"},
-		7: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1"},
-		8: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ"},
+		7: {"BTN", "SB", "BB", "UTG", "MP", "HJ", "CO"},
+		8: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "HJ", "CO"},
 		9: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ", "CO"},
 	}
 	for n, names := range want {
