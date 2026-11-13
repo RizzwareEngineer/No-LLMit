@@ -3,7 +3,7 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameStream } from './api.ts';
-import { applyMessage, applyStats } from './stream.ts';
+import { applyMessage, applyStats, clockLeft } from './stream.ts';
 
 // Every EventSource the client opens; the test makes each one open or fail.
 let opened = [];
@@ -83,15 +83,16 @@ test('a snapshot keeps the turn on screen and replaces everything else', () => {
   let t = applyMessage({}, { seq: 1, table: T, type: 'game_state', payload: state(4) }, 0);
   t = applyMessage(t, { seq: 2, table: T, type: 'table_notice', payload: { kind: 'cap', message: 'x' } }, 0);
   t = applyMessage(t, { seq: 3, table: T, type: 'button_card', payload: { playerIdx: 0, playerName: 'A', card: 'Ah' } }, 0);
-  const thinking = { type: 'llm_thinking', payload: { turn: 5, playerIdx: 2, playerName: 'B' } };
+  const thinking = { type: 'llm_thinking', payload: { turn: 5, playerIdx: 2, playerName: 'B', budgetMs: 45000, elapsedMs: 0 } };
   t = applyMessage(t, { seq: 4, table: T, ...thinking }, 1000);
   const kept = applyMessage(t, snap({ turn: thinking, buttonCards: [{ playerIdx: 0, playerName: 'A', card: 'Ah' }] }), 5000);
   assert.equal(kept[T].display, t[T].display, 'same hand and turn: display kept');
   assert.equal(kept[T].clock, t[T].clock, 'and the clock');
   assert.equal(kept[T].notice, null, 'a null notice clears the one on screen');
   assert.equal(kept[T].buttonDetermination.cards.length, 1, 'button cards replaced, not appended');
-  const fresh = applyMessage(t, snap({ turn: { type: 'llm_thinking', payload: { turn: 6, playerIdx: 3, playerName: 'C' } } }), 5000);
-  assert.equal(fresh[T].clock.start, 5000, 'another turn: set as if just arrived');
+  const fresh = applyMessage(t, snap({ turn: { type: 'llm_thinking', payload: { turn: 6, playerIdx: 3, playerName: 'C', budgetMs: 45000, elapsedMs: 20000 } } }), 5000);
+  assert.equal(fresh[T].clock.received, 5000, 'another turn: set as if just arrived');
+  assert.equal(fresh[T].clock.elapsedMs, 20000, "with the time the turn had already run");
   assert.equal(applyMessage(t, snap({}), 5000)[T].display, null, 'a null turn clears the display');
   assert.deepEqual(Object.keys(applyMessage(t, { seq: 9, type: 'snapshot', payload: { tables: {} } }, 0)), [], 'tables absent are dropped');
 });
@@ -106,7 +107,7 @@ test('changed stats rows replace held rows by name, in model_names order', () =>
 });
 
 test('a snapshot shows thinking, reasoning or revealed, and keeps the very display object of the turn on screen', () => {
-  const thinking = { type: 'llm_thinking', payload: { turn: 5, playerIdx: 2, playerName: 'B' } };
+  const thinking = { type: 'llm_thinking', payload: { turn: 5, playerIdx: 2, playerName: 'B', budgetMs: 45000, elapsedMs: 0 } };
   const action = { type: 'llm_action', payload: { turn: 5, playerIdx: 2, playerName: 'B', action: 'RAISE', amount: 60, reason: 'strong' } };
   const phase = (t) => t[T].display.phase;
   // A joiner: each phase from the snapshot alone.
@@ -151,4 +152,19 @@ test("a snapshot's peeked seats survive into the table view, and the next game_s
   assert.deepEqual(t[T].gameState.peeked, [3, 5]);
   t = applyMessage(t, { seq: 10, table: T, type: 'game_state', payload: { ...state(4), peeked: [3, 5, 6] } }, 2000);
   assert.deepEqual(t[T].gameState.peeked, [3, 5, 6]);
+});
+
+test("the shot clock counts the engine's budget, from the time the turn had already run when it was received", () => {
+  const thinking = (budgetMs, elapsedMs) => ({ seq: 2, table: T, type: 'llm_thinking', payload: { turn: 3, playerIdx: 1, playerName: 'A', budgetMs, elapsedMs } });
+  let t = applyMessage({}, thinking(45000, 0), 1000);
+  assert.equal(clockLeft(t[T].clock, 1000), 45, 'live: the whole budget');
+  assert.equal(clockLeft(t[T].clock, 11000), 35, '10 s later');
+  assert.equal(clockLeft(t[T].clock, 60000), 0, 'never below 0');
+  // A viewer who joins 20.48 s into the turn sees what is really left, not a full clock.
+  t = applyMessage({}, snap({ turn: thinking(45000, 20480) }), 7000);
+  assert.equal(clockLeft(t[T].clock, 7000), 25);
+  assert.equal(clockLeft(t[T].clock, 17000), 15);
+  // No budget from the engine: no clock at all.
+  assert.equal(applyMessage({}, thinking(undefined, undefined), 1000)[T].clock, null);
+  assert.equal(applyMessage({}, snap({ turn: thinking(undefined, 5000) }), 1000)[T].clock, null);
 });

@@ -40,9 +40,21 @@ export interface TableView {
   gameState: GameState | null;
   notice: TableNoticePayload | null; // table closed, capped, in an outage or saving
   display: DisplayState | null;
-  clock: { start: number; running: boolean } | null; // the shot clock: llm_thinking starts it, the next game_state stops it
+  clock: Clock | null; // the shot clock: llm_thinking starts it, the next game_state stops it; null when the engine sent no budget
   buttonDetermination: ButtonDetermination | null;
 }
+
+// The turn's time as the engine sent it (docs/stream.md): budgetMs for the turn, elapsedMs already run when it was sent
+// (a snapshot's), and when this page received it.
+export interface Clock {
+  budgetMs: number;
+  elapsedMs: number;
+  received: number;
+  running: boolean;
+}
+
+// Whole seconds left on the shot clock at `now`, never below 0.
+export const clockLeft = (c: Clock, now: number) => Math.max(0, Math.ceil((c.budgetMs - c.elapsedMs - (now - c.received)) / 1000));
 
 export type Tables = Record<string, TableView>;
 
@@ -63,11 +75,11 @@ interface SnapshotTable {
 // game_state with the action applied, each at the moment it should appear.
 function applyTurn(v: TableView, turn: Turn, now: number): TableView {
   if (turn.type === 'llm_thinking') {
-    const p = turn.payload as { turn: number; playerIdx: number; playerName: string };
+    const p = turn.payload as { turn: number; playerIdx: number; playerName: string; budgetMs?: number; elapsedMs?: number };
     return {
       ...v,
       display: { phase: 'thinking', turn: p.turn, playerIdx: p.playerIdx, playerName: p.playerName, reason: null, action: null, amount: 0 },
-      clock: { start: now, running: true },
+      clock: p.budgetMs ? { budgetMs: p.budgetMs, elapsedMs: p.elapsedMs ?? 0, received: now, running: true } : null,
     };
   }
   const p = turn.payload as LLMDecision;

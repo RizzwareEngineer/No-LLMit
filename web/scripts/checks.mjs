@@ -188,7 +188,7 @@ const scriptSocket = p => p.evaluateOnNewDocument(() => {
     const l = s.last, raiser = l.players[3].name, bet = [0, 5, 10, 35];
     return play(open, { type: 'game_state', payload: { ...l, street: 'preflop', pot: 50, currentBet: 35, winners: undefined, nextHandInMs: undefined,
       players: l.players.map((q, i) => ({ ...q, status: 'active', currentBet: bet[i] ?? 0, lastAction: i === 3 ? 'RAISE' : '', lastAmount: i === 3 ? 35 : 0 })) } },
-    { type: 'llm_thinking', payload: { playerIdx: 3, playerName: raiser } },
+    { type: 'llm_thinking', payload: { playerIdx: 3, playerName: raiser, budgetMs: 45000, elapsedMs: 0 } },
     { type: 'llm_action', payload: { playerIdx: 3, playerName: raiser, action: 'RAISE', amount: 35, reason: 'Raising to 35 with a strong hand.' } });
   };
   // The hand ends: seat 0 takes the pot at showdown, and the next hand is due in `ms`.
@@ -339,6 +339,30 @@ group(() => check('table-positions', 'Each seat\'s badge is the position the eng
     await test('next deal');
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+
+group(() => check('table-shot-clock', 'The shot clock shows the turn\'s budgetMs - elapsedMs from the stream (a viewer who joins mid-turn sees the time really left) and counts down; with no budgetMs there is no clock', async () => {
+  const p = await scriptedTable(1440, 900), bad = [], seen = [];
+  const read = () => p.evaluate(() => { const c = document.querySelector('.font-mono.text-lg'); return c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null; });
+  const think = (budgetMs, elapsedMs) => p.evaluate((budgetMs, elapsedMs) => { const s = window.__sock; s.scripted = true;
+    s.feed({ type: 'llm_thinking', payload: { turn: 1, playerIdx: 2, playerName: s.last.players[2].name, budgetMs, elapsedMs } }); }, budgetMs, elapsedMs);
+  const near = (got, want) => got !== null && Math.abs(got - want) <= 1;
+  try {
+    for (const [budget, elapsed] of [[45000, 0], [45000, 20480], [30000, 0]]) {
+      await think(budget, elapsed); await sleep(300);
+      const want = Math.ceil((budget - elapsed) / 1000), now = await read();
+      await sleep(2200);
+      const later = await read();
+      seen.push(`${budget}/${elapsed}: ${now}s, then ${later}s`);
+      if (!near(now, want)) bad.push(`budgetMs ${budget}, elapsedMs ${elapsed}: shows ${now ?? 'no clock'}, want ${want}s`);
+      if (!near(later, want - 2)) bad.push(`budgetMs ${budget}, elapsedMs ${elapsed}: 2.2 s later shows ${later ?? 'no clock'}, want ${want - 2}s`);
+    }
+    await think(undefined, undefined); await sleep(1300);
+    const none = await read();
+    seen.push(`no budget: ${none ?? 'no clock'}`);
+    if (none !== null) bad.push(`no budgetMs: a ${none}s clock is shown`);
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 
 group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns every amount on the table screen (stacks, actions, bets, pot, P&L, the reasoning action) into big blinds and back, the model\'s words aside; kept across a reload; no size changes, nothing newly cut, wrapped or clipped', async () => {

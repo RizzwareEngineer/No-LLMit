@@ -3,12 +3,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { GameStream, GameState, TableNoticePayload } from '@/lib/api';
 import { StatsResponse } from '@/lib/stats';
-import { ButtonDetermination, DisplayState, EMPTY_TABLE, Tables, applyMessage, applyStats } from '@/lib/stream';
+import { ButtonDetermination, DisplayState, EMPTY_TABLE, Tables, applyMessage, applyStats, clockLeft } from '@/lib/stream';
 
 export type { DisplayState } from '@/lib/stream';
 
-// The engine's per-turn time limit, shown as the shot clock.
-const SHOT_CLOCK_MS = 30000;
 // How long the stream may be down before the page says Offline: the server ends every stream after 10 to 14 minutes,
 // and the reopen that follows should not flash the connection bar.
 const OFFLINE_AFTER_MS = 4000;
@@ -20,7 +18,7 @@ interface UseGameStateReturn {
   gaveUp: boolean; // reconnect attempts exhausted
   tableNotice: TableNoticePayload | null; // table closed, capped, in an outage or saving
   displayState: DisplayState | null;
-  shotClockRemaining: number; // Seconds remaining on shot clock
+  shotClockRemaining: number | null; // seconds left on the shot clock; null: no clock (the engine sent no budget)
   buttonDetermination: ButtonDetermination | null;
   stats: StatsResponse | null; // all-time stats, from the stream
   retry: () => void;
@@ -39,16 +37,13 @@ export function useGameState(): UseGameStateReturn {
 
   // The shot clock ticks from llm_thinking until the next game_state, then holds its last value.
   const { clock } = table;
-  const [tick, setTick] = useState({ start: 0, left: 30 });
+  const [tick, setTick] = useState({ received: 0, left: 0 });
   useEffect(() => {
     if (!clock?.running) return;
-    const start = clock.start;
-    const id = setInterval(() => {
-      setTick({ start, left: Math.max(0, Math.ceil((SHOT_CLOCK_MS - (Date.now() - start)) / 1000)) });
-    }, 1000);
+    const id = setInterval(() => setTick({ received: clock.received, left: clockLeft(clock, Date.now()) }), 1000);
     return () => clearInterval(id);
-  }, [clock?.running, clock?.start]);
-  const shotClockRemaining = clock && tick.start === clock.start ? tick.left : 30;
+  }, [clock]);
+  const shotClockRemaining = !clock ? null : tick.received === clock.received ? tick.left : clockLeft(clock, clock.received);
 
   // One stream for the page's life, closed by the cleanup whenever it unmounts (Strict Mode's double mount leaves one).
   useEffect(() => {
