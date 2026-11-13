@@ -50,7 +50,7 @@ The payloads are the Go structs in `engine/api/messages.go`.
 | `hand_start` | `{"handNumber":12}` |
 | `street_change` | `{"street":"flop"}` |
 | `hand_complete` | `{"winners":[WinnerPayload],"handNumber":12}` |
-| `llm_thinking` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4"}` |
+| `llm_thinking` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4","budgetMs":45000,"elapsedMs":0}` |
 | `llm_action` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4","action":"RAISE","amount":60,"reason":"..."}` |
 | `button_card` | `{"playerIdx":0,"playerName":"Phi-4","card":"Ah"}` |
 | `button_winner` | `{"playerIdx":0,"playerName":"Phi-4"}` |
@@ -58,6 +58,13 @@ The payloads are the Go structs in `engine/api/messages.go`.
 
 `turn` numbers the hand's turns from 1; a turn's `llm_thinking` and `llm_action` carry the
 same number.
+
+`budgetMs` is how long the model has for this turn: `turn_budget_s` from the LLM service's
+`GET /models` (`llm/decide.py` `TURN_BUDGET`), read once at startup, or the engine's own
+50 s decide timeout when the service did not say. `elapsedMs` is how long the turn has run:
+`0` on the live event, and in a snapshot's `turn` the time since the event was published,
+worked out when the snapshot is written to that stream. The shot clock shows
+`budgetMs - elapsedMs`.
 
 Events of one table step arrive back to back: `hand_start` then `game_state`; `street_change`
 (and `hand_complete` when the hand ends), then `game_state`; after a voided hand, `table_notice`
@@ -85,12 +92,12 @@ present: `turn`, `notice` and `buttonWinner` are `null` when there is none, `but
 `llm_thinking`. `turnApplied` is `true` when `turn` is an `llm_action` that the `game_state`
 after it has already applied, else `false`. So a snapshot is the whole picture on screen:
 thinking, reasoning, or the revealed action. `notice` is `null` when the kind is `""`. `state.nextHandInMs` is worked out when the snapshot is written to
-that stream. Examples here are wrapped and abbreviated; on the wire each is one line.
+that stream, and so is an `llm_thinking` turn's `elapsedMs`. Examples here are wrapped and abbreviated; on the wire each is one line.
 
 ```json
 {"seq":1042,"type":"snapshot","payload":{"tables":{"tbl_9f2c41d07ab35e18":{
   "state":{"id":"game_1762804860000000000","handNumber":12,"street":"flop","pot":120,"communityCards":["Ah","7d","2c"],"currentPlayerIdx":3,"buttonIdx":1,"players":[],"stakes":{"smallBlind":5,"bigBlind":10},"gameStartTime":"2026-11-10T20:01:00Z"},
-  "turn":{"type":"llm_thinking","payload":{"turn":4,"playerIdx":3,"playerName":"Phi-4"}},
+  "turn":{"type":"llm_thinking","payload":{"turn":4,"playerIdx":3,"playerName":"Phi-4","budgetMs":45000,"elapsedMs":20480}},
   "turnApplied":false,
   "notice":null,
   "buttonCards":[],

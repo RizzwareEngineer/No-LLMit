@@ -538,7 +538,10 @@ func (t *Table) playTurn() {
 	t.recorder.beginDecision(t.gs, validActions)
 	t.turns++
 	turnNum := t.turns
-	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{Turn: turnNum, PlayerIdx: playerIdx, PlayerName: playerName}}
+	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{
+		Turn: turnNum, PlayerIdx: playerIdx, PlayerName: playerName,
+		BudgetMs: int(client.TurnBudget.Milliseconds()), startedAt: time.Now(),
+	}}
 	t.turn, t.turnApplied = &thinking, false
 	t.publish(thinking)
 	t.mu.Unlock()

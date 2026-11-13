@@ -45,7 +45,7 @@ The engine and the llm service run on Railway. Railway's edge proxy sits in fron
 **3. Ask the llm service who is seated.**
 - **Where / trigger:** engine, table loop goroutine. It is the goroutine step 1 started.
 - **Code:** `engine/api/table.go` → `lineup`; `engine/api/table.go` → `seatedPlayers`; `engine/client/llm.go` → `GetSeated`; `llm/app.py` → `get_models`.
-- **Does:** Sends `GET {LLM_SERVICE_URL}/models?session=N` up to `lineupTries` (12) times, `lineupWait` (5 s) apart. The service answers `seated`: its `LINEUP`, by default the first 9 names of `MODELS` in `llm/registry.py`, or a rotation over the roster with the mock provider. Each try has a 5 s HTTP timeout, and a reply with fewer than 2 names counts as a failed try. If every try fails, the table seats `defaultPlayers`: 55 s of waits after a service that refuses at once, up to about 115 s (12 tries of 5 s plus 11 waits of 5 s) after one that hangs.
+- **Does:** Sends `GET {LLM_SERVICE_URL}/models?session=N` up to `lineupTries` (12) times, `lineupWait` (5 s) apart. The service answers `seated`: its `LINEUP`, by default the first 9 names of `MODELS` in `llm/registry.py`, or a rotation over the roster with the mock provider. The same reply carries `turn_budget_s`, which `GetSeated` stores in `client.TurnBudget` when it is above 0. Each try has a 5 s HTTP timeout, and a reply with fewer than 2 names counts as a failed try. If every try fails, the table seats `defaultPlayers`: 55 s of waits after a service that refuses at once, up to about 115 s (12 tries of 5 s plus 11 waits of 5 s) after one that hangs.
 - **Next:** The goroutine gives the stats cache the lineup and the table id, starts the stats goroutine (step 4) and runs the table (step 5).
 
 **4. Load the saved hands and compute the first stats.**
@@ -147,7 +147,7 @@ These steps repeat for every turn, with or without viewers.
 **18. Publish `llm_thinking`.**
 - **Where / trigger:** engine, table loop goroutine. Step 17 calls it.
 - **Code:** `engine/api/table.go` → `playTurn`; `engine/api/table.go` → `buildLLMValidActions`; `engine/api/decision.go` → `buildDecisionRequest`; `engine/api/record.go` → `beginDecision`.
-- **Does:** Under `t.mu` it builds the `DecisionRequest`: the acting seat with its position, hole cards and stack, every seat's stack, each street's board and actions, and `legal_actions`. It numbers the turn from 1 within the hand, stores the `llm_thinking` message `{turn, playerIdx, playerName}` as `t.turn` with `turnApplied` false, and publishes it. It counts one call toward the daily cap; step 23 counts a second one if the service retried.
+- **Does:** Under `t.mu` it builds the `DecisionRequest`: the acting seat with its position, hole cards and stack, every seat's stack, each street's board and actions, and `legal_actions`. It numbers the turn from 1 within the hand, stores the `llm_thinking` message `{turn, playerIdx, playerName, budgetMs, elapsedMs}` as `t.turn` (`budgetMs` is `client.TurnBudget`, the `turn_budget_s` that `GET /models` gave at startup or the 50 s decide timeout; `elapsedMs` is 0, and a snapshot written later fills in the time since this moment) with `turnApplied` false, and publishes it. It counts one call toward the daily cap; step 23 counts a second one if the service retried.
 - **Next:** Step 19, with no lock held.
 
 **19. Ask the llm service.**
@@ -201,7 +201,7 @@ These steps repeat for every turn, with or without viewers.
 - **Next:** The close wakes every handler goroutine blocked on that channel (step 27). One frame; each ends with a blank line:
 
 ```
-data: {"seq":1043,"table":"tbl_9f2c41d07ab35e18","type":"llm_thinking","payload":{"turn":4,"playerIdx":3,"playerName":"Phi-4"}}
+data: {"seq":1043,"table":"tbl_9f2c41d07ab35e18","type":"llm_thinking","payload":{"turn":4,"playerIdx":3,"playerName":"Phi-4","budgetMs":45000,"elapsedMs":0}}
 ```
 
 **27. Each writer sends what it has not sent.**

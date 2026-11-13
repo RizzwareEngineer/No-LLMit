@@ -15,6 +15,9 @@ var (
 	llmServiceURL = getEnv("LLM_SERVICE_URL", "http://localhost:5001")
 	// The service's whole-turn budget (llm/decide.py TURN_BUDGET, 45s) plus slack.
 	llmTimeout = 50 * time.Second
+	// TurnBudget is how long a model has for one turn: GET /models' turn_budget_s once
+	// GetSeated has read it, llmTimeout until then. Viewers' shot clock counts it down.
+	TurnBudget = llmTimeout
 )
 
 func getEnv(key, fallback string) string {
@@ -158,13 +161,17 @@ func GetSystemPrompt() (version, prompt string, err error) {
 	return body.PromptVersion, body.SystemPrompt, err
 }
 
-// GetSeated returns the names the LLM service seats at the table, in seat order. session
-// is how many sessions the local hand log holds; only the mock provider uses it, to rotate
-// the lineup over the whole roster.
+// GetSeated returns the names the LLM service seats at the table, in seat order, and sets
+// TurnBudget from the same reply. session is how many sessions the local hand log holds;
+// only the mock provider uses it, to rotate the lineup over the whole roster.
 func GetSeated(session int) ([]string, error) {
 	var body struct {
-		Seated []string `json:"seated"`
+		Seated      []string `json:"seated"`
+		TurnBudgetS float64  `json:"turn_budget_s"`
 	}
 	err := getJSON(fmt.Sprintf("/models?session=%d", session), &body)
+	if err == nil && body.TurnBudgetS > 0 {
+		TurnBudget = time.Duration(body.TurnBudgetS * float64(time.Second))
+	}
 	return body.Seated, err
 }

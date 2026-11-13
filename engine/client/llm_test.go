@@ -5,22 +5,31 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestGetSeated(t *testing.T) {
+	budget := ``
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/models" || r.URL.Query().Get("session") != "3" {
 			t.Errorf("unexpected request %s", r.URL)
 		}
-		w.Write([]byte(`{"provider":"mock","seated":["A","B"],"models":[]}`))
+		w.Write([]byte(`{"provider":"mock","seated":["A","B"],"models":[]` + budget + `}`))
 	}))
 	defer srv.Close()
 	old := llmServiceURL
-	defer func() { llmServiceURL = old }()
+	defer func() { llmServiceURL, TurnBudget = old, llmTimeout }()
 
 	llmServiceURL = srv.URL
 	if got, err := GetSeated(3); err != nil || len(got) != 2 || got[0] != "A" {
 		t.Fatalf("GetSeated = %v, %v", got, err)
+	}
+	if TurnBudget != llmTimeout {
+		t.Errorf("no turn_budget_s: TurnBudget %v, want the decide timeout %v", TurnBudget, llmTimeout)
+	}
+	budget = `,"turn_budget_s":45.0`
+	if _, err := GetSeated(3); err != nil || TurnBudget != 45*time.Second {
+		t.Errorf("turn_budget_s 45: TurnBudget %v, %v", TurnBudget, err)
 	}
 
 	srv.Close() // the service is down
