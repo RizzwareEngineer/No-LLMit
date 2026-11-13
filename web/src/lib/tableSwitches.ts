@@ -1,0 +1,32 @@
+import { useSyncExternalStore } from "react";
+
+// The owner's preview switches, read from the page's query on the client after hydration (no control on the page):
+// ?cards=1|2|3 picks a hole card size, ?peel=1|2 a peel motion. Without them the table is as it was.
+
+// Hole card sizes in px, the card's 0.7 ratio; 0 is today's w-7 h-10 (the deck then stays the board's w-11 h-16).
+export const CARD_SIZES = [{ w: 28, h: 40 }, { w: 32, h: 45 }, { w: 36, h: 50 }, { w: 40, h: 56 }] as const;
+// Literal classes, so Tailwind sees each one.
+export const CARD_CLASS = ['w-7 h-10', 'w-8 h-[45px]', 'w-9 h-[50px]', 'w-10 h-14'] as const;
+const PEELS = [1, 2] as const;
+export type Peel = (typeof PEELS)[number];
+
+const param = (k: string) => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get(k));
+// Phones keep today's size: their seats are about 116px wide and a bigger card crowds the name and the action text.
+const WIDE = '(min-width: 768px)';
+export function cardSizeNow(): number {
+  const n = Number(param('cards'));
+  return n >= 1 && n < CARD_SIZES.length && Number.isInteger(n) && window.matchMedia(WIDE).matches ? n : 0;
+}
+export function peelNow(): Peel {
+  const n = Number(param('peel'));
+  return (PEELS as readonly number[]).includes(n) ? (n as Peel) : 1;
+}
+// The deck's size in px: the board's for the default, the hole cards' for a picked size.
+export function deckSize(size = cardSizeNow()) {
+  return size ? CARD_SIZES[size] : { w: 44, h: 64 };
+}
+
+const noSubscribe = () => () => {};
+const onWidth = (fn: () => void) => { const m = window.matchMedia(WIDE); m.addEventListener('change', fn); return () => m.removeEventListener('change', fn); };
+export const useCardSize = () => useSyncExternalStore(onWidth, cardSizeNow, () => 0);
+export const usePeel = () => useSyncExternalStore(noSubscribe, peelNow, () => 1 as Peel);

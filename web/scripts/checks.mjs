@@ -533,6 +533,73 @@ group(async () => {
   });
 });
 
+// Owner, 2026-11-11: bigger hole cards, two or three sizes on the real page for him to pick (?cards=1|2|3, nothing
+// different without it); the deck the same size as the hole cards; seats 200x128 and the table 1000px at every size.
+// For the default and each size, at 1440x900 and 390x844 (scripted): the cells, the deck squared between hands against a
+// hole card, a dealt card's last painted box against the card it lands on, and, painted, no hole card pixel on a seat's
+// name, stack, badge or action text, nor (1440, a hovered seat) on its stats band: each box is shot with the cards and
+// with them hidden, and the two must be the same pixels.
+group(() => check('table-card-sizes', 'Hole card sizes (?cards=1|2|3; none: as today): the deck and the dealt cards are the hole cards\' size, seats stay 200x128 and the table 1000px, and no hole card covers a seat\'s name, stack, badge, action text or hovered stats band', async () => {
+  const bad = [], seen = []; let phoneToday = [];
+  for (const [w, h] of [[1440, 900], [390, 844]]) {
+    for (const n of [0, 1, 2, 3]) {
+      const p = await newPage(); await p.setViewport({ width: w, height: h });
+      try {
+        await scriptSocket(p);
+        await p.goto(`${BASE}/${n ? `?cards=${n}` : ''}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await p.waitForFunction(() => window.__sock?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+        await sleep(1500);
+        const tag = `${n || 'default'} ${w}x${h}`;
+        const box = s => { const e = [...document.querySelectorAll(s)].find(x => x.getBoundingClientRect().width > 0); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, w: b.width, h: b.height }; };
+        const cells = await p.evaluate(() => { const c = document.querySelector('td.w-\\[200px\\]'); return [c.offsetWidth, c.offsetHeight, document.querySelector('table').offsetWidth]; });
+        // The 200x128 cells and the 1000px table are the desktop layout's (phones show a grid of their own).
+        if (w === 1440 && (Math.abs(cells[0] - 200) > 1 || Math.abs(cells[1] - 128) > 2)) bad.push(`${tag}: seat cell ${cells[0]}x${cells[1]}`);
+        if (w === 1440 && Math.abs(cells[2] - 1000) > 1) bad.push(`${tag}: table ${cells[2]}px`);
+        // Each frame, every flying card's box: the last one painted before it is removed is the box it lands at.
+        await p.evaluate(() => { const last = window.__fl = new Map(); const tick = () => { for (const e of document.querySelectorAll('[data-flight=card]')) { const b = e.getBoundingClientRect(); last.set(e, { w: b.width, h: b.height, o: +getComputedStyle(e).opacity }); } requestAnimationFrame(tick); }; requestAnimationFrame(tick); });
+        await p.evaluate(() => window.__sock.end(4000)); await sleep(3300);
+        const deck = await p.evaluate(box, '[data-deck]'), hole = await p.evaluate(box, '[data-seat] [data-hole] > *');
+        // The default is today's: hole cards 28x40 under a deck of the board's 44x64 (both times the stage's zoom). Phones
+        // keep today's size whatever the switch says (their seats are about 116px wide).
+        const want = n && w >= 768 ? hole : hole && { w: (hole.w * 44) / 28, h: (hole.h * 64) / 40 };
+        if (!deck || !hole || Math.abs(deck.w - want.w) > 1 || Math.abs(deck.h - want.h) > 1) bad.push(`${tag}: deck ${deck ? `${deck.w.toFixed(1)}x${deck.h.toFixed(1)}` : 'none'}, hole card ${hole ? `${hole.w.toFixed(1)}x${hole.h.toFixed(1)}` : 'none'}`);
+        await sleep(700); await p.evaluate(() => window.__sock.deal()); await sleep(3500);
+        const flown = await p.evaluate(() => [...window.__fl.values()]), hole2 = await p.evaluate(box, '[data-seat] [data-hole] > *');
+        const off = flown.filter(f => Math.abs(f.w - hole2.w) > 1.5 || Math.abs(f.h - hole2.h) > 1.5);
+        if (!flown.length || off.length) bad.push(`${tag}: ${flown.length} flights, ${off.length} landing off the hole card's ${hole2.w.toFixed(1)}x${hole2.h.toFixed(1)} (e.g. ${off[0] ? `${off[0].w.toFixed(1)}x${off[0].h.toFixed(1)}` : '-'})`);
+        // The longest action texts: a raise with a 4-digit amount on seat 3, the blinds on theirs; the band on seat 3, hovered.
+        await p.evaluate(() => { const s = window.__sock; s.last = { ...s.last, players: s.last.players.map((q, i) => i === 3 ? { ...q, lastAction: 'RAISE', lastAmount: 1234, currentBet: 1234 } : q) }; s.feed({ type: 'game_state', payload: s.last }); });
+        await sleep(600);
+        if (w >= 768) { const b = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).getBoundingClientRect(); return [e.left + 20, e.top + 20]; }); await p.mouse.move(b[0], b[1]); await sleep(400); }
+        // Text boxes per seat: the name, the stack, the badge, the action text (each text's own painted extent), the band's lines.
+        const boxes = await p.evaluate(() => [...document.querySelectorAll('[data-seat]')].filter(s => s.getBoundingClientRect().width > 0).flatMap(seat => {
+          const texts = [...seat.querySelectorAll('[title], [data-chips], .font-mono, .absolute.top-\\[46px\\] > div')].filter(e => !e.closest('[data-hole]'));
+          return texts.map(e => {
+            // The text's own extent, cut to its box (a truncated text runs on, unpainted, under the cards).
+            const r = document.createRange(); r.selectNodeContents(e); const b = r.getBoundingClientRect();
+            let l = b.left, t = b.top, rr = b.right, bb = b.bottom;
+            for (let a = e; a && a !== seat; a = a.parentElement) if (a === e || getComputedStyle(a).overflow !== 'visible') { const c = a.getBoundingClientRect(); l = Math.max(l, c.left); t = Math.max(t, c.top); rr = Math.min(rr, c.right); bb = Math.min(bb, c.bottom); }
+            return { seat: seat.dataset.seat, what: e.textContent.trim().slice(0, 16), l: Math.floor(l), t: Math.floor(t), w: Math.ceil(rr - l), h: Math.ceil(bb - t) };
+          }).filter(b => b.w > 1 && b.h > 1);
+        }));
+        const shoot = () => Promise.all(boxes.map(b => p.screenshot({ clip: { x: b.l, y: b.t, width: b.w, height: b.h }, encoding: 'base64' })));
+        const shown = await shoot();
+        await p.evaluate(() => document.querySelectorAll('[data-hole]').forEach(e => { e.style.visibility = 'hidden'; }));
+        const hidden = await shoot();
+        await p.evaluate(() => document.querySelectorAll('[data-hole]').forEach(e => { e.style.visibility = ''; }));
+        const covered = boxes.filter((_, i) => shown[i] !== hidden[i]).map(b => `seat ${b.seat} "${b.what}"`);
+        // Phones keep today's card size, and today's cards already sit over a long action there (seat 3's RAISE 1,234 in a
+        // 116px seat): a size may cover nothing the default does not.
+        if (w < 768 && !n) phoneToday = covered;
+        else if (w < 768) { const extra = covered.filter(c => !phoneToday.includes(c)); if (extra.length) bad.push(`${tag}: hole cards paint over ${extra.slice(0, 4).join(', ')} (today's size does not)`); }
+        else if (covered.length) bad.push(`${tag}: hole cards paint over ${covered.slice(0, 4).join(', ')}${covered.length > 4 ? ` and ${covered.length - 4} more` : ''}`);
+        seen.push(`${tag}: card ${hole2.w.toFixed(0)}x${hole2.h.toFixed(0)}, deck ${deck?.w.toFixed(0)}x${deck?.h.toFixed(0)}, ${flown.length} flights, ${boxes.length} text boxes clear`);
+      } finally { await p.close(); }
+    }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+
 // Owner, 2026-11-09: "Any time I refresh the site, the loading skeleton is so much different compared to the shapes that
 // actually load in. When stuff is loading, there should just be blank squares that are the same size as all the squares
 // that are currently on the site." While the table's state and the stats load, every box (the table, its seats and felt,
