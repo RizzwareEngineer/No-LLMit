@@ -151,12 +151,10 @@ func (gs *GameState) StartHand() error {
 	if gs.HandNumber > 1 {
 		gs.rotateButton()
 	}
-	if err := gs.postBlinds(); err != nil {
-		return err
-	}
+	gs.Street = StreetPreflop
+	gs.postBlinds()
 	gs.dealHoleCards()
 
-	gs.Street = StreetPreflop
 	gs.CurrentPlayerIdx = gs.GetFirstToAct()
 	if gs.IsBettingRoundComplete() {
 		gs.CurrentPlayerIdx = -1 // heads-up with a blind posted all-in: nothing to decide, the board runs out
@@ -175,7 +173,7 @@ func (gs *GameState) rotateButton() {
 	}
 }
 
-func (gs *GameState) postBlinds() error {
+func (gs *GameState) postBlinds() {
 	sbIdx, bbIdx := gs.blindSeats()
 
 	sbPlayer := &gs.Players[sbIdx]
@@ -199,10 +197,8 @@ func (gs *GameState) postBlinds() error {
 	gs.CurrentBet = gs.Stakes.BigBlind
 	gs.MinRaise = gs.Stakes.BigBlind
 
-	gs.RecordActionForLLMs(sbPlayer.Name, "post", sbAmount)
-	gs.RecordActionForLLMs(bbPlayer.Name, "post", bbAmount)
-
-	return nil
+	gs.RecordActionForLLMs(sbIdx, "post", sbAmount)
+	gs.RecordActionForLLMs(bbIdx, "post", bbAmount)
 }
 
 // blindSeats returns the small and big blind: left of the button, except heads-up, where the button posts the small blind.
@@ -356,16 +352,12 @@ func (gs *GameState) DeckOrder() []string {
 	return CardStrings(gs.deck.cards)
 }
 
-func (gs *GameState) RecordActionForLLMs(playerName, action string, amount int) {
-	street := gs.Street
-	if action == "post" {
-		street = StreetPreflop // blinds are posted before StartHand resets the street
-	}
+func (gs *GameState) RecordActionForLLMs(seat int, action string, amount int) {
 	gs.LLMActionsThisHand = append(gs.LLMActionsThisHand, LLMAction{
-		Player: playerName,
+		Seat:   seat,
 		Action: action,
 		Amount: amount,
-		Street: street.String(),
+		Street: gs.Street,
 		Pot:    gs.SimplifiedPotCalculation(),
 	})
 }

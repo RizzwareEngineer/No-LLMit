@@ -91,7 +91,7 @@ func (gs *GameState) ProcessAction(action Action) error {
 	// Record what actually happened (a short call or raise can become an all-in),
 	// with the amount the engine applied rather than the one the caller sent.
 	applied := player.LastAction
-	gs.RecordActionForLLMs(player.Name, applied.Type.String(), applied.Amount)
+	gs.RecordActionForLLMs(action.PlayerIdx, applied.Type.String(), applied.Amount)
 
 	return nil
 }

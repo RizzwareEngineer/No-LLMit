@@ -36,10 +36,6 @@ func buildDecisionRequest(gs *game.GameState, validActions []game.LLMValidAction
 		}
 	}
 
-	seatOf := map[string]int{}
-	for i, p := range gs.Players {
-		seatOf[p.Name] = i
-	}
 	board := game.CardStrings(gs.CommunityCards)
 	boardSize := map[game.Street]int{game.StreetFlop: 3, game.StreetTurn: 4, game.StreetRiver: 5}
 	pot, next := 0, 0
@@ -48,10 +44,10 @@ func buildDecisionRequest(gs *game.GameState, validActions []game.LLMValidAction
 			break
 		}
 		st := client.Street{Street: street.String(), Board: board[:min(boardSize[street], len(board))], Pot: pot, Actions: []client.StreetAction{}}
-		for next < len(gs.LLMActionsThisHand) && gs.LLMActionsThisHand[next].Street == street.String() {
+		for next < len(gs.LLMActionsThisHand) && gs.LLMActionsThisHand[next].Street == street {
 			a := gs.LLMActionsThisHand[next]
 			st.Actions = append(st.Actions, client.StreetAction{
-				Seat:   seatOf[a.Player],
+				Seat:   a.Seat,
 				Action: strings.ToLower(strings.ReplaceAll(a.Action, "-", "_")),
 				Amount: a.Amount,
 			})
