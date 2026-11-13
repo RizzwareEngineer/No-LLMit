@@ -187,6 +187,7 @@ function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
     const step = (t: number) => {
       const dt = Math.min(0.25, Math.max(0, ((t - c.t) / 1000) * replaySpeed())), span = Math.abs(c.tgt[1] - c.tgt[0]) || 1;
       c.t = t;
+      if (!dt) { c.raf = requestAnimationFrame(step); return; } // a frame stamped before the effect: no time passed, and the speed cap would divide by 0
       let still = true;
       const lim = CAM_MAX * Math.abs(c.x[1] - c.x[0]) * dt;
       for (let i = 0; i < 2; i++) {
