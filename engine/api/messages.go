@@ -124,7 +124,7 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 		var lastAction string
 		var lastAmount int
 		if p.LastAction != nil {
-			lastAction = p.LastAction.Type.String()
+			lastAction = p.LastAction.Name()
 			lastAmount = p.LastAction.Amount
 		}
 

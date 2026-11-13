@@ -35,6 +35,16 @@ type Action struct {
 	Type      ActionType `json:"type"`
 	Amount    int        `json:"amount"`    // For raise/all-in, the total bet amount
 	PlayerIdx int        `json:"playerIdx"` // Which player took the action
+	Bet       bool       `json:"-"`         // an applied raise that opened the street's betting (RaiseName)
+}
+
+// Name is what viewers and saved hands call an applied action: its type, or BET for a raise
+// that opened the betting.
+func (a Action) Name() string {
+	if a.Bet {
+		return "BET"
+	}
+	return a.Type.String()
 }
 
 // Player represents a player at the table

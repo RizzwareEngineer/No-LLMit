@@ -192,7 +192,7 @@ func (gs *GameState) processRaise(player *Player, action Action) error {
 	player.CurrentBet = raiseToAmount
 	player.TotalBetThisHand += totalNeeded
 	player.HasActedThisRound = true
-	player.LastAction = &Action{Type: ActionRaise, Amount: raiseToAmount, PlayerIdx: action.PlayerIdx}
+	player.LastAction = &Action{Type: ActionRaise, Amount: raiseToAmount, PlayerIdx: action.PlayerIdx, Bet: gs.RaiseName() == "BET"}
 
 	// Update game state
 	gs.MinRaise = raiseAmount
@@ -201,6 +201,16 @@ func (gs *GameState) processRaise(player *Player, action Action) error {
 	gs.resetActedExcept(action.PlayerIdx)
 	gs.advanceToNextPlayer()
 	return nil
+}
+
+// RaiseName is what a sized move is called now: BET when nobody has bet on this street
+// (preflop the blinds count as the bet), else RAISE. The legal list the model gets, the
+// stream and the saved hand all name the move by it.
+func (gs *GameState) RaiseName() string {
+	if gs.CurrentBet == 0 {
+		return "BET"
+	}
+	return "RAISE"
 }
 
 func (gs *GameState) processAllIn(player *Player, action Action) error {

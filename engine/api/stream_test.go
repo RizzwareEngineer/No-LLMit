@@ -315,6 +315,33 @@ func TestThinkingCarriesBudgetAndElapsed(t *testing.T) {
 	}
 }
 
+// A model that leads the flop is shown betting, not raising, in its llm_action and on its
+// seat, as the legal list it was given named the move.
+func TestOpeningBetIsShownAsBet(t *testing.T) {
+	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
+	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := reply("RAISE", 20); return &r, nil }
+	tbl := testTable(t)
+	tbl.pace = 1e-6
+	for _, typ := range []game.ActionType{game.ActionCall, game.ActionCall, game.ActionCheck} {
+		if err := tbl.gs.ProcessAction(game.Action{Type: typ, PlayerIdx: tbl.gs.CurrentPlayerIdx}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tbl.gs.AdvanceStreet(); err != nil || tbl.gs.Street != game.StreetFlop {
+		t.Fatalf("street %v, %v", tbl.gs.Street, err)
+	}
+	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+	seat := tbl.gs.CurrentPlayerIdx
+	tbl.playTurn()
+	snap := tbl.hub.since(0, true).tables[tbl.id]
+	if p := snap.Turn.Payload.(LLMActionPayload); p.Action != "BET" || p.Amount != 20 {
+		t.Errorf("llm_action %+v, want BET 20", p)
+	}
+	if p := snap.State.Players[seat]; p.LastAction != "BET" {
+		t.Errorf("seat's lastAction %q, want BET", p.LastAction)
+	}
+}
+
 // The hand after a voided one is dealt live: dealing it clears the outage notice, so a viewer
 // who joins during it sees the same table as one who was watching.
 func TestDealingTheProbeHandClearsTheOutageNotice(t *testing.T) {

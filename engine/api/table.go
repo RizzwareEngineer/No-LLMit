@@ -559,8 +559,11 @@ func (t *Table) playTurn() {
 	}
 
 	shownAction, shownAmount := decision.Action, decision.Amount
-	if turn.fallback {
+	switch {
+	case turn.fallback:
 		shownAction, shownAmount = turn.action.Type.String(), 0
+	case turn.action.Type == game.ActionRaise:
+		shownAction = t.gs.RaiseName() // the service says RAISE for a bet too
 	}
 	t.mu.Lock()
 	if decision.Retried {
@@ -672,11 +675,7 @@ func buildLLMValidActions(gs *game.GameState) []game.LLMValidAction {
 		actionType := va.Type.String()
 
 		if va.Type == game.ActionRaise {
-			if gs.CurrentBet == 0 {
-				actionType = "BET"
-			} else {
-				actionType = "RAISE"
-			}
+			actionType = gs.RaiseName()
 		}
 
 		llmAction := game.LLMValidAction{
@@ -708,3 +707,4 @@ func buildLLMValidActions(gs *game.GameState) []game.LLMValidAction {
 
 	return llmActions
 }
+
