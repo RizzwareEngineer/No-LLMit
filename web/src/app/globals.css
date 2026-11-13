@@ -254,12 +254,13 @@ html:has([data-screen]) {
 @keyframes recede-hide { to { opacity: 0; } }
 /* What a card adds to its overview tile's content (Profiles' extra columns and controls) fades in once, on mount. */
 @keyframes add-in { from { opacity: 0; } }
+@keyframes add-out { to { opacity: 0; } }
 @media (prefers-reduced-motion: no-preference) {
   .add-in { animation: add-in 0.3s 0.08s ease-out both; }
+  /* Closing a card (StatsSections' back): what it adds fades out, in the card and in the tile standing in under it,
+     before the tile glides back. An animation: a transition never starts on a property an animation holds. */
+  .stats-room[data-leaving] :is(.add-in, .added) { animation: add-out 0.12s ease-out both; }
 }
-/* Closing a card (StatsSections' back): what it adds fades out, in the card and in the tile standing in under it,
-   before the tile glides back. */
-.stats-room[data-leaving] :is(.add-in, .added) { opacity: 0 !important; transition: opacity 0.12s ease-out; }
 /* Until the pointer moves after a tile opens or closes, no hover readout (content moved under a still pointer). */
 .stats-room[data-still] [role=tooltip] { display: none !important; }
 /* Only where scroll timelines exist: elsewhere a time-based run would fill straight to the end state. */
