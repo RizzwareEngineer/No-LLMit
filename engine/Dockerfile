@@ -10,8 +10,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o server .
 
 FROM public.ecr.aws/docker/library/alpine:latest
 RUN apk --no-cache add ca-certificates
-WORKDIR /root/
+WORKDIR /app
 COPY --from=builder /app/server .
+# Not root. Without Supabase hands go to HAND_LOG_DIR (default data/), so that folder is the user's.
+RUN mkdir data && chown nobody data
+USER nobody
 EXPOSE 8080
 CMD ["./server"]
 
