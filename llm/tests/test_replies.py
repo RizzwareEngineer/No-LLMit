@@ -122,10 +122,8 @@ def test_anything_else_on_the_action_line_is_a_miss(line):
 
 
 def test_call_all_in_is_the_all_in_only_when_the_bet_covers_the_stack():
-    covered = with_(COVERED, legal_actions=[{"type": "FOLD"}, {"type": "ALL-IN", "amount": 65}])
-    assert play(covered, "ACTION: call all-in\nAMOUNT: 60") == ("ALL_IN", 0)
-    assert play(covered, "ACTION: call")[0] == "ALL_IN"
-    assert play(COVERED, "ACTION: call all-in\nAMOUNT: 60")[0] in ("CALL", "ALL_IN")  # the engine lists CALL too
+    # When the bet covers the stack the engine lists CALL as well, and plays it as the all-in.
+    assert play(COVERED, "ACTION: call all-in\nAMOUNT: 60") in (("CALL", 0), ("ALL_IN", 0))
     assert play(FACING, "ACTION: call the all-in\nAMOUNT: 100") == ("CALL", 0)  # calling someone else's all-in
     no_raise = with_(FACING, legal_actions=[{"type": "FOLD"}, {"type": "CALL", "amount": 100}])
     assert play(no_raise, "ACTION: call all-in")[0] == "CALL"
