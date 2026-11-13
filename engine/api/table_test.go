@@ -220,3 +220,34 @@ func TestCapWaitsForTheNextUTCDay(t *testing.T) {
 		t.Errorf("notices %q, calls %d on %s; want cap then cleared, 0 calls on 2026-11-14", got, tbl.calls, tbl.callsDay)
 	}
 }
+
+// Every model call counts toward the day's cap, a retry as a second call, and the usage card
+// shows yesterday's calls as none once the UTC day has turned.
+func TestEveryModelCallCountsTowardTheCap(t *testing.T) {
+	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
+	for _, c := range []struct {
+		reply client.LLMDecisionResponse
+		calls int
+	}{
+		{reply("FOLD", 0), 1},
+		{missed("illegal", "RAISE", 12), 2},
+	} {
+		askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := c.reply; return &r, nil }
+		tbl := testTable(t)
+		tbl.pace, tbl.recorder = 1e-6, newHandRecorder(tbl.gs, "tbl_test", nil)
+		tbl.playTurn()
+		if tbl.calls != c.calls {
+			t.Errorf("%s: %d calls counted, want %d", c.reply.Status, tbl.calls, c.calls)
+		}
+	}
+	tbl := testTable(t)
+	now := fakeClock(tbl, time.Date(2026, 11, 13, 23, 59, 0, 0, time.UTC))
+	tbl.dailyCallCap, tbl.calls, tbl.callsDay = 100, 40, "2026-11-13"
+	if u := tbl.Usage(); u.CallsToday != 40 {
+		t.Errorf("before midnight: %d calls today, want 40", u.CallsToday)
+	}
+	*now = now.Add(2 * time.Minute)
+	if u := tbl.Usage(); u.CallsToday != 0 {
+		t.Errorf("after midnight UTC: %d calls today, want 0", u.CallsToday)
+	}
+}
