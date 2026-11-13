@@ -42,13 +42,11 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
 export default function ModelDrawer({
   models,
   error,
-  loading,
   slug,
   onClose,
 }: {
   models: ModelStats[];
   error: string | null;
-  loading: boolean;
   slug: string | null;
   onClose: () => void;
 }) {
@@ -104,7 +102,7 @@ export default function ModelDrawer({
 
         {!m ? (
           <div className="mt-6">
-            {models.length ? <p className="text-[14px]" style={{ color: MUTED }}>No stats for this model yet.</p> : <StatsMessage error={error} loading={loading} />}
+            {models.length ? <p className="text-[14px]" style={{ color: MUTED }}>No stats for this model yet.</p> : <StatsMessage error={error} />}
           </div>
         ) : (
           <>

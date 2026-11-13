@@ -331,7 +331,7 @@ export default memo(function StatsSections({
     };
   }, []);
 
-  const message = <StatsMessage error={current ? error : null} loading={current && loading} />;
+  const message = <StatsMessage error={current ? error : null} />;
   const stale = ready && (error || loading) && (
     <p className="mb-2 text-[13px]" style={{ color: MUTED }} role="status">
       {error ? 'Could not refresh the stats; showing the last good numbers.' : 'Stats are refreshing…'}
