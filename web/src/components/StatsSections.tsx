@@ -4,6 +4,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExt
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
 import About from '@/components/About';
+import { PageStats } from '@/components/about/content';
 import { ArrowDown, Warning } from '@phosphor-icons/react';
 import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, Segmented, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
@@ -347,6 +348,7 @@ export default memo(function StatsSections({
   // which the other two follow through the timeline. It is fetched again every 25 hands (the engine's smallest
   // profile_step: a new Profiles snapshot at most that often), not after every hand; its end is stretched to the
   // stream's hand count, so every line's tip stays at now.
+  const pageStats = useMemo(() => ({ data, error }), [data, error]); // About's Race, from the stream: no fetch of its own
   const hands = data?.scope.hands;
   const fetched = useTimeline(hands === undefined ? undefined : Math.floor(hands / 25));
   const tl = useMemo(() => (fetched && hands !== undefined && hands > fetched.hands ? { ...fetched, hands } : fetched), [fetched, hands]);
@@ -503,7 +505,7 @@ export default memo(function StatsSections({
         <section aria-label="About" className="relative z-10 h-svh -mx-3 lg:-mx-4 bg-(--page)">
           <div className="panel-scroll h-full overflow-auto">
             <div className={`min-h-full flex flex-col justify-center-safe px-3 lg:px-4 ${PAD}`}>
-              <div className="w-full md:max-w-(--block-w) mx-auto" style={BLOCK_VARS}><About heading="h2" /></div>
+              <div className="w-full md:max-w-(--block-w) mx-auto" style={BLOCK_VARS}><PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider></div>
             </div>
           </div>
         </section>

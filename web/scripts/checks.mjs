@@ -3082,6 +3082,20 @@ group(() => check('about-bb100', 'The race on About draws running bb/100: its ro
   if (leader && !(r.caption.includes(leader.name) && r.caption.includes(`${fmt(leader.bb100)} bb/100`))) why.push(`caption does not name ${leader.name} at ${fmt(leader.bb100)} bb/100`);
   return { pass: !why.length, detail: why.length ? why.join('; ') : `${r.rows.length} rows in bb/100 order; ${leader ? `${leader.name} ${fmt(leader.bb100)} bb/100` : 'no leader yet'}` };
 }));
+group(() => check('about-home-no-fetch', 'On the home page About\'s race is drawn from the stats the stream delivered: scrolling to About sends no GET /api/stats, and the race has its rows', async () => {
+  const p = watchStream(await newPage()); await p.setViewport({ width: 1440, height: 900 });
+  const asked = [];
+  p.on('request', r => { const u = new URL(r.url()); if (u.pathname === '/api/stats') asked.push(r.url()); });
+  try {
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await waitStats(p); await sleep(2000);
+    await goto(p, 'about');
+    const drawn = await p.waitForFunction(() => document.querySelector('#about [data-race-row]'), { timeout: 30000, polling: 250 }).then(() => true, () => false);
+    await sleep(1500);
+    const rows = await p.evaluate(() => document.querySelectorAll('#about [data-race-row]').length);
+    return { pass: drawn && !asked.length, detail: `${rows} race rows; ${asked.length} GET /api/stats${asked.length ? ` (${asked[0]})` : ''}` };
+  } finally { await p.close(); }
+}));
 // Owner, 2026-11-09: what's next shows the dataset with a waitlist under it: a labelled email input (type email, required) and a
 // "Join the waitlist" button that is not filled (the Sponsor button stays the only filled one), then how many have joined ("N on
 // the waitlist", or "Be the first on the waitlist." at 0). The engine's /api/waitlist is intercepted here (GET → {count}, POST

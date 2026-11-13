@@ -1,13 +1,13 @@
 'use client';
 
 import { ArrowUpRight, Heart, X } from '@phosphor-icons/react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import PlaySoonButton from '@/components/PlaySoonButton';
 import { motion, useInView, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { RATE_FROM, series } from '@/components/CumulativeChart';
 import { CARD, CARD_SHADOW, Segmented, TITLE } from '@/components/Section';
-import { MIN_HANDS, MUTED, ModelStats, TEXT, chips, netColor, seatedModels, signed, useStats } from '@/lib/stats';
+import { MIN_HANDS, MUTED, ModelStats, StatsResponse, TEXT, chips, netColor, seatedModels, signed, useStats } from '@/lib/stats';
 import { EXAMPLE_REPLY, EXAMPLE_USER_PROMPT, SYSTEM_PROMPT } from '@/lib/systemPrompt';
 import { joinWaitlist, waitlistCount } from '@/lib/waitlist';
 
@@ -310,9 +310,13 @@ export function PromptLinks() {
   );
 }
 
+// The stats the page already holds: the home page provides the stream's (StatsSections), so About fetches nothing there;
+// without a provider (/about) Race fetches its own.
+export const PageStats = createContext<{ data: StatsResponse | null; error: string | null } | null>(null);
+
 // The LLMs at the table now with their all-time stats, ranked by bb/100: those with MIN_HANDS or more first (below that a
-// win rate is mostly luck, so they never lead). Fetched once About first comes near the window (the home page loads it
-// under the overview, which has its own copy). `ref` goes on the element that waits for it.
+// win rate is mostly luck, so they never lead). Taken once About first comes near the window, so the race draws in where
+// it is seen. `ref` goes on the element that waits for it.
 const ranked = (ms: ModelStats[]) =>
   [...ms].sort((a, b) => Number(b.hands >= MIN_HANDS) - Number(a.hands >= MIN_HANDS) || b.bb100 - a.bb100);
 
@@ -322,12 +326,13 @@ function useField() {
   const near = useRef<Element | null>(null);
   useLayoutEffect(() => { near.current = ref.current!.closest('[data-dial]') ?? ref.current; }, []);
   const seen = useInView(near, { once: true, margin: '0px 0px 300px 0px' });
-  const { data: live, error } = useStats(undefined, seen);
+  const page = useContext(PageStats), fetched = useStats(undefined, seen && !page);
+  const { data, error } = page ?? fetched, live = seen ? data : null;
   // A refetch (partial stats, every 30 s) waits while a prompt is open, so the race stands still behind it.
-  const hold = useHold(), [data, setData] = useState(live);
-  if (!hold && data !== live) setData(live);
-  const field = useMemo(() => (data ? ranked(seatedModels(data.models, data.seated).filter(m => m.hands > 0)) : []), [data]);
-  return { ref, field, failed: !data && !!error };
+  const hold = useHold(), [shown, setShown] = useState(live);
+  if (!hold && shown !== live) setShown(live);
+  const field = useMemo(() => (shown ? ranked(seatedModels(shown.models, shown.seated).filter(m => m.hands > 0)) : []), [shown]);
+  return { ref, field, failed: !shown && !!error };
 }
 
 // The drawing box (stretched to the figure), and the ridges' shape: a swing as big as the field's 90th percentile is about
