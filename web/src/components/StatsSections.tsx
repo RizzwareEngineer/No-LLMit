@@ -167,6 +167,7 @@ export default memo(function StatsSections({
   useEffect(() => {
     let target: string | null = null;
     let busy = false; // a glide from a click or Back is running: arrivals leave the stage alone
+    let handing = false; // the page has just jumped to an opened card: the stage stays shown under it
     // The stage moves with the page on the main scroll (table, overview, About) and is pinned from half-way between
     // About and Trends on (the cards' loop, whose cards slide over it). Only a scrollbar drag stops in between.
     const pin = (on = (document.getElementById('race')?.getBoundingClientRect().top ?? innerHeight) < innerHeight / 2) =>
@@ -225,15 +226,26 @@ export default memo(function StatsSections({
       put(tile);
       const land = (e?: Event) => {
         if (!busy || (e && (e as CustomEvent<string>).detail !== TILES[tile].panel)) return;
-        busy = false;
         clearTimeout(timer);
         window.removeEventListener('glideend', land);
         hold(0);
         // The card shows what the tile showed: its top (the tile never scrolls on its way).
         const card = document.querySelector(`#${TILES[tile].land} .panel-scroll`);
         if (card) card.scrollTop = 0;
+        // For two frames the landed tile stays shown under the card, unreceded: a card not yet fully painted in its
+        // first frame after the jump shows the same tile through, not the page.
+        const el = stage.current;
+        handing = true;
+        el?.style.setProperty('animation', 'none');
         jump(tile);
         document.getElementById(TILES[tile].land)?.focus({ preventScroll: true });
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          handing = false;
+          busy = false;
+          el?.style.removeProperty('animation');
+          hideUnder();
+          if (currentScreen() === tile) put('race', true); // as arriving under a card does (show)
+        }));
       };
       window.addEventListener('glideend', land);
       const timer = setTimeout(land, late);
@@ -281,7 +293,7 @@ export default memo(function StatsSections({
       const y = window.scrollY + 1;
       const reached = (el: HTMLElement | null) => !!el && y >= el.getBoundingClientRect().top + window.scrollY;
       const hide = (el: HTMLElement | null, on: boolean) => (on ? el?.style.setProperty('opacity', '0', 'important') : el?.style.removeProperty('opacity'));
-      hide(stage.current, reached(statsScreen.current));
+      hide(stage.current, !handing && reached(statsScreen.current));
       hide(statsCard.current, reached(pairwiseScreen.current));
       pin();
     };
