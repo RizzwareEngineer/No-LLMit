@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useReducedMotion } from "motion/react";
 import Player from "@/components/Player";
+import { usePeel } from "@/lib/tableSwitches";
 import TableFelt, { FeltBet } from "@/components/TableFelt";
 import TableMotion, { CARD_FLIGHT, DeckPhase, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
@@ -125,6 +126,7 @@ export default function PokerTable({
   if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
   const dealt = !reduce && firstHand > 0 && handNumber !== firstHand;
   const [deck, setDeck] = useState<DeckPhase | null>(null);
+  const peelMotion = usePeel(); // ?peel=1|2, the owner's pick
   
   const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
   // Until the first state arrives (`players` empty) the table stands in blank: the same grid, a blank seat box in every
@@ -145,6 +147,7 @@ export default function PokerTable({
       handNumber={handNumber}
       dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + CARD_FLIGHT) : undefined}
       faceUp={street === 'complete' || peeked.includes(idx)}
+      peel={peeked.includes(idx) ? peelMotion : 1}
     />
   );
 

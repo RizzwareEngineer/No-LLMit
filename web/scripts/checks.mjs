@@ -642,11 +642,17 @@ const holeBoxes = p => p.evaluate(() => [...document.querySelectorAll('[data-sea
 // (no change), a second seat's turn, then the hand complete (the rest turn up). Reduced motion: the faces switch with
 // no frame in between. Live engine: a reload mid-hand, once a seat has had its turn and one has not: the first painted
 // frame with cards shows the snapshot's peeked seats up and the rest down, and nothing turns over after it.
-group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s two cards peel up when its turn first comes and stay up; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no peel; reduced motion switches faces with no motion', async () => {
+group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s two cards peel up when its turn first comes (either motion, ?peel=1|2) and stay up; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no peel; reduced motion switches faces with no motion', async () => {
   const bad = [], seen = [];
   const face = s => s.map(c => c.face).join('');
-  const run = async reduced => {
-    const p = await scriptedTable(1440, 900, reduced);
+  // scriptedTable's page, at a query (?peel=2 for the second motion).
+  const run = async (reduced, query = '') => {
+    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+    if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await scriptSocket(p);
+    await p.goto(`${BASE}/${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => window.__sock?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+    await sleep(2000);
     try {
       const feed = msgs => p.evaluate(msgs => { const s = window.__sock; s.scripted = true; for (const m of msgs) { if (m.type === 'game_state') s.last = m.payload; s.feed(m); } }, msgs);
       await p.evaluate(() => window.__sock.end(4000)); await sleep(4200);
@@ -666,7 +672,7 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
         // No winner: its chips would fly across the seats being watched.
         ['complete', [{ type: 'game_state', payload: { ...st, street: 'complete', currentPlayerIdx: -1, peeked: [a, b], nextHandInMs: 60000, winners: [] } }], idx.filter(i => i !== a && i !== b)],
       ];
-      const tag = reduced ? 'reduced motion: ' : '';
+      const tag = `${query}${query && reduced ? ' ' : ''}${reduced ? 'reduced motion' : ''}${query || reduced ? ': ' : ''}`;
       let up = new Set();
       const first = await boxStats(await filmFrames(p, () => sleep(200)), boxes);
       const down = seats.filter((s, k) => face(first.at(-1).slice(2 * k, 2 * k + 2)) !== 'downdown').map(s => s.seat);
@@ -684,7 +690,7 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
           if (end !== want) bad.push(`${tag}${name}: seat ${s.seat} ends ${end}, want ${want}`);
           if (turning.includes(s.seat)) {
             const mid = stats.filter((_, f) => of(f).some(c => c.face === 'mid') || face(of(f)) === 'downup' || face(of(f)) === 'updown').length;
-            if (!reduced && changes < 3) bad.push(`${name}: seat ${s.seat}'s cards change over ${changes} frames`);
+            if (!reduced && changes < 3) bad.push(`${tag}${name}: seat ${s.seat}'s cards change over ${changes} frames`);
             if (reduced && mid) bad.push(`${tag}${name}: seat ${s.seat} has ${mid} frames between the faces`);
             if (s.seat === a && name === 'thinking A') seen.push(`${tag}seat ${a} turned over ${changes} frames (${mid} between faces)`);
           } else if (changes) bad.push(`${tag}${name}: seat ${s.seat}'s cards changed in ${changes} frames`);
@@ -693,7 +699,7 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
       }
     } finally { await p.close(); }
   };
-  await run(false); await run(true);
+  await run(false); await run(false, '?peel=2'); await run(true); await run(true, '?peel=2');
   // Live: reload until the snapshot has a seat that has had its turn and one that has not.
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   try {

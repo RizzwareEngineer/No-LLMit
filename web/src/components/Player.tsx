@@ -8,7 +8,7 @@ import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { DASH, ModelStats, ciHalf, pct, signed } from "@/lib/stats";
-import { CARD_CLASS, useCardSize } from "@/lib/tableSwitches";
+import { CARD_CLASS, Peel, useCardSize } from "@/lib/tableSwitches";
 
 interface PlayerProps {
   player: PlayerState;
@@ -24,6 +24,7 @@ interface PlayerProps {
   handNumber?: number;
   dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
   faceUp?: boolean; // the hole cards show their faces: the seat's turn has come this hand, or the hand is over
+  peel?: Peel; // how they turn up (HoleCard): the picked peel for a seat's turn, motion 1 for the hand's end
 }
 
 // Position badge colors
@@ -55,7 +56,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peel = 1 }: PlayerProps) {
   const [hovered, setHovered] = useState(false);
   const bb = useBigBlind();
   const cards = player.holeCards || [];
@@ -156,7 +157,7 @@ export default function Player({ player, active, position, folded = false, winAm
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
                 >
-                  <HoleCard value={card} faceUp={faceUp} className={cardClass} />
+                  <HoleCard value={card} faceUp={faceUp} motion={peel} className={cardClass} />
                 </motion.div>
               ))
             ) : (
