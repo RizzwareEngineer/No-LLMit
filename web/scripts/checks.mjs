@@ -712,6 +712,10 @@ group(() => check('table-card-sizes', 'Hole card sizes (?cards=1|2|3; none: as t
 // sample of its pixels (two frames with the same sample paint the box the same).
 const filmFrames = async (p, run) => {
   const cdp = await p.createCDPSession(), frames = [];
+  // The screencast paints only what the window shows (headless Chrome's window is 756x556 here), so the window is made
+  // bigger than the viewport first: every frame then holds the whole viewport at its own pixels.
+  const { windowId } = await cdp.send('Browser.getWindowForTarget'), [vw, vh] = await p.evaluate(() => [innerWidth, innerHeight]);
+  await cdp.send('Browser.setWindowBounds', { windowId, bounds: { width: vw + 200, height: vh + 200 } });
   cdp.on('Page.screencastFrame', f => { frames.push({ data: f.data, ts: f.metadata.timestamp * 1000 }); cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {}); });
   await cdp.send('Page.startScreencast', { format: 'png', everyNthFrame: 1 });
   try { await run(); } finally { await cdp.send('Page.stopScreencast').catch(() => {}); await cdp.detach().catch(() => {}); }
