@@ -2852,7 +2852,7 @@ late(() => check('pages-move', 'The main screens move like pages: table → over
 }));
 // Owner, 2026-11-08: "the About page in general just doesn't look like it belongs, so we need to change the UX/UI of the
 // About page to fit in with the rest." Then, 2026-11-09: "we're not just changing the content we're changing the layout cuz
-// right now it's just......bad"; of two layout drafts he picked the spec sheet (about/SpecSheet.tsx), held to the rules here.
+// right now it's just......bad"; of two layout drafts he picked the spec sheet (components/About.tsx), held to the rules here.
 // Its text is on the stats type scale: the thesis at the site title's 28px bold, card titles 20px bold, section labels 13px muted
 // uppercase, figures 20px bold, body 14px, labels 13px muted, links and buttons blue (the donate button white on its blue fill,
 // about-support-prominent), a number may take the stats' gain or loss colour, all in the body's sans (the code aside). Any card
