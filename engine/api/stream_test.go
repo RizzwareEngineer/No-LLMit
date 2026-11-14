@@ -416,7 +416,7 @@ func TestDealingTheProbeHandClearsTheOutageNotice(t *testing.T) {
 	}
 }
 
-// A hand that settleStreets finishes (nobody left to act) ends with a game_state, so live
+// A hand that settleStreet finishes (nobody left to act) ends with a game_state, so live
 // viewers see the final board.
 func TestSettledHandEndsWithTheFinalState(t *testing.T) {
 	tbl := testTable(t)
@@ -425,7 +425,8 @@ func TestSettledHandEndsWithTheFinalState(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tbl.settleStreets()
+	for tbl.settleStreet() { // a street per call
+	}
 	frames := tbl.hub.since(0, false).frames
 	last := parseFrames(t, frames[len(frames)-1])[0]
 	var state GameStatePayload

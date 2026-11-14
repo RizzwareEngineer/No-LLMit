@@ -74,7 +74,7 @@ type Table struct {
 	closeHour int
 	hoursZone *time.Location
 
-	// time.Now and time.Sleep for the closed-hours and call-cap waits; a test swaps in a fake clock.
+	// time.Now and time.Sleep for the closed-hours and call-cap waits and the paced sleeps; a test swaps in a fake clock.
 	now   func() time.Time
 	pause func(time.Duration)
 
@@ -97,7 +97,7 @@ func NewTable(h *hub, onSaved func(history.HandRecord)) *Table {
 		now:          time.Now,
 		pause:        time.Sleep,
 	}
-	t.setPace(envFloat("TABLE_PACE", 1))
+	t.setPace(envFloat("TABLE_PACE", 0.6))
 	if zone := os.Getenv("TABLE_TIMEZONE"); zone != "" && t.closeHour > t.openHour {
 		loc, err := time.LoadLocation(zone)
 		if err != nil {
@@ -245,7 +245,7 @@ func (t *Table) setPace(p float64)                   { t.pace.Store(math.Float64
 func (t *Table) paced(d time.Duration) time.Duration { return time.Duration(float64(d) * t.Pace()) }
 
 func (t *Table) sleep(d time.Duration) {
-	time.Sleep(t.paced(d))
+	t.pause(t.paced(d))
 }
 
 // waitForBudget blocks once the day's LLM call cap is reached, until the next UTC day.
@@ -388,11 +388,17 @@ func (t *Table) playHand() {
 		return
 	}
 
-	for {
+	for settled := 0; ; {
 		t.mu.Lock()
-		t.settleStreets()
-		done := t.gs.IsHandComplete() || !t.gs.IsWaitingForAction()
+		dealt := settled < 5 && t.settleStreet()
+		complete := t.gs.IsHandComplete()
+		done := complete || !t.gs.IsWaitingForAction()
 		t.mu.Unlock()
+		if dealt && !complete {
+			settled++
+			t.sleep(postActionDelay) // an all-in run-out deals a street per pause, like any street change
+			continue
+		}
 		if done {
 			break
 		}
@@ -506,13 +512,15 @@ func (t *Table) saveHand() (voided bool) {
 	return false
 }
 
-// settleStreets advances past any street where the betting is already finished.
-// Callers hold t.mu.
-func (t *Table) settleStreets() {
-	for i := 0; i < 5 && !t.gs.IsHandComplete() && !t.gs.IsWaitingForAction() && t.gs.NeedToAdvanceStreet(); i++ {
-		t.advanceStreet()
-		t.publish(ServerMessage{Type: MsgGameState})
+// settleStreet deals the next street, and publishes it, when the betting on this one is
+// already finished with nobody to act, as in an all-in run-out. Callers hold t.mu.
+func (t *Table) settleStreet() bool {
+	if t.gs.IsHandComplete() || t.gs.IsWaitingForAction() || !t.gs.NeedToAdvanceStreet() {
+		return false
 	}
+	t.advanceStreet()
+	t.publish(ServerMessage{Type: MsgGameState})
+	return true
 }
 
 // advanceStreet moves to the next street and, when that ends the hand, sets when the next

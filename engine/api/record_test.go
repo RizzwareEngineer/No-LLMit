@@ -64,10 +64,7 @@ func playTable(t *testing.T, names []string, stacks []int, holes [][]string, boa
 		*gs = *turn.next
 		rec.endDecision(turn)
 
-		if gs.NeedToAdvanceStreet() {
-			if gs.CountActivePlayers() > 1 && gs.CountActiveNonAllInPlayers() <= 1 && board != nil {
-				gs.CommunityCards = mustCards(t, board) // all in: the runout deals nothing more
-			}
+		for gs.NeedToAdvanceStreet() { // more than once only in an all-in run-out, a street at a time
 			if err := gs.AdvanceStreet(); err != nil {
 				t.Fatal(err)
 			}

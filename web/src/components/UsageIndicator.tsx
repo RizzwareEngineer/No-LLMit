@@ -83,9 +83,10 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
       className={`relative bg-white rounded overflow-hidden ${usage || error ? '' : '[&>*]:invisible'}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', ...size }}
     >
-      {/* Spacing is tight on purpose: the Sponsor row's 16px comes out of the paddings, so the card keeps its height. */}
-      <div className="px-3 pt-1 pb-1.5">
-        <div className="flex items-center gap-2 text-[11px] mb-0.5" style={{ color: MUTED }}>
+      {/* The card keeps its height (the sidebar sets the table's): py-2, mb-1 and the Sponsor row's mt-2 pt-2 plus one
+          16.5px line add up to what the paddings and the paid-call sentence did. */}
+      <div className="px-3 py-2">
+        <div className="flex items-center gap-2 text-[11px] mb-1" style={{ color: MUTED }}>
           <Lightning size={11} weight="bold" style={{ color: barColor }} aria-hidden />
           <span className="uppercase font-bold">API Usage</span>
           {(error || isCritical) && <Warning size={11} weight="bold" style={{ color: error ? WARN_TEXT : 'rgb(235, 87, 87)' }} aria-hidden />}
@@ -129,20 +130,19 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
           </div>
         )}
 
-        {/* What the calls above are, in the old "Support this project" line's place (the card must not grow: the sidebar
-            already sets the table's height). */}
-        <p className="mt-1 pt-1 border-t border-notion text-[11px] whitespace-nowrap" style={{ color: 'rgb(55, 53, 47)' }}>Every move is a paid model call.</p>
-        {/* The ask, right under what it pays for: the card's only filled control. */}
-        <a
-          href={SPONSORS}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="w-fit flex items-center gap-1 rounded-full px-1.5 text-[11px] leading-[16px] font-medium text-white whitespace-nowrap hover:brightness-110 transition-[filter]"
-          style={{ background: BLUE }}
-        >
-          {!(error || isCritical) && <Heart size={11} weight="fill" aria-hidden />}
-          Sponsor on GitHub
-        </a>
+        {/* The ask, under a rule at the card's bottom: the card's only filled control. */}
+        <div className="mt-2 pt-2 border-t border-notion">
+          <a
+            href={SPONSORS}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-fit flex items-center gap-1 rounded-full px-1.5 text-[11px] font-medium text-white whitespace-nowrap hover:brightness-110 transition-[filter]"
+            style={{ background: BLUE }}
+          >
+            {!(error || isCritical) && <Heart size={11} weight="fill" aria-hidden />}
+            Sponsor on GitHub
+          </a>
+        </div>
       </div>
     </div>
   );
