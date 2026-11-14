@@ -9,7 +9,7 @@ import { missPct } from '@/components/StatsTable';
 import { SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
 import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, ciHalf, modelSlug, netColor, pct, signed, chips } from '@/lib/stats';
 
-const POSITION_ORDER = ['UTG', 'UTG+1', 'UTG+2', 'MP', 'LJ', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
+const POSITION_ORDER = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']; // the engine's names, in seat order
 
 // Accepts the display-name slug in any case, the URL-encoded name, or the model id.
 export function findModel(models: ModelStats[], param: string) {
@@ -42,13 +42,11 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
 export default function ModelDrawer({
   models,
   error,
-  loading,
   slug,
   onClose,
 }: {
   models: ModelStats[];
   error: string | null;
-  loading: boolean;
   slug: string | null;
   onClose: () => void;
 }) {
@@ -104,7 +102,7 @@ export default function ModelDrawer({
 
         {!m ? (
           <div className="mt-6">
-            {models.length ? <p className="text-[14px]" style={{ color: MUTED }}>No stats for this model yet.</p> : <StatsMessage error={error} loading={loading} />}
+            {models.length ? <p className="text-[14px]" style={{ color: MUTED }}>No stats for this model yet.</p> : <StatsMessage error={error} />}
           </div>
         ) : (
           <>
@@ -116,7 +114,7 @@ export default function ModelDrawer({
               />
               <Fact label="Hands" value={m.hands.toLocaleString()} />
               <Fact label="Net" value={chips(m.net_chips)} color={netColor(m.net_chips)} />
-              <Fact label="All-in EV bb/100" value={signed(m.aiev_bb100)} />
+              <Fact label="All-in EV bb/100" value={m.aiev_bb100 === null ? DASH : signed(m.aiev_bb100)} />
             </dl>
             {m.hands < MIN_HANDS && (
               <div className="mt-4">

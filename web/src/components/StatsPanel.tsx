@@ -22,11 +22,11 @@ export function SmallSampleNote({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Stands in for the stats while they load or when the endpoint failed.
-export function StatsMessage({ error, loading }: { error: string | null; loading: boolean }) {
+// Stands in for the stats while they load or when they cannot be had.
+export function StatsMessage({ error }: { error: string | null }) {
   return (
     <p className="text-[14px]" style={{ color: MUTED }} role="status">
-      {error ? `Stats are unavailable right now (${error}). Try again in a minute.` : loading ? 'Stats are loading…' : 'Loading stats…'}
+      {error ? `Stats are unavailable right now (${error}). Try again in a minute.` : 'Stats are loading…'}
     </p>
   );
 }

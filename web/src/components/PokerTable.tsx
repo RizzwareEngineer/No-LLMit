@@ -26,7 +26,6 @@ interface PokerTableProps {
   players: PlayerState[];
   layout: PlayerLayout;
   currentPlayerIdx: number;
-  buttonIdx: number;
   communityCards: string[];
   pot: number;
   winnersByIdx?: Record<number, WinnerInfo>;
@@ -41,52 +40,10 @@ interface PokerTableProps {
   stats?: Record<string, ModelStats>; // by model name, for the hover stats on each seat
 }
 
-// Calculate position name based on seat relative to button
-function getPosition(playerIdx: number, buttonIdx: number, totalPlayers: number): string {
-  if (buttonIdx < 0) return '';
-  
-  // Calculate how many seats after the button this player is
-  const seatsFromButton = (playerIdx - buttonIdx + totalPlayers) % totalPlayers;
-  
-  // Positions depend on table size
-  // 9-max: BTN, SB, BB, UTG, UTG+1, UTG+2, LJ, HJ, CO
-  // 8-max: BTN, SB, BB, UTG, UTG+1, LJ, HJ, CO
-  // 7-max: BTN, SB, BB, UTG, LJ, HJ, CO
-  // 6-max: BTN, SB, BB, UTG, HJ, CO
-  
-  if (seatsFromButton === 0) return 'BTN';
-  if (seatsFromButton === 1) return 'SB';
-  if (seatsFromButton === 2) return 'BB';
-  
-  // Remaining positions depend on table size
-  const posFromUTG = seatsFromButton - 3; // 0 = UTG
-  
-  if (totalPlayers === 9) {
-    // 9-max: UTG, UTG+1, UTG+2, LJ, HJ, CO
-    const positions = ['UTG', 'UTG+1', 'UTG+2', 'LJ', 'HJ', 'CO'];
-    return positions[posFromUTG] || '';
-  } else if (totalPlayers === 8) {
-    // 8-max: UTG, UTG+1, LJ, HJ, CO
-    const positions = ['UTG', 'UTG+1', 'LJ', 'HJ', 'CO'];
-    return positions[posFromUTG] || '';
-  } else if (totalPlayers === 7) {
-    // 7-max: UTG, LJ, HJ, CO
-    const positions = ['UTG', 'LJ', 'HJ', 'CO'];
-    return positions[posFromUTG] || '';
-  } else if (totalPlayers === 6) {
-    // 6-max: UTG, HJ, CO
-    const positions = ['UTG', 'HJ', 'CO'];
-    return positions[posFromUTG] || '';
-  }
-  
-  return '';
-}
-
 export default function PokerTable({
   players,
   layout,
   currentPlayerIdx,
-  buttonIdx,
   communityCards,
   pot,
   winnersByIdx = {},
@@ -100,8 +57,6 @@ export default function PokerTable({
   handNumber,
   stats,
 }: PokerTableProps) {
-  const totalPlayers = players.length;
-
   // The engine keeps each seat's last action until the hand ends. A seat shows it only once it has
   // acted on the current street: its action, amount or stack changed since the street started, or
   // it was on the clock during this street (that catches a second CHECK in a row).
@@ -135,8 +90,8 @@ export default function PokerTable({
   const seat = (idx: number) => blank ? <div data-seat={idx} className="h-full w-full rounded bg-white" style={cardStyle} /> : players[idx] && (
     <Player
       player={players[idx]}
-      active={idx === currentPlayerIdx}
-      position={hidePositions ? '' : getPosition(idx, buttonIdx, totalPlayers)}
+      active={idx === currentPlayerIdx && street !== 'complete'} // between hands nobody is on the clock
+      position={hidePositions ? '' : players[idx].position}
       folded={players[idx]?.status === 'folded'}
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}

@@ -188,7 +188,7 @@ const scriptSocket = p => p.evaluateOnNewDocument(() => {
     const l = s.last, raiser = l.players[3].name, bet = [0, 5, 10, 35];
     return play(open, { type: 'game_state', payload: { ...l, street: 'preflop', pot: 50, currentBet: 35, winners: undefined, nextHandInMs: undefined,
       players: l.players.map((q, i) => ({ ...q, status: 'active', currentBet: bet[i] ?? 0, lastAction: i === 3 ? 'RAISE' : '', lastAmount: i === 3 ? 35 : 0 })) } },
-    { type: 'llm_thinking', payload: { playerIdx: 3, playerName: raiser } },
+    { type: 'llm_thinking', payload: { playerIdx: 3, playerName: raiser, budgetMs: 45000, elapsedMs: 0 } },
     { type: 'llm_action', payload: { playerIdx: 3, playerName: raiser, action: 'RAISE', amount: 35, reason: 'Raising to 35 with a strong hand.' } });
   };
   // The hand ends: seat 0 takes the pot at showdown, and the next hand is due in `ms`.
@@ -198,14 +198,14 @@ const scriptSocket = p => p.evaluateOnNewDocument(() => {
       players: l.players.map((q, i) => ({ ...q, currentBet: 0, stack: i === 0 ? q.stack + l.pot : q.stack })),
       winners: [{ playerIdx: 0, amount: l.pot, handType: 'Pair', handDesc: 'Pair of Kings', eligiblePlayers: l.players.map((_, i) => i), potNumber: 1 }] } });
   };
-  // The next hand: the button moves on, two cards to every seat, the blinds posted.
+  // The next hand: the button and the engine's position names move on a seat, two cards to every seat, the blinds posted.
   s.deal = () => {
     const l = s.last, n = l.players.length, btn = (l.players.findIndex(q => q.isButton) + 1) % n;
     const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => r + x));
     const blind = i => (i === (btn + 1) % n ? 5 : i === (btn + 2) % n ? 10 : 0);
     return play({ type: 'hand_start', payload: { handNumber: l.handNumber + 1 } }, { type: 'game_state', payload: { ...l, handNumber: l.handNumber + 1, street: 'preflop',
       pot: 15, currentBet: 10, communityCards: [], winners: undefined, nextHandInMs: undefined, currentPlayerIdx: (btn + 3) % n,
-      players: l.players.map((q, i) => ({ ...q, isButton: i === btn, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: blind(i), stack: q.stack - blind(i) })) } });
+      players: l.players.map((q, i) => ({ ...q, isButton: i === btn, position: l.players[(i + n - 1) % n].position, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: blind(i), stack: q.stack - blind(i) })) } });
   };
 });
 // A page at a window size on the live table, its game stream scripted, once the engine's state is in.
@@ -316,6 +316,104 @@ group(async () => {
 // Losses (bare, its unit in the panel's header) and the reasoning panel's action; the model's own words stay as written.
 // Text only: the locked sizes never move (seats 200x128, 250x160 at 1870x1200; the table 1000px), and big blinds wrap,
 // clip or cut short nothing that chips leave whole, phones included. Bets and a raise are scripted (scriptSocket).
+group(() => check('table-positions', 'Each seat\'s badge is the position the engine sent for it (the name the model is told), in one of the nine engine names\' own colours with a full name, and it moves with the button on the next deal', async () => {
+  const p = await scriptedTable(1440, 900), bad = [], seen = [];
+  const NAMES = ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO'];
+  const read = () => p.evaluate(() => ({ want: window.__sock.last.players.map(q => q.position ?? ''),
+    got: [...document.querySelectorAll('td [data-seat]')].map(e => { const b = e.querySelector('[data-position]'); return { seat: +e.dataset.seat, text: b?.textContent.trim() ?? '', title: b?.title ?? '', grey: !!b?.className.includes('bg-gray-600') }; }) }));
+  const test = async when => {
+    const { want, got } = await read();
+    seen.push(`${when}: ${want.join(' ')}`);
+    if (got.length !== want.length) bad.push(`${when}: ${got.length} seats drawn for ${want.length} players`);
+    for (const g of got) {
+      if (g.text !== want[g.seat]) bad.push(`${when}: seat ${g.seat} shows '${g.text}', the engine sent '${want[g.seat]}'`);
+      if (g.text && !NAMES.includes(g.text)) bad.push(`${when}: seat ${g.seat}: '${g.text}' is not an engine name`);
+      if (g.text && (g.grey || !g.title || g.title === g.text)) bad.push(`${when}: seat ${g.seat}: '${g.text}' has ${g.grey ? 'the grey fallback' : 'no full name'}`);
+    }
+  };
+  try {
+    // Dealt from the engine's last state (its hand_start ends any draw for the button, which hides the badges).
+    await p.evaluate(() => window.__sock.deal()); await sleep(1500);
+    await test('deal');
+    await p.evaluate(() => window.__sock.deal()); await sleep(1500);
+    await test('next deal');
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+
+group(() => check('table-shot-clock', 'The shot clock shows the turn\'s budgetMs - elapsedMs from the stream (a viewer who joins mid-turn sees the time really left) and counts down; with no budgetMs there is no clock', async () => {
+  const p = await scriptedTable(1440, 900), bad = [], seen = [];
+  const read = () => p.evaluate(() => { const c = document.querySelector('.font-mono.text-lg'); return c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null; });
+  const think = (budgetMs, elapsedMs) => p.evaluate((budgetMs, elapsedMs) => { const s = window.__sock; s.scripted = true;
+    s.feed({ type: 'llm_thinking', payload: { turn: 1, playerIdx: 2, playerName: s.last.players[2].name, budgetMs, elapsedMs } }); }, budgetMs, elapsedMs);
+  const near = (got, want) => got !== null && Math.abs(got - want) <= 1;
+  try {
+    for (const [budget, elapsed] of [[45000, 0], [45000, 20480], [30000, 0]]) {
+      await think(budget, elapsed); await sleep(300);
+      const want = Math.ceil((budget - elapsed) / 1000), now = await read();
+      await sleep(2200);
+      const later = await read();
+      seen.push(`${budget}/${elapsed}: ${now}s, then ${later}s`);
+      if (!near(now, want)) bad.push(`budgetMs ${budget}, elapsedMs ${elapsed}: shows ${now ?? 'no clock'}, want ${want}s`);
+      if (!near(later, want - 2)) bad.push(`budgetMs ${budget}, elapsedMs ${elapsed}: 2.2 s later shows ${later ?? 'no clock'}, want ${want - 2}s`);
+    }
+    await think(undefined, undefined); await sleep(1300);
+    const none = await read();
+    seen.push(`no budget: ${none ?? 'no clock'}`);
+    if (none !== null) bad.push(`no budgetMs: a ${none}s clock is shown`);
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+
+group(() => check('table-no-turn-glow', 'The seat on the clock glows; once the hand is complete no seat does, through the next-hand pause', async () => {
+  const p = await scriptedTable(1440, 900), seen = [];
+  const glowing = () => p.evaluate(() => [...document.querySelectorAll('td [data-seat].border-animation')].map(e => +e.dataset.seat));
+  try {
+    await p.evaluate(() => window.__sock.bets()); await sleep(1000);
+    const during = await glowing();
+    await p.evaluate(() => window.__sock.end(8000)); await sleep(500);
+    const after = await glowing();
+    await sleep(3000);
+    const later = await glowing();
+    seen.push(`seat 3 acting: [${during}]`, `hand complete: [${after}]`, `3.5 s into the pause: [${later}]`);
+    return { pass: during.length === 1 && during[0] === 3 && !after.length && !later.length, detail: seen.join('; ') };
+  } finally { await p.close(); }
+}));
+
+group(() => check('table-reason-empty', 'An action that came with no reason still shows in the reasoning panel (its label and the action), and is announced', async () => {
+  const p = await scriptedTable(1440, 900);
+  try {
+    await p.evaluate(() => { const s = window.__sock, q = s.last.players[2]; s.scripted = true;
+      s.feed({ type: 'llm_thinking', payload: { turn: 1, playerIdx: 2, playerName: q.name, budgetMs: 45000, elapsedMs: 0 } });
+      s.feed({ type: 'llm_action', payload: { turn: 1, playerIdx: 2, playerName: q.name, action: 'CALL', amount: 10, reason: '' } }); });
+    await sleep(800);
+    const r = await p.evaluate(() => { const live = [...document.querySelectorAll('p.sr-only[aria-live]')].find(e => e.closest('.h-\\[100px\\]'));
+      const panel = live?.parentElement; return { text: panel ? panel.innerText.replace(/\s+/g, ' ').trim() : null, said: live?.textContent ?? '' }; });
+    const ok = !!r.text && /Reasoning/.test(r.text) && /CALL/.test(r.text) && /call/.test(r.said);
+    return { pass: ok, detail: `panel: '${r.text}'; announced: '${r.said}'` };
+  } finally { await p.close(); }
+}));
+
+group(() => check('history-timeline-fetches', 'Thirty hands of stats events fetch the replay timeline at most twice (every 25 hands, not after every hand), and every synced card\'s last hand is still the stream\'s hand count', async () => {
+  const p = await scriptedTable(1440, 900), urls = [];
+  try {
+    const e = await engineStats(p);
+    if (!e) return { pass: false, detail: 'no engine stream seen' };
+    await sleep(1500);
+    p.on('request', r => { if (/\/api\/stats\/timeline/.test(r.url())) urls.push(r.url()); });
+    const base = e.stats.scope.hands, { models, sessions, ...envelope } = e.stats;
+    for (let h = base + 1; h <= base + 30; h++) {
+      await p.evaluate(m => { window.__sock.scripted = true; window.__sock.feed(m); },
+        { type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: h }, model_names: models.map(m => m.name), changed: [] } });
+      await sleep(150);
+    }
+    await sleep(2500);
+    const ends = await p.evaluate(() => [...new Set([...document.querySelectorAll('[data-sync-hand]')].map(e => +e.dataset.syncHand))]);
+    const ok = urls.length <= 2 && ends.length > 0 && ends.every(h => h === base + 30);
+    return { pass: ok, detail: `hands ${base + 1}-${base + 30}: ${urls.length} timeline fetches (sessions held: ${sessions.length}); synced cards end at ${ends.join(', ') || 'none'}` };
+  } finally { await p.close(); }
+}));
+
 group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns every amount on the table screen (stacks, actions, bets, pot, P&L, the reasoning action) into big blinds and back, the model\'s words aside; kept across a reload; no size changes, nothing newly cut, wrapped or clipped', async () => {
   const bad = [], seen = [];
   const fmt = (chips, bb, unit) => { const v = chips / bb; return v.toLocaleString('en-US', { maximumFractionDigits: v < 100 ? 1 : 0 }) + (unit ? ' BB' : ''); };
@@ -660,7 +758,7 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
       const st = await p.evaluate(() => { const l = window.__sock.last, n = l.players.length, btn = (l.players.findIndex(q => q.isButton) + 1) % n;
         const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => r + x));
         return { ...l, handNumber: l.handNumber + 1, street: 'preflop', pot: 15, currentBet: 10, communityCards: [], winners: undefined, nextHandInMs: undefined, currentPlayerIdx: (btn + 3) % n, peeked: [],
-          players: l.players.map((q, i) => ({ ...q, isButton: i === btn, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: 0 })) }; });
+          players: l.players.map((q, i) => ({ ...q, isButton: i === btn, position: l.players[(i + n - 1) % n].position, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: 0 })) }; });
       await feed([{ type: 'hand_start', payload: { handNumber: st.handNumber } }, { type: 'game_state', payload: st }]);
       await sleep(3600);
       const seats = await holeBoxes(p), boxes = seats.flatMap(s => s.cards), idx = seats.map(s => s.seat);
@@ -1584,6 +1682,30 @@ main(() => check('sync-in-step', 'While Trends replays, Profiles and Matchups st
 // two rows that swap cross mid-slide by design: the rule is judged on rows at rest.
 // Each row's name (the content that moves) and its offset from the row's top; rows without one (dash rows) are left out.
 const nameOffsets = () => [...document.querySelectorAll('#stats-card tbody tr')].map(r => { const s = r.querySelector('th > span.inline-block'); return s ? { o: s.getBoundingClientRect().top - r.getBoundingClientRect().top, b: s.getBoundingClientRect() } : null; }).filter(Boolean);
+group(() => check('profiles-replay-one-time', 'While the replay plays, a Profiles row shows no figure from today: 3-bet, C-bet, Fold to c-bet, WTSD, W$SD, Fold when check free, Misses and All-in adj. are dashes (the timeline does not carry them); at rest they are back', async () => {
+  const p = await pageAt(1440, 900, 'race');
+  try {
+    if (!(await p.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0)))) await clickText(p, 'Replay');
+    await sleep(1500); await goto(p, 'stats-table'); await sleep(1500);
+    const LACK = ['3-bet', 'C-bet', 'Fold to c-bet', 'WTSD', 'W$SD', 'Fold when check free', 'Misses', 'All-in adj.'];
+    const read = () => p.evaluate(lack => {
+      const ths = [...document.querySelectorAll('#stats-card thead tr:last-child th')];
+      const cols = lack.map(l => ths.findIndex(th => (th.querySelector('button') ?? th).textContent.trim() === l));
+      const playing = !!document.querySelector('[data-race-clock]'); // Trends' clock shows only while the replay plays
+      return { cols, playing, rows: [...document.querySelectorAll('#stats-card tbody tr')].filter(tr => tr.querySelector('th a')).map(tr => cols.map(i => (i < 0 ? null : tr.children[i]?.textContent.trim()))) };
+    }, LACK);
+    const during = await read();
+    const bad = [];
+    if (during.cols.some(i => i < 0)) bad.push(`columns missing: ${LACK.filter((_, k) => during.cols[k] < 0).join(', ')}`);
+    if (!during.playing) bad.push('the replay was not playing');
+    const today = during.rows.flatMap(r => r.filter(c => c !== null && c !== '—'));
+    if (today.length) bad.push(`while replaying, ${today.length} figures from today (e.g. ${today.slice(0, 3).join(', ')})`);
+    await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(800); await goto(p, 'stats-table'); await sleep(1500);
+    const after = await read();
+    if (!after.rows.some(r => r.some(c => c !== null && c !== '—'))) bad.push('at rest, still only dashes');
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${during.rows.length} rows: dashes while replaying, figures at rest` };
+  } finally { await p.close(); }
+}));
 main(() => check('profiles-rows-no-overlap', 'During the replay, no two Profiles rows overlap (rows at rest)', async () => {
   await goto(pg, 'race'); await sleep(800); // Skip and Replay live on the Trends card
   const playing = () => pg.evaluate(() => [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Skip' && e.getBoundingClientRect().width > 0));
@@ -2186,6 +2308,8 @@ main(() => check('profiles-no-llm-cost', 'No Errors, Latency or Cost columns in 
 // that'd be great to track". The card's Misses column shows the engine's miss_rate for each row (one decimal; a dash
 // from an engine without it), its header says what it counts, and it sorts lowest first (lower is better).
 main(() => check('profiles-misses', 'The Profiles card\'s Misses column shows the engine\'s miss_rate per model, defines it, and sorts lowest first', async () => {
+  // At rest: a replayed row shows a dash for Misses (the timeline does not carry it), so a replay still playing is skipped.
+  await goto(pg, 'race'); await sleep(800); await clickText(pg, 'Skip'); await sleep(800);
   await goto(pg, 'stats-table'); await sleep(1500);
   // The all-time stats, from the engine the page's build points at.
   const e = await engineStats(pg);
@@ -2958,6 +3082,20 @@ group(() => check('about-bb100', 'The race on About draws running bb/100: its ro
   if (leader && !(r.caption.includes(leader.name) && r.caption.includes(`${fmt(leader.bb100)} bb/100`))) why.push(`caption does not name ${leader.name} at ${fmt(leader.bb100)} bb/100`);
   return { pass: !why.length, detail: why.length ? why.join('; ') : `${r.rows.length} rows in bb/100 order; ${leader ? `${leader.name} ${fmt(leader.bb100)} bb/100` : 'no leader yet'}` };
 }));
+group(() => check('about-home-no-fetch', 'On the home page About\'s race is drawn from the stats the stream delivered: scrolling to About sends no GET /api/stats, and the race has its rows', async () => {
+  const p = watchStream(await newPage()); await p.setViewport({ width: 1440, height: 900 });
+  const asked = [];
+  p.on('request', r => { const u = new URL(r.url()); if (u.pathname === '/api/stats') asked.push(r.url()); });
+  try {
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await waitStats(p); await sleep(2000);
+    await goto(p, 'about');
+    const drawn = await p.waitForFunction(() => document.querySelector('#about [data-race-row]'), { timeout: 30000, polling: 250 }).then(() => true, () => false);
+    await sleep(1500);
+    const rows = await p.evaluate(() => document.querySelectorAll('#about [data-race-row]').length);
+    return { pass: drawn && !asked.length, detail: `${rows} race rows; ${asked.length} GET /api/stats${asked.length ? ` (${asked[0]})` : ''}` };
+  } finally { await p.close(); }
+}));
 // Owner, 2026-11-09: what's next shows the dataset with a waitlist under it: a labelled email input (type email, required) and a
 // "Join the waitlist" button that is not filled (the Sponsor button stays the only filled one), then how many have joined ("N on
 // the waitlist", or "Be the first on the waitlist." at 0). The engine's /api/waitlist is intercepted here (GET → {count}, POST
@@ -3682,6 +3820,19 @@ group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/
   }
   if (n < 20) bad.push(`only ${n} pairs with hands together`);
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 5).join('; ') : `${n} cells match the engine's bb/100 (big blind ${bb})` };
+}));
+group(() => check('matchups-total-faint', 'A Matchups Total is drawn faint exactly when its row has fewer than 500 hands of its own (not the hands summed over its opponents)', async () => {
+  const p = await pageAt(1440, 900, 'race');
+  await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
+  const e = await engineStats(p);
+  if (!e) { await p.close(); return { pass: false, detail: 'the page never opened the engine stream' }; }
+  const by = Object.fromEntries(e.stats.models.map(m => [m.name, m]));
+  const totals = await p.evaluate(() => [...document.querySelectorAll('#pairwise-card [data-cell$="|"]')]
+    .filter(el => el.querySelector('[aria-hidden]')).map(el => ({ row: el.dataset.cell.slice(0, -1), faint: +getComputedStyle(el).opacity < 1 })));
+  await p.close();
+  const bad = totals.filter(t => by[t.row] && t.faint !== by[t.row].hands < 500).map(t => `${t.row}: ${by[t.row].hands} hands, drawn ${t.faint ? 'faint' : 'full'}`);
+  if (!totals.length) bad.push('no Total with a figure');
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 5).join('; ') : `${totals.length} Totals, ${totals.filter(t => t.faint).length} faint, each by its row's own hands` };
 }));
 group(() => check('matchups-all-models', 'The Matchups card\'s "All models" shows every model with hands at the seated cell size; the grid scrolls inside the card with the row names, column logos and totals pinned', async () => {
   const p = await pageAt(1440, 900, 'race');

@@ -40,9 +40,21 @@ export interface TableView {
   gameState: GameState | null;
   notice: TableNoticePayload | null; // table closed, capped, in an outage or saving
   display: DisplayState | null;
-  clock: { start: number; running: boolean } | null; // the shot clock: llm_thinking starts it, the next game_state stops it
+  clock: Clock | null; // the shot clock: llm_thinking starts it, the next game_state stops it; null when the engine sent no budget
   buttonDetermination: ButtonDetermination | null;
 }
+
+// The turn's time as the engine sent it (docs/stream.md): budgetMs for the turn, elapsedMs already run when it was sent
+// (a snapshot's), and when this page received it.
+export interface Clock {
+  budgetMs: number;
+  elapsedMs: number;
+  received: number;
+  running: boolean;
+}
+
+// Whole seconds left on the shot clock at `now`, never below 0.
+export const clockLeft = (c: Clock, now: number) => Math.max(0, Math.ceil((c.budgetMs - c.elapsedMs - (now - c.received)) / 1000));
 
 export type Tables = Record<string, TableView>;
 
@@ -63,11 +75,11 @@ interface SnapshotTable {
 // game_state with the action applied, each at the moment it should appear.
 function applyTurn(v: TableView, turn: Turn, now: number): TableView {
   if (turn.type === 'llm_thinking') {
-    const p = turn.payload as { turn: number; playerIdx: number; playerName: string };
+    const p = turn.payload as { turn: number; playerIdx: number; playerName: string; budgetMs?: number; elapsedMs?: number };
     return {
       ...v,
       display: { phase: 'thinking', turn: p.turn, playerIdx: p.playerIdx, playerName: p.playerName, reason: null, action: null, amount: 0 },
-      clock: { start: now, running: true },
+      clock: p.budgetMs ? { budgetMs: p.budgetMs, elapsedMs: p.elapsedMs ?? 0, received: now, running: true } : null,
     };
   }
   const p = turn.payload as LLMDecision;
@@ -164,9 +176,10 @@ export function applyMessage(tables: Tables, m: ServerMessage, now: number): Tab
   return { ...tables, [m.table]: applyTableMessage(tables[m.table] ?? EMPTY_TABLE, m, now) };
 }
 
-type ChangedStats = Omit<StatsResponse, 'models'> & { model_names: string[]; changed: ModelStats[] };
+type ChangedStats = Omit<StatsResponse, 'models' | 'sessions'> & { model_names: string[]; changed: ModelStats[] };
 
-// A stats message: the full all-time body replaces the held one; the changed form replaces rows by model name.
+// A stats message: the full all-time body replaces the held one; the changed form replaces rows by model name and
+// keeps the sessions held (it carries none).
 // A changed form with nothing held is ignored: every stream starts with the full body.
 export function applyStats(held: StatsResponse | null, payload: StatsResponse | ChangedStats): StatsResponse | null {
   if (!('changed' in payload)) return payload;
@@ -174,5 +187,5 @@ export function applyStats(held: StatsResponse | null, payload: StatsResponse | 
   const { model_names, changed, ...envelope } = payload;
   const byName = new Map(held.models.map(m => [m.name, m]));
   for (const row of changed) byName.set(row.name, row);
-  return { ...envelope, models: model_names.flatMap(name => byName.get(name) ?? []) };
+  return { ...envelope, sessions: held.sessions, models: model_names.flatMap(name => byName.get(name) ?? []) };
 }

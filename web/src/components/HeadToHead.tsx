@@ -285,11 +285,12 @@ export default memo(function HeadToHead({
           {sorted.map(row => {
             const t = among.get(row.name)!;
             const none = row.hands === 0 || t.hands === 0; // no hands together yet at the replay's hand
+            // Faint by the row's own hands, as Profiles and the Leader: t.hands counts a hand once per opponent in it.
             return (
-              <div key={row.name} data-cell={`${row.name}|`} data-hands={t.hands} style={{ ...slot, color: none ? MUTED : netColor(t.bb100), opacity: !none && t.hands < MIN_HANDS ? FAINT : undefined }} className="flex items-center pl-2 whitespace-nowrap">
+              <div key={row.name} data-cell={`${row.name}|`} data-hands={t.hands} style={{ ...slot, color: none ? MUTED : netColor(t.bb100), opacity: !none && row.hands < MIN_HANDS ? FAINT : undefined }} className="flex items-center pl-2 whitespace-nowrap">
                 {none ? DASH : <>
                   <span aria-hidden>{fitFigure(t.bb100, totals - 8, px)}</span>
-                  <span className="sr-only">{row.name} {signed(t.bb100)} bb/100 against the models shown over {plural(t.hands, 'hand')} together</span>
+                  <span className="sr-only">{row.name} {signed(t.bb100)} bb/100 against the models shown, over {plural(row.hands, 'hand')} played</span>
                 </>}
               </div>
             );

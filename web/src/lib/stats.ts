@@ -16,18 +16,17 @@ export interface PositionStats {
 export interface VsStats {
   pots: number;
   net_chips: number;
-  hands?: number; // hands both were dealt in (vs only: heads_up_vs and older engines leave it out)
+  hands?: number; // hands both were dealt in (older engines leave it out)
 }
 
 export interface ModelStats {
   name: string;
   model: string;
   hands: number;
-  decisions: number;
   net_chips: number;
   bb100: number;
   bb100_ci: [number, number] | null; // null below 2 hands
-  aiev_bb100: number;
+  aiev_bb100: number | null; // null only on a replayed Profiles row (lib/timeline profilesAt)
   vpip: number;
   pfr: number;
   three_bet: number | null;
@@ -43,25 +42,12 @@ export interface ModelStats {
   miss_rate?: number | null; // absent from older engines
   avg_latency_ms: number;
   cost_usd: number;
-  cost_per_hand_usd: number;
   biggest_pot_won: number;
   biggest_pot_lost: number;
   by_position: Record<string, PositionStats>;
   cumulative_bb: [number, number][];
   cumulative_aiev_bb?: [number, number][]; // the same curve scored by all-in EV (absent from older engines)
   vs: Record<string, VsStats>;
-  // From engine #21; optional so an older engine or the bundled sample still renders.
-  by_players_to_flop?: Record<'2' | '3' | '4+', FlopBucket>;
-  multiway_share?: { chips_won_pct: number | null; fair_share_pct: number | null };
-  heads_up_vs?: Record<string, VsStats>;
-}
-
-// Hands that reached the flop with this many players (2, 3 or 4+).
-export interface FlopBucket {
-  hands: number;
-  won: number;
-  net_chips: number;
-  bb100: number | null;
 }
 
 export interface StatsSession {
@@ -78,7 +64,6 @@ export interface StatsResponse {
   models: ModelStats[];
   partial: boolean; // all-in EV still computing in the background; aiev_bb100 is provisional
   seated?: string[]; // the table's current lineup; only on the all-time and live session payloads
-  definitions_url: string;
 }
 
 // Below this many hands bb/100 is mostly noise.
@@ -107,9 +92,8 @@ const LOADING_RETRY_MS = 10_000;
 // How often to refetch while all-in EV is still computing (partial: true).
 const PARTIAL_REFRESH_MS = 30_000;
 
-export async function fetchStats(session?: string): Promise<StatsResponse> {
-  const query = session ? `?session=${encodeURIComponent(session)}` : '';
-  const res = await fetch(`${API_URL}/api/stats${query}`);
+export async function fetchStats(): Promise<StatsResponse> {
+  const res = await fetch(`${API_URL}/api/stats`); // always all time
   if (res.status === 503) throw new StatsLoadingError(); // engine still building its first snapshot
   if (!res.ok) throw new Error(`stats ${res.status}`);
   const json = await res.json();
@@ -140,7 +124,7 @@ export function useStats(session?: string, enabled = true, refreshKey?: number):
     const settle = (next: Partial<Settled>) =>
       !cancelled && setState(s => ({ ...s, sample: false, loading: false, error: null, ...next, session }));
     const load = () =>
-      fetchStats(session)
+      fetchStats()
         .then(data => {
           goodFor.current = session;
           settle({ data });

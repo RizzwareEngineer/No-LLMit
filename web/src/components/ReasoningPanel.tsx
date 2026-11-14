@@ -7,7 +7,7 @@ import type { DisplayState } from "@/lib/stream";
 
 interface ReasoningPanelProps {
   displayState: DisplayState | null;
-  shotClockRemaining: number;
+  shotClockRemaining: number | null; // null: no clock
   blank?: boolean; // no table state yet: the bar at its size with nothing in it
 }
 
@@ -28,7 +28,7 @@ export default function ReasoningPanel({
   const isReasoning = phase === 'reasoning';
   const isRevealed = phase === 'revealed';
   const showReason = isReasoning || isRevealed;
-  const showShotClock = isThinking || isReasoning; // Hide after action is revealed
+  const showShotClock = (isThinking || isReasoning) && shotClockRemaining !== null; // Hide after action is revealed
 
   // Dynamic font size based on reason length
   const getReasonFontSize = (text: string | null | undefined) => {
@@ -41,7 +41,7 @@ export default function ReasoningPanel({
   const reasonFontSize = getReasonFontSize(reason);
   // Full text for screen readers, announced once per action (not the typewriter partials)
   const spokenAction = action ? `${action.toLowerCase().replace('_', '-')}${amount > 0 ? ` ${formatAmount(amount, bb)}` : ''}` : '';
-  const announcement = showReason && reason ? `${playerName}: ${spokenAction}. ${reason}` : '';
+  const announcement = showReason && action ? `${playerName}: ${spokenAction}.${reason ? ` ${reason}` : ''}` : '';
 
   return (
     <div 
@@ -70,10 +70,10 @@ export default function ReasoningPanel({
               <span 
                 className="font-mono text-lg font-bold"
                 style={{ 
-                  color: shotClockRemaining <= 5 ? 'rgb(235, 87, 87)' : 'rgb(35, 131, 226)'
+                  color: (shotClockRemaining ?? 0) <= 5 ? 'rgb(235, 87, 87)' : 'rgb(35, 131, 226)'
                 }}
               >
-                {shotClockRemaining}s
+                {shotClockRemaining ?? 0}s
               </span>
             </div>
           )}
@@ -88,7 +88,8 @@ export default function ReasoningPanel({
             </div>
           )}
           
-          {showReason && reason && (
+          {/* The action shows even when the model gave no reason (an answer with only ACTION and AMOUNT, or the engine's fallback). */}
+          {showReason && action && (
             <>
               {/* Reasoning label with action. A narrow phone puts the action (in big blinds, longer) under the label
                   rather than cutting it off. */}
@@ -104,9 +105,11 @@ export default function ReasoningPanel({
                   </span>
                 )}
               </div>
-              <p className={`${reasonFontSize} italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
-                <TypewriterText key={reason} text={reason} speed={25} />
-              </p>
+              {reason && (
+                <p className={`${reasonFontSize} italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
+                  <TypewriterText key={reason} text={reason} speed={25} />
+                </p>
+              )}
             </>
           )}
           

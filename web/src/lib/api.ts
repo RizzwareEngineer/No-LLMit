@@ -12,8 +12,6 @@ export type MessageType =
   | 'stats'
   | 'game_state'
   | 'hand_start'
-  | 'street_change'
-  | 'hand_complete'
   | 'llm_thinking'
   | 'llm_action'
   | 'button_card'
@@ -61,7 +59,6 @@ export interface Winner {
 }
 
 export interface GameState {
-  id: string;
   handNumber: number;
   street: string;
   pot: number;
