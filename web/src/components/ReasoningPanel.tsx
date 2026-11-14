@@ -3,6 +3,7 @@
 import LLMLogo from "@/components/LLMLogo";
 import TypewriterText from "@/components/TypewriterText";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
+import { MUTED, BLUE } from "@/lib/stats";
 import type { DisplayState } from "@/lib/stream";
 
 interface ReasoningPanelProps {
@@ -68,9 +69,10 @@ export default function ReasoningPanel({
           {(
             <div className={`flex items-center gap-1 mt-1 ${showShotClock ? '' : 'invisible'}`}>
               <span 
-                className="font-mono text-lg font-bold"
+                data-clock
+                className="text-[20px] leading-7 font-bold tabular-nums"
                 style={{ 
-                  color: (shotClockRemaining ?? 0) <= 5 ? 'rgb(235, 87, 87)' : 'rgb(35, 131, 226)'
+                  color: (shotClockRemaining ?? 0) <= 5 ? 'rgb(235, 87, 87)' : BLUE
                 }}
               >
                 {shotClockRemaining ?? 0}s
@@ -82,8 +84,8 @@ export default function ReasoningPanel({
         {/* Right section - Thinking or Reasoning text */}
         <div className="flex-1 flex flex-col justify-center px-4 min-w-0">
           {isThinking && (
-            <div className="text-sm italic flex items-center gap-2" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
-              <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'rgba(55, 53, 47, 0.65)' }} />
+            <div className="text-sm italic flex items-center gap-2" style={{ color: MUTED }}>
+              <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: MUTED }} />
               Thinking…
             </div>
           )}
@@ -94,13 +96,13 @@ export default function ReasoningPanel({
               {/* Reasoning label with action. A narrow phone puts the action (in big blinds, longer) under the label
                   rather than cutting it off. */}
               <div className="flex flex-wrap items-center gap-x-2 mb-1">
-                <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgb(35, 131, 226)' }}>Reasoning</span>
+                <span className="text-[11px] uppercase tracking-wider" style={{ color: BLUE }}>Reasoning</span>
                 {action && (
                   // The same look as the action on each seat: mono, uppercase, bold, the amount muted.
                   <span className="flex flex-row items-center gap-1">
-                    <span className="text-[11px] font-mono uppercase font-bold tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>{action.replace('_', '-')}</span>
+                    <span className="text-[11px] uppercase font-bold tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>{action.replace('_', '-')}</span>
                     {amount > 0 && action !== 'FOLD' && action !== 'CHECK' && (
-                      <span data-chips={amount} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{formatAmount(amount, bb)}</span>
+                      <span data-chips={amount} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(amount, bb)}</span>
                     )}
                   </span>
                 )}
@@ -114,7 +116,7 @@ export default function ReasoningPanel({
           )}
           
           {isIdle && (
-            <div className="text-xs italic" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+            <div className="text-[13px] italic" style={{ color: MUTED }}>
               Waiting for next action…
             </div>
           )}

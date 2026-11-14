@@ -7,7 +7,7 @@ import { useState } from "react";
 import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
-import { DASH, ModelStats, ciHalf, pct, signed } from "@/lib/stats";
+import { BLUE, DASH, MUTED, ModelStats, ciHalf, pct, signed } from "@/lib/stats";
 import { CARD_CLASS, Peel, useCardSize } from "@/lib/tableSwitches";
 
 interface PlayerProps {
@@ -89,8 +89,8 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           <div className="flex items-center gap-2 min-w-0">
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
-              <div className="text-[11px] font-semibold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-              <div data-chips={player.stack} className="text-[10px] tabular-nums whitespace-nowrap" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{formatAmount(player.stack, bb)}</div>
+              <div className="text-[11px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
+              <div data-chips={player.stack} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
             </div>
           </div>
           {/* Position badge, top-right */}
@@ -107,7 +107,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
 
         {/* Hover stats in the empty band between the name block and the bottom row; absolute, so the seat never changes size. */}
         {hovered && (
-          <div className={`absolute left-3 right-3 top-[46px] ${size ? 'z-10 [&>*]:w-fit' : ''} text-[11px] leading-[14px] tabular-nums whitespace-nowrap overflow-hidden`} style={{ color: 'rgba(55, 53, 47, 0.65)' }} aria-hidden>
+          <div className={`absolute left-3 right-3 top-[46px] ${size ? 'z-10 [&>*]:w-fit' : ''} text-[11px] leading-[14px] tabular-nums whitespace-nowrap overflow-hidden`} style={{ color: MUTED }} aria-hidden>
             {stats ? (
               <>
                 <div style={bandLine}><b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.vpip).replace('%', '')}</b> VPIP · <b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.pfr).replace('%', '')}</b> PFR · <b style={{ color: 'rgb(55, 53, 47)' }}>{stats.af === null ? DASH : stats.af.toFixed(1)}</b> AF</div>
@@ -122,25 +122,25 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           <div className="flex items-center gap-2 min-w-0 mb-0.5">
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
-                <span data-chips={winAmount} className="font-bold text-[11px] shrink-0" style={{ color: 'rgb(15, 123, 108)' }}>+{formatAmount(winAmount, bb)}</span>
+                <span data-chips={winAmount} className="font-bold text-[11px] shrink-0 tabular-nums" style={{ color: 'rgb(15, 123, 108)' }}>+{formatAmount(winAmount, bb)}</span>
                 <span className="text-[11px] truncate min-w-0" style={{ color: 'rgb(15, 123, 108)' }}>({winDesc})</span>
               </div>
             ) : player.lastAction && showAction ? (
               <div className="flex flex-row items-center gap-1 min-w-0 overflow-hidden">
-                <div className="text-[11px] font-mono uppercase font-bold tracking-wider shrink-0" style={{ color: 'rgb(55, 53, 47)' }}>
+                <div data-action className="text-[11px] uppercase font-bold tracking-wider shrink-0" style={{ color: 'rgb(55, 53, 47)' }}>
                   {player.lastAction}
                 </div>
                 {(player.lastAmount ?? 0) > 0 && (
-                  <div data-chips={player.lastAmount} className="text-[11px] shrink-0 tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{formatAmount(player.lastAmount ?? 0, bb)}</div>
+                  <div data-chips={player.lastAmount} className="text-[11px] shrink-0 tabular-nums" style={{ color: MUTED }}>{formatAmount(player.lastAmount ?? 0, bb)}</div>
                 )}
               </div>
             ) : player.currentBet > 0 ? (
               // Chips out with no action yet: the blinds. Their amount sits in front of the seat.
-              <div className="text-[11px] font-mono uppercase tracking-wider truncate" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+              <div data-action className="text-[11px] uppercase tracking-wider truncate" style={{ color: MUTED }}>
                 {position === 'SB' ? 'SMALL BLIND' : position === 'BB' ? 'BIG BLIND' : <>BET <span data-chips={player.currentBet}>{formatAmount(player.currentBet, bb)}</span></>}
               </div>
             ) : (
-              <div className="text-[11px] font-mono uppercase truncate" style={{ color: isThinking ? 'rgb(35, 131, 226)' : 'rgba(55, 53, 47, 0.65)' }}>
+              <div data-action className="text-[11px] uppercase truncate" style={{ color: isThinking ? BLUE : MUTED }}>
                 {player.status === 'folded' ? 'FOLD' : 
                  player.status === 'all-in' ? 'ALL-IN' :
                  player.status === 'eliminated' ? 'OUT' : 

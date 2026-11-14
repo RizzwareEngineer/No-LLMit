@@ -17,6 +17,8 @@ import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
 import { NEXT_BUTTON, NEXT_STYLE, isPaging, pageBy, pageTo, resnap, scrollsInside } from "@/components/Section";
 import { holdBoxes } from "@/lib/boxes";
+import { useTypeSwitch } from "@/lib/tableSwitches";
+import { MUTED, BLUE } from "@/lib/stats";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -81,6 +83,7 @@ const BEFORE_PAINT = `(${fitStage})();(${holdBoxes})(true)`;
 const PAGE_KEYS: Record<string, 1 | -1> = { ArrowDown: 1, ArrowRight: 1, PageDown: 1, ArrowUp: -1, ArrowLeft: -1, PageUp: -1 };
 
 export default function Home() {
+  useTypeSwitch(); // ?type=2
   const {
     gameState,
     isConnected,
@@ -332,15 +335,15 @@ export default function Home() {
       <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-auto flex flex-col items-center-safe justify-center-safe pt-3 pb-[calc(1rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
         <div className="mb-1 text-center">
-          <h1 className="text-[28px] font-bold" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
-          <p className="text-[14px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>
+          <h1 className="text-[28px] font-bold text-balance" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
+          <p className="text-[14px]" style={{ color: MUTED }}>
             Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
             {/* The home page's last screen; /about stays its own page (a new tab, a shared link). */}
             <Link
               href="/about"
               onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about'); } }}
               className="hover:underline"
-              style={{ color: 'rgb(35, 131, 226)' }}
+              style={{ color: BLUE }}
             >
               ⓘ About
             </Link>
@@ -359,7 +362,7 @@ export default function Home() {
             <span
               aria-hidden
               className="inline-block w-2.5 h-2.5 rounded-full"
-              style={{ background: isLive ? 'rgb(220, 38, 38)' : 'rgba(55, 53, 47, 0.65)' }}
+              style={{ background: isLive ? 'rgb(220, 38, 38)' : MUTED }}
             />
             <span className="text-[14px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
               {!isConnected ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
@@ -371,11 +374,11 @@ export default function Home() {
               to the same lines) and nothing under it moves when they fill in. */}
           <div className={`contents ${handNumber > 0 ? '' : '[&>*]:invisible'}`}>
             <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-            <span className="text-[14px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber || '00'}</span>
+            <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>Hand #{handNumber || '00'}</span>
             <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-            <span className="text-[14px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
+            <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
             <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-            <span className="text-[14px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
+            <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
           </div>
           <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
           <UnitToggle bigBlind={stakes.bigBlind} />

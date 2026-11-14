@@ -44,7 +44,7 @@ export default function LLMLogo({ model, size = 28 }: LLMLogoProps) {
 
   return (
     <div
-      className="bg-neutral-800/20 text-neutral-400 border border-neutral-600/50 rounded-sm flex items-center justify-center shrink-0 font-mono font-bold text-[11px]"
+      className="bg-neutral-800/20 text-neutral-700 border border-neutral-600/50 rounded-sm flex items-center justify-center shrink-0 font-bold text-[11px]"
       style={box}
     >
       {model.slice(0, 2).toUpperCase()}

@@ -243,6 +243,15 @@ main(() => check('table-width', 'The table stays 1000px wide', async () => {
   const w = await pg.evaluate(() => document.querySelector('table').offsetWidth);
   return { pass: Math.abs(w - 1000) <= 1, detail: `${w}px` };
 }));
+main(() => check('type-2-locked-boxes', 'With ?type=2 the seats are 200x128, the table 1000px, and the page is on the second type scale (data-type="2", the badge text 10px)', async () => {
+  const p2 = await newPage(); await p2.setViewport({ width: 1440, height: 900 });
+  await p2.goto(`${BASE}${BASE.includes('?') ? '&' : '?'}type=2`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p2.waitForFunction(() => document.querySelector('td.w-\\[200px\\]') && document.documentElement.dataset.type === '2', { timeout: 60000 }).catch(() => {});
+  await sleep(2000);
+  const r = await p2.evaluate(() => { const b = document.querySelector('td.w-\\[200px\\]'), t = document.querySelector('table'), g = document.querySelector('[data-position]'); return { type: document.documentElement.dataset.type, seat: [b.offsetWidth, b.offsetHeight], table: t.offsetWidth, badge: g ? getComputedStyle(g).fontSize : 'none' }; });
+  await p2.close();
+  return { pass: r.type === '2' && Math.abs(r.seat[0] - 200) <= 1 && Math.abs(r.seat[1] - 128) <= 2 && Math.abs(r.table - 1000) <= 1 && r.badge === '10px', detail: `type ${r.type}, seat ${r.seat.join('x')}, table ${r.table}px, badge ${r.badge}` };
+}));
 main(() => check('no-currency', 'No ¤ sign anywhere on the table screen', async () => {
   const n = await pg.evaluate(() => (document.body.innerText.match(/¤/g) || []).length);
   return { pass: n === 0, detail: `${n} found` };
@@ -343,7 +352,7 @@ group(() => check('table-positions', 'Each seat\'s badge is the position the eng
 
 group(() => check('table-shot-clock', 'The shot clock shows the turn\'s budgetMs - elapsedMs from the stream (a viewer who joins mid-turn sees the time really left) and counts down; with no budgetMs there is no clock', async () => {
   const p = await scriptedTable(1440, 900), bad = [], seen = [];
-  const read = () => p.evaluate(() => { const c = document.querySelector('.font-mono.text-lg'); return c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null; });
+  const read = () => p.evaluate(() => { const c = document.querySelector('[data-clock]'); return c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null; });
   const think = (budgetMs, elapsedMs) => p.evaluate((budgetMs, elapsedMs) => { const s = window.__stream; s.scripted = true;
     s.feed({ type: 'llm_thinking', payload: { turn: 1, playerIdx: 2, playerName: s.last.players[2].name, budgetMs, elapsedMs } }); }, budgetMs, elapsedMs);
   const near = (got, want) => got !== null && Math.abs(got - want) <= 1;
@@ -671,7 +680,7 @@ group(() => check('table-card-sizes', 'Hole card sizes (?cards=1|2|3; none: as t
         if (w >= 768) { const b = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).getBoundingClientRect(); return [e.left + 20, e.top + 20]; }); await p.mouse.move(b[0], b[1]); await sleep(400); }
         // Text boxes per seat: the name, the stack, the badge, the action text (each text's own painted extent), the band's lines.
         const boxes = await p.evaluate(() => [...document.querySelectorAll('[data-seat]')].filter(s => s.getBoundingClientRect().width > 0).flatMap(seat => {
-          const texts = [...seat.querySelectorAll('[title], [data-chips], .font-mono, .absolute.top-\\[46px\\] > div')].filter(e => !e.closest('[data-hole]'));
+          const texts = [...seat.querySelectorAll('[title], [data-chips], [data-action], .absolute.top-\\[46px\\] > div')].filter(e => !e.closest('[data-hole]'));
           return texts.map(e => {
             // The text's own extent, cut to its box (a truncated text runs on, unpainted, under the cards).
             const r = document.createRange(); r.selectNodeContents(e); const b = r.getBoundingClientRect();
@@ -1598,7 +1607,7 @@ main(() => check('history-type', 'Trends type: x and y ticks alike, axis titles 
     if (keys.length > 1) bad.push(`${role}: ${keys.length} styles`);
     for (const [k, v] of Object.entries(want)) if (xs[0][k] !== v) bad.push(`${role} ${k} ${xs[0][k]} (want ${v})`);
   };
-  const MUTED = 'rgba(55, 53, 47, 0.65)';
+  const MUTED = 'rgba(55, 53, 47, 0.72)';
   one('ticks', [...r.y, ...r.x], { family: 'body', px: 13, color: MUTED, tab: true });
   one('axis titles', r.titles, { family: 'body', px: 13, color: MUTED });
   one('pill names', r.names.map(({ color, ...s }) => s), { family: 'body', px: 13, weight: '500' }); // each in its line's colour (trends-labels-plain)
@@ -2581,7 +2590,7 @@ main(() => check('matchups-card-hugs', 'The opened Matchups card spans the table
 // checked by history-type and history-number-style): titles 20px bold; model names and data figures 14px; controls 14px
 // medium; column headers and secondary text 13px (muted); the Matchups tile's figures one size (11px).
 main(() => check('stats-type-scale', 'Every text role on the stats tiles and cards uses the agreed family, size, weight and colour', async () => {
-  const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)';
+  const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.72)', BLUE = 'rgb(31, 111, 196)';
   // [role, selector, size px, weights, colours (null: any), figures must be tabular]
   const roles = {
     stats: [
@@ -2878,7 +2887,7 @@ main(() => check('about-fits', 'About is on the stats type scale (thesis 28px bo
     const clear = await p.waitForFunction(() => getComputedStyle(document.querySelector('[data-page]')).getPropertyValue('--bar-h').trim() === '0px', { timeout: 30000, polling: 200 }).then(() => true, () => false);
     if (!clear) bad.push(`${w}x${h}: the connection bar never cleared (measured with it)`);
     const r = await p.evaluate(() => {
-      const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.65)', BLUE = 'rgb(35, 131, 226)', WHITE = 'rgb(255, 255, 255)', NET = ['rgb(15, 123, 108)', 'rgb(200, 50, 50)'];
+      const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.72)', BLUE = 'rgb(31, 111, 196)', WHITE = 'rgb(255, 255, 255)', NET = ['rgb(15, 123, 108)', 'rgb(200, 50, 50)'];
       const about = document.querySelector('section[aria-label=About]'), race = document.getElementById('race-panel');
       const view = about.querySelector('[data-about]');
       const why = new Set();
@@ -3140,7 +3149,7 @@ group(() => check('about-waitlist', 'About\'s dataset waitlist: a labelled email
     if (!parts.input || !parts.required) bad.push('no required email input');
     if (!parts.label) bad.push('the email input has no label');
     if (parts.button !== 'Join the waitlist') bad.push(`button says "${parts.button}"`);
-    if (parts.bg === 'rgb(35, 131, 226)') bad.push('the button is filled blue');
+    if (parts.bg === 'rgb(31, 111, 196)') bad.push('the button is filled blue');
   }
   if (!(await wait(p, 'Be the first on the waitlist.'))) bad.push(`at 0 it says "${await said(p)}"`);
   await p.close();
@@ -3558,7 +3567,7 @@ group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117
     const at = `${w}x${h}`;
     if (!r) { bad.push(`${at}: no GitHub Sponsors link on the table screen`); await p.close(); continue; }
     seen.push(`${at}: "${r.text}" ${r.bg}, sentence ${r.lines} line${r.lines === 1 ? '' : 's'}, card ${r.cardH}px, P&L ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
-    if (r.text !== 'Sponsor on GitHub' || r.bg !== 'rgb(35, 131, 226)' || r.target !== '_blank') bad.push(`${at}: the link is "${r.text}" on ${r.bg}, target ${r.target || 'self'}`);
+    if (r.text !== 'Sponsor on GitHub' || r.bg !== 'rgb(31, 111, 196)' || r.target !== '_blank') bad.push(`${at}: the link is "${r.text}" on ${r.bg}, target ${r.target || 'self'}`);
     if (r.lines !== 1 || r.clipped) bad.push(`${at}: "Every move is a paid model call." on ${r.lines} lines${r.clipped ? ', clipped' : ''}`);
     if (!r.below) bad.push(`${at}: the Sponsor link is not below "Every move is a paid model call." inside the card`);
     if (r.filled !== 1) bad.push(`${at}: ${r.filled} filled controls in the card`);
@@ -4081,7 +4090,7 @@ group(() => check('reconnect-unseen', 'The routine stream reconnect is unseen: n
     window.__endStream = () => { const es = s.cur; es.close(); es.onerror?.(new Event('error')); };
     window.__read = () => {
       const panel = document.querySelector('.stage-zoom .h-\\[100px\\]');
-      const clock = panel?.querySelector('.font-mono.text-lg');
+      const clock = panel?.querySelector('[data-clock]');
       const shown = clock && !clock.closest('.invisible');
       const look = e => e.textContent + [...e.querySelectorAll('[aria-label]')].map(c => c.getAttribute('aria-label')).join(',');
       return {

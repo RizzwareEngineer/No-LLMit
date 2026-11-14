@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* The site's two families, defined once: Tailwind's `font-sans` is the page default and `font-mono` is for code and
+   model ids only. No web font is loaded. */
+@theme {
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 :root {
   color-scheme: light;
   /* The page: one off-white behind every screen of the home page and /about, so the table's panels and the stats and
@@ -301,4 +308,25 @@ html:has([data-screen]) {
     border: 1px solid rgb(255 255 255 / 0.14);
     border-radius: 2px;
   }
+}
+
+/* ?type=2 (tableSwitches.ts): the type scale's edits that change a box, for the owner to look at. Each overrides the
+   utility classes of the place it names, so the markup is the same with the switch off. Seats (200x128), the table
+   (1000px) and the boxes around it keep their sizes. */
+html[data-type="2"] {
+  /* Card, tile and drawer titles: 20px on 26px (1.3), the header's 32px minimum height keeps its row. */
+  & .text-\[20px\].leading-8, & #drawer-title { line-height: 26px; text-wrap: balance; }
+  /* The seat's position badge: 10px, not 8px (it grows past 32px only for UTG+1 and MP+1). */
+  & [data-position] { font-size: 10px; width: auto; min-width: 2rem; padding-inline: 2px; }
+  /* The reasoning quote: one size whatever its length (it was 14, 12 or 11px). */
+  & .line-clamp-3.italic { font-size: 13px; }
+  /* The drawer: labels and section headers 13px medium, stats 20px, its two tables 14px like Profiles'. */
+  & dialog dt { font-size: 13px; font-weight: 500; }
+  & dialog dd.text-\[15px\] { font-size: 20px; }
+  & dialog h3.uppercase { font-size: 13px; font-weight: 500; }
+  & dialog table.text-\[12px\] { font-size: 14px; }
+  /* The big "next" pill is a 14px control like the others. */
+  & .rounded-full.text-\[15px\] { font-size: 14px; font-weight: 500; }
+  /* The error banner's retry button. */
+  & button.text-xs.bg-white\/40 { font-size: 14px; font-weight: 500; }
 }

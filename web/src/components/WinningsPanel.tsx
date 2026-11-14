@@ -6,6 +6,7 @@ import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { useRememberedBox } from "@/lib/boxes";
+import { MUTED } from "@/lib/stats";
 
 interface WinningsPanelProps {
   players: PlayerState[];
@@ -24,10 +25,10 @@ export default function WinningsPanel({ players }: WinningsPanelProps) {
     >
       <div className="flex items-start justify-between p-3 border-b border-notion">
         <div className="flex flex-col">
-          <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
+          <h2 className="text-[13px] leading-4 font-medium uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
         </div>
         {/* In big blinds the column's unit sits here, so the rows stay as narrow as in chips and no name is cut shorter. */}
-        {bb && <span data-unit className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>BB</span>}
+        {bb && <span data-unit className="text-[13px] leading-4 font-medium uppercase tracking-wider" style={{ color: MUTED }}>BB</span>}
       </div>
       <div className="flex-1 overflow-auto">
         {players.length > 0 && <Rankings players={players} />}
@@ -39,11 +40,11 @@ export default function WinningsPanel({ players }: WinningsPanelProps) {
 function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
   const bb = useBigBlind();
   const winnings = player.winnings || 0;
-  const color = winnings > 0 ? 'rgb(15, 123, 108)' : winnings < 0 ? 'rgb(200, 50, 50)' : 'rgba(55, 53, 47, 0.65)';
+  const color = winnings > 0 ? 'rgb(15, 123, 108)' : winnings < 0 ? 'rgb(200, 50, 50)' : MUTED;
 
   return (
     <div className="flex flex-row items-center gap-2 p-2 px-3">
-      <span className="text-[13px] w-5 font-bold tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{rank}.</span>
+      <span className="text-[13px] w-5 font-bold tabular-nums" style={{ color: MUTED }}>{rank}.</span>
       <LLMLogo model={player.name} size={20} />
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>

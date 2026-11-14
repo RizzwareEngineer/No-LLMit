@@ -7,17 +7,16 @@ import { motion, useInView, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { RATE_FROM, series } from '@/components/CumulativeChart';
 import { CARD, CARD_SHADOW, Segmented, TITLE } from '@/components/Section';
-import { MIN_HANDS, MUTED, ModelStats, StatsResponse, TEXT, chips, netColor, seatedModels, signed, useStats } from '@/lib/stats';
+import { BLUE, MIN_HANDS, MUTED, ModelStats, StatsResponse, TEXT, chips, netColor, seatedModels, signed, useStats } from '@/lib/stats';
 import { EXAMPLE_REPLY, EXAMPLE_USER_PROMPT, SYSTEM_PROMPT } from '@/lib/systemPrompt';
 import { joinWaitlist, waitlistCount } from '@/lib/waitlist';
 
 // The About copy and its parts (about-content-complete); About arranges them. Every line is one sentence that fits its
 // line at About's widths (one sentence per line).
 
-const BLUE = 'rgb(35, 131, 226)';
 export const RULE = 'rgba(55, 53, 47, 0.16)'; // hairlines between sections
 // A small uppercase label (13px muted, the stats' label size): a section's name, an eyebrow.
-export const LABEL = 'text-[13px] leading-snug font-medium uppercase tracking-[0.08em]';
+export const LABEL = 'text-[13px] leading-snug font-medium uppercase tracking-wider';
 
 // The day the open dataset ships: one constant, so moving it is a one-word change.
 const DATASET_DATE = 'Wednesday, Nov 18';
@@ -89,7 +88,7 @@ export function Hours() {
 function Fact({ head, lines }: { head: string; lines: string[] }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <p className="font-semibold">{head}</p>
+      <p className="font-bold">{head}</p>
       {lines.map(l => <Label key={l}>{l}</Label>)}
     </div>
   );
@@ -188,7 +187,7 @@ export function Support({ as: H, className = '' }: { as: Heading; className?: st
         href={SPONSORS}
         target="_blank"
         rel="noopener noreferrer"
-        className="self-start flex items-center gap-2 rounded-full px-5 py-2.5 text-[16px] font-semibold text-white shadow-sm hover:brightness-110 transition-[filter]"
+        className="self-start flex items-center gap-2 rounded-full px-5 py-2.5 text-[16px] font-medium text-white shadow-sm hover:brightness-110 transition-[filter]"
         style={{ background: BLUE }}
       >
         <Heart size={16} weight="fill" aria-hidden />
@@ -222,7 +221,7 @@ export function Footer() {
 // The prompts, as code.
 function Code({ children }: { children: string }) {
   return (
-    <pre className="p-3 rounded-lg text-[13px] leading-relaxed overflow-x-auto whitespace-pre-wrap" style={{ background: 'rgba(55, 53, 47, 0.04)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+    <pre className="p-3 rounded-lg text-[13px] leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono" style={{ background: 'rgba(55, 53, 47, 0.04)' }}>
       {children}
     </pre>
   );
@@ -293,7 +292,7 @@ function PromptLinks() {
               <>
                 <Label>What a model sees on its turn, sent right after the system prompt.</Label>
                 <Code>{EXAMPLE_USER_PROMPT}</Code>
-                <p className="mt-2 font-semibold">The reply</p>
+                <p className="mt-2 font-bold">The reply</p>
                 <Label>An action, an amount and a short reason.</Label>
                 <Code>{EXAMPLE_REPLY}</Code>
               </>

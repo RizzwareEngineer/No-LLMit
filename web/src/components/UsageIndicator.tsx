@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Lightning, Heart, Warning } from "@phosphor-icons/react";
 import { API_URL } from "@/lib/api";
+import { MUTED, BLUE } from "@/lib/stats";
 import { localHoursLabel } from "@/lib/time";
 import { useRememberedBox } from "@/lib/boxes";
 import { SPONSORS } from "@/components/about/content";
@@ -51,7 +52,6 @@ export function useUsage() {
   return { usage, error };
 }
 
-const MUTED = 'rgba(55, 53, 47, 0.65)';
 const WARN_TEXT = 'rgb(140, 95, 20)'; // darker mustard, readable on white
 
 export default function UsageIndicator({ usage, error }: { usage: UsageData | null; error: boolean }) {
@@ -97,7 +97,7 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
               style={{ width: error ? '0%' : `${Math.min(100, usedPct)}%`, background: barColor }}
             />
           </div>
-          <span className="text-[11px] font-mono font-bold tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
+          <span className="text-[11px] font-bold tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
             {error ? '???' : barIsSpend ? `$${usedUsd.toFixed(2)} / $${limitUsd!.toFixed(0)}` : calls}
           </span>
         </div>
@@ -105,13 +105,13 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
         {barIsSpend && (
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[11px]" style={{ color: MUTED }}>Calls today:</span>
-            <span className="text-[11px] font-mono tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>{calls}</span>
+            <span className="text-[11px] tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>{calls}</span>
           </div>
         )}
         {showSpend && !limitUsd && (
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[11px]" style={{ color: MUTED }}>Spend:</span>
-            <span className="text-[11px] font-mono tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>${usedUsd.toFixed(2)}</span>
+            <span className="text-[11px] tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>${usedUsd.toFixed(2)}</span>
           </div>
         )}
 
@@ -135,8 +135,8 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
           href={SPONSORS}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-fit flex items-center gap-1 rounded-full px-1.5 text-[11px] leading-[16px] font-semibold text-white whitespace-nowrap hover:brightness-110 transition-[filter]"
-          style={{ background: 'rgb(35, 131, 226)' }}
+          className="w-fit flex items-center gap-1 rounded-full px-1.5 text-[11px] leading-[16px] font-medium text-white whitespace-nowrap hover:brightness-110 transition-[filter]"
+          style={{ background: BLUE }}
         >
           {!(error || isCritical) && <Heart size={11} weight="fill" aria-hidden />}
           Sponsor on GitHub

@@ -83,7 +83,9 @@ export function leaderBy<T extends { hands: number; bb100: number }>(rows: T[]):
 }
 
 export const TEXT = 'rgb(55, 53, 47)';
-export const MUTED = 'rgba(55, 53, 47, 0.65)';
+// Secondary text: 5.13:1 on white. Links and control text blue: 5.09:1 on white, white on it 5.09:1.
+export const MUTED = 'rgba(55, 53, 47, 0.72)';
+export const BLUE = 'rgb(31, 111, 196)';
 
 class StatsLoadingError extends Error {}
 
@@ -222,7 +224,7 @@ export const plural = (n: number, word: string) => `${n.toLocaleString()} ${word
 export const pct = (n: number | null) => (n === null ? DASH : `${Math.round(n * 100)}%`);
 
 export const netColor = (n: number) =>
-  n > 0 ? 'rgb(15, 123, 108)' : n < 0 ? 'rgb(200, 50, 50)' : 'rgba(55, 53, 47, 0.65)';
+  n > 0 ? 'rgb(15, 123, 108)' : n < 0 ? 'rgb(200, 50, 50)' : MUTED;
 
 // Plain-language definitions shown on the stats table headers.
 export const STAT_DEFINITIONS: Record<string, string> = {
