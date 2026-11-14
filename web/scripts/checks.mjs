@@ -878,7 +878,7 @@ const HOLE_REC = () => {
           for (const [t, say] of texts) if (Math.min(r, t[2]) - Math.max(a, t[0]) > 0.5 && Math.min(d, t[3]) - Math.max(b, t[1]) > 0.5) off.push(`a card over "${say}"`);
         }
         const at = index && rect(index);
-        return { deg: Math.atan2(l.b, l.a) * 180 / Math.PI, box: rect(lay), turn: flip.m11, lift: Math.atan2(-flap.m13, flap.m11) * 180 / Math.PI,
+        return { deg: Math.atan2(l.b, l.a) * 180 / Math.PI, box: rect(lay), turn: flip.m11, shown: +getComputedStyle(c).opacity, lift: Math.atan2(-flap.m13, flap.m11) * 180 / Math.PI,
           index: at, seen: at && document.elementFromPoint((at[0] + at[2]) / 2, (at[1] + at[3]) / 2)?.closest('[data-index]') === index };
       });
       seats[s.dataset.seat] = { cards, off };
@@ -986,6 +986,13 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
       const again = angles(await film([{ type: 'hand_start', payload: { handNumber: next.handNumber } }, { type: 'game_state', payload: next }], 3600));
       const same = Object.keys(again).filter(i => dealt[i] && again[i].every((d, k) => Math.abs(d - dealt[i][k]) < 0.1));
       if (same.length) bad.push(`${tag}the next hand, seats ${same.join(',')} landed as in the last`);
+      // The first seat to act gets its turn with the deal, its cards still in flight: it peeks once both have landed, in full.
+      const third = await deal(), c = third.currentPlayerIdx;
+      const rec3 = (await film([{ type: 'hand_start', payload: { handNumber: third.handNumber } }, { type: 'game_state', payload: third }, { type: 'llm_thinking', payload: { turn: 1, playerIdx: c, playerName: third.players[c].name } }], 3600 + settle)).filter(f => f.seats[c]);
+      const early = rec3.map(f => f.seats[c]), lift = s => s.cards.some(x => Math.abs(x.lift) > 1), hold = rec3.filter(f => f.seats[c].cards.every(x => Math.abs(x.lift) > 120)), held = hold.length ? Math.round(hold.at(-1).t - hold[0].t) : 0;
+      if (early.at(-1)?.cards.map(holeFace).join('') !== 'upup') bad.push(`${tag}turn with the deal: seat ${c} ends ${early.at(-1)?.cards.map(holeFace).join('')}, want upup`);
+      if (!reduced && early.some(s => s.cards.some(x => x.shown < 0.99) && (lift(s) || s.cards.some(x => holeFace(x) !== 'down')))) bad.push(`${tag}turn with the deal: seat ${c} peeked before both its cards landed`);
+      if (!reduced && held < 500) bad.push(`${tag}turn with the deal: seat ${c} held ${held} ms`);
     } finally { await p.close(); }
   };
   for (const [w, h, reduced, query] of [[1440, 900, false], [1440, 900, false, '?cards=3'], [390, 844, false], [1440, 900, true], [390, 844, true]]) await run(w, h, reduced, query);

@@ -66,6 +66,10 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const isWinner = winAmount !== undefined && winAmount > 0;
   const size = useCardSize();
   const cardClass = CARD_CLASS[size];
+  // The hand whose dealt cards have both landed: until then they stay face down, so the first seat to act (its turn
+  // comes during the deal) peeks once its cards are in place, not unseen in flight.
+  const [landed, setLanded] = useState(0);
+  const up = faceUp && (!dealDelays || landed === handNumber);
   const seatBg = isWinner ? 'rgb(237, 253, 244)' : '#ffffff';
   // A picked bigger size reaches up into the hover band: its lines then sit on the hovered seat's colour, above the cards.
   const bandLine = size ? { background: `linear-gradient(rgba(55, 53, 47, 0.03), rgba(55, 53, 47, 0.03)), ${seatBg}` } : undefined;
@@ -84,7 +88,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             animate={{ opacity: 1 }}
             transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
           >
-            <HoleCard value={card} faceUp={faceUp} peek={peek} slot={i ? 1 : 0} w={CARD_SIZES[size].w} hand={handNumber} seat={seatIdx} settle={dealDelays?.[i]} className={cardClass} />
+            <HoleCard value={card} faceUp={up} peek={peek} slot={i ? 1 : 0} w={CARD_SIZES[size].w} hand={handNumber} seat={seatIdx} settle={dealDelays?.[i]} onLanded={i ? () => setLanded(handNumber) : undefined} className={cardClass} />
           </motion.div>
         ))
       ) : (

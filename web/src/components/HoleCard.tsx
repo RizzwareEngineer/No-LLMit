@@ -28,8 +28,9 @@ const LIFT = 145; // degrees it turns up to at the hold: past upright, its face 
 // Layers: the card's place on the felt (x, y, rotate) holding the flipper (its turn, about the left edge), which holds the
 // face and the back; the back's left part is the flap that lifts, its face's corner under it.
 // `slot` 0 is the first card dealt, under; 1 the second, on top; `w` the card's width in px; `settle` the seconds until
-// its flight lands, when dealt while watching: it lands square, as it flew (TableMotion), and slides to its pose.
-export default function HoleCard({ value, faceUp, peek = false, slot = 0, w = 28, hand = 0, seat = 0, settle, className = "" }: { value: string; faceUp: boolean; peek?: boolean; slot?: 0 | 1; w?: number; hand?: number; seat?: number; settle?: number; className?: string }) {
+// its flight lands, when dealt while watching: it lands square, as it flew (TableMotion), and slides to its pose;
+// `onLanded` is called once it lies there.
+export default function HoleCard({ value, faceUp, peek = false, slot = 0, w = 28, hand = 0, seat = 0, settle, onLanded, className = "" }: { value: string; faceUp: boolean; peek?: boolean; slot?: 0 | 1; w?: number; hand?: number; seat?: number; settle?: number; onLanded?: () => void; className?: string }) {
   const reduce = useReducedMotion();
   const [prev, setPrev] = useState(faceUp);
   const [showing, setShowing] = useState(false); // the peek, from the seat's turn on
@@ -59,7 +60,7 @@ export default function HoleCard({ value, faceUp, peek = false, slot = 0, w = 28
   const flapHow: Transition = { duration: SHOW * TIMES[4], times: TIMES.slice(0, 5).map(t => t / TIMES[4]), ease: 'easeInOut' };
   return (
     <div className={`relative ${className}`}>
-      <motion.div data-lay className="absolute inset-0" style={{ perspective: 400 }} initial={settle === undefined ? false : { x: 0, y: 0, rotate: 0 }} animate={placeTo} transition={placeHow}>
+      <motion.div data-lay className="absolute inset-0" style={{ perspective: 400 }} initial={settle === undefined ? false : { x: 0, y: 0, rotate: 0 }} animate={placeTo} transition={placeHow} onAnimationComplete={() => { if (!faceUp) onLanded?.(); }}>
       <motion.div
         data-flip
         className="absolute inset-0"
