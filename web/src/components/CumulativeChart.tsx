@@ -24,30 +24,10 @@ export const W = 1220, H = 470; // History's shape, 2.6:1 at least: tall enough 
 // The race clock's Skip/Replay button (the card's, and the tile's Replay).
 const CLOCK_BTN = 'rounded border px-2 py-px font-medium hover:bg-[rgba(55,53,47,0.06)]';
 const CLOCK_BTN_STYLE = { borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT, background: 'white' };
-const LEGEND_H = 68; // the legend under the Race card's plot: up to three rows (every model, and the note)
+export const LEGEND_H = 68; // the legend under the Race card's plot: up to three rows (every model, and the note)
 
 type Pts = [number, number][];
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
-
-// The value of a cumulative curve at hand n, linearly interpolated (0 before its first point,
-// flat after its last).
-export function valueAt(pts: [number, number][], n: number) {
-  if (!pts.length || n < pts[0][0]) return 0;
-  const i = pts.findIndex(p => p[0] >= n);
-  if (i <= 0) return pts.at(i)![1]; // past the last point, or exactly on the first
-  const [n0, v0] = pts[i - 1], [n1, v1] = pts[i];
-  return n1 === n0 ? v1 : v0 + ((n - n0) / (n1 - n0)) * (v1 - v0);
-}
-
-// Spreads label centres at least `gap` apart inside [lo, hi], each as close to its target as
-// that allows. `ys` must be sorted ascending.
-export function spread(ys: number[], gap: number, lo: number, hi: number) {
-  const out = ys.map(v => Math.min(Math.max(v, lo), hi));
-  for (let i = 1; i < out.length; i++) out[i] = Math.max(out[i], out[i - 1] + gap);
-  for (let i = out.length - 1; i >= 0; i--) out[i] = Math.min(out[i], i === out.length - 1 ? hi : out[i + 1] - gap);
-  for (let i = 0; i < out.length; i++) out[i] = Math.max(out[i], i ? out[i - 1] + gap : lo);
-  return out;
-}
 
 // 95% band around the cumulative line after n hands. The per-hand spread implied by the
 // bb/100 interval over N hands is h*sqrt(N)/196, so n hands spread by h*sqrt(N*n)/100.
@@ -57,7 +37,7 @@ function band(m: ModelStats, n: number) {
 
 // Evenly spaced round ticks that cover [min, max]; the first and last tick bound the axis,
 // so a range that dips below zero always gets a negative label.
-export function niceTicks(min: number, max: number, count: number, integer = false) {
+function niceTicks(min: number, max: number, count: number, integer = false) {
   const step0 = (max - min) / count || 1;
   const mag = 10 ** Math.floor(Math.log10(step0));
   let step = [1, 2, 2.5, 5, 10].map(f => f * mag).find(s => s >= step0) ?? step0;
@@ -84,7 +64,7 @@ export function sampleAt(pts: Pts, ns: number[]) {
 // A line as drawn on an x axis over [x0, x1]: SAMPLES evenly spaced hands across the axis plus the
 // line's exact ends, cut at hand `end`. Fixed hands keep its shape still as the race's playhead moves.
 // With `to`, each value is k of the way to that curve's (a metric switch morphs one into the other).
-export function trace(pts: Pts, x0: number, x1: number, end = Infinity, to?: Pts, k = 1): Pts {
+function trace(pts: Pts, x0: number, x1: number, end = Infinity, to?: Pts, k = 1): Pts {
   if (!pts.length) return [];
   const b = to?.length ? to : pts;
   const lo = Math.max(x0, lerp(pts[0][0], b[0][0], k));
@@ -103,8 +83,7 @@ export function trace(pts: Pts, x0: number, x1: number, end = Infinity, to?: Pts
 // The Race window choices: the last 100 or 1,000 hands, or all of them.
 const RANGES = [{ label: 'Last 100', n: 100 }, { label: 'Last 1k', n: 1000 }, { label: 'All', n: 0 }] as const;
 // A running bb/100 over a model's first hands is mostly noise. Trends draws each rate line from hand 0 but fits its
-// y axis to it only from this many hands on, so those early swings may sit clamped at the plot's edge. (Profiles'
-// sparkline starts here.)
+// y axis to it only from this many hands on, so those early swings may sit clamped at the plot's edge.
 export const RATE_FROM = 20;
 
 type Metric = 'bb100' | 'chips' | 'bb';
@@ -123,7 +102,7 @@ export function series(m: ModelStats, metric: Metric, bigBlind = 1, ev = false):
 // hands it played between two profiles snapshots are spread evenly across them, as playedAt reads
 // them back. Flat while it sits out and from its last hand to the scope's last, so every line's tip
 // is "now"; empty until it starts. `hands`: its live count, which may run past the last snapshot.
-export function onTable(tl: Timeline, name: string, curve: Pts, hands: number): Pts {
+function onTable(tl: Timeline, name: string, curve: Pts, hands: number): Pts {
   const marks: [number, number][] = tl.snaps.map((sn, i) => [sn, tl.profiles[i].get(name)?.hands ?? 0]);
   marks.push([tl.hands, Math.max(hands, marks.at(-1)?.[1] ?? 0)]);
   const out: Pts = [];
@@ -143,7 +122,7 @@ export function onTable(tl: Timeline, name: string, curve: Pts, hands: number): 
 // Labelled y gridlines over [a, b]: the step that gives 6–8 of them, preferring round steps (1, 2,
 // 2.5, 5) and falling back to the finer ladder, whose neighbours are at most 4:3 apart, so one always fits.
 const ROUND = [1, 2, 2.5, 5], LADDER = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8];
-export function gridTicks(a: number, b: number) {
+function gridTicks(a: number, b: number) {
   const mag = 10 ** Math.floor(Math.log10((b - a) / 7 || 1));
   let best: number[] = [], score = Infinity;
   for (const m of [mag / 10, mag, mag * 10]) {
@@ -160,15 +139,15 @@ export function gridTicks(a: number, b: number) {
 // The y axis' range for a set of values, Arena style: their 5th to 95th percentile (so one spike
 // does not flatten the pack) and every value in `keep` (the lines' tips), plus 8% air each side.
 // A tip far outside the pack (more than the pack's own span beyond it) is left out, to sit at the
-// edge with an arrow rather than squash everyone. `zero`: always include break-even. `must`: values
+// edge with an arrow rather than squash everyone. `must`: values
 // always inside, however far out (the lines' recent stretch, which is never clipped).
-export function robustRange(vs: number[], keep: number[] = [], zero = true, must: number[] = []): [number, number] {
+function robustRange(vs: number[], keep: number[] = [], must: number[] = []): [number, number] {
   const s = (vs.some(Number.isFinite) ? vs : keep).filter(Number.isFinite).sort((p, q) => p - q);
   if (!s.length) return [-1, 1];
   const q = (f: number) => s[Math.round(f * (s.length - 1))];
   const [q0, q1] = [q(0.05), q(0.95)], reach = Math.max(q1 - q0, 1e-9);
   const near = keep.filter(v => v >= q0 - reach && v <= q1 + reach);
-  let [lo, hi] = [Math.min(q0, ...near, ...must, ...(zero ? [0] : [])), Math.max(q1, ...near, ...must, ...(zero ? [0] : []))];
+  let [lo, hi] = [Math.min(q0, ...near, ...must), Math.max(q1, ...near, ...must)];
   if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
   const air = (hi - lo) * 0.08;
   return [lo - air, hi + air];
@@ -176,7 +155,7 @@ export function robustRange(vs: number[], keep: number[] = [], zero = true, must
 
 // Where two lines crossed: the last hand among `ns` (ascending) at which a stopped being below b,
 // linearly interpolated between samples, with the value there. Null if they never crossed.
-export function crossing(a: Pts, b: Pts, ns: number[]): [number, number] | null {
+function crossing(a: Pts, b: Pts, ns: number[]): [number, number] | null {
   const [va, vb] = [sampleAt(a, ns), sampleAt(b, ns)];
   for (let i = ns.length - 1; i > 0; i--) {
     const [d0, d1] = [va[i - 1] - vb[i - 1], va[i] - vb[i]];
@@ -249,7 +228,7 @@ const ZOOM_MIN = 20;
 // pushed apart (half each, the bounds taking the rest) until they are `gap` apart; pills apart
 // across x never push each other. The push ramps in over the first 16px of overlap, so pills
 // meeting across x ease apart instead of jumping. `ps` must be sorted by y ascending.
-export function stack(ps: { x: number; w: number; y: number }[], gap: number, lo: number, hi: number) {
+function stack(ps: { x: number; w: number; y: number }[], gap: number, lo: number, hi: number) {
   const out = ps.map(p => Math.min(Math.max(p.y, lo), hi));
   gap = Math.min(gap, (hi - lo) / Math.max(1, ps.length - 1)); // shortcut: crowds of 13+ pills squeeze every gap
   const near = (a: (typeof ps)[number], b: (typeof ps)[number]) => Math.min(1, Math.max(0, (Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + 4) / 16));
@@ -282,13 +261,13 @@ if (process.env.NODE_ENV === 'development') {
   }
   const [rl, rh] = robustRange([...Array.from({ length: 98 }, (_, i) => i - 49), 5000, -5000]);
   console.assert(rl > -60 && rh < 60, 'robustRange: one spike each way does not stretch the axis');
-  console.assert(robustRange([0, 1, 2], [], false, [50])[1] > 50, 'robustRange: a must value is always inside');
+  console.assert(robustRange([0, 1, 2], [], [50])[1] > 50, 'robustRange: a must value is always inside');
   const cr = crossing([[0, 0], [10, 10]], [[0, 5], [10, 5]], [0, 10]);
   console.assert(cr !== null && Math.abs(cr[0] - 5) < 1e-9 && Math.abs(cr[1] - 5) < 1e-9, 'crossing: where a rises through b');
 }
 
-// An overtake: `a` passed `b` at hand n and value v, `t` seconds into the replay; the passer's tip was at (tx, ty).
-type Overtake = { a: string; b: string; n: number; v: number; t: number; tx: number; ty: number };
+// An overtake: `a` passed `b` at hand n and value v, `t` seconds into the replay.
+type Overtake = { a: string; b: string; n: number; v: number; t: number };
 const EMPH_S = 0.6, MARK_S = 2, NEXT_S = 1.5; // the passer's emphasis, the crossing marker's fade, the gap before the next event
 const PAIR_S = 6; // a pair that keeps swapping gets one highlight and ring per this long
 // LMArena's place change, on every overtake: both pills shake across x (in em, so a few screen px at any scale;
@@ -359,10 +338,7 @@ function pump(f: Fx, layer: HTMLElement | null) {
 export default function CumulativeChart({
   models,
   everyone,
-  selected,
-  onSelect,
-  highlight,
-  onHighlight,
+  selected: fixed,
   race = false,
   mini = false,
   bigBlind,
@@ -370,13 +346,10 @@ export default function CumulativeChart({
 }: {
   models: ModelStats[];
   everyone?: ModelStats[]; // the Race "All models" lineup; `models` is the seated one
-  selected: string;
-  onSelect?: (name: string) => void; // the Race screen: a click on an end label shades that line's 95% band
-  highlight?: string; // a line to bring forward while the pointer is not on the plot
-  onHighlight?: (name: string | undefined) => void;
+  selected?: string; // the line whose 95% band is shaded (outside the Race; the Race card's click picks its own)
   race?: boolean; // several lines, each labelled at its end, with filters, a legend, a hover readout and a range control
   mini?: boolean; // the overview tile: the same chart scaled down, without controls or interaction
-  bigBlind?: number; // outside the Race: plot chips (bb × big blind) instead of bb
+  bigBlind?: number; // the Race's chips metric plots bb × big blind
   timeline?: Timeline | null; // the Race: replays hand by hand, each line at its model's hands then
 }) {
   const area = useRef<HTMLDivElement>(null);
@@ -468,15 +441,20 @@ export default function CumulativeChart({
   const [license, setLicense] = useState<License>('all');
   const [fams, setFams] = useState<string[]>([]); // none picked: every family
   const [top, setTop] = useState(0); // 0: every model
+  const [picked, setPicked] = useState(''); // the Race card's clicked end label: that line's 95% band is shaded
+  const [highlight, setHighlight] = useState<string | undefined>(); // a line brought forward while the pointer is on its label
   const [luck, setLuck] = useState(false); // all-in EV lines for every model (the highlighted one always shows its own)
   const [hidden, setHidden] = useState<string[]>([]); // lines switched off in the legend
   const [zoomTo, setZoom] = useState<[number, number] | null>(null); // the card's zoom: the hands it shows (see fit)
 
-  const metric: Metric = race ? metricPick : bigBlind ? 'chips' : 'bb';
+  const metric: Metric = race ? metricPick : 'bb';
   const rate = metric === 'bb100';
   const unit = rate ? 'bb/100' : metric;
   const fmt = (v: number) => (metric === 'chips' ? chips(Math.round(v)) : signed(v));
   const interactive = race && !mini;
+  const selected = race ? picked : fixed;
+  const onSelect = interactive ? setPicked : undefined;
+  const onHighlight = race ? setHighlight : undefined;
   const byName = new Map([...(everyone ?? []), ...models].map(m => [m.name, m]));
   // The Race plots against the table hand once the timeline is in, so every tip sits at "now";
   // until then (and in the model drawer) against the model's own hands played.
@@ -516,7 +494,7 @@ export default function CumulativeChart({
   const lines = new Map(on.map(m => [m.name, pts(m)]));
   const evs = new Map(luck ? on.flatMap(m => { const p = curveOf(m, true); return p.length ? [[m.name, p] as const] : []; }) : []);
   // The value at hand n, or null before the line starts.
-  const at = (m: ModelStats, n: number) => (n < pts(m)[0][0] ? null : valueAt(pts(m), n));
+  const at = (m: ModelStats, n: number) => (n < pts(m)[0][0] ? null : sampleAt(pts(m), [n])[0]);
   // 95% band: bb/100's interval narrows as 1/sqrt(n); a cumulative total's widens as sqrt(n), n the hands it had played.
   const bandAt = (m: ModelStats, x: number) => {
     const n = table ? playedAt(table, m.name, x) : x;
@@ -602,8 +580,8 @@ export default function CumulativeChart({
     // The replay is known ahead: the next LOOK_S of each line, so the eased axis is never caught out by a jump.
     const ahead = handNow === null ? [] : [...lines].flatMap(([n, p]) => fitted(n, trace(p, nowX, nowX + (LOOK_S * 1000 / PLAY_MS) * timeline!.hands, Infinity)).map(q => q[1]));
     want = inView.length
-      ? robustRange(playing ? recent : inView.flatMap(p => p.map(q => q[1])), tips, false, [...recent, ...tips, ...ahead])
-      : robustRange([...lines].flatMap(([n, p]) => fitted(n, trace(p, from, lastHand)).map(q => q[1])), [], false);
+      ? robustRange(playing ? recent : inView.flatMap(p => p.map(q => q[1])), tips, [...recent, ...tips, ...ahead])
+      : robustRange([...lines].flatMap(([n, p]) => fitted(n, trace(p, from, lastHand)).map(q => q[1])));
   } else {
     const ys = [...drawn.values()].flatMap(p => p.map(q => q[1]));
     if (sel) trace(pts(sel), X0, X1, nowX).forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
@@ -728,7 +706,7 @@ export default function CumulativeChart({
     if ((ev && tNow - ev.t < NEXT_S) || tNow - (pairs[pair] ?? -Infinity) < PAIR_S || byN.get(a)!.o < 0.5 || byN.get(b)!.o < 0.5) continue;
     const pa = drawn.get(a)!, pb = drawn.get(b)!;
     const c = crossing(pa, pb, pa.slice(-24).map(q => q[0])) ?? [byN.get(a)!.n, byN.get(a)!.v];
-    ev = { a, b, n: c[0], v: c[1], t: tNow, tx: byN.get(a)!.tx, ty: byN.get(a)!.ty };
+    ev = { a, b, n: c[0], v: c[1], t: tNow };
     pairs[pair] = tNow;
   }
   const was1 = rk.order.find(n => byN.has(n));

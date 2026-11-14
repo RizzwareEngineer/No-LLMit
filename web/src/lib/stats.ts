@@ -1,19 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { API_URL } from '@/lib/api';
 import { ALL_LLMS } from '@/lib/constants';
 
 // Shape of GET /api/stats, per docs/stats-api-contract.json. Rates are 0..1, or null when nothing
 // qualified for them; bb = big blinds.
-export interface PositionStats {
+interface PositionStats {
   hands: number;
   vpip: number | null;
   pfr: number | null;
   bb100: number;
 }
 
-export interface VsStats {
+interface VsStats {
   pots: number;
   net_chips: number;
   hands?: number; // hands both were dealt in (older engines leave it out)
@@ -50,7 +50,7 @@ export interface ModelStats {
   vs: Record<string, VsStats>;
 }
 
-export interface StatsSession {
+interface StatsSession {
   id: string;
   started_at: string;
   ended_at: string | null;
@@ -63,7 +63,7 @@ export interface StatsResponse {
   sessions: StatsSession[];
   models: ModelStats[];
   partial: boolean; // all-in EV still computing in the background; aiev_bb100 is provisional
-  seated?: string[]; // the table's current lineup; only on the all-time and live session payloads
+  seated?: string[]; // the table's current lineup
 }
 
 // Below this many hands bb/100 is mostly noise.
@@ -85,14 +85,14 @@ export function leaderBy<T extends { hands: number; bb100: number }>(rows: T[]):
 export const TEXT = 'rgb(55, 53, 47)';
 export const MUTED = 'rgba(55, 53, 47, 0.65)';
 
-export class StatsLoadingError extends Error {}
+class StatsLoadingError extends Error {}
 
 // How long to wait before asking again while the engine answers 503.
 const LOADING_RETRY_MS = 10_000;
 // How often to refetch while all-in EV is still computing (partial: true).
 const PARTIAL_REFRESH_MS = 30_000;
 
-export async function fetchStats(): Promise<StatsResponse> {
+async function fetchStats(): Promise<StatsResponse> {
   const res = await fetch(`${API_URL}/api/stats`); // always all time
   if (res.status === 503) throw new StatsLoadingError(); // engine still building its first snapshot
   if (!res.ok) throw new Error(`stats ${res.status}`);
@@ -103,30 +103,22 @@ export async function fetchStats(): Promise<StatsResponse> {
 
 interface StatsState {
   data: StatsResponse | null; // the last good response; kept when a later fetch fails
-  sample: boolean; // true when showing the bundled fixture instead of the engine's data
   loading: boolean; // the engine answered 503: its stats are still loading
   error: string | null;
-  current: boolean; // false while data, loading and error still describe a previous session
 }
 
-type Settled = Omit<StatsState, 'current'> & { session?: string };
-
 // Fetches /api/stats, retrying every 10s while the engine answers 503 and every 30s while
-// the response is partial. A new refreshKey (the hand number) refetches; the last data stays up meanwhile.
-// In development any other failure falls back to the bundled sample for the same session.
-export function useStats(session?: string, enabled = true, refreshKey?: number): StatsState {
-  const [state, setState] = useState<Settled>({ data: null, sample: false, loading: false, error: null, session: '\0' }); // '\0': nothing settled yet
-  const goodFor = useRef<string | undefined | null>(null); // the session the last good response was for
+// the response is partial. Errors and 503s keep the last good data; callers show them as a status beside it.
+export function useStats(enabled = true): StatsState {
+  const [state, setState] = useState<StatsState>({ data: null, loading: false, error: null });
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const settle = (next: Partial<Settled>) =>
-      !cancelled && setState(s => ({ ...s, sample: false, loading: false, error: null, ...next, session }));
+    const settle = (next: Partial<StatsState>) => !cancelled && setState(s => ({ ...s, loading: false, error: null, ...next }));
     const load = () =>
       fetchStats()
         .then(data => {
-          goodFor.current = session;
           settle({ data });
           if (data.partial && !cancelled) timer = setTimeout(load, PARTIAL_REFRESH_MS);
         })
@@ -135,25 +127,14 @@ export function useStats(session?: string, enabled = true, refreshKey?: number):
           if (err instanceof StatsLoadingError) {
             settle({ loading: true });
             timer = setTimeout(load, LOADING_RETRY_MS);
-          } else if (process.env.NODE_ENV === 'development' && goodFor.current !== session) {
-            // Loaded lazily so the sample never ships in the production bundle.
-            const sample = session
-              ? import('@/lib/stats-fixture-sessions.json').then(f => (f.default as unknown as Record<string, StatsResponse>)[session])
-              : import('@/lib/stats-fixture.json').then(f => f.default as unknown as StatsResponse);
-            sample.then(data => (data ? settle({ data, sample: true }) : settle({ error: 'unknown session' })));
           } else {
             settle({ error: String(err?.message || err) });
           }
         });
     load();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [session, enabled, refreshKey]);
-  // Errors and 503s keep the last good data; callers show them as a status beside it.
-  // Memoized so memo() children skip renders while nothing changed.
-  return useMemo(() => {
-    const { session: settledFor, ...rest } = state;
-    return { ...rest, current: settledFor === session };
-  }, [state, session]);
+  }, [enabled]);
+  return state;
 }
 
 // Figures that changed between two snapshots: key -> new minus old, for keys in both. Callers pass
@@ -196,7 +177,7 @@ if (process.env.NODE_ENV === 'development') {
 
 // Splits the roster for display. noHands: seated models without hands yet, listed with dashes.
 // unseated: roster models neither seated nor in these stats, shown muted under "Not seated yet".
-// Without a lineup (older engine, sample data, past session) unseated is every roster model without hands.
+// Without a lineup (an older engine) unseated is every roster model without hands.
 export function rosterGroups(models: { name: string }[], seated: string[] | undefined) {
   const has = new Set(models.map(m => m.name));
   return {
@@ -206,7 +187,7 @@ export function rosterGroups(models: { name: string }[], seated: string[] | unde
 }
 
 // The models at the table: those in `seated` when at least two of them have stats, else all
-// (a past session, or a lineup still filling up). One rule for Race, Stats and Pairwise.
+// (a lineup still filling up). One rule for Race, Stats and Pairwise.
 export function seatedModels<T extends { name: string }>(models: T[], seated: string[] | undefined) {
   const at = seated ? models.filter(m => seated.includes(m.name)) : [];
   return at.length >= 2 ? at : models;
@@ -240,7 +221,7 @@ export const signed = (n: number, digits = 1) =>
   `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toFixed(digits)}`;
 
 // A magnitude for a narrow cell: 12.3 below a thousand, 12.6k above, so it never needs clipping.
-export const brief = (n: number, digits = 1) =>
+const brief = (n: number, digits = 1) =>
   Math.abs(n) < 1000 ? Math.abs(n).toFixed(digits) : Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase();
 
 // signed() in brief form: +12.3, −12.6k.
@@ -256,11 +237,9 @@ export const netColor = (n: number) =>
   n > 0 ? 'rgb(15, 123, 108)' : n < 0 ? 'rgb(200, 50, 50)' : 'rgba(55, 53, 47, 0.65)';
 
 // Plain-language definitions shown on the stats table headers.
-// shortcut: written here because docs/stats.md does not exist yet; sync the wording once it lands.
 export const STAT_DEFINITIONS: Record<string, string> = {
   hands: 'Hands dealt to this model in the selected range.',
   bb100: 'Big blinds won per 100 hands. Hover a value for its 95% confidence interval.',
-  rank: 'Rank spread: the best and worst rank the 95% intervals allow. Models whose intervals overlap may be in either order.',
   aiev_bb100: 'bb/100 with all-in pots credited at the equity each player had when the money went in, which strips out run-out luck.',
   vpip: 'Voluntarily put money in pot: share of hands where it called or raised preflop (posting blinds does not count).',
   pfr: 'Preflop raise: share of hands where it raised preflop.',
@@ -272,12 +251,4 @@ export const STAT_DEFINITIONS: Record<string, string> = {
   wsd: 'Won money at showdown: share of showdowns it won.',
   fold_when_check_free: 'Share of decisions where it folded although checking was free. Always a mistake.',
   miss_rate: 'Share of decisions where its own reply was still illegal or unreadable after a retry, so the engine checked or folded for it.',
-  hu_bb100: 'Big blinds won per 100 hands over flops only two players saw. It counts blinds folded by the other players, which the cells leave out, so it can differ from the row\'s chips.',
-  mw_bb: 'Big blinds won per 100 hands over all flops with 3 or more players. The table is sorted by it.',
-  mw_hands: 'Hands where this model saw a flop with 3 or more players.',
-  mw_won: 'Of those hands, how many it won at least part of a pot.',
-  mw_win: 'Won ÷ hands, over pots that reached the flop with 3 or more players.',
-  mw_bb100_3: 'Big blinds won per 100 hands, over flops seen by exactly 3 players.',
-  mw_bb100_4: 'Big blinds won per 100 hands, over flops seen by 4 or more players.',
-  mw_share: 'Share of the chips in its multiway pots that it won, against its fair share (each pot split evenly among the players who saw the flop, weighted by pot size). Green when above.',
 };

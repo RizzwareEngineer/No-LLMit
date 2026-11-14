@@ -12,7 +12,7 @@ import { DASH, MIN_HANDS, MIN_PAIR_HANDS, MUTED, ModelStats, TEXT, bb100Among, b
 // tint and the tooltip carry it). Never clipped. Screen readers get the full figure.
 // Its width in em, tabular figures (calibrated in the browser: a figure or sign 0.62em, a comma or point 0.29, k 0.53).
 const ems = (t: string) => [...t].reduce((w, c) => w + (c === ',' || c === '.' ? 0.29 : c === 'k' ? 0.53 : 0.62), 0);
-export function fitFigure(n: number, room: number, px: number) {
+function fitFigure(n: number, room: number, px: number) {
   return [signed(n), signed(n, 0), signedBrief(n)].find(t => ems(t) * px <= room) ?? '';
 }
 // On the tile↔card glide the figure travels with the matrix and grows from the tile's size to the card's (motion
@@ -37,11 +37,11 @@ export const NAMES = 140; // row names on a phone's tile, at most (from md: --na
 export const TOTALS = 72; // the card's Total column (14px figures)
 export const STRIP = 18; // the column logos' row (28 in the card: 24px logos)
 // The tile's figures: one size for every cell and total, whatever the window (the card's are 14px).
-export const TILE_PX = 11;
+const TILE_PX = 11;
 // A figure keeps this much of its cell clear on each side: never edge to edge.
 const PAD = 2.5;
 // The Total column's definition, on its header.
-export const TOTAL_TITLE = 'Big blinds won from the models shown per 100 hands dealt in with one of them.\nThe row\'s cells averaged, each weighted by their hands together.';
+const TOTAL_TITLE = 'Big blinds won from the models shown per 100 hands dealt in with one of them.\nThe row\'s cells averaged, each weighted by their hands together.';
 const NEVER_MET = 'never sat together';
 // A pair's or a row's figure under its sample rule is drawn at this opacity.
 const FAINT = 0.4;
@@ -51,14 +51,11 @@ const TIP_MAX = 480;
 const TIP_M = 8;
 const TIP_GAP = 6;
 
-// Big blinds the row model won from the column model per 100 hands they were both dealt in. With `focus`,
-// one model's opponents as a list (the drawer); without it, the full grid of row model against column
-// model, in bb/100 rank order, with a Total column (TOTAL_TITLE) on the right.
+// Big blinds the row model won from the column model per 100 hands they were both dealt in: the grid of row model
+// against column model, in bb/100 rank order, with a Total column (TOTAL_TITLE) on the right.
 export default memo(function HeadToHead({
   models,
-  focus,
-  bigBlind = 0,
-  zoomed = false,
+  bigBlind,
   mini = false,
   snap = false,
   hand = null,
@@ -66,9 +63,7 @@ export default memo(function HeadToHead({
   leader,
 }: {
   models: ModelStats[];
-  focus?: ModelStats;
-  bigBlind?: number; // the big blind, for bb/100
-  zoomed?: boolean; // the Pairwise screen: larger type
+  bigBlind: number; // the big blind, for bb/100
   mini?: boolean; // the overview tile: the same grid, no links or readout (the tile opens the screen)
   snap?: boolean; // switch between tile and card without gliding (the stage is hidden under the card)
   hand?: number | null; // the hand History is replaying, when `models` are as of then (null: now)
@@ -93,7 +88,7 @@ export default memo(function HeadToHead({
   };
   // Every figure in the grid as shown, keyed row|column (row| for the Total); a pair that never met counts as 0.
   const shown: Record<string, number> = {};
-  if (!focus) for (const row of sorted) {
+  for (const row of sorted) {
     for (const col of sorted) if (col !== row) shown[`${row.name}|${col.name}`] = Math.round((cellOf(row, col.name).bb ?? 0) * 10) / 10;
     shown[`${row.name}|`] = Math.round(among.get(row.name)!.bb100 * 10) / 10;
   }
@@ -134,37 +129,6 @@ export default memo(function HeadToHead({
     addEventListener('scroll', off, true);
     return () => removeEventListener('scroll', off, true);
   }, [tip]);
-  if (focus) {
-    const rows = Object.entries(focus.vs ?? {}).sort((a, b) => b[1].net_chips - a[1].net_chips);
-    if (rows.length === 0) return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
-    return (
-      <table className="w-full text-[12px] tabular-nums">
-        <caption className="sr-only">{focus.name} against each opponent</caption>
-        <thead>
-          <tr className="border-b border-notion" style={{ color: MUTED }}>
-            <th scope="col" className="text-left font-medium p-2">Opponent</th>
-            <th scope="col" className="text-right font-medium p-2">Pots</th>
-            <th scope="col" className="text-right font-medium p-2">Net</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-black/10">
-          {rows.map(([name, v]) => (
-            <tr key={name} className="lift">
-              <th scope="row" className="text-left font-medium p-2">
-                <a href={modelHref(name)} className="flex items-center gap-2 hover:underline" style={{ color: TEXT }}>
-                  <LLMLogo model={name} size={18} />
-                  {name}
-                </a>
-              </th>
-              <td className="text-right p-2">{v.pots}</td>
-              <td className="text-right p-2 font-bold" style={{ color: netColor(v.net_chips) }}>{chips(v.net_chips)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
-  }
-
   // The replay keeps the grid from its first hand, empty or not.
   if (hand === null && !models.some(m => Object.keys(m.vs ?? {}).length > 0)) {
     return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
@@ -237,7 +201,7 @@ export default memo(function HeadToHead({
                 {/* Opaque when pinned (the highlight over white, a white 1px ring over the cell spacing): scrolled cells never show through. */}
                 {sorted.map(m => (
                   <th key={m.name} scope="col" className={`p-0 font-medium rounded-sm ${pin && `${pin} top-0 z-[1]`}`} title={m.name} style={{ background: m.name === from?.col ? `linear-gradient(${HOT}, ${HOT}) white` : undefined, boxShadow: pin ? '0 0 0 1px white' : undefined }}>
-                    <motion.span layout layoutDependency={mini} transition={move} className="flex justify-center"><LLMLogo model={m.name} size={zoomed ? 24 : 16} /></motion.span>
+                    <motion.span layout layoutDependency={mini} transition={move} className="flex justify-center"><LLMLogo model={m.name} size={mini ? 16 : 24} /></motion.span>
                     <span className="sr-only">{m.name}</span>
                   </th>
                 ))}

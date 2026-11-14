@@ -1,8 +1,7 @@
 'use client';
 
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AnimatePresence, motion, useInView, useIsPresent } from 'motion/react';
-import NumberFlow, { type Format } from '@number-flow/react';
+import { AnimatePresence, motion, useIsPresent } from 'motion/react';
 import { MUTED, TEXT } from '@/lib/stats';
 import { useRememberedBox } from '@/lib/boxes';
 
@@ -130,7 +129,8 @@ export const GLIDE_MS = 500;
 export const GLIDE = { duration: GLIDE_MS / 1000, ease: [0.22, 1, 0.36, 1] } as const;
 export const NONE = { duration: 0 } as const;
 // What a card adds to its tile (and the header extras) fades in just after the glide starts, and out quickly.
-const OUT = { duration: 0.12, ease: 'easeOut' } as const;
+// OUT and IN are globals.css' add-out and add-in, which must keep their times.
+export const OUT = { duration: 0.12, ease: 'easeOut' } as const;
 const IN = { duration: 0.3, delay: 0.08, ease: 'easeOut' } as const;
 
 // A tile of the overview: a title, a teaser and an "Open ↓" affordance. A click (or Enter or
@@ -327,17 +327,5 @@ export function Segmented<T extends string | number>({ label, options, value, on
         </button>
       ))}
     </div>
-  );
-}
-
-// A number that counts up from zero the first time it scrolls into view, then rolls to new
-// values. NumberFlow skips the animation under prefers-reduced-motion.
-export function CountUp({ value, format, suffix }: { value: number; format?: Format; suffix?: string }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const seen = useInView(ref, { once: true });
-  return (
-    <span ref={ref}>
-      <NumberFlow value={seen ? value : 0} format={format} suffix={suffix} />
-    </span>
   );
 }

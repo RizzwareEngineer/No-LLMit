@@ -6,16 +6,14 @@ import LLMLogo from '@/components/LLMLogo';
 import About from '@/components/About';
 import { PageStats } from '@/components/about/content';
 import { ArrowDown, Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, Segmented, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
-import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
-import StatsTable, { MINI_CHROME, TABLE_VIEW, type TableView } from '@/components/StatsTable';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OUT, Segmented, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
+import CumulativeChart, { H, LEGEND_H, W, sampleAt } from '@/components/CumulativeChart';
+import StatsTable, { MINI_CHROME, SLIDE, TABLE_VIEW, type TableView } from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
-import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
-import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, useStats } from '@/lib/stats';
+import { StatsMessage } from '@/components/StatsPanel';
+import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, StatsResponse } from '@/lib/stats';
 import { remember, remembered, useRememberedBox } from '@/lib/boxes';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
-
-type Stats = ReturnType<typeof useStats>;
 
 // Screens 2-6, each an empty full-height snap point in the page flow. Over them sits one layer:
 // the overview stage, About (the main scroll's last screen, under the overview in the flow: the two move
@@ -25,14 +23,8 @@ type Stats = ReturnType<typeof useStats>;
 // Main scroll: table, overview, About. The cards are a loop entered from the overview's tiles: paging
 // moves History, Profiles, Matchups, and up on History or down on Matchups goes back to the overview
 // (data-back, read by pageBy). The URL never names a screen (only the model drawer's #model=).
-const SCREENS = [
-  { id: 'stats', label: 'Overview' },
-  { id: 'about', label: 'About' },
-  { id: 'race', label: 'Trends' },
-  { id: 'stats-table', label: 'Profiles' },
-  { id: 'pairwise', label: 'Matchups' },
-] as const;
-type Screen = (typeof SCREENS)[number]['id'];
+const SCREENS = ['stats', 'about', 'race', 'stats-table', 'pairwise'] as const;
+type Screen = (typeof SCREENS)[number];
 type Tile = Exclude<Screen, 'stats' | 'about'>;
 // Each detail screen's overview tile, and the element that takes focus on landing there.
 const TILES: Record<Tile, { panel: string; land: string }> = {
@@ -54,16 +46,7 @@ const useNativeTimeline = () =>
 
 // The three panels under the live table, all time. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
-export default memo(function StatsSections({
-  all,
-  seated: lineup,
-}: {
-  all: Stats;
-  seated?: string[]; // the page's lineup (with its fallback for an older engine)
-}) {
-  const { data, sample, loading, error, current } = all;
-  const [selected, setSelected] = useState('');
-  const [highlight, setHighlight] = useState<string | undefined>();
+export default memo(function StatsSections({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
   // The tile filling the stage (null: the overview grid); `lift`, the one focused last, stays on top
   // while it glides back. Race fills it on every screen after the overview: the cards slide over it.
   const [tiles, setTiles] = useState<{ on: Tile | null; snap: boolean; lift: Tile | null }>({ on: null, snap: false, lift: null });
@@ -71,10 +54,9 @@ export default memo(function StatsSections({
   const statsCard = useRef<HTMLElement>(null);
   const statsScreen = useRef<HTMLDivElement>(null);
   const pairwiseScreen = useRef<HTMLDivElement>(null);
-  // A failed refetch keeps the last good data on screen, with the problem as a status line.
-  const ready = !!data && current;
+  const ready = !!data;
   // Still loading (not failed): every tile and card stands in blank at its place and size.
-  const blank = !ready && !(current && error);
+  const blank = !ready && !error;
   // The Trends card's height: its tile's, plus the filter bar and the legend the card adds, so the
   // chart keeps its size (the stage's height at most: past that the chart shrinks a little, evenly).
   // Phones (PHONE): the tile and the card are what is around the chart plus the chart at their full width,
@@ -87,7 +69,7 @@ export default memo(function StatsSections({
     const tile = sec?.parentElement; // the grid cell keeps the tile's size while the card is out
     if (!sec || !tile) return;
     const fit = () => {
-      // The chart's root: its filter bar, then its box (the tallest child), whose own legend reserve is LEGEND.
+      // The chart's root: its filter bar, then its box (the tallest child), whose own legend reserve is LEGEND_H.
       const root = sec.querySelector('.panel-scroll')?.lastElementChild;
       const kids = root ? [...root.children] as HTMLElement[] : [];
       const box = kids.reduce<HTMLElement | null>((a, c) => (!a || c.offsetHeight > a.offsetHeight ? c : a), null);
@@ -104,12 +86,12 @@ export default memo(function StatsSections({
         // The box is the chart's last child (a phone's filter bar can be taller).
         let above = 0;
         for (let e = root?.lastElementChild as HTMLElement | null; e && e !== sec; e = e.offsetParent as HTMLElement | null) above += e.offsetTop;
-        // Under the plot, the card's legend: LEGEND reserved, more where a phone wraps it to more rows.
+        // Under the plot, the card's legend: LEGEND_H reserved, more where a phone wraps it to more rows.
         const area = root?.lastElementChild as HTMLElement | null;
         // Its content's extent, not the box's height (which follows the card's: that would feed back).
         const parts = area ? ([...area.children] as HTMLElement[]) : [];
         const under = Math.max(0, ...parts.map(k => k.offsetTop + k.offsetHeight)) - (parts[0]?.offsetHeight ?? 0);
-        const legend = zoomedNow ? Math.max(LEGEND, under) : 0;
+        const legend = zoomedNow ? Math.max(LEGEND_H, under) : 0;
         const h = Math.ceil(above + ((sec.clientWidth - 32) * H) / W + legend + 16);
         remember(name, 0, h);
         (zoomedNow ? setRaceFit : setRaceTile)(keep(h));
@@ -118,7 +100,7 @@ export default memo(function StatsSections({
       // The card's filter bar, measured over the chart; before the chart is in (a blank card), the height it last had.
       const bar = zoomedNow && root && box ? root.clientHeight - box.offsetHeight : (remembered('race-bar')?.[1] ?? 64 + 8);
       if (zoomedNow && root && box) remember('race-bar', 0, bar);
-      setRaceFit(keep(Math.ceil(tile.offsetHeight + bar + LEGEND)));
+      setRaceFit(keep(Math.ceil(tile.offsetHeight + bar + LEGEND_H)));
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -332,16 +314,10 @@ export default memo(function StatsSections({
     };
   }, []);
 
-  const message = <StatsMessage error={current ? error : null} />;
-  const stale = ready && (error || loading) && (
-    <p className="mb-2 text-[13px]" style={{ color: MUTED }} role="status">
-      {error ? 'Could not refresh the stats; showing the last good numbers.' : 'Stats are refreshing…'}
-    </p>
-  );
+  const message = <StatsMessage error={error} />;
   const models = ready ? data.models : [];
-  // History, the overview and Matchups show the models at the table now (past sessions carry no
-  // lineup: everyone). The Profiles screen has its own "All models" toggle.
-  const seated = data?.seated ?? lineup;
+  // History, the overview and Matchups show the models at the table now. The Profiles screen has its own "All models" toggle.
+  const seated = data?.seated;
   const field = useMemo(() => seatedModels(data?.models ?? [], seated), [data, seated]);
   const bigBlind = data?.scope.big_blind ?? 10;
   // One scope for History, Profiles and Matchups (all time) and one clock: History's replay,
@@ -376,7 +352,6 @@ export default memo(function StatsSections({
     <>
       {card && (
         <Added still={!fade}>
-          {stale}
           <Definition>
             Click rows to compare them.
             {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
@@ -391,7 +366,7 @@ export default memo(function StatsSections({
     <AtHand tl={tl} models={card ? muModels : field}>
       {(ms, hand) => (
         <div {...syncAttrs(tl, hand)} className="contents">
-          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} zoomed={card} mini={!card} snap={snap} fitTo={field.length} leader={leaderAt(tl, ms, hand)?.m.name} />
+          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} mini={!card} snap={snap} fitTo={field.length} leader={leaderAt(tl, ms, hand)?.m.name} />
         </div>
       )}
     </AtHand>
@@ -414,17 +389,17 @@ export default memo(function StatsSections({
       // A click on the page around a detail screen's card (not on the card) goes back to the overview.
       onClick={e => !(e.target as Element).closest('.card-chrome') && backToOverview()}
     >
-      {SCREENS.map(s => (
+      {SCREENS.map(id => (
         <div
-          key={s.id}
-          id={s.id}
-          ref={s.id === 'stats-table' ? statsScreen : s.id === 'pairwise' ? pairwiseScreen : undefined}
+          key={id}
+          id={id}
+          ref={id === 'stats-table' ? statsScreen : id === 'pairwise' ? pairwiseScreen : undefined}
           data-screen
-          data-end={s.id === 'about' || undefined}
-          data-back={s.id === 'race' ? 'up' : s.id === 'pairwise' ? 'down' : undefined}
+          data-end={id === 'about' || undefined}
+          data-back={id === 'race' ? 'up' : id === 'pairwise' ? 'down' : undefined}
           aria-hidden
           className="h-svh snap-start snap-always"
-          style={{ viewTimelineName: s.id === 'stats-table' ? '--card-stats' : s.id === 'pairwise' ? '--card-pairwise' : undefined }}
+          style={{ viewTimelineName: id === 'stats-table' ? '--card-stats' : id === 'pairwise' ? '--card-pairwise' : undefined }}
         />
       ))}
       <div data-stage className="absolute inset-0">
@@ -449,16 +424,15 @@ export default memo(function StatsSections({
               } as React.CSSProperties}
             >
               <Panel id="race-panel" title="Trends" away={{ y: -1 }} className="row-start-1 md:col-span-2 max-md:h-(--race-tile)" aside={lead} fit={raceFit} blank={blank} {...tile('race')}>
-                {stale}
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
-                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} timeline={tl} selected={selected} highlight={highlight} onHighlight={setHighlight} onSelect={zoomed ? setSelected : undefined} />
+                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
                 ) : message}
               </Panel>
 
               <Panel
                 id="stats-panel"
-                title={<>Profiles {sample && <SampleBadge />}</>}
+                title="Profiles"
                 away={{ x: -1 }}
                 className="row-start-2 md:col-start-1"
                 extra={on === 'stats-table' && <div className={ASIDE}>{lead}</div>}
@@ -513,7 +487,7 @@ export default memo(function StatsSections({
         {/* The History screen's scroll range: the stage stays as it is. */}
         <div className="h-svh" aria-hidden />
 
-        <Card id="stats-card" title={<>Profiles {sample && <SampleBadge />}</>} aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit blank={blank}>
+        <Card id="stats-card" title="Profiles" aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit blank={blank}>
           {statsBody(true)}
         </Card>
 
@@ -531,7 +505,7 @@ function leaderAt(tl: Timeline | null, models: ModelStats[], hand: number | null
   if (hand !== null && !tl) return null;
   const rows = models.map(m => {
     const hands = hand === null ? m.hands : Math.floor(playedAt(tl!, m.name, hand));
-    return { m, hands, bb100: hand === null ? m.bb100 : hands ? (valueAt(m.cumulative_bb, hands) / hands) * 100 : 0 };
+    return { m, hands, bb100: hand === null ? m.bb100 : hands ? (sampleAt(m.cumulative_bb, [hands])[0] / hands) * 100 : 0 };
   });
   return leaderBy(rows);
 }
@@ -589,8 +563,8 @@ function SyncedProfiles({ tl, models, seated, mini = false, snap = false, view }
   return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} mini={mini} snap={snap} view={view} /></div>;
 }
 
-const FADE_MS = 120; // closing: what the card adds fades out (globals.css, [data-leaving])
-const SLIDE_MS = 320; // a Profiles row's slide (StatsTable's SLIDE), and a frame to spare
+const FADE_MS = OUT.duration * 1000; // closing: what the card adds fades out (globals.css, [data-leaving])
+const SLIDE_MS = SLIDE.duration * 1000 + 20; // a Profiles row's slide, and a frame to spare
 const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1 min-w-0'; // a card header's extras
 
 // The overview block and every card take the table stage's column (--stage-w, from page.tsx's fit()), so the table
@@ -614,7 +588,6 @@ const AREA = 1.51; // Trends' tile at least this times Matchups' area (1.5, over
 // Trends' row at least this tall (or half the room, on a short window): CumulativeChart keeps its text at 13px on
 // screen down to a 1/1.5 scale of its H-tall layout (history-type).
 const R1_MIN = Math.ceil(H / 1.5 + 72);
-const LEGEND = 68; // the room CumulativeChart keeps under its plot for the legend (its LEGEND_H)
 const A = (H / W).toFixed(5);
 const ROOM = `(100svh - 44px - var(--bar-h, 0px) - ${MARGIN} - ${BELOW})`; // the block's height at most
 const BLOCK = 'h-full w-full md:max-w-(--block-w) mx-auto flex flex-col justify-center';
