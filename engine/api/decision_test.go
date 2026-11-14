@@ -2,6 +2,8 @@ package api
 
 import (
 	"errors"
+	"fmt"
+	"math/rand/v2"
 	"reflect"
 	"testing"
 
@@ -160,5 +162,130 @@ func TestDecideLLMTurnServiceDown(t *testing.T) {
 	turn := decideLLMTurn(gs, func() (*client.LLMDecisionResponse, error) { return nil, errors.New("connection refused") })
 	if !turn.serviceErr || !turn.fallback || turn.applied.Type != "FOLD" || turn.decision.Status != "service_error" {
 		t.Errorf("%+v", turn)
+	}
+}
+
+// Many seeded random hands, each move a legal one the model was told about, sent back the
+// way the LLM service names it: the engine plays it without a fallback, the move shown and
+// saved is the one the engine then applied, and the hand retold to the model adds up to the
+// pot, the bet to call and each seat's stack.
+func TestEveryToldMoveIsPlayedAndTheRetoldHandAddsUp(t *testing.T) {
+	playRandomHands(t, 3, 40)
+}
+
+// playRandomHands plays 40 hands at each of games tables of 2 to 6 seats with random
+// stacks, checks every turn as above, and returns the saved records, each checked against
+// the stacks the engine left.
+func playRandomHands(t *testing.T, seed uint64, games int) []history.HandRecord {
+	t.Helper()
+	rng := rand.New(rand.NewPCG(seed, 4))
+	reply := map[string]string{"FOLD": "FOLD", "CHECK": "CHECK", "CALL": "CALL", "BET": "RAISE", "RAISE": "RAISE", "ALL-IN": "ALL_IN"}
+	var records []history.HandRecord
+	for g := range games {
+		names := []string{"A", "B", "C", "D", "E", "F"}[:2+g%5]
+		gs := game.NewGame(game.GameConfig{PlayerNames: names, StartingStack: 1000, Stakes: game.Stakes{SmallBlind: 5, BigBlind: 10}})
+		for i := range gs.Players {
+			gs.Players[i].Stack = 1 + rng.IntN(400)
+		}
+		for range 40 {
+			rebought := gs.RebuyBrokePlayers(400)
+			before := startOf(gs).stacks
+			if err := gs.StartHand(); err != nil {
+				t.Fatal(err)
+			}
+			rec := newHandRecorder(gs, fmt.Sprintf("tbl_rand%d_%d", seed, g), rebought)
+			for !gs.IsHandComplete() {
+				if !gs.IsWaitingForAction() {
+					gs.AdvanceStreet()
+					continue
+				}
+				idx := gs.CurrentPlayerIdx
+				legal := buildLLMValidActions(gs)
+				req := buildDecisionRequest(gs, legal)
+				checkRetold(t, gs, req)
+				rec.beginDecision(gs, legal)
+
+				l := legal[rng.IntN(len(legal))]
+				amount := l.Amount
+				if l.Max > 0 {
+					amount = l.Min + rng.IntN(l.Max-l.Min+1)
+				}
+				turn := decideLLMTurn(gs, func() (*client.LLMDecisionResponse, error) {
+					return &client.LLMDecisionResponse{Action: reply[l.Type], Amount: amount, Status: "ok"}, nil
+				})
+				if turn.fallback {
+					t.Fatalf("told %+v, replied %s %d: the engine fell back", l, reply[l.Type], amount)
+				}
+				*gs = *turn.next
+				rec.endDecision(turn)
+				done := *gs.Players[idx].LastAction
+				name := done.Name()
+				if done.Type == game.ActionAllIn {
+					name = "ALL_IN"
+				}
+				if turn.applied.Type != name || turn.applied.Amount != done.Amount {
+					t.Fatalf("shown %+v, but the engine applied %s %d", turn.applied, name, done.Amount)
+				}
+				if gs.NeedToAdvanceStreet() {
+					gs.AdvanceStreet()
+				}
+			}
+			h, _ := rec.finish(gs)
+			sum := 0
+			for _, s := range h.Seats {
+				if net := h.Result.Net[fmt.Sprint(s.Seat)]; net != gs.Players[s.Seat].Stack-before[s.Seat] {
+					t.Fatalf("%s: seat %d saved net %d, the engine moved its stack by %d", h.HandID, s.Seat, net, gs.Players[s.Seat].Stack-before[s.Seat])
+				}
+				sum += h.Result.Net[fmt.Sprint(s.Seat)]
+			}
+			if sum != 0 {
+				t.Fatalf("%s: saved nets add up to %d", h.HandID, sum)
+			}
+			records = append(records, h)
+		}
+	}
+	return records
+}
+
+// checkRetold replays the streets the model is told and checks they add up to the request's
+// pot and bet to call, and that every seat it lists has its real stack.
+func checkRetold(t *testing.T, gs *game.GameState, req client.DecisionRequest) {
+	t.Helper()
+	pot := 0
+	var bets map[int]int
+	for _, st := range req.Streets {
+		if st.Pot != pot {
+			t.Fatalf("%s is told to start with %d in the pot, the streets before add up to %d", st.Street, st.Pot, pot)
+		}
+		bets = map[int]int{}
+		for _, a := range st.Actions {
+			switch a.Action {
+			case "post", "call":
+				bets[a.Seat] += a.Amount
+			case "raise", "all_in":
+				bets[a.Seat] = a.Amount
+			}
+		}
+		for _, b := range bets {
+			pot += b
+		}
+	}
+	if pot != req.Pot {
+		t.Fatalf("the retold hand adds up to %d, the request says pot %d", pot, req.Pot)
+	}
+	top := 0
+	if len(req.Streets) == 1 {
+		top = req.BigBlind // a blind posted all-in for less still leaves the full big blind to call
+	}
+	for _, b := range bets {
+		top = max(top, b)
+	}
+	if want := top - bets[req.Seat]; req.ToCall != want {
+		t.Fatalf("to call %d, the retold street says %d", req.ToCall, want)
+	}
+	for _, s := range req.Seats {
+		if s.Stack != gs.Players[s.Seat].Stack {
+			t.Fatalf("seat %d is told it has %d, it has %d", s.Seat, s.Stack, gs.Players[s.Seat].Stack)
+		}
 	}
 }

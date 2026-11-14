@@ -1,7 +1,7 @@
 'use client';
 
-import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AnimatePresence, motion, useIsPresent } from 'motion/react';
+import { useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { AnimatePresence, PresenceContext, motion, usePresence } from 'motion/react';
 import { BLUE, MUTED, TEXT } from '@/lib/stats';
 import { useRememberedBox } from '@/lib/boxes';
 
@@ -267,8 +267,18 @@ const OPEN = <span aria-hidden className="text-[14px] font-medium whitespace-now
 // A header extra or "Open ↓" coming or going: fades in place; one leaving steps out of the header's flow at its right
 // end, so the header never wraps or shifts while the two cross-fade. `stay`: it leaves where it was in the tile ("Open ↓"
 // as the tile opens: the header takes the card's width at once, and its right end lies outside the tile's box).
+// Each fade starts once the frame that draws its cause (the glide's first step, the overview back) has been painted, two
+// frames on: started in that frame, one a busy machine held past the fade drew it whole, and it came or went at once.
+// One there from the first render, or snapped in, shows at once.
 function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean; children: React.ReactNode }) {
-  const present = useIsPresent();
+  const [present, safeToRemove] = usePresence();
+  const first = useContext(PresenceContext)?.initial === false;
+  const [shown, setShown] = useState<boolean | null>(snap || first || null); // null: not yet shown
+  useEffect(() => {
+    if (!present && shown === null) return safeToRemove?.(); // gone before it came in: nothing to fade
+    let id = requestAnimationFrame(() => (id = requestAnimationFrame(() => setShown(present))));
+    return () => cancelAnimationFrame(id);
+  }, [present]); // eslint-disable-line react-hooks/exhaustive-deps -- once per arrival or departure
   const ref = useRef<HTMLDivElement>(null), at = useRef<number | null>(null);
   useLayoutEffect(() => {
     const el = ref.current, box = el?.offsetParent as HTMLElement | null;
@@ -278,7 +288,7 @@ function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean;
     else if (at.current !== null) el.style.left = `${at.current - box.offsetLeft}px`;
   });
   return (
-    <motion.div ref={ref} initial={{ opacity: 0 }} animate={{ opacity: 1, transition: snap ? NONE : IN }} exit={{ opacity: 0, transition: OUT }} className={present ? '' : `absolute ${stay ? '' : 'right-0'} inset-y-0 flex items-center`}>
+    <motion.div ref={ref} initial={false} animate={shown ? { opacity: 1, transition: snap ? NONE : IN } : { opacity: 0, transition: OUT }} onAnimationComplete={() => !present && safeToRemove?.()} className={present ? '' : `absolute ${stay ? '' : 'right-0'} inset-y-0 flex items-center`}>
       {children}
     </motion.div>
   );

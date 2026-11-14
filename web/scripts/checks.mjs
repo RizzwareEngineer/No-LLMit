@@ -519,7 +519,9 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
       pressed: group && btn('BB')?.getAttribute('aria-pressed') === 'true',
       amounts: [...sec.querySelectorAll('[data-chips]')].filter(vis).map(e => ({
         chips: +e.dataset.chips, text: (e.getAttribute('aria-label')?.replace(/^Pot /, '') ?? e.textContent).trim().replace(/^[+−-]/, ''),
-        where: e.closest('[data-seat]') ? 'seat' : e.closest('[data-bet]') ? 'bet' : e.closest('ol') ? 'pnl' : e.hasAttribute('aria-label') ? 'pot' : e.closest('[data-pot]') ? 'collected' : 'reasoning',
+        // A seat's first amount is its stack; any after it is the seat's own bet line (BET 35, RAISE 35), which is where a
+        // phone shows a bet: the felt's edge bets are desktop only (3b93f02).
+        where: e.closest('[data-seat]') ? (e === e.closest('[data-seat]').querySelector('[data-chips]') ? 'seat' : 'seat bet') : e.closest('[data-bet]') ? 'bet' : e.closest('ol') ? 'pnl' : e.hasAttribute('aria-label') ? 'pot' : e.closest('[data-pot]') ? 'collected' : 'reasoning',
         lines: lines(e), clipped: clipped(e),
       })),
       unit: !!sec.querySelector('[data-unit]'),
@@ -567,7 +569,8 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
         if (a.clipped && !c?.clipped) bad.push(`${size} BB: ${a.where} "${a.text}" is clipped`);
       });
       const where = new Set(big.amounts.map(a => a.where));
-      for (const k of ['seat', 'bet', 'pot', 'pnl', 'reasoning']) if (!where.has(k)) bad.push(`${size}: no ${k} amount to check`);
+      for (const k of ['seat', phone ? 'seat bet' : 'bet', 'pot', 'pnl', 'reasoning']) if (!where.has(k)) bad.push(`${size}: no ${k} amount to check`);
+      if (phone && where.has('bet')) bad.push(`${size}: the felt draws its desktop edge bets on a phone`);
       if (!big.unit || chips.unit) bad.push(`${size}: Profits & Losses header unit ${chips.unit ? 'shown in chips' : 'missing in BB'}`);
       if (!/Raising to 35\b/.test(big.words)) bad.push(`${size}: the model's words changed in BB ("${big.words.slice(0, 40)}")`);
       const moved = big.boxes.filter((b, i) => b !== chips.boxes[i]).length;
@@ -1054,7 +1057,7 @@ group(() => check('table-bar-once', 'The connection bar and Offline never show o
       window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { if (!window.__snapAt && /"type":"snapshot"/.test(e.data)) window.__snapAt = performance.now(); fn(e); }; } get onmessage() { return super.onmessage; } };
       const s = window.__bar = [];
       const f = () => {
-        const bar = [...document.querySelectorAll('div.fixed')].some(e => { const b = e.getBoundingClientRect(); return getComputedStyle(e).backgroundColor === 'rgb(203, 145, 47)' && b.bottom >= innerHeight - 1 && b.width >= innerWidth - 1 && b.height >= 20; });
+        const bar = [...document.querySelectorAll('div.fixed')].some(e => { const b = e.getBoundingClientRect(); return getComputedStyle(e).backgroundColor === 'rgb(203, 145, 47)' && b.bottom >= innerHeight - 1 && b.width >= document.body.clientWidth - 1 && b.height >= 20; }); // the page's width: a classic scrollbar's reserved gutter is not the bar's
         const off = [...document.querySelectorAll('section[data-screen] span')].some(e => /^Offline/.test(e.textContent) && e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== 'hidden' && +getComputedStyle(e).opacity > 0);
         s.push({ t: performance.now(), bar, off });
         requestAnimationFrame(f);
@@ -3099,7 +3102,7 @@ group(() => check('about-button', '"About ↓" sits under the overview in the ba
       if (compact && !(parseFloat(a.height) < parseFloat(s.height) && a.fontSize === '14px')) diff.push(`not the compact pill (${a.height}, ${a.fontSize})`);
       const arrow = !!about.querySelector('svg');
       const b = about.getBoundingClientRect(), tiles = Math.max(...['#race-panel', '#stats-panel', '#pairwise-panel'].map(q => document.querySelector(q).getBoundingClientRect().bottom));
-      return { diff, arrow, compact, h: b.height, clear: b.top - tiles, below: innerHeight - b.bottom, x: b.left + b.width / 2 - innerWidth / 2 };
+      return { diff, arrow, compact, h: b.height, clear: b.top - tiles, below: innerHeight - b.bottom, x: b.left + b.width / 2 - document.body.clientWidth / 2 }; // centred in the page, not over a classic scrollbar's reserved gutter
     }, STYLE);
     if (r.missing) { bad.push(`${w}x${h}: no ${r.missing} button on screen`); await p.close(); continue; }
     seen.push(`${w}x${h}: ${r.compact ? 'compact' : 'full-size'} ${r.h.toFixed(1)}px, ${r.clear.toFixed(0)}px under the tiles, ${r.below.toFixed(0)}px above the window's edge`);
@@ -3883,9 +3886,11 @@ group(() => check('usage-card-one-line', 'At 1440x900, 1728x1117 and 390x844 eve
       const a = [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].find(e => e.getBoundingClientRect().width > 0);
       if (!a) return null;
       const lines = [...a.closest('.rounded').querySelectorAll('*')].filter(e => [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+      // Lines are counted from the element's own text, not its child elements: an icon beside the words (the
+      // Sponsor pill's 11px heart) has a box of its own whose top is not the text's, and is not a second line.
       return lines.map(e => {
-        const rg = document.createRange(); rg.selectNodeContents(e);
-        return { text: e.textContent.trim(), n: new Set([...rg.getClientRects()].filter(q => q.width > 0).map(q => Math.round(q.top))).size };
+        const rects = [...e.childNodes].filter(n => n.nodeType === 3 && n.textContent.trim()).flatMap(n => { const rg = document.createRange(); rg.selectNodeContents(n); return [...rg.getClientRects()]; });
+        return { text: e.textContent.trim(), n: new Set(rects.filter(q => q.width > 0).map(q => Math.round(q.top))).size };
       });
     });
     const at = `${w}x${h}`;

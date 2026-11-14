@@ -129,8 +129,8 @@ type vsAcc struct {
 }
 
 // Compute builds the stats for the given hands, which must be in the order played. It
-// never runs the equity calculator: call WarmAIEV first. GeneratedAt, and nulling the
-// live session's ended_at, are left for the caller.
+// never runs the equity calculator: call WarmAIEV first. GeneratedAt and Seated are left
+// for the caller.
 func Compute(hands []history.HandRecord) Stats {
 	s, _ := compute(hands, nil)
 	return s

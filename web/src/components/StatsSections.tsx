@@ -209,10 +209,12 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
       hold(late);
       pin(true); // before the jump into the loop (on the overview pinned or not looks the same)
       put(tile);
-      const land = (e?: Event) => {
-        if (!busy || (e && (e as CustomEvent<string>).detail !== TILES[tile].panel)) return;
+      let landed = false;
+      const land = () => {
+        if (!busy || landed) return;
+        landed = true;
         clearTimeout(timer);
-        window.removeEventListener('glideend', land);
+        window.removeEventListener('glideend', ended);
         hold(0);
         // The card shows what the tile showed: its top (the tile never scrolls on its way).
         const card = document.querySelector(`#${TILES[tile].land} .panel-scroll`);
@@ -237,7 +239,10 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
           setMuFold(false);
         }));
       };
-      window.addEventListener('glideend', land);
+      // glideend comes in the frame that draws the glide's last step (under a pixel, its scale not yet 1): handed over in
+      // that frame, the card's first frame replaced a tile never drawn at rest. The tile is drawn landed first, for a frame.
+      const ended = (e: Event) => { if ((e as CustomEvent<string>).detail === TILES[tile].panel) requestAnimationFrame(land); };
+      window.addEventListener('glideend', ended);
       const timer = setTimeout(land, late);
     };
     const back = () => {
@@ -249,14 +254,29 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
       const fade = at !== 'race' && glide() ? FADE_MS : 0;
       hold(glide() + fade);
       if (at !== 'race') still();
-      room.current?.toggleAttribute('data-leaving', fade > 0);
-      put(at, true);
-      // A scrolled card goes back to its top as it fades (the tile shows its top on the overview), never in one jump.
+      // The fade starts once the stand-in has been painted, two frames on: started in the task that mounted it, a frame
+      // the stand-in held past 120 ms (a busy machine) used up the whole fade, and the parts went in one frame.
+      flushSync(() => put(at, true));
+      const begun = new Promise<void>(r => {
+        const leave = () => { room.current?.toggleAttribute('data-leaving', fade > 0); r(); };
+        if (fade) requestAnimationFrame(() => requestAnimationFrame(leave)); else leave();
+      });
+      // A scrolled card goes back to its top as it fades (the tile shows its top on the overview), never in one jump. It
+      // eases there a step per drawn frame, not over a time: the browser's smooth scroll takes ~100 ms, and a frame that a
+      // busy machine stretched past that drew most of it at once (60px -> 15px in one frame).
       const from = document.querySelector(`#${TILES[at].land} .panel-scroll`);
-      const top = new Promise(r => {
-        if (!fade || !from || (!from.scrollTop && !from.scrollLeft)) return r(0);
-        from.addEventListener('scrollend', r, { once: true });
-        from.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+      const top = new Promise<void>(r => {
+        if (!fade || !from || (!from.scrollTop && !from.scrollLeft)) return r();
+        const y0 = from.scrollTop, x0 = from.scrollLeft;
+        // Sine in-out over n frames: its largest step is pi/2n of the way, at most ~20px (8 to 20 frames).
+        const n = Math.min(20, Math.max(8, Math.ceil((Math.max(y0, x0) * Math.PI) / 40)));
+        let k = 0;
+        const step = () => {
+          const left = 1 - (1 - Math.cos((Math.PI * ++k) / n)) / 2;
+          from.scrollTo({ top: Math.round(y0 * left), left: Math.round(x0 * left), behavior: 'instant' });
+          if (k < n) requestAnimationFrame(step); else r();
+        };
+        requestAnimationFrame(step);
       });
       // The fade, then two frames: the snapped stage is painted under the card before the card leaves. The fade is
       // waited for (its animations), not timed: mounting the stand-in can hold the main thread past FADE_MS.
@@ -266,7 +286,7 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
         new Promise(r => setTimeout(r, 800)),
       ]);
       // Matchups then shows the seated lineup, as its tile under it does (flushed: painted in the two frames).
-      setTimeout(() => faded().then(() => at === 'pairwise' && flushSync(() => setMuFold(true))).then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+      begun.then(() => setTimeout(() => faded().then(() => at === 'pairwise' && flushSync(() => setMuFold(true))).then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
         busy = false;
         // The tile standing in is scrolled as the card was.
         const to = document.querySelector(`#${TILES[at].panel} .panel-scroll`);
@@ -285,7 +305,7 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
         // afterwards by scrolling shows all of itself again.
         setTimeout(() => !busy && room.current?.removeAttribute('data-leaving'), glide());
         document.getElementById(TILES[at].panel)?.focus({ preventScroll: true });
-      }))), fade);
+      }))), fade));
     };
     // Hover waits for the pointer to move: content gliding (or a card landing) under a still pointer shows no readout.
     let rest: number[] | null = null, last = [NaN, NaN];

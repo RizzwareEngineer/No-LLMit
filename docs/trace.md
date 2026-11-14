@@ -3,6 +3,7 @@
 This is the code path from the engine starting to pixels on a viewer's screen, one function at a time.
 It names what runs, where it runs, what triggers it and what it hands on, so a new engineer can open the same files and follow along.
 [system-design.md](system-design.md) explains why the system has this shape and [stream.md](stream.md) defines every message on the wire; neither is repeated here.
+Eight pictures in [trace/](trace/) draw the stages, and each section below links its own. Where a picture and the text disagree, the text is current.
 
 ## How to read this
 
@@ -28,6 +29,8 @@ The engine and the llm service run on Railway. Railway's edge proxy sits in fron
 
 ## Before the viewer arrives
 
+Picture: [trace/trace-1.png](trace/trace-1.png), steps 1 to 6.
+
 **START.** Railway starts the engine container, which runs the `server` binary built from `engine/`. No browser is involved yet.
 
 **1. Wire the server.**
@@ -52,7 +55,7 @@ The engine and the llm service run on Railway. Railway's edge proxy sits in fron
 - **Where / trigger:** engine, stats goroutine. Step 3 starts it.
 - **Code:** `engine/api/stats.go` → `run`; `engine/api/stats.go` → `loadSupabaseHands`; `engine/api/stats.go` → `recompute`.
 - **Does:** Loads every saved hand, from Supabase with `GET /rest/v1/hands?select=doc&order=started_at,hand_id` in pages of 1000 rows, and retries a failed load every `statsRetryEvery` (15 s). The first recompute publishes the full all-time body as a `stats` event and stores it in the hub (step 41 has the mechanism). Until then `/api/stats` answers 503 and a new stream gets no `stats` frame.
-- **Next:** Waits for a saved hand (step 41) or its `statsPollEvery` (5 min) tick. With Supabase, the tick fetches only the hands that started at or after the newest one held (another writer's, such as an overlapping deploy) and adds them. All-in EV replaces a player's actual result in a hand where everyone left was all-in before the river with what they would win on average over every possible runout; `engine/stats/equity.go` → `WarmAIEV` works it out and caches it per hand. The warm-up lasts until every such hand is cached. Until then the stats body has `partial` true and uses the actual results for the hands not done yet. During the warm-up the loop runs again at once (`time.After(0)`), and each recompute works out at least `aievPerPass` (8) such hands, or one per 1000 hands held if that is more. A recompute publishes a `stats` event when a hand was added, or once when the warm-up ends.
+- **Next:** Waits for a saved hand (step 41) or its `statsPollEvery` (5 min) tick. With Supabase, the tick fetches only the hands saved (`created_at`) since a minute before the last good load or poll began (another writer's, such as an overlapping deploy) and adds the ones it does not hold. All-in EV replaces a player's actual result in a hand where everyone left was all-in before the river with what they would win on average over every possible runout; `engine/stats/equity.go` → `WarmAIEV` works it out and caches it per hand. The warm-up lasts until every such hand is cached. Until then the stats body has `partial` true and uses the actual results for the hands not done yet. During the warm-up the loop runs again at once (`time.After(0)`), and each recompute works out at least `aievPerPass` (8) such hands, or one per 1000 hands held if that is more. A recompute publishes a `stats` event when a hand was added, or once when the warm-up ends.
 
 **5. Start the game and draw for the button.**
 - **Where / trigger:** engine, table loop goroutine. Step 3 calls it once.
@@ -69,6 +72,8 @@ The engine and the llm service run on Railway. Railway's edge proxy sits in fron
 A viewer can arrive any time after step 2. The table loop is then somewhere in steps 6, 17 to 24 or 38 to 42: asleep between two events, waiting on a model, or saving a hand.
 
 ## The page loads
+
+Picture: [trace/trace-2.png](trace/trace-2.png), steps 7 to 10.
 
 **7. Prerender the page.**
 - **Where / trigger:** Vercel, once per deploy. `next build` runs before any viewer asks for the page.
@@ -95,6 +100,8 @@ A viewer can arrive any time after step 2. The table loop is then somewhere in s
 - **Next:** Step 11. The engine answers the two side requests in `engine/api/server.go` → `handleUsage` and `engine/api/stats.go` → `handleTimeline`; `spectators` in the usage answer is the hub's count of open streams. At most once a minute, `/api/usage` makes the engine call `GET {LLM_SERVICE_URL}/usage` (`engine/client/llm.go` → `GetLLMUsage`), and the request that starts that fetch waits for it. If the browser's usage fetch fails or is not 200, the usage box shows `???` and the `N watching` count is hidden. `GET /api/waitlist` leaves only when the About screen nears the viewport (`web/src/components/about/content.tsx` → `Waitlist`). On the home page About's race takes the stream's stats through `PageStats`, which `StatsSections` provides, so it sends no `GET /api/stats`; only `/about`, which has no provider, fetches it (`web/src/components/about/content.tsx` → `useField`), and `web/src/lib/stats.ts` → `useStats` refetches it every 10 s while the engine answers 503 and every 30 s while the body is `partial`.
 
 ## The browser opens the stream
+
+Picture: [trace/trace-3.png](trace/trace-3.png), steps 11 to 16.
 
 **11. Create the stream client.**
 - **Where / trigger:** browser. The hook's stream effect runs once on mount (deps `[]`).
@@ -135,6 +142,8 @@ A viewer can arrive any time after step 2. The table loop is then somewhere in s
 - **Next:** The snapshot arrives as the first `message` (step 29).
 
 ## The table plays a turn
+
+Picture: [trace/trace-4.png](trace/trace-4.png), steps 17 to 24.
 
 These steps repeat for every turn, with or without viewers.
 
@@ -182,16 +191,18 @@ These steps repeat for every turn, with or without viewers.
 
 **24. Apply the action and publish `game_state`.**
 - **Where / trigger:** engine, table loop goroutine. The reasoning sleep ends.
-- **Code:** `engine/api/table.go` → `playTurn`; `engine/api/record.go` → `endDecision`; `engine/api/table.go` → `advanceStreet`; `engine/api/table.go` → `stateMessage`.
+- **Code:** `engine/api/table.go` → `playTurn`; `engine/api/record.go` → `endDecision`; `engine/api/table.go` → `advanceStreet`.
 - **Does:** Under `t.mu` it makes the copy of step 22 the game, so the table gets exactly the move the `llm_action` showed, records the reply and the applied action in the hand's record, and advances the street if the betting round is over. It sets `turnApplied` true and publishes `game_state`, which carries the new street, the board and, when the hand ended, `winners`. Then it sleeps `postActionDelay` (5 s).
 - **Next:** Back to step 17.
 
 ## The event reaches every viewer
 
+Picture: [trace/trace-5.png](trace/trace-5.png), steps 25 to 28.
+
 **25. Build the table's snapshot.**
 - **Where / trigger:** engine, table loop goroutine, holding `t.mu`. Every publish of steps 5, 6, 17, 18, 23, 24, 40 and 42 calls it.
 - **Code:** `engine/api/table.go` → `publish`, `nextHandMs`; `engine/api/messages.go` → `ConvertGameState`.
-- **Does:** Builds a new `tableSnap` from the table's fields: `State` (`ConvertGameState`'s view plus `peeked`), `Turn`, `TurnApplied`, a copy of `ButtonCards`, `ButtonWinner`, `Notice` when its kind is not empty, and `nextHandAt` when the hand is complete. `State` includes every seat's hole cards: viewers see them all. A `game_state` among the publish's messages (`stateMessage` leaves its payload empty) gets this same `State`, with `nextHandInMs` from `nextHandMs`, the one rule step 15's snapshot also uses.
+- **Does:** Builds a new `tableSnap` from the table's fields: `State` (`ConvertGameState`'s view plus `peeked`), `Turn`, `TurnApplied`, a copy of `ButtonCards`, `ButtonWinner`, `Notice` when its kind is not empty, and `nextHandAt` when the hand is complete. `State` includes every seat's hole cards: viewers see them all. A `game_state` among the publish's messages (published with an empty payload) gets this same `State`, with `nextHandInMs` from `nextHandMs`, the one rule step 15's snapshot also uses.
 - **Next:** Passes the snapshot and this publish's messages to the hub (step 26).
 
 **26. Append to the ring and swap the snapshot.**
@@ -217,6 +228,8 @@ data: {"seq":1043,"table":"tbl_9f2c41d07ab35e18","type":"llm_thinking","payload"
 - **Next:** Back to the top of the handler's loop: `engine/api/stream.go` → `since` runs again (step 27 if frames arrived), then the `select`.
 
 ## The browser applies it and draws
+
+Picture: [trace/trace-6.png](trace/trace-6.png), steps 29 to 37.
 
 Every frame takes this path: the snapshot first, then the full stats, then live events.
 
@@ -286,6 +299,8 @@ Every frame takes this path: the snapshot first, then the full stats, then live 
 
 ## The hand ends
 
+Picture: [trace/trace-7.png](trace/trace-7.png), steps 38 to 42.
+
 **38. Complete the hand.**
 - **Where / trigger:** engine, table loop goroutine. The action applied in step 24, or a street settled in step 17, ends the hand.
 - **Code:** `engine/api/table.go` → `advanceStreet`; `engine/game/game.go` → `AdvanceStreet`.
@@ -317,6 +332,8 @@ Every frame takes this path: the snapshot first, then the full stats, then live 
 - **Next:** It sleeps, then step 6 deals the probe hand and clears the notice with a `table_notice` of kind `""` right before `hand_start`.
 
 ## The connection drops or the server ends it
+
+Picture: [trace/trace-8.png](trace/trace-8.png), steps 43 to 46.
 
 **43. The handler returns.**
 - **Where / trigger:** engine, handler goroutine. Its lifetime timer fires 10 to 14 min after open, the request context ends because the viewer left, or a write fails or passes its deadline.

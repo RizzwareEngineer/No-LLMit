@@ -2,7 +2,7 @@
 
 No-LLMit is a live No-Limit Hold'em game played by LLMs. People watch it in a browser. Nobody plays.
 
-**Built on this branch (`feat/sse-stream`):** one table, delivered to every viewer over one Server-Sent Events stream, `GET /stream`. The wire format is in [stream.md](stream.md).
+**Built:** one table, delivered to every viewer over one Server-Sent Events stream, `GET /stream`. The wire format is in [stream.md](stream.md).
 **Not built:** more than one table, a table picker, and relay servers. The diagram draws ten tables because ten is the ceiling the design allows. The code constructs exactly one.
 **Code trace:** [trace.md](trace.md) follows the same path function by function, from the engine starting to pixels on screen.
 
@@ -23,7 +23,7 @@ The numbers match the diagram.
 **1. GET the page.** The browser GETs the static Next.js build (HTML, JS, CSS) from Vercel's CDN. No server renders HTML.
 Without it: the Go process would serve page assets to every burst viewer, on the same CPU that runs the table.
 
-**2. GET /stream, one per viewer.** The browser opens `EventSource` at `${API_URL}/stream` on the Go engine on Railway. `API_URL` is the `NEXT_PUBLIC_API_URL` setting. The response is `200`, `Content-Type: text/event-stream`, `Cache-Control: no-store`, `Access-Control-Allow-Origin: *` with the other CORS headers, no `Content-Length`. Traffic on it is one-way, server to browser. The browser sends nothing per event. The usage, timeline and waitlist requests remain as ordinary GETs and POSTs.
+**2. GET /stream, one per viewer.** The browser opens `EventSource` at `${API_URL}/stream` on the Go engine on Railway. `API_URL` is the `NEXT_PUBLIC_API_URL` setting. The response is `200`, `Content-Type: text/event-stream`, `Cache-Control: no-store`, `Access-Control-Allow-Origin: *` with the other CORS headers, no `Content-Length`. Traffic on it is one-way, server to browser. The browser sends nothing per event. Usage, stats, timeline and waitlist stay ordinary GETs and POSTs.
 Without it: viewers would have to poll, and moves would arrive late and out of step with the table's pacing.
 
 **3. Table loop asks the LLM service.** One goroutine per table runs deal, ask the next player, apply the action, repeat. To ask, it POSTs the game state as that player sees it plus the legal actions to `POST /decide` on the Python FastAPI service on Railway. That service builds the prompt, calls the model through OpenRouter, and parses the reply. The engine checks legality. If the service reports no playable move (an unparseable or illegal reply, a provider error, or its 45 s turn budget running out), or the engine gets no answer from the service within its 50 s request timeout, the engine checks if it can and otherwise folds. All pacing sleeps live in this goroutine, so an event is published at the moment it should appear.
@@ -90,7 +90,7 @@ Environment variables the engine and the web read. Set them in Railway and Verce
 | `TABLE_TIMEZONE` | unset: open all day | America/New_York | Zone for the two hours above. Without it the hours are ignored. |
 | `TABLE_PACE` | 1 | not in the repo | Multiplier on every pacing sleep; 0.3 plays faster. |
 | `WAITLIST_DAILY_MAX` | 5000 | not in the repo | New waitlist rows per UTC day. |
-| `SITE_URL` | `https://nollmit.vercel.app` | not in the repo | The site's origin (engine). Browsers may post to the waitlist only from it or from `http://localhost`. |
+| `SITE_URL` | `https://nollmit.vercel.app` | not in the repo | The site's origin (engine). Browsers may post to the waitlist only from it, `http://localhost` or `http://127.0.0.1`. |
 | `LLM_SERVICE_URL` | `http://localhost:5001` | not in the repo | Where the engine posts `/decide`. |
 | `NEXT_PUBLIC_SITE_URL` | `https://nollmit.vercel.app` | not in the repo | Base URL for page metadata (web). |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | not in the repo; the engine's Railway address, `https://` and no trailing slash | The engine's address (web). The stream and every API call go there. Unset, the site talks to localhost; a production build on Vercel fails without it. |
@@ -121,7 +121,7 @@ A service without `TABLE_TIMEZONE` runs the table 24 hours a day.
 
 - Lineups: which models sit at each table when there is more than one?
 - The daily call cap: is it per table or shared, and what is the model budget for ten tables?
-- The picker: how does a viewer choose a table, and what do the stats live session and the calls bar show with several?
+- The picker: how does a viewer choose a table, and what do the stats and the calls bar show with several?
 - Storage: prune old hands or move to Supabase Pro, before the table count or budget goes up?
 - Stats memory: running accumulators instead of every hand in memory, before ten tables run for weeks?
 
