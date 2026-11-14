@@ -93,6 +93,7 @@ Environment variables the engine and the web read. Set them in Railway and Verce
 | `WAITLIST_DAILY_MAX` | 5000 | not in the repo | New waitlist rows per UTC day. |
 | `SITE_URL` | `https://nollmit.vercel.app` | not in the repo | The site's origin (engine). Browsers may post to the waitlist only from it, `http://localhost` or `http://127.0.0.1`. |
 | `LLM_SERVICE_URL` | `http://localhost:5001` | not in the repo | Where the engine posts `/decide`. |
+| `LLM_SERVICE_TOKEN` | unset | the same long random secret on the engine and the LLM service | Sent by the engine as `Authorization: Bearer`; with it set, the LLM service refuses every route but `/health` without it (401). |
 | `NEXT_PUBLIC_SITE_URL` | `https://nollmit.vercel.app` | not in the repo | Base URL for page metadata (web). |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | not in the repo; the engine's Railway address, `https://` and no trailing slash | The engine's address (web). The stream and every API call go there. Unset, the site talks to localhost; a production build on Vercel fails without it. |
 | `SUPABASE_URL` | unset | not in the repo | Supabase project URL (engine). With `SUPABASE_SERVICE_KEY`, hands, stats and the waitlist use Supabase; without both, hands go to `HAND_LOG_DIR` and are lost on a Railway restart. |
