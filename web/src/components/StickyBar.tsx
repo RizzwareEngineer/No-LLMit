@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUp, SquaresFour } from '@phosphor-icons/react';
 import NumberFlow from '@number-flow/react';
 import LLMLogo from '@/components/LLMLogo';
-import type { DisplayState } from '@/hooks/useGameState';
+import type { DisplayState } from '@/lib/stream';
 import { amountParts, formatAmount, useBigBlind } from '@/lib/amounts';
 import { MUTED, TEXT } from '@/lib/stats';
 import { backToOverview, useScreen } from '@/components/Section';

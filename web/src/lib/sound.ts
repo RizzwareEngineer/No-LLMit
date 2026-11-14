@@ -3,7 +3,7 @@
 // plays before the viewer has clicked or pressed a key on the page.
 
 // 'overtake' and 'lead': Trends' replay, one line passing another and a new #1.
-export type SoundKind = 'deal' | 'chip' | 'showdown' | 'shuffle' | 'overtake' | 'lead';
+type SoundKind = 'deal' | 'chip' | 'showdown' | 'shuffle' | 'overtake' | 'lead';
 
 // The riffle between hands, in seconds, shared by its picture (TableMotion's Deck) and its sound: the deck splits,
 // `cards` cards fall together `gap` apart from `start`, it is squared at `square`, and it is done at `length`.

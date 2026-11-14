@@ -7,7 +7,7 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080/ws';
 export const API_URL = WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, '');
 const STREAM_URL = `${API_URL}/stream`;
 
-export type MessageType =
+type MessageType =
   | 'snapshot'
   | 'stats'
   | 'game_state'
@@ -83,7 +83,7 @@ export interface TableNoticePayload {
   reopensAt?: string; // RFC3339
 }
 
-export type ConnectionStatus = 'open' | 'reconnecting' | 'gave_up';
+type ConnectionStatus = 'open' | 'reconnecting' | 'gave_up';
 
 // The stream, reopened by this class on every error: EventSource never retries after a non-200
 // answer (a 502 from the edge while the engine restarts), so its own retry is not relied on.

@@ -24,7 +24,6 @@ interface WinnerInfo {
 
 interface PokerTableProps {
   players: PlayerState[];
-  layout: PlayerLayout;
   currentPlayerIdx: number;
   communityCards: string[];
   pot: number;
@@ -33,7 +32,6 @@ interface PokerTableProps {
   thinkingPlayerIdx?: number;
   peeked?: number[]; // seats whose hole cards are face up this hand (the engine's peeked, and the turn on screen)
   buttonDetermination?: ButtonDetermination | null;
-  hidePositions?: boolean;
   notice?: TableNoticePayload | null;
   street: string;
   handNumber: number;
@@ -42,7 +40,6 @@ interface PokerTableProps {
 
 export default function PokerTable({
   players,
-  layout,
   currentPlayerIdx,
   communityCards,
   pot,
@@ -51,12 +48,13 @@ export default function PokerTable({
   thinkingPlayerIdx,
   peeked = [],
   buttonDetermination,
-  hidePositions = false,
   notice,
   street,
   handNumber,
   stats,
 }: PokerTableProps) {
+  const layout = getPlayerLayout(players.length || 9);
+  const hidePositions = !!buttonDetermination; // the position badges wait for the button draw
   // The engine keeps each seat's last action until the hand ends. A seat shows it only once it has
   // acted on the current street: its action, amount or stack changed since the street started, or
   // it was on the clock during this street (that catches a second CHECK in a row).
@@ -92,7 +90,6 @@ export default function PokerTable({
       player={players[idx]}
       active={idx === currentPlayerIdx && street !== 'complete'} // between hands nobody is on the clock
       position={hidePositions ? '' : players[idx].position}
-      folded={players[idx]?.status === 'folded'}
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
@@ -247,7 +244,7 @@ export default function PokerTable({
 }
 
 // Helper function to get player layout based on count (6-9 players)
-export function getPlayerLayout(count: number): PlayerLayout {
+function getPlayerLayout(count: number): PlayerLayout {
   switch (count) {
     case 6:
       return { top: [0, 1], left: [5], right: [2], bottom: [4, 3] };

@@ -11,7 +11,7 @@ import { MIN_HANDS, MUTED, ModelStats, StatsResponse, TEXT, chips, netColor, sea
 import { EXAMPLE_REPLY, EXAMPLE_USER_PROMPT, SYSTEM_PROMPT } from '@/lib/systemPrompt';
 import { joinWaitlist, waitlistCount } from '@/lib/waitlist';
 
-// The About copy and its parts (about-content-complete); SpecSheet arranges them. Every line is one sentence that fits its
+// The About copy and its parts (about-content-complete); About arranges them. Every line is one sentence that fits its
 // line at About's widths (one sentence per line).
 
 const BLUE = 'rgb(35, 131, 226)';
