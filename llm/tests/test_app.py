@@ -1,7 +1,6 @@
-import json
-
 import pytest
 import requests
+import urllib3
 from fastapi.testclient import TestClient
 
 import app
@@ -11,8 +10,7 @@ from providers import openrouter
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(app, "DECISION_LOG", tmp_path / "decisions.jsonl")
+def client():
     return TestClient(app.app)
 
 
@@ -35,8 +33,6 @@ def test_decide_with_mock(client):
     assert body["prompt"].startswith("Blinds 5/10")
     for field in ("reasoning", "reasoning_tokens", "finish_reason", "upstream_provider", "generation_id", "temperature", "error"):
         assert body[field] is None
-    logged = json.loads(app.DECISION_LOG.read_text().splitlines()[-1])
-    assert logged["request"]["seat"] == 0 and logged["prompt_version"] == prompt_version
 
 
 def test_decide_rejects_the_old_request_shape(client):
@@ -103,3 +99,33 @@ def test_openrouter_http_error_is_a_provider_error(monkeypatch):
     monkeypatch.setattr(openrouter.requests, "post", post)
     with pytest.raises(openrouter.ProviderError):
         openrouter.complete(preflop_request(), [], 7)
+
+
+def test_openrouter_malformed_body_is_a_provider_error(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    html = requests.Response()
+    html.status_code, html._content = 200, b"<html>Bad gateway</html>"
+    for response in (html, FakeResponse({"error": "rate limited"}), FakeResponse({"choices": [None]}),
+                     FakeResponse({"choices": [{"message": {"content": ["x"]}}]}), FakeResponse(None)):
+        monkeypatch.setattr(openrouter.requests, "post", lambda url, headers, json, timeout: response)
+        with pytest.raises(openrouter.ProviderError):
+            openrouter.complete(preflop_request(), [], 7)
+
+
+def test_openrouter_body_read_stall_is_a_read_timeout(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    stall = urllib3.exceptions.ReadTimeoutError(None, None, "Read timed out.")
+
+    def post(url, headers, json, timeout):
+        raise requests.ConnectionError(stall)  # what requests raises when the body stops arriving
+
+    monkeypatch.setattr(openrouter.requests, "post", post)
+    with pytest.raises(requests.ReadTimeout):
+        openrouter.complete(preflop_request(), [], 7)
+
+
+def test_openrouter_spend(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setattr(openrouter, "_spend_cache", {"at": 0.0, "value": None})
+    monkeypatch.setattr(openrouter.requests, "get", lambda url, headers, timeout: FakeResponse({"data": {"limit": 10, "limit_remaining": 7.5}}))
+    assert openrouter.get_spend() == {"used_usd": 2.5, "limit_usd": 10}

@@ -33,8 +33,8 @@ gets mock hands locally.
 
 ## Roster
 
-`registry.py` `MODELS` is the roster and `PRICES` the OpenRouter list price in USD per
-million tokens, checked against https://openrouter.ai/api/v1/models on 2026-11-05.
+`registry.py` `MODELS` is the roster. The table below is the only price list: hand-kept OpenRouter
+list prices in USD per million tokens, checked against https://openrouter.ai/api/v1/models on 2026-11-05.
 
 | Model | OpenRouter slug | Prompt | Completion | Default seat |
 |---|---|---|---|---|
@@ -86,7 +86,7 @@ uvicorn app:app --reload --port 5001
 - `GET /health` - Health check
 - `GET /usage` - `{"provider", "spend"}`: the provider and OpenRouter spend against the key's limit
 - `GET /prompt` - The system prompt and the prompt version
-- `GET /models?session=N` - `{"provider", "seated", "models": [{"name", "slug", "price_per_mtok", "seated"}]}`; `session` only matters to the mock provider's rotation
+- `GET /models?session=N` - `{"provider", "seated"}`; `session` only matters to the mock provider's rotation
 - `POST /decide` - The seat's move for a game state
 
 ### POST /decide

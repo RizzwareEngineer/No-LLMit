@@ -4,8 +4,9 @@ import os
 import time
 
 import requests
+import urllib3
 
-from registry import get_model_id
+from registry import MODELS
 from schemas import DecisionRequest
 
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -27,7 +28,7 @@ class ProviderError(Exception):
 def complete(request: DecisionRequest, messages: list[dict], timeout: float) -> dict:
     """One chat completion for the seat's model. Raises ProviderError (or requests.Timeout)
     when no reply came back; a reply that is only reasoning cut short counts as a reply."""
-    model_id = get_model_id(request.player_name)
+    model_id = MODELS[request.player_name]
     try:
         response = requests.post(
             API_URL,
@@ -47,34 +48,40 @@ def complete(request: DecisionRequest, messages: list[dict], timeout: float) -> 
             timeout=timeout,
         )
         response.raise_for_status()
+        body = response.json()
+        if "error" in body:
+            raise ProviderError(f"{model_id}: {body['error'].get('message', body['error'])}")
+
+        choice = (body.get("choices") or [{}])[0]
+        message = choice.get("message") or {}
+        finish_reason = choice.get("finish_reason")
+        raw = message.get("content") or ""
+        if not raw.strip() and finish_reason != "length":
+            raise ProviderError(f"{model_id} returned an empty reply")
+
+        usage = body.get("usage") or {}
+        return {
+            "raw": raw,
+            "model": body.get("model") or model_id,
+            "usage": usage,
+            "reasoning": message.get("reasoning") or None,
+            "reasoning_tokens": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+            "finish_reason": finish_reason,
+            "upstream_provider": body.get("provider"),
+            "generation_id": body.get("id"),
+            "temperature": TEMPERATURE,
+        }
     except requests.Timeout:
         raise
+    except requests.ConnectionError as e:
+        # requests reports a stall while reading the body (the model is slow) as a ConnectionError.
+        if e.args and isinstance(e.args[0], urllib3.exceptions.ReadTimeoutError):
+            raise requests.ReadTimeout(e) from e
+        raise ProviderError(f"{model_id}: {e}") from e
     except requests.RequestException as e:
         raise ProviderError(f"{model_id}: {e}") from e
-    body = response.json()
-    if "error" in body:
-        raise ProviderError(f"{model_id}: {body['error'].get('message', body['error'])}")
-
-    choice = (body.get("choices") or [{}])[0]
-    message = choice.get("message") or {}
-    finish_reason = choice.get("finish_reason")
-    raw = message.get("content") or ""
-    if not raw.strip() and finish_reason != "length":
-        raise ProviderError(f"{model_id} returned an empty reply")
-
-    usage = body.get("usage") or {}
-    return {
-        "raw": raw,
-        "model": body.get("model") or model_id,
-        "usage": usage,
-        "reasoning": message.get("reasoning") or None,
-        "reasoning_tokens": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
-        "finish_reason": finish_reason,
-        "upstream_provider": body.get("provider"),
-        "generation_id": body.get("id"),
-        "temperature": TEMPERATURE,
-    }
-
+    except (ValueError, AttributeError, TypeError, LookupError) as e:  # not JSON, or not OpenRouter's documented shape
+        raise ProviderError(f"{model_id}: malformed reply: {e}") from e
 
 KEY_URL = "https://openrouter.ai/api/v1/key"
 _spend_cache = {"at": 0.0, "value": None}
@@ -100,7 +107,7 @@ def get_spend() -> dict | None:
         limit = data.get("limit")
         remaining = data.get("limit_remaining")
         used = limit - remaining if limit is not None and remaining is not None else data.get("usage")
-        value = {"used_usd": used, "limit_usd": limit, "limit_reset": data.get("limit_reset")}
+        value = {"used_usd": used, "limit_usd": limit}
     except Exception:
         value = None
 

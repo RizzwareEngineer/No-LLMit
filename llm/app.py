@@ -2,14 +2,10 @@
 returns the move. All prompt, parsing and retry logic lives here (decide.py)."""
 
 import os
-import json
 import time
 import logging
-from datetime import datetime
-from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 
 from schemas import DecisionRequest, DecisionResponse
 from prompts import system_prompt, prompt_version
@@ -31,17 +27,6 @@ elif PROVIDER == "mock":
 else:
     raise RuntimeError(f"Unknown LLM_PROVIDER: {PROVIDER}")
 
-# Every prompt and response is appended here, one JSON object per line.
-DECISION_LOG = Path(__file__).parent / "logs" / "decisions.jsonl"
-
-EXTRA_FIELDS = ("reasoning", "finish_reason", "upstream_provider", "generation_id", "temperature")
-
-
-def log_decision(record: dict):
-    DECISION_LOG.parent.mkdir(exist_ok=True)
-    with DECISION_LOG.open("a") as f:
-        f.write(json.dumps(record) + "\n")
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -49,14 +34,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="No-LLMit LLM Service")
-
-# Allow frontend to call /usage directly
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3100"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-)
 
 
 @app.get("/health")
@@ -81,23 +58,10 @@ def get_prompt():
 
 @app.get("/models")
 def get_models(session: int = 0):
-    """The roster, each with its slug, price and whether it is seated. With the mock
-    provider the lineup rotates by session index so every roster model gets hands locally;
-    otherwise it is LINEUP (the default nine when unset)."""
+    """The seated names. With the mock provider the lineup rotates by session index so every
+    roster model gets hands locally; otherwise it is LINEUP (the default nine when unset)."""
     seated = registry.rotated_lineup(session) if PROVIDER == "mock" else registry.LINEUP
-    return {
-        "provider": PROVIDER,
-        "seated": seated,
-        "models": [
-            {
-                "name": name,
-                "slug": slug,
-                "price_per_mtok": dict(zip(("prompt", "completion"), registry.PRICES[name])),
-                "seated": name in seated,
-            }
-            for name, slug in registry.MODELS.items()
-        ],
-    }
+    return {"provider": PROVIDER, "seated": seated}
 
 
 @app.post("/decide", response_model=DecisionResponse)
@@ -121,13 +85,6 @@ def decide_turn(request: DecisionRequest):
         reasoning_tokens=usage.get("reasoning_tokens"),
         prompt_version=prompt_version,
     )
-
-    log_decision({
-        "time": datetime.now().isoformat(timespec="seconds"),
-        "player": request.player_name,
-        "request": request.model_dump(),
-        **response.model_dump(),
-    })
 
     if response.status != "ok":
         logger.warning(f"⚠️ {response.status}: {response.error or 'fell back to ' + response.action}")

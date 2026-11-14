@@ -112,6 +112,14 @@ def test_timeout_has_its_own_status(monkeypatch):
     assert (out["action"], out["status"]) == ("FOLD", "timeout")
 
 
+def test_a_read_timeout_is_not_retried(monkeypatch):
+    # The model got the request and is billed in full; a second call would be billed too.
+    monkeypatch.setattr(decide.time, "sleep", lambda s: None)
+    complete = scripted(requests.ReadTimeout("slow"), "ACTION: CALL\nAMOUNT: 0\nREASON: Ok.")
+    out = decide.decide(preflop_request(), complete)
+    assert (len(complete.calls), out["status"], out["action"]) == (1, "timeout", "FOLD")
+
+
 def test_provider_failure_on_the_retry_is_not_the_models_miss(monkeypatch):
     monkeypatch.setattr(decide.time, "sleep", lambda s: None)
     complete = scripted("ACTION: CHECK", ProviderError("x"), ProviderError("x"), ProviderError("x"))
