@@ -22,10 +22,11 @@ export default function HoleCard({ value, faceUp, peek = false, slot = 0, w = 28
   const k = w / 28, dealt = landing(hand, seat, slot), lay = { x: dealt.x * k, y: dealt.y * k, rotate: dealt.rotate };
   const first: Pose = at !== undefined ? peekPose(at, slot, w, lay, h) : faceUp ? REST : settle !== undefined ? down({ x: 0, y: 0, rotate: 0 }) : down(lay);
   const pose = useRef(first);
-  const transform = useMotionValue(css(first, w, h)), index = useMotionValue(first.index), z = useMotionValue(above(first));
+  const transform = useMotionValue(css(first, w, h)), index = useMotionValue(first.index), z = useMotionValue<number | 'auto'>(above(first));
   const was = useRef<boolean | null>(null);
-  // Face down the second card lies on top; once the stack shows its faces (lifted past upright, or turned over) the first.
-  function above(p: Pose) { return slot === 0 && Math.cos(p.lift * Math.PI / 180) * Math.cos(p.flip * Math.PI / 180) > 0 ? 1 : 0; }
+  // Face down the second card lies on top; once the stack shows its faces (lifted past upright, or turned over) the first,
+  // until it rests in its slot (no z-index at rest: the seat's layers, and so its text's pixels, stay as they were).
+  function above(p: Pose) { return slot === 0 && (p.x || p.y || p.r || p.lift) && Math.cos(p.lift * Math.PI / 180) * Math.cos(p.flip * Math.PI / 180) > 0 ? 1 : 'auto'; }
   const show = (p: Pose) => { pose.current = p; transform.set(css(p, w, h)); index.set(p.index); z.set(above(p)); };
 
   useEffect(() => {
