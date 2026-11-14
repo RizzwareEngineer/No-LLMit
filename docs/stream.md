@@ -46,7 +46,7 @@ The payloads are the Go structs in `engine/api/messages.go`.
 
 | type | payload |
 |---|---|
-| `game_state` | `GameStatePayload` (whole table; `nextHandInMs` is worked out when the frame is made; `peeked` lists the seats whose turn has come this hand, in turn order, always present, `[]` when none: their hole cards are face up; `pace` is the table's multiplier on every pause, 1 by default, so the site types each reason at 25 ms per character times `pace`) |
+| `game_state` | `GameStatePayload` (whole table; `nextHandInMs` is worked out when the frame is made; `peeked` lists the seats whose turn has come this hand, in turn order, always present, `[]` when none: their hole cards are face up; `pace` is the table's multiplier on every pause, 0.6 by default, so the site types each reason at 25 ms per character times `pace`) |
 | `hand_start` | `{"handNumber":12}` |
 | `llm_thinking` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4","budgetMs":45000,"elapsedMs":0}` |
 | `llm_action` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4","action":"RAISE","amount":60,"reason":"..."}` |
@@ -99,7 +99,8 @@ worked out when the snapshot is written to that stream. The shot clock shows
 
 Events of one table step arrive back to back: `hand_start` then `game_state`; after a voided
 hand, `table_notice` (`outage`) then `game_state`. A new street or the end of a hand is only a
-`game_state`: it carries the street, the board and `winners`. The `game_state` after an `llm_action` is what applies the
+`game_state`: it carries the street, the board and `winners`. In an all-in run-out the flop, the turn,
+the river and the showdown are each their own `game_state`, the street-change pause (5 s times `pace`) apart. The `game_state` after an `llm_action` is what applies the
 action (the page moves its reasoning to revealed); the action stays the table's turn until the
 next `llm_thinking` or `hand_start`. There is no turn-cleared message.
 

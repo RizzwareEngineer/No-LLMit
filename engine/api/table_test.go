@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
@@ -261,5 +263,49 @@ func TestEveryModelCallCountsTowardTheCap(t *testing.T) {
 	*now = now.Add(2 * time.Minute)
 	if u := tbl.Usage(); u.CallsToday != 0 {
 		t.Errorf("after midnight UTC: %d calls today, want 0", u.CallsToday)
+	}
+}
+
+// An all-in preflop deals the flop, the turn and the river as three game_states, each after
+// the pause a street change has, then the showdown: not the whole board at once.
+func TestAllInRunOutDealsAStreetPerPause(t *testing.T) {
+	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
+	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) {
+		r := reply("ALL_IN", 0)
+		return &r, nil
+	}
+	tbl := testTable(t)
+	tbl.saver, tbl.dailyCallCap = &fakeSaver{}, 100
+	tbl.setPace(1e-6)                 // the wait for the next hand is a real sleep
+	paused := map[int]time.Duration{} // the pauses while the board had this many cards, before the hand ended
+	tbl.pause = func(d time.Duration) {
+		if !tbl.gs.IsHandComplete() {
+			paused[len(tbl.gs.CommunityCards)] += d
+		}
+	}
+
+	tbl.playHand()
+	var streets []string
+	for _, f := range tbl.hub.since(0, false).frames {
+		for _, m := range parseFrames(t, f) {
+			var s struct {
+				Street         string
+				CommunityCards []string
+			}
+			if m.Type != MsgGameState || json.Unmarshal(m.Payload, &s) != nil {
+				continue
+			}
+			if street := fmt.Sprintf("%s %d", s.Street, len(s.CommunityCards)); len(streets) == 0 || streets[len(streets)-1] != street {
+				streets = append(streets, street)
+			}
+		}
+	}
+	if want := []string{"preflop 0", "flop 3", "turn 4", "river 5", "complete 5"}; !reflect.DeepEqual(streets, want) {
+		t.Errorf("game_states went %q, want %q", streets, want)
+	}
+	for _, board := range []int{3, 4, 5} {
+		if paused[board] < tbl.paced(postActionDelay) {
+			t.Errorf("%v paused with %d board cards out, want at least %v before the next street", paused[board], board, tbl.paced(postActionDelay))
+		}
 	}
 }

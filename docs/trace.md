@@ -12,7 +12,7 @@ Eight pictures in [trace/](trace/) draw the stages, and each section below links
 - Each step has four parts. **Where / trigger** is the place it runs and what starts it. **Code** is what runs. **Does** is what it does. **Next** is what it hands on.
 - Steps 1 to 5 run once when the engine boots. The table loop (steps 6, 17 to 24 and 38 to 42) then repeats for every hand and turn, with or without viewers.
 - Step 7 runs once per deploy. One viewer's path is steps 8 to 16, then steps 27 to 37 for every event, then steps 43 to 46 when the stream ends.
-- A value in parentheses is the constant in the code today. The table's pacing sleeps are multiplied by `TABLE_PACE` (default 1).
+- A value in parentheses is the constant in the code today. The table's pacing sleeps are multiplied by `TABLE_PACE` (default 0.6).
 
 Code runs in these places:
 
@@ -149,8 +149,8 @@ These steps repeat for every turn, with or without viewers.
 
 **17. Find the next seat to act.**
 - **Where / trigger:** engine, table loop goroutine. Each pass of the turn loop inside the hand of step 6.
-- **Code:** `engine/api/table.go` → `playHand`; `engine/api/table.go` → `settleStreets`; `engine/api/table.go` → `waitForBudget`.
-- **Does:** Under `t.mu` it first advances any street where nobody can act, one publish per street. The turn loop ends when the hand is complete (step 38, then step 39) or no seat is waiting to act. If it ends without the hand being complete, the table logs that the hand stalled and saves nothing. It still runs the wait for `nextHandAt`, but that time is from an earlier hand (or unset) and has passed, so it goes straight back to step 6. Otherwise it checks the day's call count: at `DAILY_CALL_CAP` it publishes `table_notice` with kind `cap` and polls every 10 s until the next UTC day.
+- **Code:** `engine/api/table.go` → `playHand`; `engine/api/table.go` → `settleStreet`; `engine/api/table.go` → `waitForBudget`.
+- **Does:** Under `t.mu` it first deals the next street when nobody can act, as in an all-in run-out, and publishes it; then, outside the lock, it sleeps `postActionDelay` (5 s), the pause any street change has, and starts the pass again. So a run-out shows the flop, the turn and the river as three `game_state`s that far apart, then the showdown (step 38). The turn loop ends when the hand is complete (step 38, then step 39) or no seat is waiting to act. If it ends without the hand being complete, the table logs that the hand stalled and saves nothing. It still runs the wait for `nextHandAt`, but that time is from an earlier hand (or unset) and has passed, so it goes straight back to step 6. Otherwise it checks the day's call count: at `DAILY_CALL_CAP` it publishes `table_notice` with kind `cap` and polls every 10 s until the next UTC day.
 - **Next:** Step 18.
 
 **18. Publish `llm_thinking`.**
@@ -304,7 +304,7 @@ Picture: [trace/trace-7.png](trace/trace-7.png), steps 38 to 42.
 **38. Complete the hand.**
 - **Where / trigger:** engine, table loop goroutine. The action applied in step 24, or a street settled in step 17, ends the hand.
 - **Code:** `engine/api/table.go` → `advanceStreet`; `engine/game/game.go` → `AdvanceStreet`.
-- **Does:** The game ends the hand when one player is left, runs out the board when at most one can still act, or resolves the showdown after the river; the street becomes `complete`. The table sets `nextHandAt` to now plus `postActionDelay + nextHandDelay` (12 s). The `game_state` the caller then publishes carries street `complete`, `winners` and `nextHandInMs`.
+- **Does:** The game ends the hand when one player is left, deals the rest of the board one street per call when at most one can still act (step 17 pauses between them), or resolves the showdown after the river; the street becomes `complete`. The table sets `nextHandAt` to now plus `postActionDelay + nextHandDelay` (12 s). The `game_state` the caller then publishes carries street `complete`, `winners` and `nextHandInMs`.
 - **Next:** In the browser `street === 'complete'` shows the winners and starts the `Next hand in Ns` countdown. On the engine the turn loop ends (step 39).
 
 **39. Decide whether the hand is saved.**

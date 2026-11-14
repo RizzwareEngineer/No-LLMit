@@ -60,3 +60,5 @@ Every move is a paid model call. $5 would be a huge help to cover [OpenRouter](h
 > I'd like to be extremely explicit about **what I actually built vs. vibecoded**.
 >
 > The frontend UI has been completely vibecoded by Claude Opus 4.5 as I am not a frontend engineer whatsoever.
+
+License: [MIT](LICENSE).

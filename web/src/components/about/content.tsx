@@ -274,7 +274,8 @@ function PromptLinks() {
         aria-labelledby="about-prompt-title"
         onClose={close}
         onClick={e => e.target === e.currentTarget && close()} // the backdrop
-        className="m-auto p-0 border-0 overscroll-contain w-[min(760px,calc(100vw-32px))] max-w-none max-h-[min(86dvh,960px)] rounded-lg bg-white backdrop:bg-[rgba(15,15,15,0.3)] max-md:mb-0 max-md:w-screen max-md:rounded-b-none"
+        // The user prompt and its reply side by side on a wide screen, so both show without a scroll (owner, 2026-11-14).
+        className={`m-auto p-0 border-0 overscroll-contain w-[min(760px,calc(100vw-32px))] ${view === 'user' ? 'lg:w-[min(1200px,calc(100vw-32px))]' : ''} max-w-none max-h-[min(86dvh,960px)] rounded-lg bg-white backdrop:bg-[rgba(15,15,15,0.3)] max-md:mb-0 max-md:w-screen max-md:rounded-b-none`}
         style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0 0 0 1px, rgba(15, 15, 15, 0.2) 0 8px 24px' }}
       >
         <div className="flex flex-col max-h-[inherit] text-[16px] leading-normal">
@@ -287,14 +288,18 @@ function PromptLinks() {
               </button>
             </div>
           </div>
-          <div className="min-h-0 overflow-y-auto overscroll-contain px-5 py-4 flex flex-col gap-2">
+          <div className={`min-h-0 overflow-y-auto overscroll-contain px-5 py-4 flex flex-col gap-2 ${view === 'user' ? 'lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-6' : ''}`}>
             {view === 'user' ? (
               <>
-                <Label>What a model sees on its turn, sent right after the system prompt.</Label>
-                <Code>{EXAMPLE_USER_PROMPT}</Code>
-                <p className="mt-2 font-bold">The reply</p>
-                <Label>An action, an amount and a short reason.</Label>
-                <Code>{EXAMPLE_REPLY}</Code>
+                <div className="flex flex-col gap-2">
+                  <Label>What a model sees on its turn, sent right after the system prompt.</Label>
+                  <Code>{EXAMPLE_USER_PROMPT}</Code>
+                </div>
+                <div className="flex flex-col gap-2 mt-2 lg:mt-0">
+                  <p className="font-bold">The reply</p>
+                  <Label>An action, an amount and a short reason.</Label>
+                  <Code>{EXAMPLE_REPLY}</Code>
+                </div>
               </>
             ) : (
               <>

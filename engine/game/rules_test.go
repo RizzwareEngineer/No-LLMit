@@ -220,6 +220,12 @@ func TestShortCallBecomesAllInAndRunsOut(t *testing.T) {
 		t.Fatal("round should be complete")
 	}
 	before := gs.Players[0].Stack + gs.Players[1].Stack + gs.Players[2].Stack + gs.SimplifiedPotCalculation()
+	for _, board := range []int{3, 4, 5} { // one street per call, so the table can show each
+		gs.AdvanceStreet()
+		if gs.IsHandComplete() || gs.IsWaitingForAction() || !gs.NeedToAdvanceStreet() || len(gs.CommunityCards) != board {
+			t.Fatalf("run-out street %d: complete=%v, player %d to act, board %d", board, gs.IsHandComplete(), gs.CurrentPlayerIdx, len(gs.CommunityCards))
+		}
+	}
 	gs.AdvanceStreet()
 	after := gs.Players[0].Stack + gs.Players[1].Stack + gs.Players[2].Stack
 	if !gs.IsHandComplete() || before != after || len(gs.CommunityCards) != 5 {
@@ -330,7 +336,9 @@ func TestLoneStackWithNothingToCallIsNotAsked(t *testing.T) {
 		if gs.IsWaitingForAction() || !gs.NeedToAdvanceStreet() {
 			t.Fatalf("the big blind has nothing to call and nobody to bet into, yet player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
 		}
-		gs.AdvanceStreet()
+		for gs.NeedToAdvanceStreet() { // the board runs out a street at a time
+			gs.AdvanceStreet()
+		}
 		// D can win 19: his 7, 7 of the big blind and the small blind's 5. The big blind's other 3 were never called.
 		c, d := gs.Players[2].Stack, gs.Players[3].Stack
 		if !gs.IsHandComplete() || d > 19 || c+d != 1012 || total(gs) != 3007 {
@@ -351,7 +359,9 @@ func TestLoneStackWithNothingToCallIsNotAsked(t *testing.T) {
 		if gs.IsWaitingForAction() || !gs.NeedToAdvanceStreet() {
 			t.Fatalf("A is the only player with chips and owes nothing, yet player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
 		}
-		gs.AdvanceStreet()
+		for gs.NeedToAdvanceStreet() { // the board runs out a street at a time
+			gs.AdvanceStreet()
+		}
 		// C put in 30 and can win 90; the side pot is A's whatever the cards.
 		a, c := gs.Players[0].Stack, gs.Players[2].Stack
 		if !gs.IsHandComplete() || c > 90 || a < 1040 || total(gs) != 2030 {
@@ -370,7 +380,9 @@ func TestLoneStackWithNothingToCallIsNotAsked(t *testing.T) {
 		if gs.IsWaitingForAction() || !gs.NeedToAdvanceStreet() {
 			t.Fatalf("the small blind has more in than the all-in big blind, yet player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
 		}
-		gs.AdvanceStreet()
+		for gs.NeedToAdvanceStreet() { // the board runs out a street at a time
+			gs.AdvanceStreet()
+		}
 		// C can win 6: its 3 and 3 of the small blind's 5.
 		if b, c := gs.Players[1].Stack, gs.Players[2].Stack; !gs.IsHandComplete() || c > 6 || b+c != 1003 || total(gs) != 3003 {
 			t.Errorf("complete=%v, C has %d (at most 6), small blind %d (1003 between them), %d chips in all (3003)", gs.IsHandComplete(), c, b, total(gs))
@@ -399,7 +411,9 @@ func TestLoneStackWithNothingToCallIsNotAsked(t *testing.T) {
 		if gs.IsWaitingForAction() || !gs.NeedToAdvanceStreet() {
 			t.Fatalf("nothing can be decided, yet player %d is offered %+v", gs.CurrentPlayerIdx, gs.GetValidActions())
 		}
-		gs.AdvanceStreet()
+		for gs.NeedToAdvanceStreet() { // the board runs out a street at a time
+			gs.AdvanceStreet()
+		}
 		if short := gs.Players[1].Stack; !gs.IsHandComplete() || short > 6 || total(gs) != 1003 {
 			t.Errorf("complete=%v, the short stack has %d (at most 6), %d chips in all (1003)", gs.IsHandComplete(), short, total(gs))
 		}

@@ -3925,6 +3925,29 @@ group(() => check('about-prompt-holds', 'With a prompt dialog open on About (hom
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
+// Owner, 2026-11-14, on "Read the user prompt": "ideally we don't have to scroll down to see the reply, right? Or the callout
+// message in the reply." The reply's code block (its callout) shows whole in the dialog as it opens, with no scroll.
+group(() => check('about-prompt-reply-shows', 'On /about at 1440x900, 1512x982 and 1728x1117, "Read the user prompt" opens a dialog that shows the user prompt and the reply\'s code block whole without a scroll: with its text scrolled to the top, both blocks\' bottoms are inside the dialog\'s visible area and the window', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117]]) {
+    const p = await dialPage(w, h, '/about'), at = `${w}x${h}`;
+    const clicked = await p.evaluate(() => { const b = [...document.querySelectorAll('[data-about] button')].find(b => b.textContent.trim().startsWith('Read the user prompt') && b.getBoundingClientRect().width > 0); b?.click(); return !!b; });
+    await sleep(600);
+    const r = clicked && await p.evaluate(() => {
+      const d = document.querySelector('dialog[open]'), body = d?.querySelector('.overflow-y-auto');
+      if (!body) return null;
+      body.scrollTop = 0;
+      const pres = [...body.querySelectorAll('pre')], v = body.getBoundingClientRect();
+      return { n: pres.length, bottoms: pres.map(e => Math.round(e.getBoundingClientRect().bottom)), view: Math.round(Math.min(v.bottom, d.getBoundingClientRect().bottom, innerHeight)), scrolls: body.scrollHeight > body.clientHeight + 1 };
+    });
+    if (!r) { bad.push(`${at}: the user prompt dialog did not open`); await p.close(); continue; }
+    seen.push(`${at}: prompt and reply end at ${r.bottoms.join(' and ')}, view ends at ${r.view}${r.scrolls ? ', scrolls' : ''}`);
+    if (r.n !== 2) bad.push(`${at}: ${r.n} code blocks in the dialog, not the prompt and the reply`);
+    else if (r.bottoms.some(b => b > r.view + 1)) bad.push(`${at}: prompt ends at ${r.bottoms[0]}, reply at ${r.bottoms[1]}, past the dialog's visible area (${r.view})`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
 group(() => check('about-dial-touch-motion', 'At 390x844 with touch, one vertical swipe on About\'s dial turns it exactly one row (swipe up: the next) and the page stays; past How it works the page scrolls instead. Under reduced motion a turn shows the new row in focus at once, with no transition', async () => {
   const bad = [], seen = [];
   const p = await dialPage(390, 844, '/about', { touch: true });
@@ -4019,7 +4042,7 @@ group(() => check('watching-counts-me', 'A fresh table page\'s status label, whe
 // Owner, 2026-11-12: "the donation part is not like... apparent". The ask sits on the table screen, in the API usage card
 // beside the calls it pays for: a filled "Sponsor on GitHub" link, its sentence on one line, and Profits & Losses above
 // still shows every seat.
-group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117 and 390x844, the API usage card says "Every move is a paid model call." on one line and, below it inside the card, has a filled "Sponsor on GitHub" link to GitHub Sponsors (new tab), the card\'s only filled control, inside the window; Profits & Losses shows every seat\'s row unclipped and unscrolled', async () => {
+group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117 and 390x844, the API usage card has, at its bottom below everything else in it and inside it, a filled "Sponsor on GitHub" link to GitHub Sponsors (new tab), the card\'s only filled control, inside the window; Profits & Losses shows every seat\'s row unclipped and unscrolled', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) {
     const p = await newPage(); await p.setViewport({ width: w, height: h });
@@ -4030,29 +4053,29 @@ group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117
       const a = [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].find(e => e.getBoundingClientRect().width > 0);
       if (!a) return null;
       const card = a.closest('.rounded'), cb = card.getBoundingClientRect(), ab = a.getBoundingClientRect();
-      const line = [...card.querySelectorAll('p')].find(e => e.textContent.trim() === 'Every move is a paid model call.');
-      const lines = line ? (() => { const rg = document.createRange(); rg.selectNodeContents(line); return new Set([...rg.getClientRects()].map(q => Math.round(q.top))).size; })() : 0;
-      const clipped = line ? line.scrollWidth > line.clientWidth + 1 || line.getBoundingClientRect().right > cb.right + 1 : true;
-      // Owner, 2026-11-13: the link sits below the sentence, still inside the card (on a line of its own, whole).
-      const lb = line?.getBoundingClientRect();
-      const below = !!lb && ab.top >= lb.bottom - 1 && ab.left >= lb.left - 1 && ab.bottom <= cb.bottom - 1 && ab.right <= cb.right - 1 && a.scrollWidth <= a.clientWidth + 1;
+      // Owner, 2026-11-14: the paid-call sentence is gone; the link sits at the card's bottom, below every other line in
+      // it, still inside the card (on a line of its own, whole).
+      const others = [...card.querySelectorAll('span, p, div')].filter(e => !a.contains(e) && !e.contains(a) && e.children.length === 0 && e.textContent.trim());
+      const lowest = Math.max(...others.map(e => e.getBoundingClientRect().bottom));
+      const below = ab.top >= lowest - 1 && ab.bottom <= cb.bottom - 1 && ab.right <= cb.right - 1 && a.scrollWidth <= a.clientWidth + 1;
+      const sentence = /paid model call/.test(card.textContent);
       const filled = [...card.querySelectorAll('a, button')].filter(e => { const c = getComputedStyle(e).backgroundColor; return c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent'; });
       const pnl = [...document.querySelectorAll('#table h2')].find(e => /Profits/.test(e.textContent))?.closest('.rounded');
       const list = pnl?.querySelector('ol'), scroller = list?.parentElement, pb = scroller?.getBoundingClientRect();
       const rows = list ? [...list.children] : [];
       const cut = rows.filter(li => { const q = li.getBoundingClientRect(); return q.top < pb.top - 1 || q.bottom > pb.bottom + 1; }).length;
       return {
-        text: a.textContent.trim(), bg: getComputedStyle(a).backgroundColor, target: a.target, lines, clipped, below, filled: filled.length,
+        text: a.textContent.trim(), bg: getComputedStyle(a).backgroundColor, target: a.target, sentence, below, filled: filled.length,
         inWindow: ab.top >= 0 && ab.bottom <= innerHeight + 1 && ab.left >= 0 && ab.right <= innerWidth, rows: rows.length, cut,
         scrolls: scroller ? scroller.scrollHeight > scroller.clientHeight + 1 : true, cardH: Math.round(cb.height),
       };
     });
     const at = `${w}x${h}`;
     if (!r) { bad.push(`${at}: no GitHub Sponsors link on the table screen`); await p.close(); continue; }
-    seen.push(`${at}: "${r.text}" ${r.bg}, sentence ${r.lines} line${r.lines === 1 ? '' : 's'}, card ${r.cardH}px, P&L ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
+    seen.push(`${at}: "${r.text}" ${r.bg}, card ${r.cardH}px, P&L ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
     if (r.text !== 'Sponsor on GitHub' || r.bg !== 'rgb(31, 111, 196)' || r.target !== '_blank') bad.push(`${at}: the link is "${r.text}" on ${r.bg}, target ${r.target || 'self'}`);
-    if (r.lines !== 1 || r.clipped) bad.push(`${at}: "Every move is a paid model call." on ${r.lines} lines${r.clipped ? ', clipped' : ''}`);
-    if (!r.below) bad.push(`${at}: the Sponsor link is not below "Every move is a paid model call." inside the card`);
+    if (r.sentence) bad.push(`${at}: the card still says it is a paid model call`);
+    if (!r.below) bad.push(`${at}: the Sponsor link is not at the card's bottom, below its other lines, inside it`);
     if (r.filled !== 1) bad.push(`${at}: ${r.filled} filled controls in the card`);
     if (w > 390 && !r.inWindow) bad.push(`${at}: the Sponsor link is outside the window`);
     if (r.rows < 2 || r.cut || r.scrolls) bad.push(`${at}: Profits & Losses ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
