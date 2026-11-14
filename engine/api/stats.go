@@ -1,7 +1,7 @@
 // Serves GET /api/stats and GET /api/stats/timeline, all time. Hands are loaded from Supabase, or from HAND_LOG_DIR/hands.jsonl when Supabase is not
 // configured, once on start; each hand this engine saves is added as it lands, and every 5
-// minutes only hands newer than the newest one held are fetched from Supabase (another
-// writer's: an overlapping deploy), never the whole table again. The JSON and its gzip are
+// minutes only hands saved since the last load are fetched from Supabase (another writer's:
+// an overlapping deploy), never the whole table again. The JSON and its gzip are
 // precomputed, so a request only copies bytes.
 // The all-time stats also go out on the stream (stream.go): the full body to each joiner,
 // and the rows that changed after each recompute that added a hand.
@@ -19,7 +19,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -36,8 +35,9 @@ const (
 
 type statsCache struct {
 	load      func() ([]history.HandRecord, error)
-	loadSince func(since time.Time) ([]history.HandRecord, error) // nil: nothing to poll (the hand file has one writer)
+	loadSince func(since time.Time) ([]history.HandRecord, error) // hands saved since then; nil: nothing to poll (the hand file has one writer)
 	pollEvery time.Duration                                       // 0: statsPollEvery
+	loadedAt  time.Time                                           // when the last good load or poll began; only run touches it
 	dirty     chan struct{}
 	retryWait time.Duration
 
@@ -55,7 +55,7 @@ type statsCache struct {
 	seated []string // the table's lineup; set before run starts, never changed after
 }
 
-// payload is a response body, and its gzip for clients that accept it.
+// payload is a response body (the stream's stats frame), and its gzip (what the endpoints send).
 type payload struct{ json, gz []byte }
 
 func newPayload(v any) payload {
@@ -84,7 +84,7 @@ func newStatsCache() *statsCache {
 }
 
 // run loads every hand once, then adds the hands this engine saves and, every pollEvery,
-// the hands newer than the newest one held, recomputing whenever one was added. Nothing is
+// the hands saved since the last load, recomputing whenever one was added. Nothing is
 // served until the first load succeeds; it is retried every retryWait. While all-ins are
 // still being worked out it keeps going, a batch at a time, serving partial stats in between.
 func (c *statsCache) run() {
@@ -97,19 +97,24 @@ func (c *statsCache) run() {
 	loaded, try, poll := false, true, false // try: the first load, or its retry once retryWait passes
 	for {
 		if !loaded && try {
+			at := time.Now()
 			if hands, err := c.load(); err != nil {
 				log.Printf("!!! Stats: loading hands failed: %v", err)
 			} else {
 				c.replace(hands)
-				loaded = true
+				loaded, c.loadedAt = true, at
 			}
 		} else if loaded && poll && c.loadSince != nil {
-			if hands, err := c.loadSince(c.newest()); err != nil {
+			// By save time, not start time: another writer's hand can start before ours and land after.
+			// The minute covers clock skew with the database; add skips the hands it already has.
+			at := time.Now()
+			if hands, err := c.loadSince(c.loadedAt.Add(-time.Minute)); err != nil {
 				log.Printf("!!! Stats: loading new hands failed: %v", err)
 			} else {
 				for _, h := range hands {
-					c.add(h) // the newest one held comes back too: add skips hands it has
+					c.add(h)
 				}
+				c.loadedAt = at
 			}
 		}
 		var again <-chan time.Time
@@ -127,16 +132,6 @@ func (c *statsCache) run() {
 			try, poll = !loaded, false
 		}
 	}
-}
-
-// newest is when the latest hand held started (zero when none is).
-func (c *statsCache) newest() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(c.hands) == 0 {
-		return time.Time{}
-	}
-	return c.hands[len(c.hands)-1].StartedAt
 }
 
 // Add records a hand that was just saved and schedules a recompute.
@@ -280,25 +275,21 @@ func (c *statsCache) serve(w http.ResponseWriter, r *http.Request, timeline bool
 		http.Error(w, "stats are still loading", http.StatusServiceUnavailable)
 		return
 	}
+	// Always gzip, about a fifth of the bytes: every browser takes it, and a client that skips
+	// Accept-Encoding to get the raw body would cost five times the egress.
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Vary", "Accept-Encoding")
-	// shortcut: any "gzip" in Accept-Encoding counts, even gzip;q=0, which no browser sends.
-	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-		w.Header().Set("Content-Encoding", "gzip")
-		w.Write(body.gz)
-		return
-	}
-	w.Write(body.json)
+	w.Header().Set("Content-Encoding", "gzip")
+	w.Write(body.gz)
 }
 
-// loadSupabaseHands reads the saved hands that started at or after since (every hand when
+// loadSupabaseHands reads the hands saved at or after since (every hand when
 // since is zero) in the order played, asking for 1000 rows at a time with a Range header.
 // It moves on by the rows actually returned and stops at an empty page, so a server row
 // cap below 1000 cannot cut the history short.
 func loadSupabaseHands(base, key string, since time.Time) ([]history.HandRecord, error) {
 	query := "/rest/v1/hands?select=doc&order=started_at,hand_id"
 	if !since.IsZero() {
-		query += "&started_at=gte." + url.QueryEscape(since.UTC().Format(time.RFC3339Nano))
+		query += "&created_at=gte." + url.QueryEscape(since.UTC().Format(time.RFC3339Nano))
 	}
 	client := &http.Client{Timeout: 60 * time.Second}
 	const page = 1000

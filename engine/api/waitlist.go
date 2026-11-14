@@ -8,13 +8,17 @@ package api
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"mime"
 	"net/http"
 	"net/mail"
 	"net/netip"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +30,8 @@ const (
 	waitlistCountTimeout = 5 * time.Second  // the longest a count, and so anything waiting on it, takes
 	waitlistPerAddress   = 5                // sign-up attempts one client address gets per hour
 )
+
+var waitlistBodyWait = 5 * time.Second // the longest a sign-up's body may take to arrive; a var for tests
 
 type waitlistStore interface {
 	add(email string) (added bool, err error) // added is false when the address was already listed
@@ -40,27 +46,43 @@ func newWaitlist() waitlistStore {
 }
 
 // waitlistHandler answers GET with {"count": N}; POST with 201 {"count": N} for a valid
-// address, the same whether it was new or already listed, so the reply never tells whether
-// someone signed up; 400 for an invalid one (bodies over 1 KB included) and 429 past the
-// sign-up limits; 503 when the store fails; 405 otherwise. A sign-up that was stored is
+// address, new or already listed (the count goes up only for a new one, so comparing it
+// with a GET can tell whether an address was listed); 400 for an invalid one (bodies over 1 KB included) and 429 past the
+// sign-up limits; 415 for a body that is not application/json and 403 for a browser on
+// another site (SITE_URL, default https://nollmit.vercel.app, and local dev servers may
+// post); 503 when the store fails; 405 otherwise. A sign-up that was stored is
 // never reported as failed: when only the count after it fails, the answer is the 201
 // without "count".
 func waitlistHandler(store waitlistStore) http.HandlerFunc {
 	limit := newWaitlistLimiter()
+	site := strings.TrimSuffix(cmp.Or(os.Getenv("SITE_URL"), "https://nollmit.vercel.app"), "/")
 	return func(w http.ResponseWriter, r *http.Request) {
 		status, out := http.StatusOK, map[string]any{}
 		switch r.Method {
 		case http.MethodGet:
 		case http.MethodPost:
+			// Only JSON, so another site's page cannot post without a preflight, and only from the
+			// site itself or a local dev server, so it cannot make its visitors' browsers sign up.
+			if ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct != "application/json" {
+				writeJSON(w, http.StatusUnsupportedMediaType, map[string]any{"error": "send application/json"})
+				return
+			}
+			if o := r.Header.Get("Origin"); o != "" && o != site && !isLocalOrigin(o) {
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+				return
+			}
+			// The body is read before a row is reserved, under a deadline, so a slow sender holds no row.
+			var in struct {
+				Email string `json:"email"`
+			}
+			http.NewResponseController(w).SetReadDeadline(time.Now().Add(waitlistBodyWait)) // left set: the server reads any unread rest of the body under it too
+			decoded := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&in) == nil
 			if !limit.allow(clientAddr(r), time.Now()) {
 				writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many requests"})
 				return
 			}
-			var in struct {
-				Email string `json:"email"`
-			}
 			email, ok := "", false
-			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&in) == nil {
+			if decoded {
 				email, ok = cleanEmail(in.Email)
 			}
 			if !ok {
@@ -97,6 +119,12 @@ func waitlistHandler(store waitlistStore) http.HandlerFunc {
 		}
 		writeJSON(w, status, out)
 	}
+}
+
+// isLocalOrigin reports whether o is a page served from this machine (a dev server).
+func isLocalOrigin(o string) bool {
+	u, err := url.Parse(o)
+	return err == nil && u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1")
 }
 
 // waitlistLimiter bounds what one sender, and all senders together, can add.
@@ -165,7 +193,8 @@ func (l *waitlistLimiter) release() {
 
 // clientAddr is the sender as Railway's edge reports it (X-Real-IP, which the edge sets on
 // every request), or "" without that header. IPv6 senders are grouped by /64, the block one
-// subscriber controls.
+// subscriber controls. Behind a CDN every viewer would share the CDN's address: then read
+// that CDN's client-IP header here instead.
 func clientAddr(r *http.Request) string {
 	s := strings.TrimSpace(r.Header.Get("X-Real-IP"))
 	if ip, err := netip.ParseAddr(s); err == nil && ip.Is6() && !ip.Is4In6() {

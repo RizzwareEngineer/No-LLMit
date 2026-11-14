@@ -175,8 +175,18 @@ func (c *statsCache) get(url string) (int, stats.Stats) {
 	w := httptest.NewRecorder()
 	c.handle(w, httptest.NewRequest("GET", url, nil))
 	var s stats.Stats
-	json.Unmarshal(w.Body.Bytes(), &s)
+	json.Unmarshal(gunzip(w), &s)
 	return w.Code, s
+}
+
+// gunzip is a stats answer's body; 503s are plain text.
+func gunzip(w *httptest.ResponseRecorder) []byte {
+	zr, err := gzip.NewReader(w.Body)
+	if err != nil {
+		return nil
+	}
+	b, _ := io.ReadAll(zr)
+	return b
 }
 
 func waitFor(t *testing.T, what string, ok func() bool) {
@@ -268,7 +278,7 @@ func (c *statsCache) getTimeline(url string) (int, stats.Timeline) {
 	w := httptest.NewRecorder()
 	c.handleTimeline(w, httptest.NewRequest("GET", url, nil))
 	var tl stats.Timeline
-	json.Unmarshal(w.Body.Bytes(), &tl)
+	json.Unmarshal(gunzip(w), &tl)
 	return w.Code, tl
 }
 
@@ -314,21 +324,24 @@ func TestStatsTimelineByScopeAndGzip(t *testing.T) {
 			}
 		}
 	}
-	// With Accept-Encoding: gzip both endpoints send the same JSON compressed.
+	// Both endpoints send the JSON gzipped whatever Accept-Encoding says, so a client that
+	// leaves it out cannot pull the raw body, five times the bytes.
 	for _, url := range []string{"/api/stats", "/api/stats/timeline"} {
-		plain, zipped := httptest.NewRecorder(), httptest.NewRecorder()
-		r := httptest.NewRequest("GET", url, nil)
-		c.serve(plain, r, strings.Contains(url, "timeline"))
-		r.Header.Set("Accept-Encoding", "gzip, deflate, br")
-		c.serve(zipped, r, strings.Contains(url, "timeline"))
-		zr, err := gzip.NewReader(zipped.Body)
-		if err != nil {
-			t.Fatalf("%s: %v", url, err)
-		}
-		body, _ := io.ReadAll(zr)
-		if zipped.Header().Get("Content-Encoding") != "gzip" || plain.Header().Get("Content-Encoding") != "" ||
-			string(body) != plain.Body.String() || zipped.Body.Len() >= plain.Body.Len() {
-			t.Errorf("%s: gzip %d bytes, plain %d, same body %v", url, zipped.Body.Len(), plain.Body.Len(), string(body) == plain.Body.String())
+		for _, accept := range []string{"", "identity", "gzip, deflate, br"} {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest("GET", url, nil)
+			if accept != "" {
+				r.Header.Set("Accept-Encoding", accept)
+			}
+			timeline := strings.Contains(url, "timeline")
+			c.serve(w, r, timeline)
+			want := c.all
+			if timeline {
+				want = c.timeline
+			}
+			if w.Header().Get("Content-Encoding") != "gzip" || string(gunzip(w)) != string(want.json) || w.Body.Len() >= len(want.json) {
+				t.Errorf("%s with %q: Content-Encoding %q, %d bytes for %d of JSON", url, accept, w.Header().Get("Content-Encoding"), w.Body.Len(), len(want.json))
+			}
 		}
 	}
 }
@@ -357,7 +370,9 @@ func TestLoadSupabaseHandsWithSmallRowCap(t *testing.T) {
 	}
 }
 
-// After the first load, only hands newer than the newest one held are fetched, and they are added.
+// After the first load, only hands saved since the last load are fetched, and they are added.
+// The poll asks by save time: another writer's hand can start before this engine's newest
+// hand yet land after the load, and asking by start time would never fetch it.
 func TestStatsPollsOnlyNewHands(t *testing.T) {
 	hands := statsHands(t)
 	var mu sync.Mutex
@@ -366,17 +381,23 @@ func TestStatsPollsOnlyNewHands(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		loads++
-		return hands[:3:3], nil
+		return hands[:2:2], nil
 	})
 	c.loadSince = func(s time.Time) ([]history.HandRecord, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		since = append(since, s)
-		return []history.HandRecord{hands[2], hands[3]}, nil // the newest held comes back too
+		if len(since) == 1 {
+			return nil, nil
+		}
+		return []history.HandRecord{hands[2], hands[3]}, nil // the other writer's late hand, and ours again
 	}
 	c.pollEvery = 20 * time.Millisecond
 	c.seated = []string{"A", "B"}
+	start := time.Now()
 	go c.run()
+	waitFor(t, "2 hands", func() bool { _, s := c.get("/api/stats"); return s.Scope.Hands == 2 })
+	c.Add(hands[3]) // this engine's own hand, started after hands[2]
 	waitFor(t, "4 hands", func() bool { _, s := c.get("/api/stats"); return s.Scope.Hands == 4 })
 	time.Sleep(60 * time.Millisecond) // more polls: nothing new, nothing added twice
 	mu.Lock()
@@ -384,8 +405,13 @@ func TestStatsPollsOnlyNewHands(t *testing.T) {
 	if _, s := c.get("/api/stats"); s.Scope.Hands != 4 || loads != 1 {
 		t.Errorf("%d hands after %d full loads, want 4 after 1", s.Scope.Hands, loads)
 	}
-	if len(since) < 2 || !since[0].Equal(hands[2].StartedAt) || !since[len(since)-1].Equal(hands[3].StartedAt) {
-		t.Errorf("polled since %v, want %v first and %v once it was held", since, hands[2].StartedAt, hands[3].StartedAt)
+	if len(since) < 2 || since[0].Before(start.Add(-time.Minute)) || since[0].After(time.Now().Add(-time.Minute)) {
+		t.Fatalf("polled since %v, want a minute before the load at %v", since, start)
+	}
+	for i := 1; i < len(since); i++ {
+		if since[i].Before(since[i-1]) {
+			t.Errorf("polled since %v, want each poll to start where the last one did", since)
+		}
 	}
 }
 
@@ -400,7 +426,7 @@ func TestSupabaseHandsSince(t *testing.T) {
 	if _, err := loadSupabaseHands(srv.URL, "k", since); err != nil {
 		t.Fatal(err)
 	}
-	if len(queries) != 1 || !strings.Contains(queries[0], "started_at=gte.2026-11-10T01%3A56%3A46.280093Z") {
+	if len(queries) != 1 || !strings.Contains(queries[0], "created_at=gte.2026-11-10T01%3A56%3A46.280093Z") {
 		t.Errorf("queries %v", queries)
 	}
 }

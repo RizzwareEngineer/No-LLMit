@@ -144,11 +144,7 @@ export class GameStream {
 
   // Start over after giving up: a fresh round of reconnect attempts.
   retry() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-    this.reconnectAttempts = 0;
+    this.disconnect();
     this.onStatus?.('reconnecting');
     this.connect().catch(() => {}); // an error schedules the next attempt
   }

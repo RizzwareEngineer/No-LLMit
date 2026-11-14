@@ -5,6 +5,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
+# Not root: the service writes no files.
+USER nobody
 
 # Railway provides PORT env var, default to 5001 locally
 ENV PORT=5001

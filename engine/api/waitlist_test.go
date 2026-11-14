@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +16,9 @@ import (
 func waitlistCall(t *testing.T, h http.Handler, method, body string) (int, map[string]any) {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(method, "/api/waitlist", strings.NewReader(body)))
+	req := httptest.NewRequest(method, "/api/waitlist", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rec, req)
 	var out map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("%s: body is not JSON: %q", method, rec.Body.String())
@@ -240,6 +244,7 @@ func TestWaitlistCountsOnceUnderABurst(t *testing.T) {
 
 func waitlistFrom(h http.Handler, addr, email string) int {
 	req := httptest.NewRequest("POST", "/api/waitlist", strings.NewReader(`{"email": "`+email+`"}`))
+	req.Header.Set("Content-Type", "application/json")
 	if addr != "" {
 		req.Header.Set("X-Real-IP", addr)
 	}
@@ -333,6 +338,84 @@ func TestWaitlistDailyLimitHoldsUnderABurst(t *testing.T) {
 	wg.Wait()
 	if n, _ := list.count(); n != 50 {
 		t.Errorf("400 sign-ups at once stored %d rows, want exactly the day's 50", n)
+	}
+}
+
+// A sender that sends its body slowly holds no row of the day's while it does, and is cut off.
+// Another site's page cannot sign its visitors up: a simple form or text/plain post (no
+// preflight) is refused, and so is JSON from a foreign Origin, before any row is reserved.
+func TestWaitlistRefusesOtherSites(t *testing.T) {
+	t.Setenv("WAITLIST_DAILY_MAX", "1")
+	t.Setenv("SITE_URL", "https://site.example/")
+	list := &memoryWaitlist{emails: map[string]bool{}}
+	h := waitlistHandler(list)
+	post := func(ct, origin, email string) int {
+		req := httptest.NewRequest("POST", "/api/waitlist", strings.NewReader(`{"email": "`+email+`"}`))
+		if ct != "" {
+			req.Header.Set("Content-Type", ct)
+		}
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for _, c := range []struct {
+		ct, origin string
+		want       int
+	}{
+		{"text/plain", "https://evil.example", 415},
+		{"", "", 415},
+		{"application/x-www-form-urlencoded", "", 415},
+		{"application/json", "https://evil.example", 403},
+		{"application/json", "https://site.example.evil.example", 403},
+	} {
+		if code := post(c.ct, c.origin, "junk@example.com"); code != c.want {
+			t.Errorf("%q from %q: %d, want %d", c.ct, c.origin, code, c.want)
+		}
+	}
+	if n, _ := list.count(); n != 0 {
+		t.Errorf("%d junk rows stored", n)
+	}
+	for i, origin := range []string{"https://site.example", "http://localhost:3000", "http://127.0.0.1:3230", ""} {
+		if code := post("application/json; charset=utf-8", origin, fmt.Sprintf("ok%d@example.com", i)); code != 201 && !(i > 0 && code == 429) {
+			t.Errorf("from %q: %d", origin, code)
+		}
+	}
+	if n, _ := list.count(); n != 1 {
+		t.Errorf("the site's sign-up was not stored first: %d rows", n)
+	}
+}
+
+func TestWaitlistSlowBodyHoldsNoRow(t *testing.T) {
+	t.Setenv("WAITLIST_DAILY_MAX", "1")
+	defer func(d time.Duration) { waitlistBodyWait = d }(waitlistBodyWait)
+	waitlistBodyWait = 300 * time.Millisecond
+	srv := httptest.NewServer(waitlistHandler(&memoryWaitlist{emails: map[string]bool{}}))
+	defer srv.Close()
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	fmt.Fprint(conn, "POST / HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 40\r\n\r\n{\"email\": \"sl")
+	time.Sleep(50 * time.Millisecond)
+	resp, err := http.Post(srv.URL, "application/json", strings.NewReader(`{"email": "real@example.com"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 201 {
+		t.Errorf("a sign-up while a slow body arrives: %d, want 201", resp.StatusCode)
+	}
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	slow, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("the slow sender got no answer before its deadline: %v", err)
+	}
+	if slow.StatusCode == 201 {
+		t.Error("the slow sender was signed up")
 	}
 }
 

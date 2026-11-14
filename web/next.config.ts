@@ -8,6 +8,17 @@ if (process.env.VERCEL_ENV === 'production' && !process.env.NEXT_PUBLIC_API_URL)
 const nextConfig: NextConfig = {
   // scripts/verify.sh builds into its own folder, so a build never touches the dev server's .next.
   distDir: process.env.NEXT_DIST_DIR || '.next',
+  // No other site may frame the pages (to overlay the waitlist or sponsor button). A full CSP waits: the inline scripts need hashes.
+  async headers() {
+    return [{
+      source: '/:path*',
+      headers: [
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'X-Frame-Options', value: 'DENY' },
+        { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      ],
+    }];
+  },
   // The stats pages became sections and a drawer on the home page.
   async redirects() {
     return [

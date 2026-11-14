@@ -21,7 +21,7 @@ import (
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
-// Display pacing. Mirrors what the frontend used to do on its own clock.
+// Display pacing: every viewer sees each step at the moment the table publishes it.
 const (
 	buttonCardDelay   = 2 * time.Second
 	buttonWinnerDelay = 5 * time.Second
@@ -234,9 +234,6 @@ func (t *Table) publish(msgs ...ServerMessage) {
 	t.hub.publish(t.id, snap, nil, msgs...)
 }
 
-// stateMessage is a game_state; publish fills in its payload.
-func (t *Table) stateMessage() ServerMessage { return ServerMessage{Type: MsgGameState} }
-
 // nextHandMs is the whole milliseconds until at, 0 once it has passed or when at is zero.
 func nextHandMs(at time.Time) int { return max(int(time.Until(at).Milliseconds()), 0) }
 
@@ -291,7 +288,7 @@ func (t *Table) startGame() {
 	})
 	cards := t.gs.DetermineButton()
 	log.Printf("Shared table created: %s", t.gs.ID)
-	t.publish(t.stateMessage())
+	t.publish(ServerMessage{Type: MsgGameState})
 	t.mu.Unlock()
 
 	for _, bc := range cards {
@@ -370,7 +367,7 @@ func (t *Table) dealHand() (handStart, error) {
 		t.setNotice(TableNoticePayload{}) // the probe hand plays live; if it fails too, the notice is set again
 	}
 	log.Printf("Started hand #%d", t.gs.HandNumber)
-	t.publish(ServerMessage{Type: MsgHandStart, Payload: map[string]interface{}{"handNumber": t.gs.HandNumber}}, t.stateMessage())
+	t.publish(ServerMessage{Type: MsgHandStart, Payload: map[string]interface{}{"handNumber": t.gs.HandNumber}}, ServerMessage{Type: MsgGameState})
 	return start, nil
 }
 
@@ -410,7 +407,7 @@ func (t *Table) playHand() {
 			Message:   "The models can't be reached, so that hand doesn't count.",
 			ReopensAt: t.nextHandAt.UTC().Format(time.RFC3339),
 		}
-		t.publish(ServerMessage{Type: MsgTableNotice, Payload: t.notice}, t.stateMessage())
+		t.publish(ServerMessage{Type: MsgTableNotice, Payload: t.notice}, ServerMessage{Type: MsgGameState})
 		t.mu.Unlock()
 		time.Sleep(wait) // t.rebought is kept: the restored stacks still hold those rebuys
 		return
@@ -507,7 +504,7 @@ func (t *Table) saveHand() (voided bool) {
 func (t *Table) settleStreets() {
 	for i := 0; i < 5 && !t.gs.IsHandComplete() && !t.gs.IsWaitingForAction() && t.gs.NeedToAdvanceStreet(); i++ {
 		t.advanceStreet()
-		t.publish(t.stateMessage())
+		t.publish(ServerMessage{Type: MsgGameState})
 	}
 }
 
@@ -587,7 +584,7 @@ func (t *Table) playTurn() {
 		t.advanceStreet()
 	}
 	t.turnApplied = true // the action stays the turn, shown as revealed, until the next llm_thinking or hand_start
-	t.publish(t.stateMessage())
+	t.publish(ServerMessage{Type: MsgGameState})
 	t.mu.Unlock()
 
 	t.sleep(postActionDelay)

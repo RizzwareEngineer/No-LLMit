@@ -117,7 +117,7 @@ func TestSnapshotCarriesClearedNoticeAndTurnAsNull(t *testing.T) {
 
 	tbl.setNotice(TableNoticePayload{})
 	tbl.turn = nil // as after hand_start (TestSnapshotKeepsTheAppliedActionUntilTheNextHand)
-	tbl.publish(tbl.stateMessage())
+	tbl.publish(ServerMessage{Type: MsgGameState})
 	b, _ = tbl.hub.since(0, true).snapshotFrame()
 	s := string(b)
 	for _, want := range []string{`"notice":null`, `"turn":null`, `"buttonCards":[]`, `"buttonWinner":null`} {
@@ -441,7 +441,7 @@ func TestGameStateAndSnapshotShareTheNextHandCountdown(t *testing.T) {
 	tbl := testTable(t)
 	tbl.gs.Street = game.StreetComplete
 	tbl.nextHandAt = time.Now().Add(10 * time.Second)
-	tbl.publish(tbl.stateMessage())
+	tbl.publish(ServerMessage{Type: MsgGameState})
 	frames := tbl.hub.since(0, false).frames
 	var live GameStatePayload
 	json.Unmarshal(parseFrames(t, frames[len(frames)-1])[0].Payload, &live)
@@ -457,7 +457,7 @@ func TestGameStateAndSnapshotShareTheNextHandCountdown(t *testing.T) {
 	}
 
 	tbl.nextHandAt = time.Now().Add(-time.Second) // passed: no countdown
-	tbl.publish(tbl.stateMessage())
+	tbl.publish(ServerMessage{Type: MsgGameState})
 	frames = tbl.hub.since(0, false).frames
 	if f := string(frames[len(frames)-1]); strings.Contains(f, "nextHandInMs") {
 		t.Errorf("a passed next hand still counts down: %s", f)

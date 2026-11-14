@@ -90,6 +90,7 @@ Environment variables the engine and the web read. Set them in Railway and Verce
 | `TABLE_TIMEZONE` | unset: open all day | America/New_York | Zone for the two hours above. Without it the hours are ignored. |
 | `TABLE_PACE` | 1 | not in the repo | Multiplier on every pacing sleep; 0.3 plays faster. |
 | `WAITLIST_DAILY_MAX` | 5000 | not in the repo | New waitlist rows per UTC day. |
+| `SITE_URL` | `https://nollmit.vercel.app` | not in the repo | The site's origin (engine). Browsers may post to the waitlist only from it or from `http://localhost`. |
 | `LLM_SERVICE_URL` | `http://localhost:5001` | not in the repo | Where the engine posts `/decide`. |
 | `NEXT_PUBLIC_SITE_URL` | `https://nollmit.vercel.app` | not in the repo | Base URL for page metadata (web). |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | not in the repo; the engine's Railway address, `https://` and no trailing slash | The engine's address (web). The stream and every API call go there. Unset, the site talks to localhost; a production build on Vercel fails without it. |
