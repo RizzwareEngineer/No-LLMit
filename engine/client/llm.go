@@ -34,7 +34,7 @@ type DecisionRequest struct {
 	PlayerName   string                `json:"player_name"` // roster name of the seat's model; never shown to it
 	SmallBlind   int                   `json:"small_blind"`
 	BigBlind     int                   `json:"big_blind"`
-	Seats        []Seat                `json:"seats"`   // clockwise from the small blind
+	Seats        []Seat                `json:"seats"`   // clockwise after the button, button last (heads-up: BB, then BTN)
 	Streets      []Street              `json:"streets"` // preflop first, up to the current street
 	Seat         int                   `json:"seat"`    // the acting player
 	Position     string                `json:"position"`
@@ -74,8 +74,8 @@ type LLMDecisionResponse struct {
 	LatencyMs int    `json:"latency_ms"`
 
 	// Status is ok; unparseable or illegal (the model's own miss, twice); timeout or
-	// api_error (the provider failed). Anything but ok means Action is the service's
-	// fallback (CHECK when legal, else FOLD), not the model's choice.
+	// api_error (the provider failed). Anything but ok means Action is at most the model's
+	// last parsed reply; the engine plays its own fallback (CHECK when legal, else FOLD).
 	Status      string `json:"status"`
 	Retried     bool   `json:"retried"`
 	Error       string `json:"error"`

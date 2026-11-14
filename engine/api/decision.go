@@ -1,5 +1,5 @@
 // Turns the current hand into the data the LLM service renders its prompt from: seats
-// clockwise from the small blind with current stacks, every action by street, the board,
+// clockwise from the one after the button, button last, with current stacks, every action by street, the board,
 // the acting player's cards and legal moves. Nothing from previous hands and no model
 // names. Used by table.go's playTurn.
 package api
@@ -26,7 +26,8 @@ func buildDecisionRequest(gs *game.GameState, validActions []game.LLMValidAction
 		Stack:      you.Stack,
 	}
 
-	// Seats dealt into this hand, small blind first and button last.
+	// Seats dealt into this hand, clockwise from the one after the button, button last: the
+	// small blind first, or heads-up the big blind (the button posts the small blind).
 	n := len(gs.Players)
 	for i := 1; i <= n; i++ {
 		s := (gs.ButtonIdx + i) % n

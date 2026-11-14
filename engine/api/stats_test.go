@@ -26,7 +26,7 @@ type replies = []client.LLMDecisionResponse
 func statsHands(t *testing.T) []history.HandRecord {
 	var hands []history.HandRecord
 	play := func(holes [][]string, board []string, script replies) {
-		h, _ := playDealt(t, holes, board, script)
+		h, _ := playTable(t, abc, nil, holes, board, script)
 		h.HandID = fmt.Sprintf("tbl_stats-%06d", len(hands)+1) // each test game restarts at hand 1
 		hands = append(hands, h)
 	}

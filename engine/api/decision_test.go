@@ -109,7 +109,7 @@ func TestCoveredStackIsOfferedAnAllInCall(t *testing.T) {
 		t.Errorf("legal types: %v", types)
 	}
 	// The engine plays that CALL as an all-in.
-	if err := gs.CheckAction(game.Action{Type: game.ActionCall, PlayerIdx: sb}); err != nil {
+	if _, err := gs.CheckAction(game.Action{Type: game.ActionCall, PlayerIdx: sb}); err != nil {
 		t.Errorf("CALL should be legal: %v", err)
 	}
 }

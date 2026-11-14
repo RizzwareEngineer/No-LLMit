@@ -202,6 +202,19 @@ func TestStatsEventCarriesChangedRows(t *testing.T) {
 	if strings.Contains(string(firstRaw), `"changed"`) || len(first.Models) == 0 {
 		t.Errorf("first event is not the full body: %.200s", firstRaw)
 	}
+	var keys map[string]json.RawMessage
+	json.Unmarshal(parseFrames(t, frames[1])[0].Payload, &keys)
+	for _, k := range []string{"generated_at", "scope", "partial", "model_names", "changed"} {
+		if _, ok := keys[k]; !ok {
+			t.Errorf("change event lacks %q", k)
+		}
+	}
+	if _, ok := keys["sessions"]; ok {
+		t.Error("change event carries sessions")
+	}
+	if _, ok := keys["models"]; ok {
+		t.Error("change event carries models")
+	}
 	played := map[string]bool{}
 	for _, a := range hands[4].Actions {
 		played[a.Player] = true
@@ -345,6 +358,42 @@ func TestOpeningBetIsShownAsBet(t *testing.T) {
 	}
 	if p := snap.State.Players[seat]; p.LastAction != "BET" {
 		t.Errorf("seat's lastAction %q, want BET", p.LastAction)
+	}
+}
+
+// The llm_action, the seat and the saved hand show the move the engine applied, never the
+// model's own number: chips added on a call, 0 on a fallback fold, the street total all-in.
+func TestShownMoveIsTheAppliedMove(t *testing.T) {
+	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
+	for _, c := range []struct {
+		reply        client.LLMDecisionResponse
+		action, seat string
+		amount       int
+	}{
+		{reply("CALL", 999), "CALL", "CALL", 30},
+		{client.LLMDecisionResponse{Action: "RAISE", Amount: 80, Status: "timeout"}, "FOLD", "FOLD", 0},
+		{reply("ALL_IN", 0), "ALL_IN", "ALL-IN", 1000},
+	} {
+		askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := c.reply; return &r, nil }
+		tbl := testTable(t)
+		tbl.pace = 1e-6
+		// The button opens to 35: the small blind, 5 in, faces a call of 30.
+		if err := tbl.gs.ProcessAction(game.Action{Type: game.ActionRaise, Amount: 35, PlayerIdx: tbl.gs.CurrentPlayerIdx}); err != nil {
+			t.Fatal(err)
+		}
+		tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+		seat := tbl.gs.CurrentPlayerIdx
+		tbl.playTurn()
+		snap := tbl.hub.since(0, true).tables[tbl.id]
+		if p := snap.Turn.Payload.(LLMActionPayload); p.Action != c.action || p.Amount != c.amount {
+			t.Errorf("%s: llm_action %s %d, want %s %d", c.reply.Action, p.Action, p.Amount, c.action, c.amount)
+		}
+		if p := snap.State.Players[seat]; p.LastAction != c.seat || p.LastAmount != c.amount {
+			t.Errorf("%s: seat %s %d, want %s %d", c.reply.Action, p.LastAction, p.LastAmount, c.seat, c.amount)
+		}
+		if a := tbl.recorder.record.Actions[0].Applied; a.Type != c.action || a.Amount != c.amount {
+			t.Errorf("%s: saved applied %+v", c.reply.Action, a)
+		}
 	}
 }
 

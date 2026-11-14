@@ -11,21 +11,12 @@ import (
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
-// playRecorded drives a three-handed hand through the recorder the same way the table
-// does, with each step's reply scripted.
-func playRecorded(t *testing.T, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
-	t.Helper()
-	return playDealt(t, nil, nil, script)
-}
+// abc is the three seats most recorder tests play.
+var abc = []string{"A", "B", "C"}
 
-// playDealt is playRecorded with the hole cards (A, B, C) and the five board cards fixed;
-// nil keeps the shuffled ones.
-func playDealt(t *testing.T, holes [][]string, board []string, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
-	t.Helper()
-	return playTable(t, []string{"A", "B", "C"}, nil, holes, board, script)
-}
-
-// playTable is playDealt with the given players and starting stacks (nil: 2000 each).
+// playTable drives one hand through the recorder the same way the table does, with each
+// step's reply scripted, the given players and starting stacks (nil: 2000 each), and the
+// hole cards and five board cards fixed (nil keeps the shuffled ones).
 func playTable(t *testing.T, names []string, stacks []int, holes [][]string, board []string, script []client.LLMDecisionResponse) (history.HandRecord, []HandPrompt) {
 	t.Helper()
 	gs := game.NewGame(game.GameConfig{
@@ -73,7 +64,7 @@ func playTable(t *testing.T, names []string, stacks []int, holes [][]string, boa
 		if err := gs.ProcessAction(turn.action); err != nil {
 			t.Fatalf("decideLLMTurn chose an action the engine rejects: %v", err)
 		}
-		rec.endDecision(gs, turn)
+		rec.endDecision(turn)
 
 		if gs.NeedToAdvanceStreet() {
 			if gs.CountActivePlayers() > 1 && gs.CountActiveNonAllInPlayers() <= 1 && board != nil {
@@ -118,7 +109,7 @@ func netSum(r history.HandRecord) int {
 
 func TestHandRecordThroughShowdown(t *testing.T) {
 	// Button A opens, both blinds call, C bets the flop and A calls, then it checks down.
-	record, prompts := playRecorded(t, []client.LLMDecisionResponse{
+	record, prompts := playTable(t, abc, nil, nil, nil, []client.LLMDecisionResponse{
 		reply("RAISE", 30), reply("CALL", 0), reply("CALL", 0),
 		reply("CHECK", 0), reply("RAISE", 40), reply("CALL", 0), reply("FOLD", 0),
 		reply("CHECK", 0), reply("CHECK", 0),
@@ -199,7 +190,7 @@ func missed(status, action string, amount int) client.LLMDecisionResponse {
 func TestHandRecordUncontestedAndFallbacks(t *testing.T) {
 	// A twice sends a raise below the minimum; B twice sends a reply with no action.
 	// Neither can check, so both fall back to a fold.
-	record, prompts := playRecorded(t, []client.LLMDecisionResponse{missed("illegal", "RAISE", 12), missed("unparseable", "FOLD", 0)})
+	record, prompts := playTable(t, abc, nil, nil, nil, []client.LLMDecisionResponse{missed("illegal", "RAISE", 12), missed("unparseable", "FOLD", 0)})
 
 	if a := record.Actions[0]; a.Status != "illegal" || !a.Retried || a.Applied.Type != "FOLD" || a.Parsed.Action != "RAISE" {
 		t.Errorf("illegal raise: %+v", a)
@@ -230,7 +221,7 @@ func TestParseActionType(t *testing.T) {
 }
 
 func TestAllInReplyIsApplied(t *testing.T) {
-	record, _ := playRecorded(t, []client.LLMDecisionResponse{reply("ALL_IN", 0), reply("FOLD", 0), reply("FOLD", 0)})
+	record, _ := playTable(t, abc, nil, nil, nil, []client.LLMDecisionResponse{reply("ALL_IN", 0), reply("FOLD", 0), reply("FOLD", 0)})
 	if a := record.Actions[0]; a.Applied.Type != "ALL_IN" || a.Applied.Amount != 2000 || a.Status != "ok" || a.Retried {
 		t.Errorf("model chose ALL_IN: %+v", a)
 	}
@@ -242,7 +233,7 @@ func TestIllegalRaiseFallsBackToCheckWhenFree(t *testing.T) {
 	for i := 0; i < 9; i++ {
 		script = append(script, reply("CHECK", 0))
 	}
-	record, _ := playRecorded(t, script)
+	record, _ := playTable(t, abc, nil, nil, nil, script)
 	if a := record.Actions[2]; a.Applied.Type != "CHECK" || a.Status != "illegal" || !a.Retried {
 		t.Errorf("big blind could check for free: %+v", a)
 	}

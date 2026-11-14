@@ -13,7 +13,7 @@ SETS = {
     "nothing to call": turn_check_request(),  # fold, check, bet 10–1,930, bet all-in 1,930
     "covered": short_stack_request(),  # fold, call all-in 60
     "no raise": with_(turn_request(), legal_actions=[{"type": "FOLD"}, {"type": "CALL", "amount": 100}]),
-    "only the all-in raise": short_raise_request(),  # fold, call 100, raise all-in 150
+    "only the all-in raise": short_raise_request(),  # fold, call 100, all-in 150
 }
 ALL_IN = {"facing a bet": 1130, "nothing to call": 1930, "covered": 65, "only the all-in raise": 150}
 LEGAL = {"facing a bet": "FCRA", "nothing to call": "FXRA", "covered": "FCA", "no raise": "FC", "only the all-in raise": "FCA"}

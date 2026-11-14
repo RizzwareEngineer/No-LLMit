@@ -370,43 +370,36 @@ func (gs *GameState) RecordActionForLLMs(playerName, action string, amount int) 
 	})
 }
 
+// middlePositions names the seats between the big blind and the button, by how many there
+// are; the seat before the button is always the cutoff.
+var middlePositions = [][]string{
+	1: {"CO"},
+	2: {"UTG", "CO"},
+	3: {"UTG", "MP", "CO"},
+	4: {"UTG", "MP", "HJ", "CO"},
+	5: {"UTG", "UTG+1", "MP", "HJ", "CO"},
+	6: {"UTG", "UTG+1", "MP", "MP+1", "HJ", "CO"},
+}
+
 // PositionName names a seat's position this hand (BTN, SB, BB, UTG, ...): the one name the
 // models are told, the stream shows and saved hands keep.
 func (gs *GameState) PositionName(playerIdx int) string {
 	numPlayers := len(gs.Players)
 	distFromButton := (playerIdx - gs.ButtonIdx + numPlayers) % numPlayers
 
-	switch distFromButton {
-	case 0:
+	switch {
+	case distFromButton == 0:
 		return "BTN"
-	case 1:
-		if numPlayers == 2 {
-			return "BB" // heads-up the button posts the small blind (blindSeats)
-		}
+	case numPlayers == 2:
+		return "BB" // heads-up the button posts the small blind (blindSeats)
+	case distFromButton == 1:
 		return "SB"
-	case 2:
+	case distFromButton == 2:
 		return "BB"
-	case 3:
-		return "UTG"
-	case 4:
-		if numPlayers <= 6 {
-			return "MP"
-		}
-		return "UTG+1"
-	case 5:
-		if numPlayers <= 6 {
-			return "CO"
-		}
-		return "MP"
-	case 6:
-		return "MP+1"
-	case 7:
-		return "HJ"
-	case 8:
-		return "CO"
-	default:
-		return "MP"
+	case numPlayers-3 >= len(middlePositions):
+		return "MP" // more than 9 seats: no table seats that many
 	}
+	return middlePositions[numPlayers-3][distFromButton-3]
 }
 
 func (gs *GameState) GetLLMCommunityCards() []string {

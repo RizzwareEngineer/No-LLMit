@@ -269,7 +269,7 @@ def test_no_reply_makes_the_parser_slow():
 def test_retry_messages_say_what_was_wrong():
     missed(COVERED, "ACTION: check", "there is 60 to call, so check is not legal")  # not the 195 it cannot call
     missed(OPEN, "ACTION: call", "there is nothing to call")
-    missed(short_raise_request(), "ACTION: raise\nAMOUNT: 200", "the only raise here is all-in 150")
+    missed(short_raise_request(), "ACTION: raise\nAMOUNT: 200", "the only bet or raise here is all-in 150")
     missed(FACING, "ACTION: raise\nAMOUNT: 150", "raise to 150 is below the minimum 200")
 
 

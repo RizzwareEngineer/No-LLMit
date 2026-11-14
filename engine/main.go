@@ -18,17 +18,7 @@ func main() {
 		}
 	}
 
-	log.Println("=================================")
-	log.Println("           No-LLMit")
-	log.Println("=================================")
-	log.Printf("Starting server on port %d...", port)
-	log.Println("")
-	log.Println("Stream endpoint: http://localhost:" + strconv.Itoa(port) + "/stream")
-	log.Println("Health check: http://localhost:" + strconv.Itoa(port) + "/health")
-	log.Println("")
-
-	server := api.NewServer()
-	if err := server.Start(port); err != nil {
+	if err := (&api.Server{}).Start(port); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }

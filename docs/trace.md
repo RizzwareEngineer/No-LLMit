@@ -170,14 +170,14 @@ These steps repeat for every turn, with or without viewers.
 
 **22. Check the move against the rules.**
 - **Where / trigger:** engine, table loop goroutine. The HTTP call of step 19 returns.
-- **Code:** `engine/api/table.go` → `decideLLMTurn`; `engine/api/table.go` → `checkLLMDecision`; `engine/api/table.go` → `fallbackAction`; `engine/game/action.go` → `CheckAction`.
-- **Does:** A transport error or a non-200 answer becomes a decision with status `service_error`. Otherwise the action name and the amount are checked against the game state. If the status is not `ok` or that check fails, the move to play is the fallback: `CHECK` when legal, else `FOLD`.
+- **Code:** `engine/api/table.go` → `decideLLMTurn`; `engine/api/table.go` → `checkLLMDecision`; `engine/api/table.go` → `fallbackAction`; `engine/api/record.go` → `appliedAction`; `engine/game/action.go` → `CheckAction`.
+- **Does:** A transport error or a non-200 answer becomes a decision with status `service_error`. Otherwise the action name and the amount are checked against the game state. If the status is not `ok` or that check fails, the move to play is the fallback: `CHECK` when legal, else `FOLD`. `appliedAction` (in `engine/api/record.go`) then runs the move on a copy of the game (`CheckAction` returns the move it would apply) and names it: the action, as `BET`, `RAISE`, `ALL_IN` and so on, with the chips added on a `CALL`, the street total on a `BET`, `RAISE` or `ALL_IN`, and 0 on `FOLD` and `CHECK`. The `llm_action` of step 23 and the saved hand's `applied` of step 24 both read that one value.
 - **Next:** Step 23.
 
 **23. Publish `llm_action`.**
 - **Where / trigger:** engine, table loop goroutine. Step 22 returns.
 - **Code:** `engine/api/table.go` → `playTurn`.
-- **Does:** Sleeps until `thinkingDuration` (5 s) has passed since `llm_thinking` went out. Stores the `llm_action` message `{turn, playerIdx, playerName, action, amount, reason}` as `t.turn` and publishes it; a fallback shows the fallback action with amount 0, and a raise is named by `game.RaiseName` (`BET` when nobody has bet on the street, else `RAISE`), the rule that also names it in `legal_actions`, the seat's `lastAction` and the saved hand's `applied`. Then it sleeps while viewers read: 25 ms per byte of `reason` (Go's `len` of the UTF-8 string, so a non-ASCII character counts two to four times) plus 200 ms, held between `minReasoning` (5 s) and `maxReasoning` (10 s), and only then multiplied by `TABLE_PACE`.
+- **Does:** Sleeps until `thinkingDuration` (5 s) has passed since `llm_thinking` went out. Stores the `llm_action` message `{turn, playerIdx, playerName, action, amount, reason}` as `t.turn` and publishes it; `action` and `amount` are the applied move of step 22, not the model's reply, so a fallback shows the fallback action with amount 0, and a raise is named by `game.RaiseName` (`BET` when nobody has bet on the street, else `RAISE`), the rule that also names it in `legal_actions`, the seat's `lastAction` and the saved hand's `applied`. Then it sleeps while viewers read: 25 ms per byte of `reason` (Go's `len` of the UTF-8 string, so a non-ASCII character counts two to four times) plus 200 ms, held between `minReasoning` (5 s) and `maxReasoning` (10 s), and only then multiplied by `TABLE_PACE`.
 - **Next:** Step 24.
 
 **24. Apply the action and publish `game_state`.**
@@ -295,7 +295,7 @@ Every frame takes this path: the snapshot first, then the full stats, then live 
 **39. Decide whether the hand is saved.**
 - **Where / trigger:** engine, table loop goroutine, no lock held. The turn loop ended with the hand complete.
 - **Code:** `engine/api/table.go` → `saveHand`; `engine/api/record.go` → `finish`; `engine/client/llm.go` → `GetSystemPrompt`.
-- **Does:** Finishes the `HandRecord` with the board, the pots, each seat's net chips and the showdown cards. Three kinds of hand are not saved: an outage (step 42), a hand with no decision, and a mock-provider hand when the saver is Supabase. `prompt_version` is the first 7 hex digits of a SHA-256 over the source of `llm/prompts.py` and `llm/parsing.py`; the llm service returns it in every `/decide` reply (step 21) and the hand's record keeps it. If it differs from the version the table last fetched, the table fetches the system prompt with `GET {LLM_SERVICE_URL}/prompt`. If that fails, the hand is still saved, with an empty system prompt; `save_hand` fills the text in later, when a hand with the same `prompt_version` arrives with it.
+- **Does:** Finishes the `HandRecord` with the board, the pots, each seat's net chips and the showdown cards. Three kinds of hand are not saved: an outage (step 42), a hand with no decision, and a mock-provider hand when the saver is Supabase. `prompt_version` is the first 7 hex digits of a SHA-256 over the source of `llm/prompts.py`, `llm/parsing.py`, `llm/decide.py` and `llm/providers/openrouter.py`; the llm service returns it in every `/decide` reply (step 21) and the hand's record keeps it. If it differs from the version the table last fetched, the table fetches the system prompt with `GET {LLM_SERVICE_URL}/prompt`. If that fails, the hand is still saved, with an empty system prompt; `save_hand` fills the text in later, when a hand with the same `prompt_version` arrives with it.
 - **Next:** Step 40.
 
 **40. Save, retrying until it works.**

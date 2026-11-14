@@ -22,10 +22,6 @@ type Server struct {
 	usageLLM json.RawMessage // nil when the last fetch failed
 }
 
-func NewServer() *Server {
-	return &Server{}
-}
-
 func (s *Server) Start(port int) error {
 	h := newHub()
 	stats := newStatsCache()

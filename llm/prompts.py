@@ -9,7 +9,7 @@ them equal to what this file produces.
 import hashlib
 from pathlib import Path
 
-from schemas import DecisionRequest, StreetAction
+from schemas import DecisionRequest
 
 system_prompt = """You are an expert No-Limit Texas Hold'em player in a 9-handed cash game.
 
@@ -44,24 +44,15 @@ def _player(seat: int, position: str) -> str:
     return f"Player {seat + 1} ({position})"
 
 
-def _street_bet(actions: list[StreetAction]) -> int:
-    """The largest bet on the street so far: blinds, bets, raises and all-ins count, calls do not."""
-    return max((a.amount for a in actions if a.action in ("post", "raise", "all_in")), default=0)
-
-
-def bet_word(r: DecisionRequest) -> str:
-    """"bet" when nothing has been bet on the current street, else "raise" (the blinds count,
-    so the big blind's preflop option raises, as the action line says)."""
-    return "bet" if _street_bet(r.streets[-1].actions) == 0 else "raise"
-
-
 def render_legal_actions(r: DecisionRequest) -> str:
     """One line in a fixed order: fold, check, call N, bet N–M or raise to N–M, then the
-    all-in. "call N" is chips added; bet, raise and all-in amounts are street totals. When
-    the bet covers the stack, the call and the all-in are the same move: "call all-in N",
-    N being the whole stack."""
+    all-in. "call N" is chips added; bet, raise and all-in amounts are street totals. Bet or
+    raise is the engine's name for the sized move; with none listed the all-in is just
+    "all-in N". When the bet covers the stack, the call and the all-in are the same move:
+    "call all-in N", N being the whole stack."""
     legal = {a.type.replace("-", "_"): a for a in r.legal_actions}
-    word, covered = bet_word(r), r.to_call >= r.stack
+    sizing, covered = legal.get("BET") or legal.get("RAISE"), r.to_call >= r.stack
+    word = sizing.type.lower() if sizing else ""
     parts = []
     if "FOLD" in legal:
         parts.append("fold")
@@ -69,10 +60,10 @@ def render_legal_actions(r: DecisionRequest) -> str:
         parts.append("check")
     if "CALL" in legal and not covered:
         parts.append(f"call {_n(legal['CALL'].amount)}")
-    if sizing := legal.get("BET") or legal.get("RAISE"):
+    if sizing:
         parts.append(f"{word}{' to' if word == 'raise' else ''} {_n(sizing.min)}–{_n(sizing.max)}")
     if "ALL_IN" in legal:
-        parts.append(f"call all-in {_n(r.stack)}" if covered else f"{word} all-in {_n(legal['ALL_IN'].amount)}")
+        parts.append(f"call all-in {_n(r.stack)}" if covered else f"{word} all-in {_n(legal['ALL_IN'].amount)}".lstrip())
     return ", ".join(parts)
 
 

@@ -88,8 +88,23 @@ func (r *handRecorder) beginDecision(gs *game.GameState, legal []game.LLMValidAc
 	r.prompts = append(r.prompts, HandPrompt{PromptID: r.pending.PromptID, N: n})
 }
 
+// appliedAction is the move the engine makes of a legal action, as the stream's llm_action and
+// the saved hand name it: chips added on a CALL, the street total on a BET, RAISE or ALL_IN,
+// 0 on FOLD and CHECK.
+func appliedAction(gs *game.GameState, action game.Action) history.AppliedAction {
+	applied, err := gs.CheckAction(action)
+	if err != nil {
+		return history.AppliedAction{Type: "FOLD"} // the caller checked it; ProcessAction folds too
+	}
+	name := applied.Name()
+	if applied.Type == game.ActionAllIn {
+		name = "ALL_IN"
+	}
+	return history.AppliedAction{Type: name, Amount: applied.Amount}
+}
+
 // endDecision records the reply and what the engine applied for it.
-func (r *handRecorder) endDecision(gs *game.GameState, turn llmTurn) {
+func (r *handRecorder) endDecision(turn llmTurn) {
 	decision := turn.decision
 	a := r.pending
 	if a == nil {
@@ -111,21 +126,7 @@ func (r *handRecorder) endDecision(gs *game.GameState, turn llmTurn) {
 		a.Status = "ok"
 	}
 	a.PromptVersion, a.Model, a.UpstreamProvider, a.ReasoningTokens = decision.PromptVersion, decision.Model, decision.UpstreamProvider, decision.ReasoningTokens
-
-	if last := gs.Players[a.Seat].LastAction; last != nil {
-		switch last.Type {
-		case game.ActionFold:
-			a.Applied = history.AppliedAction{Type: "FOLD"}
-		case game.ActionCheck:
-			a.Applied = history.AppliedAction{Type: "CHECK"}
-		case game.ActionCall:
-			a.Applied = history.AppliedAction{Type: "CALL", Amount: last.Amount}
-		case game.ActionAllIn:
-			a.Applied = history.AppliedAction{Type: "ALL_IN", Amount: last.Amount}
-		case game.ActionRaise:
-			a.Applied = history.AppliedAction{Type: last.Name(), Amount: last.Amount}
-		}
-	}
+	a.Applied = turn.applied
 
 	p := &r.prompts[len(r.prompts)-1]
 	p.Prompt, p.RawReply, p.RetryPrompt = decision.Prompt, decision.Raw, decision.RetryPrompt

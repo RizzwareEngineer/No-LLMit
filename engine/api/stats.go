@@ -252,20 +252,17 @@ func (c *statsCache) recompute() (more bool) {
 // statsChange is the stream's stats event: the all-time envelope without the session list,
 // every model name in order, and the rows that differ from the ones last published.
 type statsChange struct {
-	GeneratedAt time.Time         `json:"generated_at"`
-	Scope       stats.Scope       `json:"scope"`
-	Seated      []string          `json:"seated,omitempty"`
-	Partial     bool              `json:"partial"`
-	ModelNames  []string          `json:"model_names"`
-	Changed     []json.RawMessage `json:"changed"`
+	stats.Stats
+	// These two shadow the envelope's sessions and models; left nil, omitempty drops them.
+	Sessions   []stats.Session   `json:"sessions,omitempty"`
+	Models     []stats.Model     `json:"models,omitempty"`
+	ModelNames []string          `json:"model_names"`
+	Changed    []json.RawMessage `json:"changed"`
 }
 
 // changedRows builds the stats event for s and remembers its rows as published. Only run calls it.
 func (c *statsCache) changedRows(s stats.Stats) statsChange {
-	ev := statsChange{
-		GeneratedAt: s.GeneratedAt, Scope: s.Scope, Seated: s.Seated, Partial: s.Partial,
-		ModelNames: []string{}, Changed: []json.RawMessage{},
-	}
+	ev := statsChange{Stats: s, ModelNames: []string{}, Changed: []json.RawMessage{}}
 	rows := make(map[string][]byte, len(s.Models))
 	for _, m := range s.Models {
 		b, err := json.Marshal(m)

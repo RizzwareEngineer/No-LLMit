@@ -247,7 +247,7 @@ func TestRaiseNeedsAnOpponentWhoCanRespond(t *testing.T) {
 			}
 			for _, typ := range []ActionType{ActionRaise, ActionAllIn} {
 				a := Action{Type: typ, Amount: gs.CurrentBet + gs.MinRaise, PlayerIdx: gs.CurrentPlayerIdx}
-				if !slices.Contains(c.want, typ) && gs.CheckAction(a) == nil {
+				if _, err := gs.CheckAction(a); !slices.Contains(c.want, typ) && err == nil {
 					t.Errorf("the engine accepts %v, which it does not offer", typ)
 				}
 			}
@@ -284,10 +284,10 @@ func TestCumulativeShortAllInsReopenRaising(t *testing.T) {
 	if raise == nil || raise.MinAmount != 290 || raise.MaxAmount != 1000 {
 		t.Fatalf("D should be offered a raise from 290 to 1000; got %+v", gs.GetValidActions())
 	}
-	if err := gs.CheckAction(Action{Type: ActionRaise, Amount: 289, PlayerIdx: 3}); err == nil {
+	if _, err := gs.CheckAction(Action{Type: ActionRaise, Amount: 289, PlayerIdx: 3}); err == nil {
 		t.Error("engine accepted a re-raise below the minimum")
 	}
-	if err := gs.CheckAction(Action{Type: ActionRaise, Amount: 400, PlayerIdx: 3}); err != nil {
+	if _, err := gs.CheckAction(Action{Type: ActionRaise, Amount: 400, PlayerIdx: 3}); err != nil {
 		t.Errorf("engine refused D's re-raise to 400: %v", err)
 	}
 }
@@ -437,17 +437,17 @@ func TestUncontestedWinnerAmountIsThePot(t *testing.T) {
 	}
 }
 
-// Position names by table size, from the button clockwise. Heads-up the button posts the
-// small blind, so the other seat is the big blind.
+// Position names by table size, from the button clockwise: the seat before the button is
+// always CO. Heads-up the button posts the small blind, so the other seat is the big blind.
 func TestPositionNames(t *testing.T) {
 	want := map[int][]string{
 		2: {"BTN", "BB"},
 		3: {"BTN", "SB", "BB"},
-		4: {"BTN", "SB", "BB", "UTG"},
-		5: {"BTN", "SB", "BB", "UTG", "MP"},
+		4: {"BTN", "SB", "BB", "CO"},
+		5: {"BTN", "SB", "BB", "UTG", "CO"},
 		6: {"BTN", "SB", "BB", "UTG", "MP", "CO"},
-		7: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1"},
-		8: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ"},
+		7: {"BTN", "SB", "BB", "UTG", "MP", "HJ", "CO"},
+		8: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "HJ", "CO"},
 		9: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ", "CO"},
 	}
 	for n, names := range want {

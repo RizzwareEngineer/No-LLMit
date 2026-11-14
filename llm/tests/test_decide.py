@@ -65,7 +65,7 @@ def test_problems_use_the_prompts_words():
     assert decide.check_legal({"status": "ok", "action": "RAISE", "amount": 5000}, r) == "bet 5,000 is above the maximum 1,930"
     assert decide.check_legal({"status": "ok", "action": "RAISE", "amount": 15}, preflop_request()) == "raise to 15 is below the minimum 20"
     assert decide.check_legal({"status": "ok", "action": "CALL", "amount": 0}, r) == "there is nothing to call"
-    assert decide.check_legal({"status": "ok", "action": "RAISE", "amount": 140}, short_raise_request()) == "the only raise here is all-in 150"
+    assert decide.check_legal({"status": "ok", "action": "RAISE", "amount": 140}, short_raise_request()) == "the only bet or raise here is all-in 150"
     assert decide.check_legal({"status": "ok", "action": "ALL_IN", "amount": 0}, with_(r, legal_actions=r.legal_actions[:3])) == "all-in is not legal here"
 
 
