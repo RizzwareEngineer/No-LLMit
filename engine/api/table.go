@@ -79,6 +79,10 @@ type Table struct {
 	closeHour int
 	hoursZone *time.Location
 
+	// time.Now and time.Sleep for the closed-hours and call-cap waits; a test swaps in a fake clock.
+	now   func() time.Time
+	pause func(time.Duration)
+
 	seated []string // the lineup, from lineup(); set before Run
 }
 
@@ -97,6 +101,8 @@ func NewTable(h *hub, onSaved func(history.HandRecord)) *Table {
 		openHour:     envInt("TABLE_OPEN_HOUR", 0),
 		closeHour:    envInt("TABLE_CLOSE_HOUR", 24),
 		seated:       defaultPlayers,
+		now:          time.Now,
+		pause:        time.Sleep,
 	}
 	if zone := os.Getenv("TABLE_TIMEZONE"); zone != "" && t.closeHour > t.openHour {
 		loc, err := time.LoadLocation(zone)
@@ -114,7 +120,7 @@ func (t *Table) isOpen() bool {
 	if t.hoursZone == nil {
 		return true
 	}
-	h := time.Now().In(t.hoursZone).Hour()
+	h := t.now().In(t.hoursZone).Hour()
 	return h >= t.openHour && h < t.closeHour
 }
 
@@ -145,11 +151,11 @@ func (t *Table) waitForOpenHours() {
 			t.setNotice(TableNoticePayload{
 				Kind:      "closed",
 				Message:   "The table is closed.",
-				ReopensAt: t.nextOpen(time.Now()).Format(time.RFC3339),
+				ReopensAt: t.nextOpen(t.now()).Format(time.RFC3339),
 			})
 			t.mu.Unlock()
 		}
-		time.Sleep(10 * time.Second)
+		t.pause(10 * time.Second)
 	}
 	if closed {
 		log.Printf("Table open")
@@ -176,7 +182,7 @@ func (t *Table) Usage() TableUsage {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	calls := t.calls
-	if t.callsDay != time.Now().UTC().Format("2006-01-02") {
+	if t.callsDay != t.now().UTC().Format("2006-01-02") {
 		calls = 0
 	}
 	u := TableUsage{
@@ -249,7 +255,7 @@ func (t *Table) sleep(d time.Duration) {
 // waitForBudget blocks once the day's LLM call cap is reached, until the next UTC day.
 func (t *Table) waitForBudget() {
 	for {
-		today := time.Now().UTC().Format("2006-01-02")
+		today := t.now().UTC().Format("2006-01-02")
 		t.mu.Lock()
 		if t.callsDay != today {
 			t.callsDay = today
@@ -268,11 +274,11 @@ func (t *Table) waitForBudget() {
 			t.setNotice(TableNoticePayload{
 				Kind:      "cap",
 				Message:   "Daily LLM call limit reached.",
-				ReopensAt: time.Now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour).Format(time.RFC3339),
+				ReopensAt: t.now().UTC().Truncate(24 * time.Hour).Add(24 * time.Hour).Format(time.RFC3339),
 			})
 		}
 		t.mu.Unlock()
-		time.Sleep(10 * time.Second)
+		t.pause(10 * time.Second)
 	}
 }
 

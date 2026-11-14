@@ -14,7 +14,7 @@ and the PASS line names them, so a check that keeps showing up there is a real f
 makes becomes a new check here, so it cannot regress. Run one check with `--only id`, skip with
 `--skip id`. Checks that watch a whole Trends replay play it 4x faster (`--replay-speed`, test-only),
 with their timings in replay time. The main page's checks run in order while checks with pages of their
-own run beside them in separate windows (`--lanes 3`); the scroll-gesture checks wait for the main page.
+own run beside them in separate windows (`--lanes 3`; `--lanes 1` runs one page at a time); the scroll-gesture checks wait for the main page.
 Each result shows its seconds; the slowest five are listed.
 
 Only one UI phase (build, server, headless Chrome) runs at a time on the machine: verify.sh waits on

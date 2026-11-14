@@ -36,7 +36,7 @@ func testTable(t *testing.T) *Table {
 	if err := gs.StartHand(); err != nil {
 		t.Fatal(err)
 	}
-	return &Table{id: "tbl_test", hub: newHub(), gs: gs}
+	return &Table{id: "tbl_test", hub: newHub(), gs: gs, now: time.Now, pause: time.Sleep}
 }
 
 // noticeKinds lists the table_notice kinds in the hub's recent frames, in order.

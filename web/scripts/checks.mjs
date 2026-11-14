@@ -37,9 +37,9 @@ async function check(id, rule, fn) {
 // The main page's steps (main) run in order on one page. Checks that bring their own pages run in lanes, each group
 // in a browser context of its own: a window of its own, so input and frames work in every lane at once (a background
 // tab gets neither); newPage() opens a page in the running group's context. The rest (group) run beside the main page
-// in LANES - 1 lanes. Checks that time scroll gestures (late) misread a busy machine, so they wait for the main page,
-// then take LANES - 1 lanes (scroll-consistency opens a second window of its own). All are only queued while this
-// file runs top to bottom, and start at its end.
+// in LANES - 1 lanes (with --lanes 1, after it). Checks that time scroll gestures (late) misread a busy machine, so they wait
+// for the main page, then take LANES - 1 lanes (scroll-consistency opens a second window of its own). All are only
+// queued while this file runs top to bottom, and start at its end.
 const LANES = +arg('--lanes', 3);
 const lane = new AsyncLocalStorage(), groups = [], lates = [], steps = [];
 const group = fn => groups.push(fn), late = fn => lates.push(fn), main = fn => steps.push(fn);
@@ -135,25 +135,26 @@ const pageAt = async (w, h, id = 'stats', ctx = lane.getStore() ?? browser) => {
 };
 // One page per window size for the checks that only read it (each scrolls to its screen): a fresh page costs a load
 // and 5 s of settling. Checks that click, page, replay or navigate keep a fresh page of their own.
-// A parked page is frozen (no script, no frames), so it never takes CPU from the check that is running. Shared pages
-// live in a context of their own: a page left open in the main page's window would leave the main page a background
+// A parked page is a background tab behind a blank one (no frames, its timers throttled), so it takes little CPU from the
+// check that is running; the page asked for is brought to the front again, where it draws (a page frozen through CDP came
+// back hidden and drew nothing: its observers and scroll-driven state stood still at the screen it was left on). Shared
+// pages live in a context of their own: a page left open in the main page's window would leave the main page a background
 // tab, with no frames.
 const shared = () => ((lane.getStore() ?? browser).__shared ??= new Map());
-const life = (p, state) => p.__life.send('Page.setWebLifecycleState', { state });
 const sharedAt = async (w, h, id = 'stats') => {
   const p = shared().get(`${w}x${h}`), owner = lane.getStore() ?? browser;
   if (!p) {
-    const q = await pageAt(w, h, id, owner === browser ? (browser.__sharedCtx ??= await browser.createBrowserContext()) : owner);
-    q.__life = await q.createCDPSession(); shared().set(`${w}x${h}`, q); return q;
+    const ctx = owner === browser ? (browser.__sharedCtx ??= await browser.createBrowserContext()) : owner;
+    const q = await pageAt(w, h, id, ctx);
+    shared().__park ??= await ctx.newPage(); shared().set(`${w}x${h}`, q); await q.bringToFront(); return q;
   }
-  await life(p, 'active');
-  // A resumed page reconnects for a moment; measure once its connection bar is gone. Timer polling: a page
-  // in a background tab draws no frames, so frame polling would never run.
+  await p.bringToFront();
+  // A resumed page reconnects for a moment; measure once its connection bar is gone.
   await p.waitForFunction(() => getComputedStyle(document.querySelector('[data-page]')).getPropertyValue('--bar-h').trim() === '0px', { polling: 250, timeout: 15000 }).catch(() => {});
   await goto(p, id); await sleep(2000);
   return p;
 };
-const parkShared = () => Promise.all([...shared().values()].map(p => life(p, 'frozen').catch(() => {})));
+const parkShared = () => shared().__park?.bringToFront().catch(() => {});
 // The table's game stream, scripted (test-only). Before the page's scripts run, EventSource is wrapped: the engine's
 // messages reach the page until a check takes over, then only the messages the check plays, built from the engine's
 // last state (a game_state or a snapshot's) and sent to its table. So a check can put bets out, end a hand and deal the
@@ -386,6 +387,68 @@ group(() => check('table-no-turn-glow', 'The seat on the clock glows; once the h
     const later = await glowing();
     seen.push(`seat 3 acting: [${during}]`, `hand complete: [${after}]`, `3.5 s into the pause: [${later}]`);
     return { pass: during.length === 1 && during[0] === 3 && !after.length && !later.length, detail: seen.join('; ') };
+  } finally { await p.close(); }
+}));
+
+group(() => check('table-notice-says-why', 'Closed for the day or at the daily call cap, the felt says which, and when the table reopens in the viewer\'s time and how long that is, inside the window at 1440x900 and 390x844; no next-hand countdown; the card goes when the table runs again', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [390, 844]]) {
+    const p = await scriptedTable(w, h);
+    // The card on screen (the page keeps a felt per layout; the other one is not drawn).
+    const card = () => p.evaluate(() => {
+      const e = [...document.querySelectorAll('[data-felt-cards] [role=status]')].find(x => x.getBoundingClientRect().width > 0), b = e?.getBoundingClientRect();
+      return { text: e?.innerText.replace(/\s+/g, ' ').trim() ?? null, inside: !!b && b.left >= 0 && b.right <= innerWidth, countdown: /Next hand in/.test(document.body.innerText) };
+    });
+    try {
+      await p.evaluate(() => window.__stream.end(1500)); await sleep(2500);
+      for (const [kind, message, headline] of [['closed', 'The table is closed.', 'Table closed.'], ['cap', 'Daily LLM call limit reached.', 'Daily LLM call limit reached.']]) {
+        // Reopens 13h 30m (and a little) from now, as the engine's RFC3339 reopensAt.
+        const want = await p.evaluate((kind, message) => {
+          const at = new Date(Date.now() + (13 * 60 + 30) * 60000 + 20000);
+          window.__stream.feed({ type: 'table_notice', payload: { kind, message, reopensAt: at.toISOString() } });
+          return `Reopens at ${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(at)} your time (in 13h 30m).`;
+        }, kind, message);
+        await sleep(800);
+        const r = await card(), tag = `${w}x${h} ${kind}`;
+        seen.push(`${tag}: '${r.text}'`);
+        if (!r.text?.startsWith(headline) || !r.text.includes(want)) bad.push(`${tag}: '${r.text}', want '${headline}' and '${want}'`);
+        if (r.text && !r.inside) bad.push(`${tag}: the card runs past the window`);
+        if (r.countdown) bad.push(`${tag}: a next-hand countdown is shown`);
+      }
+      await p.evaluate(() => window.__stream.feed({ type: 'table_notice', payload: { kind: '', message: '' } })); await sleep(800);
+      const after = await card();
+      if (after.text !== null) bad.push(`${w}x${h} after the table runs again: '${after.text}' still shown`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+
+// A hand saved while Trends replays stretches the chart to the new hand count (an axis tween, overtakes not counted while
+// it runs). It cleared the splashes as a Skip does: every one in flight vanished in one frame, and the queued were dropped.
+group(() => check('history-splash-survives-hand', 'A hand saved while Trends replays leaves the overtake splashes in flight: none vanishes with its dots still out', async () => {
+  const p = await scriptedTable(1440, 900);
+  try {
+    const e = await engineStats(p);
+    if (!e) return { pass: false, detail: 'no engine stream seen' };
+    await goto(p, 'race'); await sleep(2000);
+    await clickText(p, 'Skip'); await sleep(1000);
+    await p.evaluate(() => {
+      window.__replaySpeed = 4; const log = window.__splash = { cut: 0, gone: 0, tween: false };
+      new MutationObserver(ms => { for (const m of ms) for (const n of m.removedNodes) if (n.dataset?.burst != null && log.armed) { log.gone++; if (n.childElementCount) log.cut++; } }).observe(document.body, { childList: true, subtree: true });
+      const plot = () => [...document.querySelectorAll('[data-plot]')].find(x => x.getBoundingClientRect().width > 0);
+      const f = () => { if (log.armed && plot()?.dataset.live == null) log.tween = true; requestAnimationFrame(f); }; requestAnimationFrame(f);
+    });
+    if (!await clickText(p, 'Replay')) return { pass: false, detail: 'no Replay button' };
+    await p.evaluate(() => { window.__replaySpeed = 1; });
+    // A splash on screen, then the next hand's stats (its count one up), as the engine sends them.
+    const flying = await p.waitForFunction(() => document.querySelector('[data-burst]'), { timeout: 20000 }).then(() => true, () => false);
+    if (!flying) return { pass: false, detail: 'no splash in 20 s of replay' };
+    const { models, sessions, ...envelope } = e.stats;
+    await p.evaluate(m => { window.__splash.armed = true; window.__stream.scripted = true; window.__stream.feed(m); },
+      { type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: envelope.scope.hands + 1 }, model_names: models.map(m => m.name), changed: [] } });
+    await sleep(1500);
+    const r = await p.evaluate(() => window.__splash);
+    return { pass: r.tween && !r.cut, detail: `${r.tween ? 'the axis retweened' : 'no axis tween seen (nothing tested)'}; ${r.gone} splashes ended, ${r.cut} of them with their dots still out` };
   } finally { await p.close(); }
 }));
 
@@ -2168,7 +2231,12 @@ const filmable = p => p.evaluate(() => {
       const name = card === '#pairwise-card' ? names[i] : tr.querySelector('th [translate=no]');
       // Its opacity (a row fading as a whole, or faded by picked rows): faint text on a tint still reads as ink, on white not.
       let o = 1; for (let x = tr; x && x !== el; x = x.parentElement) o *= +getComputedStyle(x).opacity;
-      return cells.length && name && shown(name) && { n: name.textContent.trim(), o, nx: R(name), cy: [Math.min(...cells.map(b => b[1])), Math.max(...cells.map(b => b[3]))], cx: [Math.min(...cells.map(b => b[0])), Math.max(...cells.map(b => b[2]))], tr: R(tr) };
+      if (!cells.length || !name || !shown(name)) return null;
+      const cy = [Math.min(...cells.map(b => b[1])), Math.max(...cells.map(b => b[3]))], cx = [Math.min(...cells.map(b => b[0])), Math.max(...cells.map(b => b[2]))];
+      // Painted where its numbers are: a row the room clips (a phone's tile at the window's foot as its glide starts) is not
+      // drawn, and the ink there is whatever shows instead (the About band's pill), not its numbers.
+      const hit = el.contains(document.elementFromPoint((cx[0] + cx[1]) / 2, (cy[0] + cy[1]) / 2));
+      return { n: name.textContent.trim(), o, hit, nx: R(name), cy, cx, tr: R(tr) };
     }).filter(Boolean);
     const tip = [...el.querySelectorAll('[role=tooltip]')].find(e => shown(e) && getComputedStyle(e).visibility === 'visible');
     return { y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), st: sc ? sc.scrollTop + sc.scrollLeft : 0, head: Math.max(0, ...[...el.querySelectorAll('thead th')].map(e => e.getBoundingClientRect().bottom)), title: R(el.querySelector('h2')) };
@@ -2341,7 +2409,7 @@ const judge = (fr, name, how, state) => {
     if (n > 1 && gap(seq[n - 1], f) <= 1 && Math.abs(f.s.st - seq[n - 1].s.st) >= 30 && seq[n - 1].s.st === seq[n - 2].s.st) jumps.push(`${seq[n - 1].s.st} → ${f.s.st}px (${at(n - 1)} → ${at(n)})`);
     const [l, t, r, b] = f.s.box;
     for (const row of f.s.rows) {
-      if (row.o < 0.99 || row.cy[0] < Math.max(t, 44, f.s.head - 1) || Math.max(row.cy[1], row.nx[3]) > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar or the card's pinned header (scrolled)
+      if (!row.hit || row.o < 0.99 || row.cy[0] < Math.max(t, 44, f.s.head - 1) || Math.max(row.cy[1], row.nx[3]) > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar or the card's pinned header (scrolled)
       if (share(f, [row.cx[0], row.cy[0], row.cx[1], row.cy[1]], INK) * (row.cx[1] - row.cx[0]) * (row.cy[1] - row.cy[0]) / 4 < 8) continue; // no numbers drawn
       if (share(f, [row.nx[0], row.cy[0], row.nx[2], row.cy[1]], INK) === 0 && !torn.has(row.n)) torn.set(row.n, at(n));
     }
@@ -4422,11 +4490,14 @@ group(() => check('reconnect-unseen', 'The routine stream reconnect is unseen: n
   return { pass: !bad.length, detail: bad.length ? `${bad.join('; ')} (${seen.join('; ')})` : seen.join('; ') };
 }));
 
-const beside = drain(groups, Math.max(1, LANES - 1));
+// --lanes 1 runs one page at a time (the main page's steps, then each group, then each late): a timing check on the main
+// page (a 4x replay's splashes, a refresh's fade) misreads frames while a group films in a window beside it.
+const beside = LANES > 1 ? drain(groups, LANES - 1) : null;
 for (const step of steps) await step().catch(e => console.error(e));
 await Promise.all([pg, ...shared().values()].map(p => p.close()));
 await browser.__sharedCtx?.close();
-await Promise.all([beside, drain(lates, Math.max(1, LANES - 1))]);
+if (beside) await Promise.all([beside, drain(lates, LANES - 1)]);
+else { await drain(groups, 1); await drain(lates, 1); }
 await browser.close();
 // A block that threw outside its check() lost its checks: they fail under their own ids, so verify.sh reruns them alone.
 for (const id of IDS) if (want(id) && !results.some(r => r.id === id)) results.push({ id, rule: 'ran', pass: false, detail: 'never ran: its block threw (error above)', ms: 0 });

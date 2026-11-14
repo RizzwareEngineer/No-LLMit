@@ -753,11 +753,13 @@ export default function CumulativeChart({
     // One sound per frame of overtakes (a chime if one took first place), when sound is on; never in a sped-up test replay.
     if (splash.size && sp === 1) playSound([...splash.values()].some(Boolean) ? 'lead' : 'overtake');
   }, [rk.swaps]);
-  // A splash never outlives its replay: Skip, the end, a restart or a filter change clears any in flight or queued.
+  // A splash never outlives its replay: Skip, the end, a restart or a filter change clears any in flight or queued. A hand
+  // saved mid-replay only retweens the axis (live is off for it): its splashes carry on.
+  const racing = race && playing && !reduce, names = [...lines.keys()].join();
   useEffect(() => {
     const f = fx.current;
-    if (!live) { f.queue = []; clearTimeout(f.timer); fxLayer.current?.replaceChildren(); }
-  }, [live]);
+    f.queue = []; clearTimeout(f.timer); fxLayer.current?.replaceChildren();
+  }, [racing, names]);
   useEffect(() => () => clearTimeout(fx.current.timer), []);
   // Two pills that swap places slide there over 300 ms (FLIP: they jump to their new slots, then
   // ease from where they were), rather than jumping a slot in one frame.
