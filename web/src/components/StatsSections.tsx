@@ -7,7 +7,7 @@ import About from '@/components/About';
 import { ArrowDown, Warning } from '@phosphor-icons/react';
 import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, Segmented, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
 import CumulativeChart, { H, W, valueAt } from '@/components/CumulativeChart';
-import StatsTable, { MINI_CHROME } from '@/components/StatsTable';
+import StatsTable, { MINI_CHROME, TABLE_VIEW, type TableView } from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
 import { SampleBadge, StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, useStats } from '@/lib/stats';
@@ -151,6 +151,9 @@ export default memo(function StatsSections({
   // A phone's overview scrolls inside its stage: a tile opening starts from the stage's top, where its card sits.
   useLayoutEffect(() => {
     if (tiles.on && innerWidth < 768) stage.current?.scrollTo({ top: 0, behavior: 'instant' });
+    // A close is over once the tile is back to its overview content (nothing it adds is mounted): a card reached
+    // afterwards by scrolling shows all of itself again.
+    if (!tiles.on) room.current?.removeAttribute('data-leaving');
   }, [tiles.on]);
 
   // The screen crossing the middle of the window sets the stage; the table screen counts as the
@@ -164,6 +167,7 @@ export default memo(function StatsSections({
   useEffect(() => {
     let target: string | null = null;
     let busy = false; // a glide from a click or Back is running: arrivals leave the stage alone
+    let handing = false; // the page has just jumped to an opened card: the stage stays shown under it
     // The stage moves with the page on the main scroll (table, overview, About) and is pinned from half-way between
     // About and Trends on (the cards' loop, whose cards slide over it). Only a scrollbar drag stops in between.
     const pin = (on = (document.getElementById('race')?.getBoundingClientRect().top ?? innerHeight) < innerHeight / 2) =>
@@ -212,6 +216,8 @@ export default memo(function StatsSections({
     const open = (tile: Tile) => {
       if (busy) return;
       busy = true;
+      room.current?.removeAttribute('data-leaving');
+      if (tile !== 'race') still();
       // The card takes over once the tile has landed (Panel's glideend). A timer fired before a busy machine's glide had
       // ended (it starts when React commits), and the card took over off the tile; a late one stays as the fallback.
       const late = glide() && glide() + 1500;
@@ -220,12 +226,30 @@ export default memo(function StatsSections({
       put(tile);
       const land = (e?: Event) => {
         if (!busy || (e && (e as CustomEvent<string>).detail !== TILES[tile].panel)) return;
-        busy = false;
         clearTimeout(timer);
         window.removeEventListener('glideend', land);
         hold(0);
+        // The card shows what the tile showed: its top (the tile never scrolls on its way).
+        const card = document.querySelector(`#${TILES[tile].land} .panel-scroll`);
+        if (card) card.scrollTop = 0;
+        // For two frames the landed tile stays shown under the card, unreceded: a card not yet fully painted in its
+        // first frame after the jump would show the page through, or a frame of its chrome without its rows.
+        const el = stage.current;
+        // ...and the card is drawn all but transparent meanwhile, so its layers are painted before it shows.
+        const chrome = tile === 'race' ? null : document.querySelector<HTMLElement>(`#${TILES[tile].land} .card-chrome`);
+        handing = true;
+        el?.style.setProperty('animation', 'none');
+        chrome?.style.setProperty('opacity', '0.001');
         jump(tile);
         document.getElementById(TILES[tile].land)?.focus({ preventScroll: true });
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          handing = false;
+          busy = false;
+          el?.style.removeProperty('animation');
+          chrome?.style.removeProperty('opacity');
+          hideUnder();
+          if (currentScreen() === tile) put('race', true); // as arriving under a card does (show)
+        }));
       };
       window.addEventListener('glideend', land);
       const timer = setTimeout(land, late);
@@ -234,11 +258,25 @@ export default memo(function StatsSections({
       const at = currentScreen();
       if (busy || !isTile(at)) return;
       busy = true;
-      hold(glide());
+      // Closing mirrors opening: what the card adds to its tile fades out (data-leaving, globals.css), in the card and
+      // in the tile snapped under it, before the tile glides back with what it shows on the overview.
+      const fade = at !== 'race' && glide() ? FADE_MS : 0;
+      hold(glide() + fade);
+      if (at !== 'race') still();
+      room.current?.toggleAttribute('data-leaving', fade > 0);
       put(at, true);
-      // Two frames: the snapped stage is painted under the card before the card leaves.
-      requestAnimationFrame(() => requestAnimationFrame(() => {
+      // The fade, then two frames: the snapped stage is painted under the card before the card leaves. The fade is
+      // waited for (its animations), not timed: mounting the stand-in can hold the main thread past FADE_MS.
+      const faded = () => Promise.race([
+        Promise.all((document.getElementById(TILES[at].land)?.getAnimations({ subtree: true }) ?? [])
+          .filter(a => (a as CSSAnimation).animationName === 'add-out').map(a => a.finished.catch(() => {}))),
+        new Promise(r => setTimeout(r, 500)),
+      ]);
+      setTimeout(() => faded().then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
         busy = false;
+        // The tile standing in is scrolled as the card was.
+        const from = document.querySelector(`#${TILES[at].land} .panel-scroll`), to = document.querySelector(`#${TILES[at].panel} .panel-scroll`);
+        if (from && to && from !== to) to.scrollTop = from.scrollTop;
         const el = stage.current;
         el?.removeAttribute('inert');
         // A view timeline can lag the jump by a frame, showing the stage still receded: no recede
@@ -246,9 +284,17 @@ export default memo(function StatsSections({
         el?.style.setProperty('animation', 'none');
         requestAnimationFrame(() => requestAnimationFrame(() => el?.style.removeProperty('animation')));
         jump('stats');
+        hideUnder(); // now, not at the next frame's scroll event: that frame would paint the stage still hidden (blank)
         put(null);
         document.getElementById(TILES[at].panel)?.focus({ preventScroll: true });
-      }));
+      }))), fade);
+    };
+    // Hover waits for the pointer to move: content gliding (or a card landing) under a still pointer shows no readout.
+    let rest: number[] | null = null, last = [NaN, NaN];
+    const still = () => { rest = last; room.current?.setAttribute('data-still', ''); };
+    const moved = (e: PointerEvent) => {
+      last = [e.clientX, e.clientY];
+      if (rest && (e.clientX !== rest[0] || e.clientY !== rest[1])) { rest = null; room.current?.removeAttribute('data-still'); }
     };
     // Once the page sits on a card's screen, every card under it is hidden outright, from the scroll
     // position alone (the scroll-driven recede only fades it, and can miss a jump): the opened card
@@ -257,7 +303,7 @@ export default memo(function StatsSections({
       const y = window.scrollY + 1;
       const reached = (el: HTMLElement | null) => !!el && y >= el.getBoundingClientRect().top + window.scrollY;
       const hide = (el: HTMLElement | null, on: boolean) => (on ? el?.style.setProperty('opacity', '0', 'important') : el?.style.removeProperty('opacity'));
-      hide(stage.current, reached(statsScreen.current));
+      hide(stage.current, !handing && reached(statsScreen.current));
       hide(statsCard.current, reached(pairwiseScreen.current));
       pin();
     };
@@ -269,6 +315,7 @@ export default memo(function StatsSections({
     window.addEventListener('overview', back);
     window.addEventListener('tileopen', onOpen);
     window.addEventListener('keydown', onKey);
+    window.addEventListener('pointermove', moved, { passive: true });
     window.addEventListener('scroll', hideUnder, { passive: true });
     window.addEventListener('resize', hideUnder);
     return () => {
@@ -278,6 +325,7 @@ export default memo(function StatsSections({
       window.removeEventListener('overview', back);
       window.removeEventListener('tileopen', onOpen);
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('pointermove', moved);
       window.removeEventListener('scroll', hideUnder);
       window.removeEventListener('resize', hideUnder);
     };
@@ -313,10 +361,12 @@ export default memo(function StatsSections({
     </>
   );
 
+  // Profiles' sort, "All models" and picked rows: one view for the tile and the card, so neither shows the other's.
+  const profView = useState<TableView>(TABLE_VIEW);
   // Each card's body, in its tile (`card` false: the tile's content alone) and in the card. The tile's
   // table or matrix stays the same element when it opens and grows into the card's; what the card adds
   // around it fades in (`fade`), never the content itself.
-  const statsBody = (card: boolean, fade = false) => !ready ? message : (
+  const statsBody = (card: boolean, fade = false, snap = false) => !ready ? message : (
     <>
       {card && (
         <Added still={!fade}>
@@ -328,7 +378,7 @@ export default memo(function StatsSections({
           </Definition>
         </Added>
       )}
-      <SyncedProfiles tl={tl} models={models} seated={seated} mini={!card} />
+      <SyncedProfiles tl={tl} models={models} seated={seated} mini={!card} snap={snap} view={profView} />
     </>
   );
   const pairwiseBody = (card: boolean, snap = false) => !ready ? message : (
@@ -377,7 +427,9 @@ export default memo(function StatsSections({
             edges (the page pads its sides), keeps tiles sliding off from adding a page scrollbar.
             Phones (PHONE) scroll it instead: the tiles stack at their content's size. */}
         <Recede by={statsScreen} timeline="--card-stats" ref={stage} scrolls className="sticky data-pin:top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px] max-md:overflow-x-hidden max-md:overflow-y-auto">
-          <div className={`@container ${BLOCK} ${PAD} max-md:h-auto max-md:min-h-full max-md:pb-[var(--bar-h,0px)]`} style={BLOCK_VARS}>
+          {/* A phone's opened Profiles or Matchups tile takes its card's box: the block no taller than its content (with the
+              About band under it, exactly the window), so it is neither centred lower nor narrowed by a scrollbar. */}
+          <div className={`@container ${BLOCK} ${PAD} max-md:h-auto ${on && on !== 'race' ? '' : 'max-md:min-h-full'} max-md:pb-[var(--bar-h,0px)]`} style={BLOCK_VARS}>
             {/* Overview: three tiles, each a miniature of its screen, Trends on top (stacked on phones). Profiles
                 at its content's width, Matchups across the rest; the rows share the height (BLOCK_VARS). On a phone, a
                 focused tile's card takes the window's box (Trends: its own height), as the cards do. */}
@@ -408,7 +460,7 @@ export default memo(function StatsSections({
                 blank={blank}
                 {...tile('stats-table')}
               >
-                {statsBody(on === 'stats-table', !snap)}
+                {statsBody(on === 'stats-table', !snap, snap)}
               </Panel>
 
               <Panel
@@ -416,7 +468,7 @@ export default memo(function StatsSections({
                 title="Matchups"
                 away={{ x: 1 }}
                 className="row-start-3 md:row-start-2 md:col-start-2 max-md:h-(--mu-h)"
-                extra={on === 'pairwise' && <div className={ASIDE}>{lead}</div>}
+                extra={on === 'pairwise' && <div className={ASIDE}>{muAside}</div>}
                 fit="hug"
                 blank={blank}
                 {...tile('pairwise')}
@@ -526,11 +578,12 @@ function useProfilesAt(tl: Timeline | null, models: ModelStats[]) {
 
 // Profiles' table, on the tile (`mini`: fewer columns, short rows) and in the card: one element, so
 // opening the tile grows this table into the card's.
-function SyncedProfiles({ tl, models, seated, mini = false }: { tl: Timeline | null; models: ModelStats[]; seated?: string[]; mini?: boolean }) {
+function SyncedProfiles({ tl, models, seated, mini = false, snap = false, view }: { tl: Timeline | null; models: ModelStats[]; seated?: string[]; mini?: boolean; snap?: boolean; view: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
   const { shown, pending, hand } = useProfilesAt(tl, models);
-  return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} mini={mini} /></div>;
+  return <div {...syncAttrs(tl, hand, true)} className="contents"><StatsTable models={shown} seated={seated} pending={pending} mini={mini} snap={snap} view={view} /></div>;
 }
 
+const FADE_MS = 120; // closing: what the card adds fades out (globals.css, [data-leaving])
 const SLIDE_MS = 320; // a Profiles row's slide (StatsTable's SLIDE), and a frame to spare
 const ASIDE = 'flex flex-wrap items-center gap-x-5 gap-y-1 min-w-0'; // a card header's extras
 

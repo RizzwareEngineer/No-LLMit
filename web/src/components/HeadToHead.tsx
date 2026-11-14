@@ -149,6 +149,8 @@ export default memo(function HeadToHead({
   const maxCell = Math.max(1, ...(bbs.some(c => c.hands >= MIN_PAIR_HANDS) ? bbs.filter(c => c.hands >= MIN_PAIR_HANDS) : bbs).map(c => Math.abs(c.bb!)));
   const tint = (n: number) => `rgba(${n > 0 ? '15, 123, 108' : '200, 50, 50'}, ${(0.08 + 0.5 * Math.sqrt(Math.min(1, Math.abs(n) / maxCell))).toFixed(3)})`;
   const show = (e: React.MouseEvent, row: string, col: string) => {
+    // Not until the pointer has moved since a tile opened or closed (StatsSections' data-still), nor twice for one cell.
+    if (outer.current!.closest('[data-still]') || (tip?.row === row && tip.col === col)) return;
     const o = outer.current!.getBoundingClientRect();
     const r = e.currentTarget.getBoundingClientRect();
     const below = r.top - o.top < 90; // no room above the cell: show it underneath
@@ -227,7 +229,7 @@ export default memo(function HeadToHead({
                     if (self || bb === null) {
                       // Itself, or a pair that never sat together: an empty cell (the card's readout says so).
                       return (
-                        <td key={col.name} data-cell={`${row.name}|${col.name}`} className="p-0 rounded-sm" style={{ background: self ? 'rgba(55, 53, 47, 0.16)' : 'rgba(55, 53, 47, 0.04)' }} onMouseEnter={mini || self ? undefined : e => show(e, row.name, col.name)}>
+                        <td key={col.name} data-cell={`${row.name}|${col.name}`} className="p-0 rounded-sm" style={{ background: self ? 'rgba(55, 53, 47, 0.16)' : 'rgba(55, 53, 47, 0.04)' }} onMouseMove={mini || self ? undefined : e => show(e, row.name, col.name)}>
                           {!self && <span className="sr-only">{row.name} and {col.name} {NEVER_MET}</span>}
                         </td>
                       );
@@ -239,7 +241,7 @@ export default memo(function HeadToHead({
                         data-hands={hands}
                         className="relative p-0 text-center rounded-sm whitespace-nowrap overflow-hidden"
                         style={{ color: TEXT, background: tint(bb), opacity: hands < MIN_PAIR_HANDS ? FAINT : undefined, outline: tip?.row === row.name && tip.col === col.name ? `2px solid ${TEXT}` : undefined }}
-                        onMouseEnter={mini ? undefined : e => show(e, row.name, col.name)}
+                        onMouseMove={mini ? undefined : e => show(e, row.name, col.name)}
                       >
                         <Fit n={bb} room={room} px={px} at={mini} move={move} />
                         <span className="sr-only">{signed(bb)} bb/100 vs {col.name} over {plural(hands, 'hand')} together{v!.pots ? `, ${plural(v!.pots, 'pot')}` : ''}</span>
