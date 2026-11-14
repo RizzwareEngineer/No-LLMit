@@ -1,0 +1,4 @@
+# Never copy local secrets or saved hands into the build.
+.env*
+!.env.example
+data/
