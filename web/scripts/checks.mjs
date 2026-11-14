@@ -247,15 +247,6 @@ main(() => check('table-width', 'The table stays 1000px wide', async () => {
   const w = await pg.evaluate(() => document.querySelector('table').offsetWidth);
   return { pass: Math.abs(w - 1000) <= 1, detail: `${w}px` };
 }));
-main(() => check('type-2-locked-boxes', 'With ?type=2 the seats are 200x128, the table 1000px, and the page is on the second type scale (data-type="2", the badge text 10px)', async () => {
-  const p2 = await newPage(); await p2.setViewport({ width: 1440, height: 900 });
-  await p2.goto(`${BASE}${BASE.includes('?') ? '&' : '?'}type=2`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await p2.waitForFunction(() => document.querySelector('td.w-\\[200px\\]') && document.documentElement.dataset.type === '2', { timeout: 60000 }).catch(() => {});
-  await sleep(2000);
-  const r = await p2.evaluate(() => { const b = document.querySelector('td.w-\\[200px\\]'), t = document.querySelector('table'), g = document.querySelector('[data-position]'); return { type: document.documentElement.dataset.type, seat: [b.offsetWidth, b.offsetHeight], table: t.offsetWidth, badge: g ? getComputedStyle(g).fontSize : 'none' }; });
-  await p2.close();
-  return { pass: r.type === '2' && Math.abs(r.seat[0] - 200) <= 1 && Math.abs(r.seat[1] - 128) <= 2 && Math.abs(r.table - 1000) <= 1 && r.badge === '10px', detail: `type ${r.type}, seat ${r.seat.join('x')}, table ${r.table}px, badge ${r.badge}` };
-}));
 main(() => check('no-currency', 'No ¤ sign anywhere on the table screen', async () => {
   const n = await pg.evaluate(() => (document.body.innerText.match(/¤/g) || []).length);
   return { pass: n === 0, detail: `${n} found` };

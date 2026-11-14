@@ -21,7 +21,6 @@ import { setTypingPace } from "@/components/TypewriterText";
 import { useGameState } from "@/hooks/useGameState";
 import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, useScreen } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
-import { useTypeSwitch } from "@/lib/tableSwitches";
 import { MUTED, BLUE } from "@/lib/stats";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
@@ -94,7 +93,6 @@ export default function Home() {
 }
 
 function Table() {
-  useTypeSwitch(); // ?type=2
   const {
     gameState,
     connection,
