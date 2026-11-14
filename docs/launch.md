@@ -44,6 +44,7 @@ A production build reads `NEXT_PUBLIC_API_URL` at build time and fails without i
 |---|---|
 | `LLM_PROVIDER` | `openrouter` |
 | `OPENROUTER_API_KEY` | the key from step 7 (a secret) |
+| `LLM_SERVICE_TOKEN` | a long random string, e.g. `openssl rand -hex 32` (a secret); the engine gets the same value |
 | `LINEUP` | unset (the default nine), or nine roster names from `llm/registry.py`, comma-separated |
 | `PORT` | `5001` (set it, so the private address below has a fixed port) |
 
@@ -55,6 +56,7 @@ A production build reads `NEXT_PUBLIC_API_URL` at build time and fails without i
 | Setting | Value shape |
 |---|---|
 | `LLM_SERVICE_URL` | `http://<llm service name>.railway.internal:5001` (the LLM service's private address, Settings > Networking) |
+| `LLM_SERVICE_TOKEN` | the same value as the LLM service's (a secret) |
 | `SUPABASE_URL` | `https://<project ref>.supabase.co` |
 | `SUPABASE_SERVICE_KEY` | the service-role key (a secret) |
 | `DAILY_CALL_CAP` | a whole number, model calls per UTC day; 5000 is about $0.41 a day typical, $1.31 worst |

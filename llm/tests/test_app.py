@@ -128,3 +128,17 @@ def test_openrouter_spend(monkeypatch):
     monkeypatch.setattr(openrouter, "_spend_cache", {"at": 0.0, "value": None})
     monkeypatch.setattr(openrouter.requests, "get", lambda url, headers, timeout: FakeResponse({"data": {"limit": 10, "limit_remaining": 7.5}}))
     assert openrouter.get_spend() == {"used_usd": 2.5, "limit_usd": 10}
+
+
+def test_token_guards_every_route_but_health(monkeypatch, client):
+    monkeypatch.setattr(app, "SERVICE_TOKEN", "s3cret")
+    assert client.get("/health").status_code == 200
+    assert client.post("/decide", json=preflop_request().model_dump()).status_code == 401
+    assert client.get("/usage", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    ok = client.post("/decide", json=preflop_request().model_dump(), headers={"Authorization": "Bearer s3cret"})
+    assert ok.status_code == 200
+
+
+def test_no_api_docs(client):
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404

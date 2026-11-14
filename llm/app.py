@@ -1,11 +1,13 @@
 """FastAPI server: the engine posts the game state, the service asks the seat's model and
 returns the move. All prompt, parsing and retry logic lives here (decide.py)."""
 
+import hmac
 import os
 import time
 import logging
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from schemas import DecisionRequest, DecisionResponse
 from prompts import system_prompt, prompt_version
@@ -33,7 +35,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="No-LLMit LLM Service")
+# No /docs, /redoc or /openapi.json: the service is internal and has nothing to show a visitor.
+app = FastAPI(title="No-LLMit LLM Service", docs_url=None, redoc_url=None, openapi_url=None)
+
+# With LLM_SERVICE_TOKEN set, every route but /health (the platform's healthcheck) needs
+# "Authorization: Bearer <token>", which the engine sends from its own LLM_SERVICE_TOKEN.
+# The service must still never be reachable from the internet; this guards /decide, which
+# spends money, if it ever is.
+SERVICE_TOKEN = os.getenv("LLM_SERVICE_TOKEN", "")
+
+
+@app.middleware("http")
+async def require_token(request: Request, call_next):
+    if SERVICE_TOKEN and request.url.path != "/health":
+        sent = request.headers.get("authorization", "")
+        if not hmac.compare_digest(sent.encode(), f"Bearer {SERVICE_TOKEN}".encode()):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
 
 
 @app.get("/health")

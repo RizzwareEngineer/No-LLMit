@@ -75,3 +75,35 @@ func TestGetLLMDecisionPostsTheStateAndReadsTheMove(t *testing.T) {
 		t.Errorf("decoded: %+v", d)
 	}
 }
+
+// With LLM_SERVICE_TOKEN set, both the move and the info requests carry it; unset, none does.
+func TestLLMServiceTokenIsSent(t *testing.T) {
+	var auths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auths = append(auths, r.Header.Get("Authorization"))
+		if r.URL.Path == "/decide" {
+			w.Write([]byte(`{"action":"FOLD","status":"ok"}`))
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	oldURL, oldToken := llmServiceURL, llmServiceToken
+	defer func() { llmServiceURL, llmServiceToken = oldURL, oldToken }()
+	llmServiceURL = srv.URL
+
+	llmServiceToken = "s3cret"
+	if _, err := GetLLMDecision(DecisionRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GetLLMUsage(); err != nil {
+		t.Fatal(err)
+	}
+	llmServiceToken = ""
+	if _, err := GetLLMUsage(); err != nil {
+		t.Fatal(err)
+	}
+	if len(auths) != 3 || auths[0] != "Bearer s3cret" || auths[1] != "Bearer s3cret" || auths[2] != "" {
+		t.Errorf("Authorization headers sent: %q", auths)
+	}
+}

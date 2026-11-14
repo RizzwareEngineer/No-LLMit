@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -101,7 +102,12 @@ func GetLLMDecision(req DecisionRequest) (*LLMDecisionResponse, error) {
 	httpClient := &http.Client{Timeout: llmTimeout}
 	url := fmt.Sprintf("%s/decide", llmServiceURL)
 
-	resp, err := httpClient.Post(url, "application/json", bytes.NewBuffer(jsonBody))
+	httpReq, err := newLLMRequest("POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call LLM service: %w", err)
 	}
@@ -121,7 +127,11 @@ func GetLLMDecision(req DecisionRequest) (*LLMDecisionResponse, error) {
 
 // getJSON GETs path on the LLM service and decodes its JSON answer into out.
 func getJSON(path string, out any) error {
-	resp, err := infoClient.Get(llmServiceURL + path)
+	req, err := newLLMRequest("GET", llmServiceURL+path, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := infoClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("LLM service not reachable: %w", err)
 	}
@@ -133,6 +143,20 @@ func getJSON(path string, out any) error {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 	return nil
+}
+
+// llmServiceToken, when set, goes to the LLM service as a bearer token (its LLM_SERVICE_TOKEN).
+var llmServiceToken = os.Getenv("LLM_SERVICE_TOKEN")
+
+func newLLMRequest(method, url string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	if llmServiceToken != "" {
+		req.Header.Set("Authorization", "Bearer "+llmServiceToken)
+	}
+	return req, nil
 }
 
 var infoClient = &http.Client{Timeout: 5 * time.Second}
