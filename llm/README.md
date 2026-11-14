@@ -86,7 +86,7 @@ uvicorn app:app --reload --port 5001
 - `GET /health` - Health check
 - `GET /usage` - `{"provider", "spend"}`: the provider and OpenRouter spend against the key's limit
 - `GET /prompt` - The system prompt and the prompt version
-- `GET /models?session=N` - `{"provider", "seated"}`; `session` only matters to the mock provider's rotation
+- `GET /models?session=N` - `{"provider", "seated", "turn_budget_s"}`; `turn_budget_s` is `TURN_BUDGET` in decide.py, the seconds a whole turn may take; `session` only matters to the mock provider's rotation
 - `POST /decide` - The seat's move for a game state
 
 ### POST /decide

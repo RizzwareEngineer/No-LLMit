@@ -17,6 +17,10 @@ data/
 # Dataset exports
 dataset/out/
 
+# Site builds (the owner's preview, verify.sh) and scratch
+web/.next*/
+web/.shots-tmp.mjs
+
 # Logs
 *.log
 
