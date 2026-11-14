@@ -186,7 +186,8 @@ export default memo(function About({ heading = 'h1' }: { heading?: 'h1' | 'h2' }
         </div>
         <div className="contents @4xl:flex @4xl:flex-col @4xl:gap-8 @4xl:min-w-0">
           <Support as={Sub} className="order-1 @4xl:order-none" />
-          <Race className="order-2 @4xl:order-none @4xl:flex-1" art="h-[clamp(200px,40cqw,300px)] @4xl:h-auto @4xl:flex-1 @4xl:min-h-[200px]" />
+          {/* The figure's height: the drawing as before plus its caption (59px: 10px gap, 21px label, 4px gap, 24px leader line). */}
+          <Race className="order-2 @4xl:order-none @4xl:flex-1" art="h-[calc(clamp(200px,40cqw,300px)_+_59px)] @4xl:h-auto @4xl:min-h-[259px]" />
         </div>
       </div>
       <Footer />

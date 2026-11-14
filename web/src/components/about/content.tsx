@@ -363,7 +363,9 @@ function ridges(field: ModelStats[]) {
 }
 
 // The race: live art from the stats, drawn in from the left once they arrive, and a caption naming the leader in bb/100
-// among the LLMs with MIN_HANDS or more. `art` sizes the drawing (its height); the logos sit in a gutter at its right.
+// among the LLMs with MIN_HANDS or more. `art` sizes the whole figure (its height): the drawing takes what the caption
+// leaves, so the caption's optional last line shrinks the drawing instead of moving the page. The logos sit in a gutter at
+// the drawing's right.
 // Hovering a line (a wide invisible hit area over it) or its logo, tapping either, or focusing the logo shows that LLM in a
 // tooltip by the pointer; its line comes to the front and the others dim (about-race-hover).
 export function Race({ art, className = '' }: { art: string; className?: string }) {
@@ -388,8 +390,8 @@ export function Race({ art, className = '' }: { art: string; className?: string 
     return () => document.removeEventListener('pointerdown', off);
   }, [tip]);
   return (
-    <figure ref={ref} className={`flex flex-col gap-2.5 min-w-0 ${className}`}>
-      <div ref={box} className={`relative ${art}`}>
+    <figure ref={ref} className={`flex flex-col gap-2.5 min-w-0 ${art} ${className}`}>
+      <div ref={box} className="relative flex-1 min-h-0">
         <svg
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
