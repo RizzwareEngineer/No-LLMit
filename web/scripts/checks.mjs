@@ -836,11 +836,18 @@ const holeBoxes = p => p.evaluate(() => [...document.querySelectorAll('[data-sea
 // no frame in between. Live engine: a reload mid-hand, once a seat has had its turn and one has not: the first painted
 // frame with the cards drawn (faded in, owner 2026-11-11: "on a mid-hand refresh the dealt cards just fade in") shows the
 // snapshot's peeked seats up and the rest down, and nothing turns over after it.
-group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s two cards peel up when its turn first comes (either motion, ?peel=1|2) and stay up; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no peel; reduced motion switches faces with no motion', async () => {
+// Owner, 2026-11-13, motions 3 (the default) and 4: "when cards get dealt face down initially, the cards aren't lined up
+// ... they put both cards on top of each other, and then they peel from the side ... From there, you can put the cards
+// properly lined up vertically for spectators to see." Each run of 3 and 4 also reads the cards' poses (each card's place
+// layer, [data-lay]): after the deal every seat's two cards lie at two different angles, neither 0; after the hand, at 0,
+// side by side and not overlapping. While a seat's cards turn, every painted frame, each card as drawn (its [data-flip],
+// perspective and all) stays inside the seat and off its name, stack, badge and action text.
+group(() => check('table-hole-peel', 'Hole cards are dealt face down (askew for ?peel=3, the default, and 4); a seat\'s two cards peel up when its turn first comes (every motion, ?peel=1|2|3|4) and stay up, upright and side by side, inside the seat throughout; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no peel; reduced motion switches faces with no motion', async () => {
   const bad = [], seen = [];
   const face = s => s.map(c => c.face).join('');
-  // scriptedTable's page, at a query (?peel=2 for the second motion).
+  // scriptedTable's page, at a query (?peel=1|2|4; none is 3).
   const run = async (reduced, query = '') => {
+    const askew = !/peel=[12]/.test(query), settle = askew && !reduced ? 2300 : 1100; // 3 and 4 take 1.8 s
     const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
     if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await scriptStream(p);
@@ -871,8 +878,39 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
       const first = await boxStats(await filmFrames(p, () => sleep(200)), boxes);
       const down = seats.filter((s, k) => face(first.at(-1).slice(2 * k, 2 * k + 2)) !== 'downdown').map(s => s.seat);
       if (down.length) bad.push(`${tag}after the deal, seats ${down.join(',')} not face down`);
+      // Each seat's two cards as they lie: their angle in degrees and their box.
+      const poses = () => p.evaluate(() => [...document.querySelectorAll('[data-seat]')].filter(s => s.getBoundingClientRect().width > 0 && s.querySelector('[data-hole] [data-lay]'))
+        .map(s => ({ seat: +s.dataset.seat, cards: [...s.querySelectorAll('[data-hole] [data-lay]')].map(e => { const m = new DOMMatrix(getComputedStyle(e).transform), b = e.getBoundingClientRect(); return { deg: Math.atan2(m.b, m.a) * 180 / Math.PI, l: b.left, r: b.right, t: b.top }; }) })));
+      const degs = s => s.cards.map(c => `${c.deg.toFixed(1)}°`).join(' and ');
+      if (askew) {
+        const dealt = await poses(), flat = dealt.filter(s => s.cards.length !== 2 || s.cards.some(c => Math.abs(c.deg) < 1) || Math.abs(s.cards[0].deg - s.cards[1].deg) < 1);
+        if (!dealt.length || flat.length) bad.push(`${tag}after the deal, ${dealt.length ? `seat ${flat[0].seat}'s cards lie at ${degs(flat[0])} (want two different angles, neither 0)` : 'no cards'}`);
+        else if (!reduced) seen.push(`${tag}dealt at ${degs(dealt[0])}`);
+      }
+      // Each painted frame from now until read, the watched seats' cards as drawn: outside the seat or over its text.
+      const watch = seats => p.evaluate(seats => {
+        const out = window.__off = [];
+        const tick = () => {
+          if (window.__off !== out) return;
+          for (const i of seats) {
+            const s = [...document.querySelectorAll(`[data-seat="${i}"]`)].find(e => e.getBoundingClientRect().width > 0);
+            if (!s) continue;
+            const box = s.getBoundingClientRect(), texts = [...s.querySelectorAll('[title], [data-chips], [data-position], [data-action]')].filter(e => !e.closest('[data-hole]'));
+            for (const f of s.querySelectorAll('[data-hole] [data-flip]')) {
+              const r = f.getBoundingClientRect();
+              if (r.left < box.left - 0.5 || r.top < box.top - 0.5 || r.right > box.right + 0.5 || r.bottom > box.bottom + 0.5) out.push(`seat ${i}'s card outside the seat`);
+              for (const e of texts) { const t = e.getBoundingClientRect(); if (Math.min(r.right, t.right) - Math.max(r.left, t.left) > 0.5 && Math.min(r.bottom, t.bottom) - Math.max(r.top, t.top) > 0.5) out.push(`seat ${i}'s card over "${e.textContent.trim().slice(0, 12)}"`); }
+            }
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }, seats);
+      const watched = () => p.evaluate(() => { const o = window.__off; window.__off = null; return [...new Set(o)]; });
       for (const [name, msgs, turning] of steps) {
-        const frames = await filmFrames(p, async () => { await sleep(100); await feed(msgs); await sleep(1100); });
+        if (askew) await watch(turning);
+        const frames = await filmFrames(p, async () => { await sleep(100); await feed(msgs); await sleep(settle); });
+        if (askew) { const off = await watched(); if (off.length) bad.push(`${tag}${name}: ${off.slice(0, 3).join(', ')}`); }
         const stats = await boxStats(frames, boxes);
         turning.forEach(i => up.add(i));
         for (const [k, s] of seats.entries()) {
@@ -891,9 +929,14 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
         }
         if (at(a) < 0 || at(b) < 0) bad.push('seats not found');
       }
+      if (askew) {
+        const shown = await poses(), off = shown.filter(s => s.cards.length !== 2 || s.cards.some(c => Math.abs(c.deg) > 0.5) || s.cards[0].r > s.cards[1].l + 0.5 || Math.abs(s.cards[0].t - s.cards[1].t) > 0.5);
+        if (off.length) bad.push(`${tag}after the hand, seat ${off[0].seat}'s cards lie at ${degs(off[0])}, ${off[0].cards.map(c => `${c.l.toFixed(1)}-${c.r.toFixed(1)}`).join(' and ')} (want 0°, side by side)`);
+      }
     } finally { await p.close(); }
   };
-  await run(false); await run(false, '?peel=2'); await run(true); await run(true, '?peel=2');
+  // The biggest card size too, for 3 and 4: their stack and lift reach furthest at it.
+  for (const reduced of [false, true]) for (const query of ['', '?peel=1', '?peel=2', '?peel=4', ...(reduced ? [] : ['?cards=3', '?peel=4&cards=3'])]) await run(reduced, query);
   // Live: reload until the snapshot has a seat that has had its turn and one that has not.
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   try {
