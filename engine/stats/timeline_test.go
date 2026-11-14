@@ -184,7 +184,7 @@ func TestTimelineEndsAtTheTotals(t *testing.T) {
 			t.Logf("10k hands: profiles %d bytes, matchups %d bytes (%d rows)", len(p), len(m), len(tl.Matchups.Rows))
 			// The 120 KB matchups budget does not fit 1,200 change points: with nine models
 			// about ten pairs change per point, ~15 bytes each, so this lands near 190 KB
-			// (docs/stats.md, "Timeline"). The ceiling guards against the encoding growing.
+			// The ceiling guards against the encoding growing.
 			if len(p) > 80_000 || len(m) > 200_000 {
 				t.Errorf("10k hands: profiles %d bytes (max 80 KB), matchups %d bytes (max 200 KB)", len(p), len(m))
 			}

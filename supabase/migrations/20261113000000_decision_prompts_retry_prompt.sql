@@ -1,6 +1,6 @@
 -- Keep the follow-up message a model got after an unreadable or illegal first reply.
 -- The engine has always sent it as retry_prompt; save_hand dropped it. Rows saved
--- before this migration have retry_prompt null. See docs/hand-history.md.
+-- before this migration have retry_prompt null.
 
 alter table public.decision_prompts add column if not exists retry_prompt text;
 

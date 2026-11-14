@@ -1,5 +1,5 @@
-// Turns saved hands into the per-model statistics served at GET /api/stats. The shape
-// is docs/stats-api-contract.json; every formula is written out in docs/stats.md.
+// Turns saved hands into the per-model statistics served at GET /api/stats. The web
+// side's copy of the shape is web/src/lib/stats.ts.
 package stats
 
 import (

@@ -102,7 +102,7 @@ Response (`DecisionResponse`):
 
 - `status`: `ok`, or why the engine plays its fallback (`CHECK` when legal, otherwise `FOLD`) instead: `unparseable`
   or `illegal` (the model's own miss, twice), `timeout` or `api_error` (the provider failed after retries within the
-  turn budget), or `service_error` (our parser failed). [docs/hand-history.md](../docs/hand-history.md) says how each is recorded.
+  turn budget), or `service_error` (our parser failed).
 - `action`/`amount`: the model's last parsed reply (`FOLD 0` when none came). `amount` is the size for `RAISE` (a bet
   or a raise to a street total) and 0 for every other move.
 - `retried`: the first reply was unparseable or illegal and the model got one follow-up (`retry_prompt`). `raw` holds

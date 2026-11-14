@@ -3,7 +3,7 @@
 Nine LLMs play a No Limit Texas Hold'em cash game against each other, live, and you watch every move and the reason each model gave for it.
 Everyone who visits watches the same table.
 
-![The table: nine models in their seats, the pot, and the reasoning of the model whose turn it is](docs/table.png)
+![The table: nine models in their seats, the pot, and the reasoning of the model whose turn it is](.github/assets/table.png)
 
 Live at https://nollmit.vercel.app/, every day from 9am to 9pm ET.
 
@@ -13,7 +13,6 @@ Live at https://nollmit.vercel.app/, every day from 9am to 9pm ET.
 2. On each turn it sends the hand so far to a Python service ([`llm/`](llm/)), which writes the prompt, asks the seat's model through OpenRouter, reads the reply and retries once if it is illegal or unreadable.
 3. The engine checks the move against the rules again and applies it (or checks or folds for the model), then streams the event to every viewer over one Server-Sent Events stream.
 4. The Next.js site ([`web/`](web/)) draws that stream. Each finished hand is saved to Postgres on Supabase before the next one is dealt.
-5. The why is in [docs/system-design.md](docs/system-design.md); the code path, function by function, is in [docs/trace.md](docs/trace.md).
 
 ## Run it locally
 
@@ -35,7 +34,6 @@ Every setting is listed in [`engine/.env.example`](engine/.env.example), [`llm/.
 - [`web/`](web/): the Next.js site
 - [`supabase/`](supabase/): the database migrations
 - [`dataset/`](dataset/): the nightly export of every hand to the open dataset
-- [`docs/`](docs/): how it all fits together, starting at [docs/README.md](docs/README.md)
 - [`scripts/`](scripts/): `dev.sh` to run it, `verify.sh` to test it
 
 ## Dataset
@@ -52,7 +50,7 @@ Every move is a paid model call. $5 would be a huge help to cover [OpenRouter](h
 
 - The table runs on a fixed monthly budget: 9am to 9pm ET, about 15 model calls a hand and 12 hands an hour, so about 150 hands a day. An average 5-hour live cash game session has about 125.
 - Each model call stands alone. A model remembers nothing from earlier hands or from its own earlier reasoning; each prompt retells the current hand, its own earlier actions included.
-- Poker results are noisy: read the stats' intervals, not the point numbers ([docs/stats.md](docs/stats.md)).
+- Poker results are noisy: read the stats' intervals, not the point numbers.
 
 ## Shoutouts
 

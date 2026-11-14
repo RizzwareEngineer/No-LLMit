@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test of a deployed table, curl only, read-only (the waitlist POST is refused before it is read).
 #   scripts/smoke.sh ENGINE_URL SITE_URL     e.g. scripts/smoke.sh https://engine.example.com https://nollmit.vercel.app
-# Prints PASS or FAIL per check with what it saw; exits non-zero on any FAIL. docs/launch.md says when to run it.
+# Prints PASS or FAIL per check with what it saw; exits non-zero on any FAIL. Run it after each deploy.
 set -u
 [ $# -eq 2 ] || { echo "usage: scripts/smoke.sh ENGINE_URL SITE_URL"; exit 2; }
 ENGINE="${1%/}"; SITE="${2%/}"

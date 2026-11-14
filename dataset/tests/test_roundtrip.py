@@ -13,14 +13,13 @@ import pytest
 import export
 
 HERE = Path(__file__).parent
-ROOT = HERE.parent.parent
 GENERATED = HERE / "fixtures" / "generated"  # 40 hands played through the engine's recorder
 # Two engine hands where its payout differs from poker rules (from a 2400-hand fuzz run).
 REPRO = HERE / "fixtures" / "repro_hands.jsonl"
 
 
 def example_source(tmp_path):
-    doc = json.loads((ROOT / "docs" / "hand-record-example.json").read_text())
+    doc = json.loads((HERE / "fixtures" / "hand-record-example.json").read_text())
     hands, prompts = tmp_path / "ex_hands.jsonl", tmp_path / "ex_prompts.jsonl"
     hands.write_text(json.dumps(doc["hand"]) + "\n")
     prompts.write_text("".join(json.dumps(p) + "\n" for p in doc["prompts"]))
@@ -121,7 +120,7 @@ def test_every_prompt_id_resolves(exported):
 
 
 def test_missing_prompt_fails_loudly():
-    doc = json.loads((ROOT / "docs" / "hand-record-example.json").read_text())
+    doc = json.loads((HERE / "fixtures" / "hand-record-example.json").read_text())
     with pytest.raises(ValueError, match="no prompt"):
         export.flatten([doc["hand"]], doc["prompts"][1:])
 

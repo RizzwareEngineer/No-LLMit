@@ -4614,7 +4614,7 @@ group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 
-// The server ends every stream after 10 to 14 minutes and the page reopens it (docs/stream.md); the viewer must not
+// The server ends every stream after 10 to 14 minutes and the page reopens it; the viewer must not
 // see it. On the live table, in each phase of a turn (thinking; reasoning while it types; revealed), the page's stream
 // is ended as the server ends it (closed, then its error handler), so the page reopens it against the engine. From then
 // until 3 s after the new stream's snapshot is applied, every frame: no connection bar, no Offline; the reasoning text

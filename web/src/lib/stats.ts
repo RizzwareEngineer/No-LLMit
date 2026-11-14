@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { API_URL } from '@/lib/api';
 import { ALL_LLMS } from '@/lib/constants';
 
-// Shape of GET /api/stats, per docs/stats-api-contract.json. Rates are 0..1, or null when nothing
+// Shape of GET /api/stats, as engine/stats/ serves it. Rates are 0..1, or null when nothing
 // qualified for them; bb = big blinds.
 interface PositionStats {
   hands: number;

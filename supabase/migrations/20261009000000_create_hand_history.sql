@@ -1,4 +1,4 @@
--- Hand history for the shared table. See docs/hand-history.md.
+-- Hand history for the shared table.
 
 -- One row per system prompt the models have been given.
 create table public.system_prompts (

@@ -1,4 +1,4 @@
-// What the stream's messages do to the page's state (docs/stream.md). Pure, so the stream test runs it under plain Node.
+// What the stream's messages do to the page's state. Pure, so the stream test runs it under plain Node.
 import type { ButtonCardPayload, ButtonWinnerPayload, GameState, ServerMessage, TableNoticePayload } from './api';
 import type { ModelStats, StatsResponse } from './stats';
 
@@ -43,7 +43,7 @@ export interface TableView {
   buttonDetermination: ButtonDetermination | null;
 }
 
-// The turn's time as the engine sent it (docs/stream.md): budgetMs for the turn, elapsedMs already run when it was sent
+// The turn's time as the engine sent it: budgetMs for the turn, elapsedMs already run when it was sent
 // (a snapshot's), and when this page received it.
 export interface Clock {
   budgetMs: number;

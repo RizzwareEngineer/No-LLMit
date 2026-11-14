@@ -1,6 +1,6 @@
 # Open dataset export
 
-Turns the saved hands ([docs/hand-history.md](../docs/hand-history.md)) into the public dataset: Parquet tables, the
+Turns the saved hands into the public dataset: Parquet tables, the
 raw JSONL records, PokerStars hand histories, and a dataset card (`out/README.md`, written by `export.py`
 `write_card`) that documents every column.
 
@@ -14,7 +14,7 @@ uv venv .venv -p 3.11 && uv pip install -p .venv/bin/python -r requirements.txt
 
 The tests export `tests/fixtures/generated/` (40 hands played through the engine's real recorder with scripted random
 replies: all-ins, side pots, every fallback status, hands across midnight UTC), `tests/fixtures/repro_hands.jsonl` (two
-hands whose payout differs from poker rules) and `docs/hand-record-example.json`. They reload the Parquet, check row
+hands whose payout differs from poker rules) and `tests/fixtures/hand-record-example.json`. They reload the Parquet, check row
 counts, that each hand's net sums to zero and every `prompt_id` resolves, and parse the PokerStars text back into the
 same actions.
 

@@ -30,7 +30,7 @@ const subscribe = (f: () => void) => { subs.add(f); return () => { subs.delete(f
 // `select` should return a primitive, so a component re-renders only when what it shows changes.
 export const useReplay = <T,>(select: (p: number) => T): T => useSyncExternalStore(subscribe, () => select(progress), () => select(1));
 
-// GET /api/stats/timeline (docs/stats.md, Timeline), indexed for lookups at any hand.
+// GET /api/stats/timeline, indexed for lookups at any hand.
 type Profile = Pick<ModelStats, 'hands' | 'bb100' | 'vpip' | 'pfr' | 'af'>;
 export interface Timeline {
   hands: number;

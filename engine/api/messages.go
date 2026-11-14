@@ -1,5 +1,4 @@
-// Stream message types and payloads sent to the frontend (web/) on GET /stream; see
-// docs/stream.md.
+// Stream message types and payloads sent to the frontend (web/) on GET /stream.
 package api
 
 import (

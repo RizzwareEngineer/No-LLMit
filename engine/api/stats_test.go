@@ -431,8 +431,7 @@ func TestSupabaseHandsSince(t *testing.T) {
 	}
 }
 
-// TestStatsEventSize logs the bytes of one per-hand stats event, for the Numbers in
-// docs/system-design.md: 2,000 hands (the dataset fixture's 40 nine-handed hands, cycled),
+// TestStatsEventSize logs the bytes of one per-hand stats event after 2,000 hands (the dataset fixture's 40 nine-handed hands, cycled),
 // then one more. Run it with go test -run TestStatsEventSize -v ./api/.
 func TestStatsEventSize(t *testing.T) {
 	f, err := os.Open("../../dataset/tests/fixtures/generated/hands.jsonl")

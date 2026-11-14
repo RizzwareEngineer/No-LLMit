@@ -1,6 +1,6 @@
 // The saved record of one hand: who sat where with which cards, every decision in
 // order with the situation the player faced and what they did, and the result. Built by
-// api/record.go, read by stats/. See docs/hand-history.md.
+// api/record.go, read by stats/.
 package history
 
 import (

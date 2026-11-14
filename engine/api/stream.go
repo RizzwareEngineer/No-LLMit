@@ -1,4 +1,4 @@
-// GET /stream: one-way Server-Sent Events to every viewer (docs/stream.md). Tables publish
+// GET /stream: one-way Server-Sent Events to every viewer. Tables publish
 // to the hub; the net/http goroutine of each stream is that viewer's only writer. It sends
 // a snapshot on connect, then the hub's recent frames after the last one it wrote, or a
 // fresh snapshot when it has fallen more than ringSize behind.

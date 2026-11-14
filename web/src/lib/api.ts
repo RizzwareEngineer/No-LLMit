@@ -1,4 +1,4 @@
-// Game stream client for No-LLMit: Server-Sent Events from the engine (docs/stream.md)
+// Game stream client for No-LLMit: Server-Sent Events from the engine (engine/api/stream.go)
 
 // The engine's address: an http(s) base URL without a trailing slash, such as https://engine.example.com. Unset, the site
 // talks to localhost; next.config.ts refuses a production Vercel build without it.
@@ -16,7 +16,7 @@ type MessageType =
   | 'button_winner'
   | 'table_notice';
 
-// One SSE frame from the engine (docs/stream.md). snapshot and stats carry no table.
+// One SSE frame from the engine (engine/api/messages.go). snapshot and stats carry no table.
 export interface ServerMessage {
   seq: number;
   table?: string;
