@@ -73,12 +73,6 @@ def test_covered_call_is_played_as_the_engine_lists_it():
     # The engine lists CALL beside the ALL-IN: the call stays a call (the engine plays it all-in).
     out = decide.decide(short_stack_request(), scripted("ACTION: call\nAMOUNT: 0\nREASON: Queens."))
     assert (out["action"], out["status"]) == ("CALL", "ok")
-    # With the ALL-IN alone, "call" is that all-in: the model called for its whole stack.
-    r = with_(short_stack_request(), legal_actions=[{"type": "FOLD"}, {"type": "ALL-IN", "amount": 65}])
-    out = decide.decide(r, scripted("ACTION: call\nAMOUNT: 0\nREASON: Queens."))
-    assert (out["action"], out["status"]) == ("ALL_IN", "ok")
-    out = decide.decide(r, scripted("ACTION: call all-in\nAMOUNT: 0\nREASON: Queens."))
-    assert (out["action"], out["status"]) == ("ALL_IN", "ok")
 
 
 def test_raise_to_the_all_in_total_is_legal():

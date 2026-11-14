@@ -282,7 +282,10 @@ func TestSnapshotKeepsTheAppliedActionUntilTheNextHand(t *testing.T) {
 // the turn carries 20 s elapsed, so a late joiner's shot clock shows what is left.
 func TestThinkingCarriesBudgetAndElapsed(t *testing.T) {
 	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
-	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := reply("FOLD", 0); return &r, nil }
+	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) {
+		r := reply("FOLD", 0)
+		return &r, nil
+	}
 	tbl := testTable(t)
 	tbl.pace = 1e-6
 	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
@@ -312,6 +315,36 @@ func TestThinkingCarriesBudgetAndElapsed(t *testing.T) {
 	json.Unmarshal(parseFrames(t, b)[0].Payload, &snap)
 	if p := snap.Tables[tbl.id].Turn.Payload; p.BudgetMs != 45000 || p.ElapsedMs < 20000 || p.ElapsedMs > 21000 {
 		t.Errorf("snapshot turn %+v, want budget 45000 and about 20000 elapsed", p)
+	}
+}
+
+// A model that leads the flop is shown betting, not raising, in its llm_action and on its
+// seat, as the legal list it was given named the move.
+func TestOpeningBetIsShownAsBet(t *testing.T) {
+	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
+	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) {
+		r := reply("RAISE", 20)
+		return &r, nil
+	}
+	tbl := testTable(t)
+	tbl.pace = 1e-6
+	for _, typ := range []game.ActionType{game.ActionCall, game.ActionCall, game.ActionCheck} {
+		if err := tbl.gs.ProcessAction(game.Action{Type: typ, PlayerIdx: tbl.gs.CurrentPlayerIdx}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tbl.gs.AdvanceStreet(); err != nil || tbl.gs.Street != game.StreetFlop {
+		t.Fatalf("street %v, %v", tbl.gs.Street, err)
+	}
+	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+	seat := tbl.gs.CurrentPlayerIdx
+	tbl.playTurn()
+	snap := tbl.hub.since(0, true).tables[tbl.id]
+	if p := snap.Turn.Payload.(LLMActionPayload); p.Action != "BET" || p.Amount != 20 {
+		t.Errorf("llm_action %+v, want BET 20", p)
+	}
+	if p := snap.State.Players[seat]; p.LastAction != "BET" {
+		t.Errorf("seat's lastAction %q, want BET", p.LastAction)
 	}
 }
 

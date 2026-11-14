@@ -31,7 +31,7 @@ def test_decide_with_mock(client):
     assert body["provider"] == "mock" and body["model"] == "mock"
     assert body["prompt_version"] == prompt_version
     assert body["prompt"].startswith("Blinds 5/10")
-    for field in ("reasoning", "reasoning_tokens", "finish_reason", "upstream_provider", "generation_id", "temperature", "error"):
+    for field in ("reasoning_tokens", "upstream_provider", "error"):
         assert body[field] is None
 
 
@@ -72,9 +72,8 @@ def test_openrouter_reply_and_metadata(monkeypatch):
     openrouter_reply(monkeypatch, "ACTION: ALL IN\nAMOUNT: 0", "stop", sent)
     result = openrouter.complete(preflop_request(), [{"role": "user", "content": "x"}], 7)
     assert result["raw"] == "ACTION: ALL IN\nAMOUNT: 0"
-    assert result["reasoning"] == "Thinking..." and result["reasoning_tokens"] == 1500
+    assert result["reasoning_tokens"] == 1500 and result["finish_reason"] == "stop"
     assert result["upstream_provider"] == "DeepInfra" and result["model"] == "microsoft/phi-4"
-    assert result["generation_id"] == "gen-123"
     assert sent["model"] == "microsoft/phi-4"
     assert (sent["temperature"], sent["max_tokens"], sent["reasoning"]) == (0.7, 1536, {"max_tokens": 1024})
 

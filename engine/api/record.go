@@ -123,13 +123,7 @@ func (r *handRecorder) endDecision(gs *game.GameState, turn llmTurn) {
 		case game.ActionAllIn:
 			a.Applied = history.AppliedAction{Type: "ALL_IN", Amount: last.Amount}
 		case game.ActionRaise:
-			// The first chips in on a postflop street are a bet; preflop the blinds are
-			// already a bet, so it is always a raise.
-			kind := "RAISE"
-			if a.ToCall == 0 && a.Street != game.StreetPreflop.String() {
-				kind = "BET"
-			}
-			a.Applied = history.AppliedAction{Type: kind, Amount: last.Amount}
+			a.Applied = history.AppliedAction{Type: last.Name(), Amount: last.Amount}
 		}
 	}
 

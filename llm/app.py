@@ -76,7 +76,7 @@ def decide_turn(request: DecisionRequest):
     latency_ms = int((time.time() - start) * 1000)
     usage = result.pop("usage")
     response = DecisionResponse(
-        **{k: v for k, v in result.items() if k in DecisionResponse.model_fields},
+        **result,
         latency_ms=latency_ms,
         provider=PROVIDER,
         tokens_in=usage.get("prompt_tokens"),
@@ -95,7 +95,3 @@ def decide_turn(request: DecisionRequest):
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     return response
 
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "5001")))

@@ -64,12 +64,9 @@ def complete(request: DecisionRequest, messages: list[dict], timeout: float) -> 
             "raw": raw,
             "model": body.get("model") or model_id,
             "usage": usage,
-            "reasoning": message.get("reasoning") or None,
             "reasoning_tokens": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
             "finish_reason": finish_reason,
             "upstream_provider": body.get("provider"),
-            "generation_id": body.get("id"),
-            "temperature": TEMPERATURE,
         }
     except requests.Timeout:
         raise

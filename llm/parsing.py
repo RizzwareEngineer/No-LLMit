@@ -48,8 +48,8 @@ END = rf"(?:[ \t]*(?:chips?|total|in[ \t]+total)\b)*(?:[ \t]*{NOTE})?[^\w\n]*"
 # A field label at the start of a line, after list or quote marks: "ACTION: ...", "2. AMOUNT: ...".
 LABEL_RE = re.compile(r"[^\w\n]*(?:\d+[.)][ \t]*)?(ACTION|AMOUNT|REASON)[ \t]*:[ \t]*(.*)", re.I)
 # The whole ACTION value. "raise all-in", "bet all-in", "raise to all-in" and "go all-in" are
-# the all-in. "call all-in" is a call: decide.check_legal makes it the all-in when the bet
-# covers the stack, so "call the all-in" never shoves over a smaller bet.
+# the all-in. "call all-in" is a call: when the bet covers the stack the engine lists CALL
+# and plays it as the all-in, so "call the all-in" never shoves over a smaller bet.
 ACTION_RE = re.compile(
     OPEN + r"(?:"
     rf"(?P<shove>(?:(?:raise|bet)[ \t]+(?:to[ \t]+)?\(?[ \t]*|go(?:ing)?[ \t]+)?{ALL_IN}\b\)?)(?:[ \t]+(?:for|to|of)\b)?(?:[ \t:=]*{ANY_NUMBER})?"
@@ -132,7 +132,7 @@ def parse_response(text: str) -> dict:
     `problem` says why an unparseable reply could not be read; `size_problem` why a bet or
     raise has no usable size (decide.check_legal reports it as illegal); `complete` is
     whether the answer ends with its REASON (a reply the token limit cut off does not)."""
-    result = {"action": "FOLD", "amount": 0, "reason": "", "raw": text, "status": "ok",
+    result = {"action": "FOLD", "amount": 0, "reason": "", "status": "ok",
               "problem": "", "size_problem": "", "complete": False}
 
     def miss(problem: str) -> dict:

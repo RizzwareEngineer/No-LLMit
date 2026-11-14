@@ -27,9 +27,9 @@ log = logging.getLogger(__name__)
 
 def check_legal(parsed: dict, request: DecisionRequest) -> str:
     """Why the parsed reply cannot be played, or "" when it can. The engine's legal list
-    is the source of truth; the engine checks the move again before applying it. A reply
-    that names the same move as a legal all-in is rewritten to ALL_IN: "call" when the
-    bet covers the stack, or a raise to the all-in total when no raise is legal."""
+    is the source of truth; the engine checks the move again before applying it. A raise
+    to the all-in total when no raise is legal is rewritten to ALL_IN. A "call" for the
+    whole stack needs no rewrite: the engine lists CALL there and plays it as the all-in."""
     if parsed["status"] == "unparseable":
         return parsed.get("problem") or "no ACTION line was found"
     legal = {a.type.replace("-", "_"): a for a in request.legal_actions}
@@ -53,9 +53,6 @@ def check_legal(parsed: dict, request: DecisionRequest) -> str:
             return f"{said} is above the maximum {sizing.max:,}"
         return ""
     if action in legal:
-        return ""
-    if action == "CALL" and all_in and request.to_call >= request.stack:
-        parsed["action"] = "ALL_IN"  # a call for the whole stack is the all-in
         return ""
     if action == "CHECK":
         return f"there is {min(request.to_call, request.stack):,} to call, so check is not legal"
@@ -137,6 +134,6 @@ def _merge(out: dict, reply: dict):
         v = usage.get(k) if k != "reasoning_tokens" else reply.get("reasoning_tokens")
         if v is not None:
             out["usage"][k] = out["usage"].get(k, 0) + v
-    for k in ("model", "reasoning", "finish_reason", "upstream_provider", "generation_id", "temperature"):
+    for k in ("model", "upstream_provider"):
         if reply.get(k) is not None:
             out[k] = reply[k]

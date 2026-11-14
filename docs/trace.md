@@ -177,13 +177,13 @@ These steps repeat for every turn, with or without viewers.
 **23. Publish `llm_action`.**
 - **Where / trigger:** engine, table loop goroutine. Step 22 returns.
 - **Code:** `engine/api/table.go` → `playTurn`.
-- **Does:** Sleeps until `thinkingDuration` (5 s) has passed since `llm_thinking` went out. Stores the `llm_action` message `{turn, playerIdx, playerName, action, amount, reason}` as `t.turn` and publishes it; a fallback shows the fallback action with amount 0. Then it sleeps while viewers read: 25 ms per byte of `reason` (Go's `len` of the UTF-8 string, so a non-ASCII character counts two to four times) plus 200 ms, held between `minReasoning` (5 s) and `maxReasoning` (10 s), and only then multiplied by `TABLE_PACE`.
+- **Does:** Sleeps until `thinkingDuration` (5 s) has passed since `llm_thinking` went out. Stores the `llm_action` message `{turn, playerIdx, playerName, action, amount, reason}` as `t.turn` and publishes it; a fallback shows the fallback action with amount 0, and a raise is named by `game.RaiseName` (`BET` when nobody has bet on the street, else `RAISE`), the rule that also names it in `legal_actions`, the seat's `lastAction` and the saved hand's `applied`. Then it sleeps while viewers read: 25 ms per byte of `reason` (Go's `len` of the UTF-8 string, so a non-ASCII character counts two to four times) plus 200 ms, held between `minReasoning` (5 s) and `maxReasoning` (10 s), and only then multiplied by `TABLE_PACE`.
 - **Next:** Step 24.
 
 **24. Apply the action and publish `game_state`.**
 - **Where / trigger:** engine, table loop goroutine. The reasoning sleep ends.
 - **Code:** `engine/api/table.go` → `playTurn`; `engine/game/action.go` → `ProcessAction`; `engine/api/record.go` → `endDecision`; `engine/api/table.go` → `advanceStreet`; `engine/api/table.go` → `stateMessage`.
-- **Does:** Under `t.mu` it applies the move to the game, records the reply and the applied action in the hand's record, and advances the street if the betting round is over. It sets `turnApplied` true and sends in one publish: `street_change` if the street moved, `hand_complete` if the hand ended, then `game_state`. Then it sleeps `postActionDelay` (5 s). If the game rejects the checked move (not expected), it logs it, marks the turn as a fallback and applies `FOLD` for that seat before recording, although the `llm_action` already published showed another move.
+- **Does:** Under `t.mu` it applies the move to the game, records the reply and the applied action in the hand's record, and advances the street if the betting round is over. It sets `turnApplied` true and publishes `game_state`, which carries the new street, the board and, when the hand ended, `winners`. Then it sleeps `postActionDelay` (5 s). If the game rejects the checked move (not expected), it logs it, marks the turn as a fallback and applies `FOLD` for that seat before recording, although the `llm_action` already published showed another move.
 - **Next:** Back to step 17.
 
 ## The event reaches every viewer
@@ -247,7 +247,6 @@ Every frame takes this path: the snapshot first, then the full stats, then live 
 | `table_notice` | `notice` is set, or null when `kind` is `""` |
 | `button_card` | `buttonDetermination` gains a card; its winner and `isComplete` are reset |
 | `button_winner` | `buttonDetermination` gains its winner; with no button cards held it stays null |
-| `street_change`, `hand_complete` | nothing: the `game_state` of the same publish carries the street, the board and `winners` |
 
 **32. Apply stats.**
 - **Where / trigger:** browser. The message type is `stats`.
@@ -290,7 +289,7 @@ Every frame takes this path: the snapshot first, then the full stats, then live 
 **38. Complete the hand.**
 - **Where / trigger:** engine, table loop goroutine. The action applied in step 24, or a street settled in step 17, ends the hand.
 - **Code:** `engine/api/table.go` → `advanceStreet`; `engine/game/game.go` → `AdvanceStreet`.
-- **Does:** The game ends the hand when one player is left, runs out the board when at most one can still act, or resolves the showdown after the river; the street becomes `complete`. The table sets `nextHandAt` to now plus `postActionDelay + nextHandDelay` (12 s) and returns `street_change` `{"street":"complete"}` and `hand_complete` `{winners, handNumber}`. The `game_state` published with them carries `winners` and `nextHandInMs`.
+- **Does:** The game ends the hand when one player is left, runs out the board when at most one can still act, or resolves the showdown after the river; the street becomes `complete`. The table sets `nextHandAt` to now plus `postActionDelay + nextHandDelay` (12 s). The `game_state` the caller then publishes carries street `complete`, `winners` and `nextHandInMs`.
 - **Next:** In the browser `street === 'complete'` shows the winners and starts the `Next hand in Ns` countdown. On the engine the turn loop ends (step 39).
 
 **39. Decide whether the hand is saved.**

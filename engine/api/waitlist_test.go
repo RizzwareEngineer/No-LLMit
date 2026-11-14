@@ -27,11 +27,11 @@ func TestWaitlistInMemory(t *testing.T) {
 	if code, out := waitlistCall(t, h, "GET", ""); code != 200 || out["count"] != 0.0 {
 		t.Errorf("GET empty: %d %v", code, out)
 	}
-	if code, out := waitlistCall(t, h, "POST", `{"email": " Ada@Example.com "}`); code != 201 || out["count"] != 1.0 || out["already"] != nil {
+	if code, out := waitlistCall(t, h, "POST", `{"email": " Ada@Example.com "}`); code != 201 || out["count"] != 1.0 || len(out) != 1 {
 		t.Errorf("POST new: %d %v", code, out)
 	}
-	if code, out := waitlistCall(t, h, "POST", `{"email": "ada@example.COM"}`); code != 200 || out["count"] != 1.0 || out["already"] != true {
-		t.Errorf("POST same address, other case: %d %v", code, out)
+	if code, out := waitlistCall(t, h, "POST", `{"email": "ada@example.COM"}`); code != 201 || out["count"] != 1.0 || len(out) != 1 {
+		t.Errorf("POST same address, other case: %d %v, want the same reply as a new one", code, out)
 	}
 	if code, out := waitlistCall(t, h, "GET", ""); code != 200 || out["count"] != 1.0 {
 		t.Errorf("GET after: %d %v", code, out)
@@ -140,7 +140,7 @@ func TestWaitlistSupabase(t *testing.T) {
 	if _, last := fake.state(); last.Get("Prefer") != "return=minimal" || last.Get("Content-Type") != "application/json" {
 		t.Errorf("insert headers: %v", last)
 	}
-	if code, out := waitlistCall(t, h, "POST", `{"email": "ada@example.com"}`); code != 200 || out["count"] != 1.0 || out["already"] != true {
+	if code, out := waitlistCall(t, h, "POST", `{"email": "ada@example.com"}`); code != 201 || out["count"] != 1.0 || len(out) != 1 {
 		t.Errorf("POST duplicate (409): %d %v", code, out)
 	}
 	// One count for the GET, one after the insert; the duplicate is answered from the cache.
@@ -206,7 +206,7 @@ func TestWaitlistStoredSignUpWithoutCount(t *testing.T) {
 	if code, out := waitlistCall(t, h, "POST", `{"email": "ada@example.com"}`); code != 201 || out["count"] != nil || out["error"] != nil {
 		t.Errorf("POST new, count failing: %d %v", code, out)
 	}
-	if code, out := waitlistCall(t, h, "POST", `{"email": "ada@example.com"}`); code != 200 || out["already"] != true || out["count"] != nil {
+	if code, out := waitlistCall(t, h, "POST", `{"email": "ada@example.com"}`); code != 201 || len(out) != 0 {
 		t.Errorf("POST again, count failing: %d %v", code, out)
 	}
 	if !fake.emails["ada@example.com"] {
@@ -292,7 +292,7 @@ func TestWaitlistLimitsEachSender(t *testing.T) {
 func TestWaitlistDailyLimit(t *testing.T) {
 	t.Setenv("WAITLIST_DAILY_MAX", "2")
 	h := waitlistHandler(&memoryWaitlist{emails: map[string]bool{}})
-	for i, want := range []int{201, 200, 201, 429, 429} { // a repeat adds no row; the third new row is over
+	for i, want := range []int{201, 201, 201, 429, 429} { // a repeat adds no row; the third new row is over
 		email := []string{"a@example.com", "a@example.com", "b@example.com", "c@example.com", "a@example.com"}[i]
 		if code := waitlistFrom(h, fmt.Sprintf("203.0.113.%d", i), email); code != want {
 			t.Errorf("request %d (%s): %d, want %d", i+1, email, code, want)

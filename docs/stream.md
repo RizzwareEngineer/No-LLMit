@@ -48,8 +48,6 @@ The payloads are the Go structs in `engine/api/messages.go`.
 |---|---|
 | `game_state` | `GameStatePayload` (whole table; `nextHandInMs` is worked out when the frame is made) |
 | `hand_start` | `{"handNumber":12}` |
-| `street_change` | `{"street":"flop"}` |
-| `hand_complete` | `{"winners":[WinnerPayload],"handNumber":12}` |
 | `llm_thinking` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4","budgetMs":45000,"elapsedMs":0}` |
 | `llm_action` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4","action":"RAISE","amount":60,"reason":"..."}` |
 | `button_card` | `{"playerIdx":0,"playerName":"Phi-4","card":"Ah"}` |
@@ -58,6 +56,14 @@ The payloads are the Go structs in `engine/api/messages.go`.
 
 `turn` numbers the hand's turns from 1; a turn's `llm_thinking` and `llm_action` carry the
 same number.
+
+`llm_action` `action` is one of `FOLD`, `CHECK`, `CALL`, `BET`, `RAISE`, `ALL_IN`. A sized
+move is `BET` when nobody has bet on the street yet and `RAISE` otherwise
+(`game.RaiseName`, the rule that also names the move in the legal list the model was given);
+`amount` is the street total. A move the engine did not take from the model (a fallback)
+shows `CHECK` or `FOLD` with `amount` 0. A player's `lastAction` in `game_state` is the
+applied move by the same rule: `FOLD`, `CHECK`, `CALL`, `BET`, `RAISE` or `ALL-IN` (with a
+hyphen).
 
 In `game_state`, each player's `position` is the name the model in that seat is told and the
 saved hand keeps (`game.PositionName`), clockwise from the button: 9 seats `BTN SB BB UTG
@@ -75,9 +81,9 @@ pot, the winner's own chips included), the same number the saved hand's `result.
 worked out when the snapshot is written to that stream. The shot clock shows
 `budgetMs - elapsedMs`.
 
-Events of one table step arrive back to back: `hand_start` then `game_state`; `street_change`
-(and `hand_complete` when the hand ends), then `game_state`; after a voided hand, `table_notice`
-(`outage`) then `game_state`. The `game_state` after an `llm_action` is what applies the
+Events of one table step arrive back to back: `hand_start` then `game_state`; after a voided
+hand, `table_notice` (`outage`) then `game_state`. A new street or the end of a hand is only a
+`game_state`: it carries the street, the board and `winners`. The `game_state` after an `llm_action` is what applies the
 action (the page moves its reasoning to revealed); the action stays the table's turn until the
 next `llm_thinking` or `hand_start`. There is no turn-cleared message.
 

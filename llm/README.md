@@ -65,11 +65,6 @@ MiniMax M2 is not listed: `minimax/minimax-m2` is no longer on OpenRouter (M2.5 
 
 ```bash
 source .venv/bin/activate
-python app.py
-```
-
-Or with uvicorn directly:
-```bash
 uvicorn app:app --reload --port 5001
 ```
 
@@ -131,8 +126,7 @@ Response (`DecisionResponse`):
   "retry_prompt": null,
   "provider": "openrouter", "model": "microsoft/phi-4",
   "tokens_in": 812, "tokens_out": 41, "cost_usd": 0.00002, "prompt_version": "f605559",
-  "reasoning": null, "reasoning_tokens": null, "finish_reason": "stop",
-  "upstream_provider": "DeepInfra", "generation_id": "gen-1730000000-abc", "temperature": 0.7
+  "reasoning_tokens": null, "upstream_provider": "DeepInfra"
 }
 ```
 
@@ -149,10 +143,8 @@ Response (`DecisionResponse`):
   `providers/openrouter.py`: the system prompt, the user prompt template, the parser, the
   legality check, retry and time budget, and the sampling settings (temperature, token
   limits). A change to any of them starts a new version.
-- `model` and `upstream_provider` are what OpenRouter reports serving the call;
-  `reasoning` is the model's thinking text when it returns one, `reasoning_tokens` its
-  count, and `finish_reason`, `generation_id`, `temperature` come from OpenRouter. The mock
-  provider leaves them null.
+- `model` and `upstream_provider` are what OpenRouter reports serving the call and
+  `reasoning_tokens` its count of thinking tokens. The mock provider leaves the last two null.
 - `reason` is empty when the model gave no REASON; it is never filled in for the model.
 - `amount` is the reply's size for `RAISE` (a bet or a raise to a street total) and 0 for
   every other move, whatever number the reply wrote on its AMOUNT line.

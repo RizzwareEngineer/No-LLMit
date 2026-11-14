@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/rizzwareengineer/no-LLMit/engine/game"
 )
 
 var (
@@ -29,18 +31,18 @@ func getEnv(key, fallback string) string {
 
 // DecisionRequest is the game state one decision is made from. Mirrors llm/schemas.py.
 type DecisionRequest struct {
-	PlayerName   string        `json:"player_name"` // roster name of the seat's model; never shown to it
-	SmallBlind   int           `json:"small_blind"`
-	BigBlind     int           `json:"big_blind"`
-	Seats        []Seat        `json:"seats"`   // clockwise from the small blind
-	Streets      []Street      `json:"streets"` // preflop first, up to the current street
-	Seat         int           `json:"seat"`    // the acting player
-	Position     string        `json:"position"`
-	HoleCards    []string      `json:"hole_cards"`
-	Pot          int           `json:"pot"`
-	ToCall       int           `json:"to_call"`
-	Stack        int           `json:"stack"`
-	LegalActions []LegalAction `json:"legal_actions"`
+	PlayerName   string                `json:"player_name"` // roster name of the seat's model; never shown to it
+	SmallBlind   int                   `json:"small_blind"`
+	BigBlind     int                   `json:"big_blind"`
+	Seats        []Seat                `json:"seats"`   // clockwise from the small blind
+	Streets      []Street              `json:"streets"` // preflop first, up to the current street
+	Seat         int                   `json:"seat"`    // the acting player
+	Position     string                `json:"position"`
+	HoleCards    []string              `json:"hole_cards"`
+	Pot          int                   `json:"pot"`
+	ToCall       int                   `json:"to_call"`
+	Stack        int                   `json:"stack"`
+	LegalActions []game.LLMValidAction `json:"legal_actions"`
 }
 
 type Seat struct {
@@ -62,13 +64,6 @@ type StreetAction struct {
 	Seat   int    `json:"seat"`
 	Action string `json:"action"`
 	Amount int    `json:"amount,omitempty"`
-}
-
-type LegalAction struct {
-	Type   string `json:"type"`
-	Amount int    `json:"amount,omitempty"`
-	Min    int    `json:"min,omitempty"`
-	Max    int    `json:"max,omitempty"`
 }
 
 type LLMDecisionResponse struct {

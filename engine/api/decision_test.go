@@ -84,7 +84,7 @@ func TestDecisionRequestRetellsTheHandAsData(t *testing.T) {
 		t.Errorf("river: %+v", r)
 	}
 
-	wantLegal := []client.LegalAction{{Type: "FOLD"}, {Type: "CHECK"}, {Type: "BET", Min: 10, Max: 1930}, {Type: "ALL-IN", Amount: 1930}}
+	wantLegal := []game.LLMValidAction{{Type: "FOLD"}, {Type: "CHECK"}, {Type: "BET", Min: 10, Max: 1930}, {Type: "ALL-IN", Amount: 1930}}
 	if !reflect.DeepEqual(req.LegalActions, wantLegal) {
 		t.Errorf("legal actions: %+v", req.LegalActions)
 	}

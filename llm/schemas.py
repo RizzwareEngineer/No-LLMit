@@ -65,9 +65,5 @@ class DecisionResponse(BaseModel):
     cost_usd: float | None = None
     prompt_version: str = ""
     # OpenRouter only; None from the mock provider.
-    reasoning: str | None = None  # the model's thinking text, if it returned any
     reasoning_tokens: int | None = None
-    finish_reason: str | None = None  # "stop", "length", ...
     upstream_provider: str | None = None  # the host OpenRouter routed to
-    generation_id: str | None = None  # OpenRouter generation id
-    temperature: float | None = None

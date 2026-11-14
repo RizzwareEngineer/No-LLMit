@@ -13,8 +13,6 @@ type MessageType string
 const (
 	MsgGameState    MessageType = "game_state"
 	MsgHandStart    MessageType = "hand_start"
-	MsgStreetChange MessageType = "street_change"
-	MsgHandComplete MessageType = "hand_complete"
 	MsgLLMThinking  MessageType = "llm_thinking"
 	MsgLLMAction    MessageType = "llm_action"
 	MsgButtonCard   MessageType = "button_card"   // Card dealt for button determination
@@ -80,11 +78,6 @@ type TableNoticePayload struct {
 	ReopensAt string `json:"reopensAt,omitempty"` // RFC3339
 }
 
-type HandCompletePayload struct {
-	Winners    []WinnerPayload `json:"winners"`
-	HandNumber int             `json:"handNumber"`
-}
-
 // Turn numbers a hand's turns from 1; a turn's llm_thinking and llm_action share it.
 // BudgetMs is how long the model has for this turn (client.TurnBudget); ElapsedMs is how
 // long it has had so far: 0 on the live event, worked out per stream in a snapshot.
@@ -124,7 +117,7 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 		var lastAction string
 		var lastAmount int
 		if p.LastAction != nil {
-			lastAction = p.LastAction.Type.String()
+			lastAction = p.LastAction.Name()
 			lastAmount = p.LastAction.Amount
 		}
 
