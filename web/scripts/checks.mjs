@@ -33,7 +33,10 @@ async function check(id, rule, fn) {
   results.push(r);
   await parkShared();
   r.ms = Date.now() - t0; if (!lane.getStore()) lastEnd = Date.now();
+  console.log(line(r)); // now, so a run stopped halfway still shows what finished
 }
+const ID_W = Math.max(...IDS.map(id => id.length));
+const line = r => `${r.pass ? 'PASS' : 'FAIL'}  ${r.id.padEnd(ID_W)}  ${(r.ms / 1000).toFixed(1).padStart(5)}s  ${r.detail}   (${r.rule})`;
 // The main page's steps (main) run in order on one page. Checks that bring their own pages run in lanes, each group
 // in a browser context of its own: a window of its own, so input and frames work in every lane at once (a background
 // tab gets neither); newPage() opens a page in the running group's context. The rest (group) run beside the main page
@@ -4713,8 +4716,8 @@ await browser.close();
 // A block that threw outside its check() lost its checks: they fail under their own ids, so verify.sh reruns them alone.
 for (const id of IDS) if (want(id) && !results.some(r => r.id === id)) results.push({ id, rule: 'ran', pass: false, detail: 'never ran: its block threw (error above)', ms: 0 });
 results.sort((a, b) => IDS.indexOf(a.id) - IDS.indexOf(b.id));
-const w = Math.max(...results.map(r => r.id.length));
-for (const r of results) console.log(`${r.pass ? 'PASS' : 'FAIL'}  ${r.id.padEnd(w)}  ${(r.ms / 1000).toFixed(1).padStart(5)}s  ${r.detail}   (${r.rule})`);
+console.log('\nall checks, in order:');
+for (const r of results) console.log(line(r));
 console.log(`\nslowest: ${results.slice().sort((a, b) => b.ms - a.ms).slice(0, 5).map(r => `${r.id} ${(r.ms / 1000).toFixed(0)}s`).join(', ')}`);
 const failed = results.filter(r => !r.pass).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
