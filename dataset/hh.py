@@ -3,8 +3,17 @@
 Usage: python hh.py hands.jsonl > hands.txt   (one hand doc per line)
 
 The output follows the PokerStars play-money cash game format closely enough for
-PokerTracker, Hold'em Manager and Hand2Note to import it. Deviations are listed in
-dataset/README.md under "PokerStars hand histories".
+PokerTracker, Hold'em Manager and Hand2Note to import it. Where it differs:
+
+- Every player's hole cards appear as "Dealt to" lines (a full-information history).
+- Hand numbers are <table hex as integer> * 1000000 + hand_number for a 6-digit table hex,
+  and crc32(table id) * 1000000 + hand_number for longer ids; the table name is the session id.
+- "shows [..]" lines carry no hand description.
+- Side pots are not itemized: each winner gets one "collected N from pot" line with their total.
+- Uncalled bets are derived from the actions, as PokerStars prints them.
+- Before 2026-11-09 a short all-in could win unmatched chips; those hands follow the engine's
+  payout and end with a "#note <hand_id>: ..." line.
+- A hand that cannot be written is left out and named on stderr.
 """
 
 import json
