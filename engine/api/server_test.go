@@ -2,6 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,5 +43,47 @@ func TestUsageRequestsDoNotQueueBehindAFetch(t *testing.T) {
 	}
 	if b := s.llmUsage(); string(b) != `"new"` {
 		t.Errorf("after the fetch: %s", b)
+	}
+}
+
+// /dev/pace exists only with DEV_CONTROLS=1; a POST sets the pace the next pause uses, and a bad value is a 400.
+func TestDevPace(t *testing.T) {
+	s := &Server{table: &Table{}}
+	s.table.setPace(1)
+	do := func(mux *http.ServeMux, method, target string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(method, target, nil))
+		return w
+	}
+
+	t.Setenv("DEV_CONTROLS", "")
+	off := http.NewServeMux()
+	s.devRoutes(off)
+	if w := do(off, "POST", "/dev/pace?pace=0.5"); w.Code != http.StatusNotFound {
+		t.Fatalf("without DEV_CONTROLS: %d", w.Code)
+	}
+	if s.table.Pace() != 1 {
+		t.Fatalf("without DEV_CONTROLS the pace changed to %g", s.table.Pace())
+	}
+
+	t.Setenv("DEV_CONTROLS", "1")
+	on := http.NewServeMux()
+	s.devRoutes(on)
+	for _, bad := range []string{"", "abc", "0", "0.05", "2.5", "NaN", "-1"} {
+		if w := do(on, "POST", "/dev/pace?pace="+url.QueryEscape(bad)); w.Code != http.StatusBadRequest {
+			t.Errorf("pace %q: %d", bad, w.Code)
+		}
+	}
+	if w := do(on, "POST", "/dev/pace?pace=0.5"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"pace":0.5`) {
+		t.Fatalf("POST 0.5: %d %s", w.Code, w.Body)
+	}
+	if got := s.table.paced(10 * time.Second); got != 5*time.Second {
+		t.Errorf("the next 10s pause is %v, want 5s", got)
+	}
+	if w := do(on, "GET", "/dev/pace"); w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"pace":0.5}` {
+		t.Errorf("GET: %d %s", w.Code, w.Body)
+	}
+	if w := do(on, "DELETE", "/dev/pace"); w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE: %d", w.Code)
 	}
 }

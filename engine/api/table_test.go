@@ -139,7 +139,8 @@ func TestRebuyInAVoidedHandIsFlaggedOnTheNextHand(t *testing.T) {
 		return &r, nil
 	}
 	tbl := testTable(t)
-	tbl.pace, tbl.saver, tbl.dailyCallCap = 1e-6, &fakeSaver{}, 100
+	tbl.saver, tbl.dailyCallCap = &fakeSaver{}, 100
+	tbl.setPace(1e-6)
 	var saved []history.HandRecord
 	tbl.onSaved = func(h history.HandRecord) { saved = append(saved, h) }
 	tbl.gs.Players[1].Stack = 0
@@ -244,7 +245,8 @@ func TestEveryModelCallCountsTowardTheCap(t *testing.T) {
 	} {
 		askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := c.reply; return &r, nil }
 		tbl := testTable(t)
-		tbl.pace, tbl.recorder = 1e-6, newHandRecorder(tbl.gs, "tbl_test", nil)
+		tbl.recorder = newHandRecorder(tbl.gs, "tbl_test", nil)
+		tbl.setPace(1e-6)
 		tbl.playTurn()
 		if tbl.calls != c.calls {
 			t.Errorf("%s: %d calls counted, want %d", c.reply.Status, tbl.calls, c.calls)

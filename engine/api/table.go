@@ -9,11 +9,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
@@ -54,7 +56,7 @@ type Table struct {
 	dailyCallCap int
 	calls        int
 	callsDay     string
-	pace         float64
+	pace         atomic.Uint64 // math.Float64bits of the multiplier on every pause; /dev/pace changes it while the table runs
 
 	// Hand history: every finished hand is recorded and saved
 	id           string
@@ -90,12 +92,12 @@ func NewTable(h *hub, onSaved func(history.HandRecord)) *Table {
 		saveWait:     firstSaveWait,
 		onSaved:      onSaved,
 		dailyCallCap: envInt("DAILY_CALL_CAP", 5000),
-		pace:         envFloat("TABLE_PACE", 1),
 		openHour:     envInt("TABLE_OPEN_HOUR", 0),
 		closeHour:    envInt("TABLE_CLOSE_HOUR", 24),
 		now:          time.Now,
 		pause:        time.Sleep,
 	}
+	t.setPace(envFloat("TABLE_PACE", 1))
 	if zone := os.Getenv("TABLE_TIMEZONE"); zone != "" && t.closeHour > t.openHour {
 		loc, err := time.LoadLocation(zone)
 		if err != nil {
@@ -217,6 +219,7 @@ func (t *Table) publish(msgs ...ServerMessage) {
 		ButtonWinner: t.buttonWinner,
 	}
 	snap.State.Peeked = append([]int{}, t.peeked...)
+	snap.State.Pace = t.Pace()
 	if t.notice.Kind != "" {
 		n := t.notice
 		snap.Notice = &n
@@ -237,8 +240,12 @@ func (t *Table) publish(msgs ...ServerMessage) {
 // nextHandMs is the whole milliseconds until at, 0 once it has passed or when at is zero.
 func nextHandMs(at time.Time) int { return max(int(time.Until(at).Milliseconds()), 0) }
 
+func (t *Table) Pace() float64                       { return math.Float64frombits(t.pace.Load()) }
+func (t *Table) setPace(p float64)                   { t.pace.Store(math.Float64bits(p)) }
+func (t *Table) paced(d time.Duration) time.Duration { return time.Duration(float64(d) * t.Pace()) }
+
 func (t *Table) sleep(d time.Duration) {
-	time.Sleep(time.Duration(float64(d) * t.pace))
+	time.Sleep(t.paced(d))
 }
 
 // waitForBudget blocks once the day's LLM call cap is reached, until the next UTC day.
@@ -398,7 +405,7 @@ func (t *Table) playHand() {
 		log.Printf("Hand #%d stalled on %s with nobody to act; dealing a new hand", t.gs.HandNumber, t.gs.Street)
 	} else if t.saveHand() {
 		// An outage: wait before the next hand, the probe; dealing it clears the notice.
-		wait := time.Duration(float64(outagePause) * t.pace)
+		wait := t.paced(outagePause)
 		t.mu.Lock()
 		start.restore(t.gs)
 		t.nextHandAt = time.Now().Add(wait) // the countdown and the notice name the same time
@@ -515,7 +522,7 @@ func (t *Table) advanceStreet() {
 		log.Printf("Error advancing street: %v", err)
 	}
 	if t.gs.IsHandComplete() {
-		t.nextHandAt = time.Now().Add(time.Duration(float64(postActionDelay+nextHandDelay) * t.pace))
+		t.nextHandAt = time.Now().Add(t.paced(postActionDelay + nextHandDelay))
 	}
 }
 
@@ -550,7 +557,7 @@ func (t *Table) playTurn() {
 	turn := decideLLMTurn(t.gs, func() (*client.LLMDecisionResponse, error) { return askLLM(req) })
 	decision := turn.decision
 	log.Printf("%s: %s %d (%dms)", playerName, decision.Action, decision.Amount, time.Since(start).Milliseconds())
-	if remaining := time.Duration(float64(thinkingDuration)*t.pace) - time.Since(start); remaining > 0 {
+	if remaining := t.paced(thinkingDuration) - time.Since(start); remaining > 0 {
 		time.Sleep(remaining)
 	}
 

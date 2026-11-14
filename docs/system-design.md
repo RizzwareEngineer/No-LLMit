@@ -89,6 +89,7 @@ Environment variables the engine and the web read. Set them in Railway and Verce
 | `TABLE_CLOSE_HOUR` | 24 | 21 | Hour the table closes. |
 | `TABLE_TIMEZONE` | unset: open all day | America/New_York | Zone for the two hours above. Without it the hours are ignored. |
 | `TABLE_PACE` | 1 | not in the repo | Multiplier on every pacing sleep; 0.3 plays faster. |
+| `DEV_CONTROLS` | unset | local only, never in production | `1` opens `GET`/`POST /dev/pace` (`?pace=` 0.1 to 2), which changes `TABLE_PACE` while the table runs; the site shows a dial for it at `/?pace`. Unset, the route does not exist. |
 | `WAITLIST_DAILY_MAX` | 5000 | not in the repo | New waitlist rows per UTC day. |
 | `SITE_URL` | `https://nollmit.vercel.app` | not in the repo | The site's origin (engine). Browsers may post to the waitlist only from it, `http://localhost` or `http://127.0.0.1`. |
 | `LLM_SERVICE_URL` | `http://localhost:5001` | not in the repo | Where the engine posts `/decide`. |

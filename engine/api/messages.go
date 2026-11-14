@@ -40,6 +40,7 @@ type GameStatePayload struct {
 	GameStartTime    string               `json:"gameStartTime"`
 	NextHandInMs     int                  `json:"nextHandInMs,omitempty"` // Shared table: time until the next hand is dealt
 	Peeked           []int                `json:"peeked"`                 // seats whose turn has come this hand (their cards are face up); [] when none
+	Pace             float64              `json:"pace,omitempty"`         // Shared table: multiplier on every pause, so the site types reasons in step
 }
 
 type PlayerStatePayload struct {

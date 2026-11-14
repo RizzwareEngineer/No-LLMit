@@ -46,7 +46,7 @@ The payloads are the Go structs in `engine/api/messages.go`.
 
 | type | payload |
 |---|---|
-| `game_state` | `GameStatePayload` (whole table; `nextHandInMs` is worked out when the frame is made; `peeked` lists the seats whose turn has come this hand, in turn order, always present, `[]` when none: their hole cards are face up) |
+| `game_state` | `GameStatePayload` (whole table; `nextHandInMs` is worked out when the frame is made; `peeked` lists the seats whose turn has come this hand, in turn order, always present, `[]` when none: their hole cards are face up; `pace` is the table's multiplier on every pause, 1 by default, so the site types each reason at 25 ms per character times `pace`) |
 | `hand_start` | `{"handNumber":12}` |
 | `llm_thinking` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4","budgetMs":45000,"elapsedMs":0}` |
 | `llm_action` | `{"turn":4,"playerIdx":3,"playerName":"Phi-4","action":"RAISE","amount":60,"reason":"..."}` |
@@ -122,12 +122,12 @@ present: `turn`, `notice` and `buttonWinner` are `null` when there is none, `but
 `{type,payload}` (no `seq` or `table`), or `null` from `hand_start` until the hand's first
 `llm_thinking`. `turnApplied` is `true` when `turn` is an `llm_action` that the `game_state`
 after it has already applied, else `false`. So a snapshot is the whole picture on screen:
-thinking, reasoning, or the revealed action. `notice` is `null` when the kind is `""`. `state.peeked` is the same list the live `game_state` carries, so a viewer who joins mid-hand sees the same faces up. `state.nextHandInMs` is worked out when the snapshot is written to
+thinking, reasoning, or the revealed action. `notice` is `null` when the kind is `""`. `state.peeked` and `state.pace` are what the live `game_state` carries, so a viewer who joins mid-hand sees the same faces up. `state.nextHandInMs` is worked out when the snapshot is written to
 that stream, and so is an `llm_thinking` turn's `elapsedMs`. Examples here are wrapped and abbreviated; on the wire each is one line.
 
 ```json
 {"seq":1042,"type":"snapshot","payload":{"tables":{"tbl_9f2c41d07ab35e18":{
-  "state":{"handNumber":12,"street":"flop","pot":120,"communityCards":["Ah","7d","2c"],"currentPlayerIdx":3,"buttonIdx":1,"players":[],"stakes":{"smallBlind":5,"bigBlind":10},"gameStartTime":"2026-11-10T20:01:00Z","peeked":[4,5,0,3]},
+  "state":{"handNumber":12,"street":"flop","pot":120,"communityCards":["Ah","7d","2c"],"currentPlayerIdx":3,"buttonIdx":1,"players":[],"stakes":{"smallBlind":5,"bigBlind":10},"gameStartTime":"2026-11-10T20:01:00Z","peeked":[4,5,0,3],"pace":1},
   "turn":{"type":"llm_thinking","payload":{"turn":4,"playerIdx":3,"playerName":"Phi-4","budgetMs":45000,"elapsedMs":20480}},
   "turnApplied":false,
   "notice":null,

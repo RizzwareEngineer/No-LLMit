@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -42,6 +44,7 @@ func (s *Server) Start(port int) error {
 	http.HandleFunc("/api/stats", s.handleCORS(stats.handle))
 	http.HandleFunc("/api/stats/timeline", s.handleCORS(stats.handleTimeline))
 	http.HandleFunc("/api/waitlist", s.handleCORS(waitlistHandler(newWaitlist())))
+	s.devRoutes(http.DefaultServeMux)
 
 	addr := fmt.Sprintf(":%d", port)
 	log.Printf("Starting server on %s", addr)
@@ -106,4 +109,35 @@ func (s *Server) llmUsage() json.RawMessage {
 	s.usageLLM = llm
 	s.usageMu.Unlock()
 	return llm
+}
+
+// devRoutes adds the owner's local tools, only with DEV_CONTROLS=1: production never sets it, so there
+// the routes do not exist (404).
+func (s *Server) devRoutes(mux *http.ServeMux) {
+	if os.Getenv("DEV_CONTROLS") != "1" {
+		return
+	}
+	log.Printf("DEV_CONTROLS=1: /dev/pace is open")
+	mux.HandleFunc("/dev/pace", s.handleCORS(s.handlePace))
+}
+
+// handlePace reads (GET) or sets (POST ?pace=0.5, or a form body) the table's pace, 0.1 to 2;
+// the next pause uses it.
+func (s *Server) handlePace(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPost:
+		p, err := strconv.ParseFloat(r.FormValue("pace"), 64)
+		if err != nil || !(p >= 0.1 && p <= 2) {
+			http.Error(w, "pace must be a number from 0.1 to 2", http.StatusBadRequest)
+			return
+		}
+		s.table.setPace(p)
+		log.Printf("Pace set to %g", p)
+	default:
+		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]float64{"pace": s.table.Pace()})
 }

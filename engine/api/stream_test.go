@@ -301,7 +301,7 @@ func TestThinkingCarriesBudgetAndElapsed(t *testing.T) {
 		return &r, nil
 	}
 	tbl := testTable(t)
-	tbl.pace = 1e-6
+	tbl.setPace(1e-6)
 	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
 	tbl.playTurn()
 	var live LLMThinkingPayload
@@ -341,7 +341,7 @@ func TestOpeningBetIsShownAsBet(t *testing.T) {
 		return &r, nil
 	}
 	tbl := testTable(t)
-	tbl.pace = 1e-6
+	tbl.setPace(1e-6)
 	for _, typ := range []game.ActionType{game.ActionCall, game.ActionCall, game.ActionCheck} {
 		if err := tbl.gs.ProcessAction(game.Action{Type: typ, PlayerIdx: tbl.gs.CurrentPlayerIdx}); err != nil {
 			t.Fatal(err)
@@ -379,7 +379,7 @@ func TestShownMoveIsTheAppliedMove(t *testing.T) {
 	} {
 		askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := c.reply; return &r, nil }
 		tbl := testTable(t)
-		tbl.pace = 1e-6
+		tbl.setPace(1e-6)
 		// The button opens to 35: the small blind, 5 in, faces a call of 30.
 		if err := tbl.gs.ProcessAction(game.Action{Type: game.ActionRaise, Amount: 35, PlayerIdx: tbl.gs.CurrentPlayerIdx}); err != nil {
 			t.Fatal(err)
