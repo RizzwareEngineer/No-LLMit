@@ -415,3 +415,48 @@ func TestLoneStackWithNothingToCallIsNotAsked(t *testing.T) {
 		}
 	})
 }
+
+// A hand everyone folds pays the winner the whole pot, and Amount says so, as at showdown.
+func TestUncontestedWinnerAmountIsThePot(t *testing.T) {
+	gs := newTable(1000, 1000, 1000, 1000) // button A(0), SB B(1), BB C(2), UTG D(3)
+	if err := gs.StartHand(); err != nil {
+		t.Fatal(err)
+	}
+	act(t, gs, ActionRaise, 30) // D
+	for range 3 {
+		act(t, gs, ActionFold, 0)
+	}
+	for gs.NeedToAdvanceStreet() {
+		gs.AdvanceStreet()
+	}
+	if len(gs.Winners) != 1 || gs.Winners[0].PlayerIdx != 3 || gs.Winners[0].Amount != 45 {
+		t.Fatalf("winners %+v, want D paid the 45 pot", gs.Winners)
+	}
+	if gs.Players[3].Stack != 1015 || gs.Players[3].Winnings != 15 {
+		t.Errorf("D has %d, winnings %d; want 1015 and 15", gs.Players[3].Stack, gs.Players[3].Winnings)
+	}
+}
+
+// Position names by table size, from the button clockwise. Heads-up the button posts the
+// small blind, so the other seat is the big blind.
+func TestPositionNames(t *testing.T) {
+	want := map[int][]string{
+		2: {"BTN", "BB"},
+		3: {"BTN", "SB", "BB"},
+		4: {"BTN", "SB", "BB", "UTG"},
+		5: {"BTN", "SB", "BB", "UTG", "MP"},
+		6: {"BTN", "SB", "BB", "UTG", "MP", "CO"},
+		7: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1"},
+		8: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ"},
+		9: {"BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ", "CO"},
+	}
+	for n, names := range want {
+		gs := NewGame(GameConfig{PlayerNames: make([]string, n), StartingStack: 1000, Stakes: Stakes{SmallBlind: 5, BigBlind: 10}})
+		gs.ButtonIdx = n - 1 // so seat i is i+1 clockwise of the button
+		for d, name := range names {
+			if got := gs.PositionName((n - 1 + d) % n); got != name {
+				t.Errorf("%d seats, %d from the button: %s, want %s", n, d, got, name)
+			}
+		}
+	}
+}

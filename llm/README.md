@@ -145,13 +145,17 @@ Response (`DecisionResponse`):
   message (`retry_prompt`: its own reply back, the reason and the legal list). `raw` holds
   both replies separated by `--- retry ---`. A provider failure never counts as a retry.
 - `prompt` is the user prompt rendered for this turn; the engine stores it with the hand.
-- `prompt_version` hashes `prompts.py` and `parsing.py`: the system prompt, the user prompt
-  template and the parser. A change to any of them starts a new version.
+- `prompt_version` hashes `prompts.py`, `parsing.py`, `decide.py` and
+  `providers/openrouter.py`: the system prompt, the user prompt template, the parser, the
+  legality check, retry and time budget, and the sampling settings (temperature, token
+  limits). A change to any of them starts a new version.
 - `model` and `upstream_provider` are what OpenRouter reports serving the call;
   `reasoning` is the model's thinking text when it returns one, `reasoning_tokens` its
   count, and `finish_reason`, `generation_id`, `temperature` come from OpenRouter. The mock
   provider leaves them null.
 - `reason` is empty when the model gave no REASON; it is never filled in for the model.
+- `amount` is the reply's size for `RAISE` (a bet or a raise to a street total) and 0 for
+  every other move, whatever number the reply wrote on its AMOUNT line.
 
 ## Prompts
 

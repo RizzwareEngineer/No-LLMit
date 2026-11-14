@@ -7,11 +7,14 @@ Every hand the shared table finishes is saved once, when it ends.
   result. Each action carries a `prompt_id`.
 - **`decision_prompts`** holds the exact prompt each decision was made from and the raw
   reply, one row per decision, keyed by `prompt_id`. A retried decision also carries
-  `retry_prompt`, the follow-up message the model was sent.
+  `retry_prompt`, the follow-up message the model was sent (Supabase dropped it before the
+  2026-11-13 migration, so older rows have it null; the local `prompts.jsonl` always kept it).
 - **`system_prompts`** holds each system prompt once, keyed by the `prompt_version` in the
-  hand's `config`. The version covers the system prompt, the user prompt template and the
-  parser (`llm/prompts.py` and `llm/parsing.py`); a change to any of them starts a new one,
-  and every action records it too.
+  hand's `config`. The version covers the system prompt, the user prompt template, the
+  parser, the legality check, retry and time budget, and the sampling settings
+  (`llm/prompts.py`, `llm/parsing.py`, `llm/decide.py` and `llm/providers/openrouter.py`;
+  versions before 2026-11-13 covered only the first two); a change to any of them starts a
+  new one, and every action records it too.
 
 [`hand-record-example.json`](hand-record-example.json) is a real record from a local table
 running the mock provider, with its prompts alongside.
@@ -19,6 +22,8 @@ running the mock provider, with its prompts alongside.
 ## Reading a record
 
 - `parsed` is what we read from the model's reply; `applied` is what the engine did.
+  `parsed.amount` is the reply's size on a bet or raise and 0 on every other move (before
+  2026-11-13 a fold, call or all-in kept whatever number the reply wrote).
 - `status` is `ok` when they are the same decision. Otherwise the applied action is a
   fallback and the status says why. `unparseable` (no readable ACTION) and `illegal`
   (a move the rules do not allow) are the model's own miss; `timeout` and `api_error`
@@ -60,7 +65,8 @@ and viewers see the "saving" notice meanwhile. A hand is counted in the stats on
 is saved. The stats poll that reads new hands from Supabase every 5 minutes also keeps a
 free Supabase project from being paused for inactivity.
 
-`hands_voided` and `decision_prompts_voided` (same columns as `hands` and `decision_prompts`)
+`hands_voided` and `decision_prompts_voided` (the columns `hands` and `decision_prompts` had then;
+`decision_prompts_voided` has no `retry_prompt`)
 hold the 71 hands saved between 2026-11-04 and 2026-11-09 in which every call failed at the
 provider: outages, not poker. Stats and the dataset read `hands` only. To restore one, insert
-its rows back into `hands` and `decision_prompts`.
+its rows back into `hands` and `decision_prompts`, naming the columns.

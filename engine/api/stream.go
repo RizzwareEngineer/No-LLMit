@@ -148,6 +148,12 @@ func (v view) snapshotFrame() ([]byte, error) {
 		if ms := int(time.Until(c.nextHandAt).Milliseconds()); ms > 0 {
 			c.State.NextHandInMs = ms
 		}
+		if c.Turn != nil {
+			if p, ok := c.Turn.Payload.(LLMThinkingPayload); ok { // the shot clock resumes where it is
+				p.ElapsedMs = int(time.Since(p.startedAt).Milliseconds())
+				c.Turn = &ServerMessage{Type: c.Turn.Type, Payload: p}
+			}
+		}
 		if c.ButtonCards == nil {
 			c.ButtonCards = []ButtonCardPayload{}
 		}

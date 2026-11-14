@@ -57,7 +57,7 @@ DECISIONS = pa.schema([
     ("status", pa.string()), ("retried", pa.bool_()), ("applied_action", pa.string()),
     ("applied_amount", pa.int64()), ("latency_ms", pa.int64()), ("tokens_in", pa.int64()),
     ("tokens_out", pa.int64()), ("cost_usd", pa.float64()), ("prompt_id", pa.string()),
-    ("prompt", pa.string()), ("raw_reply", pa.string()),
+    ("prompt", pa.string()), ("raw_reply", pa.string()), ("retry_prompt", pa.string()),
 ])
 
 
@@ -104,7 +104,7 @@ def load_supabase(base, key, day=None, back=0):
     for i in range(0, len(ids), 50):  # keep the URL short
         chunk = ",".join(f'"{x}"' for x in ids[i:i + 50])
         prompts += _paged(base, key, "decision_prompts",
-                          {"select": "prompt_id,n,prompt,raw_reply", "hand_id": f"in.({chunk})"}, "prompt_id")
+                          {"select": "prompt_id,n,prompt,raw_reply,retry_prompt", "hand_id": f"in.({chunk})"}, "prompt_id")
     systems = _paged(base, key, "system_prompts", {"select": "prompt_version,system_prompt,created_at"}, "prompt_version")
     return hands, prompts, systems
 
@@ -171,7 +171,7 @@ def flatten(hands, prompts):
                 "applied_action": applied["type"], "applied_amount": applied.get("amount"),
                 "latency_ms": a.get("latency_ms"), "tokens_in": a.get("tokens_in"), "tokens_out": a.get("tokens_out"),
                 "cost_usd": a.get("cost_usd"), "prompt_id": a["prompt_id"], "prompt": p["prompt"],
-                "raw_reply": p["raw_reply"],
+                "raw_reply": p["raw_reply"], "retry_prompt": p.get("retry_prompt"),
             })
     return hand_rows, seat_rows, decision_rows
 
@@ -223,8 +223,8 @@ def _schema_md(schema, notes):
 
 HAND_NOTES = {
     "session": "table id; a new one starts each time the engine restarts, with stacks reset to 2000",
-    "day": "America/New_York date the hand started; the live table plays during its configured hours",
-    "prompt_version": "hash of the system prompt; text in `system_prompts.jsonl`",
+    "day": "America/New_York date the hand started; the live table stops for the rest of the UTC day when its daily call cap is reached",
+    "prompt_version": "hash of the prompts, the reply parser and the legality and sampling settings; system prompt text in `system_prompts.jsonl`",
     "memory": "what models are told about earlier hands; `none` = nothing",
     "button_seat": "0-based seat index",
     "deck": "full shuffled deck in deal order",
@@ -232,7 +232,7 @@ HAND_NOTES = {
     "showdown": "the hand reached showdown",
 }
 SEAT_NOTES = {
-    "model": "model id sent to the provider; null when the seat made no decision in the hand",
+    "model": "the model the provider reported serving the seat's last decision in the hand; null when the seat made no decision",
     "stack_start": "chips at the start of the hand, blinds included",
     "hole_cards": "every seat's cards, folded hands too",
     "rebought": "topped back up to 2000 after going broke",
@@ -253,6 +253,7 @@ DECISION_NOTES = {
     "tokens_in": "null when the provider did not report it (also tokens_out, cost_usd)",
     "prompt": "exact user prompt the model was sent",
     "raw_reply": "raw model reply; a retried decision holds both replies separated by `--- retry ---`",
+    "retry_prompt": "the follow-up message a retried decision was sent between its two replies; null when not retried, and on hands saved to the database before 2026-11-13",
 }
 
 
@@ -296,7 +297,7 @@ configs:
 Every hand from the shared 9-handed cash game at https://nollmit.vercel.app/, where LLMs play each other.
 Code: https://github.com/RizzwareEngineer/No-LLMit
 {len(hands)} hands over {len(days)} days ({span}).
-Each decision row holds the exact prompt the model saw and its raw reply.
+Each decision row holds the exact prompt the model saw, its raw reply and, when it was asked twice, the follow-up message.
 
 ## Read this before computing playing-style stats
 
@@ -305,7 +306,8 @@ Those actions are engine fallbacks (check if free, else fold), not the model's c
 `net` and the hand results still include them, since the chips really moved.
 
 Models have no memory between hands; each prompt retells the current hand, including the model's own earlier actions.
-The prompt names opponents by model, so a model may carry priors about the others.
+Since 2026-11-09 the prompt names no models; every player is `Player N (POS)`.
+Earlier hands named opponents by model, so a model may carry priors about the others.
 
 ## Files
 
@@ -323,7 +325,8 @@ Join `decisions` and `seats` to `hands` on `hand_id`; `seats` to `decisions` on 
 
 The PokerStars files are full-information histories: every player's hole cards are dealt face up
 (`Dealt to` for all seats), folded hands included. A tracker will treat each player as the hero;
-import with that in mind. Hand numbers are `<table hex as integer> * 1000000 + hand_number`;
+import with that in mind. Hand numbers are `<table number> * 1000000 + hand_number`, where the table
+number is the session id's hex for a 6-digit id and its 32-bit CRC otherwise;
 the table name is the session id. Showdown hands are shown without a hand description,
 and side pots are not itemized: each winner's `collected` line is their total from all pots.
 
@@ -335,8 +338,8 @@ and side pots are not itemized: each winner's `collected` line is their total fr
 
 ## Prompt versions
 
-`prompt_version` hashes the system prompt only; the per-decision prompt template is in the engine
-and can change without a new version.
+`prompt_version` hashes the system prompt, the per-decision prompt template and the reply parser
+and, since 2026-11-13, the legality check, retry and time budget, and the sampling settings.
 
 | prompt_version | first day | last day | hands |
 |---|---|---|---|

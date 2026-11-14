@@ -156,15 +156,10 @@ func (r *handRecorder) finish(gs *game.GameState) (history.HandRecord, []HandPro
 	wentToShowdown := false
 	r.record.Result = history.HandResult{Pots: []history.PotRecord{}, Showdown: []history.ShowdownRecord{}, Net: map[string]int{}}
 	for _, w := range gs.Winners {
-		pot := history.PotRecord{Amount: w.Amount, WinnerSeat: w.PlayerIdx, EligibleSeats: w.EligiblePlayers, PotNumber: w.PotNumber}
-		if w.PotNumber == 0 {
-			// Everyone else folded. The engine reports the winner's profit here, so add
-			// back their own chips to record the whole pot.
-			pot.Amount = w.Amount + gs.Players[w.PlayerIdx].TotalBetThisHand
-		} else {
+		if w.PotNumber != 0 { // 0 is a pot won by everyone else folding
 			wentToShowdown = true
 		}
-		r.record.Result.Pots = append(r.record.Result.Pots, pot)
+		r.record.Result.Pots = append(r.record.Result.Pots, history.PotRecord{Amount: w.Amount, WinnerSeat: w.PlayerIdx, EligibleSeats: w.EligiblePlayers, PotNumber: w.PotNumber})
 	}
 
 	for _, seat := range r.record.Seats {

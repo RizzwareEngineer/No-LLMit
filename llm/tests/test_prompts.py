@@ -1,3 +1,4 @@
+import hashlib
 import re
 from pathlib import Path
 
@@ -109,6 +110,13 @@ def test_retry_prompt_names_the_problem_and_the_legal_line():
 
 def test_version_is_a_short_hash():
     assert re.fullmatch(r"[0-9a-f]{7}", prompt_version)
+
+
+def test_version_covers_the_legality_check_and_the_sampling_settings():
+    # A new token budget or legality rule changes how models play, so it must start a new version.
+    llm = Path(__file__).resolve().parents[1]
+    files = ("prompts.py", "parsing.py", "decide.py", "providers/openrouter.py")
+    assert prompt_version == hashlib.sha256(b"".join((llm / f).read_bytes() for f in files)).hexdigest()[:7]
 
 
 def _web_export(name: str) -> str:

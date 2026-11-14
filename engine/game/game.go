@@ -356,11 +356,6 @@ func (gs *GameState) DeckOrder() []string {
 	return CardStrings(gs.deck.cards)
 }
 
-// PositionName returns a player's position this hand (BTN, SB, BB, UTG, ...).
-func (gs *GameState) PositionName(playerIdx int) string {
-	return gs.getPositionName(playerIdx)
-}
-
 func (gs *GameState) RecordActionForLLMs(playerName, action string, amount int) {
 	street := gs.Street
 	if action == "post" {
@@ -375,7 +370,9 @@ func (gs *GameState) RecordActionForLLMs(playerName, action string, amount int) 
 	})
 }
 
-func (gs *GameState) getPositionName(playerIdx int) string {
+// PositionName names a seat's position this hand (BTN, SB, BB, UTG, ...): the one name the
+// models are told, the stream shows and saved hands keep.
+func (gs *GameState) PositionName(playerIdx int) string {
 	numPlayers := len(gs.Players)
 	distFromButton := (playerIdx - gs.ButtonIdx + numPlayers) % numPlayers
 
@@ -383,6 +380,9 @@ func (gs *GameState) getPositionName(playerIdx int) string {
 	case 0:
 		return "BTN"
 	case 1:
+		if numPlayers == 2 {
+			return "BB" // heads-up the button posts the small blind (blindSeats)
+		}
 		return "SB"
 	case 2:
 		return "BB"

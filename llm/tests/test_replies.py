@@ -123,10 +123,10 @@ def test_anything_else_on_the_action_line_is_a_miss(line):
 
 def test_call_all_in_is_the_all_in_only_when_the_bet_covers_the_stack():
     covered = with_(COVERED, legal_actions=[{"type": "FOLD"}, {"type": "ALL-IN", "amount": 65}])
-    assert play(covered, "ACTION: call all-in\nAMOUNT: 60") == ("ALL_IN", 60)
+    assert play(covered, "ACTION: call all-in\nAMOUNT: 60") == ("ALL_IN", 0)
     assert play(covered, "ACTION: call")[0] == "ALL_IN"
     assert play(COVERED, "ACTION: call all-in\nAMOUNT: 60")[0] in ("CALL", "ALL_IN")  # the engine lists CALL too
-    assert play(FACING, "ACTION: call the all-in\nAMOUNT: 100") == ("CALL", 100)  # calling someone else's all-in
+    assert play(FACING, "ACTION: call the all-in\nAMOUNT: 100") == ("CALL", 0)  # calling someone else's all-in
     no_raise = with_(FACING, legal_actions=[{"type": "FOLD"}, {"type": "CALL", "amount": 100}])
     assert play(no_raise, "ACTION: call all-in")[0] == "CALL"
 
@@ -201,8 +201,15 @@ def test_a_call_has_no_size_to_get_wrong(amount):
     assert play(FACING, f"ACTION: call\nAMOUNT: {amount}\nREASON: Odds.")[0] == "CALL"
 
 
+def test_a_move_without_a_size_carries_no_amount():
+    # Viewers are shown the reply's move and amount: a number the model wrote next to a fold
+    # or call is not chips that move.
+    assert play(FACING, "ACTION: fold\nAMOUNT: 500") == ("FOLD", 0)
+    assert play(FACING, "ACTION: call\nAMOUNT: 5000") == ("CALL", 0)
+    assert play(FACING, "ACTION: call\nAMOUNT: 99999999999999999999999") == ("CALL", 0)
+
+
 def test_an_absurd_number_fits_the_engine():
-    assert play(FACING, "ACTION: call\nAMOUNT: 99999999999999999999999") == ("CALL", parsing.MAX_AMOUNT)
     missed(FACING, "ACTION: raise\nAMOUNT: 99999999999999999999999", "above the maximum")
 
 

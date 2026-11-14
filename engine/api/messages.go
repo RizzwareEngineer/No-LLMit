@@ -3,6 +3,8 @@
 package api
 
 import (
+	"time"
+
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
 )
 
@@ -84,10 +86,15 @@ type HandCompletePayload struct {
 }
 
 // Turn numbers a hand's turns from 1; a turn's llm_thinking and llm_action share it.
+// BudgetMs is how long the model has for this turn (client.TurnBudget); ElapsedMs is how
+// long it has had so far: 0 on the live event, worked out per stream in a snapshot.
 type LLMThinkingPayload struct {
-	Turn       int    `json:"turn"`
-	PlayerIdx  int    `json:"playerIdx"`
-	PlayerName string `json:"playerName"`
+	Turn       int       `json:"turn"`
+	PlayerIdx  int       `json:"playerIdx"`
+	PlayerName string    `json:"playerName"`
+	BudgetMs   int       `json:"budgetMs"`
+	ElapsedMs  int       `json:"elapsedMs"`
+	startedAt  time.Time // when the turn began; never sent
 }
 
 type LLMActionPayload struct {

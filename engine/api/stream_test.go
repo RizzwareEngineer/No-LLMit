@@ -278,6 +278,43 @@ func TestSnapshotKeepsTheAppliedActionUntilTheNextHand(t *testing.T) {
 	}
 }
 
+// The live llm_thinking carries the model's budget and 0 elapsed; a snapshot built 20 s into
+// the turn carries 20 s elapsed, so a late joiner's shot clock shows what is left.
+func TestThinkingCarriesBudgetAndElapsed(t *testing.T) {
+	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
+	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := reply("FOLD", 0); return &r, nil }
+	tbl := testTable(t)
+	tbl.pace = 1e-6
+	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+	tbl.playTurn()
+	var live LLMThinkingPayload
+	for _, f := range tbl.hub.since(0, false).frames {
+		if m := parseFrames(t, f)[0]; m.Type == MsgLLMThinking {
+			json.Unmarshal(m.Payload, &live)
+			if !strings.Contains(string(m.Payload), `"elapsedMs":0`) {
+				t.Errorf("live llm_thinking %s", m.Payload)
+			}
+		}
+	}
+	if want := int(client.TurnBudget.Milliseconds()); live.BudgetMs != want || want == 0 {
+		t.Errorf("live budgetMs %d, want %d", live.BudgetMs, want)
+	}
+
+	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{Turn: 2, BudgetMs: 45000, startedAt: time.Now().Add(-20 * time.Second)}}
+	tbl.turn = &thinking
+	tbl.publish(thinking)
+	b, _ := tbl.hub.since(0, true).snapshotFrame()
+	var snap struct {
+		Tables map[string]struct {
+			Turn struct{ Payload LLMThinkingPayload }
+		}
+	}
+	json.Unmarshal(parseFrames(t, b)[0].Payload, &snap)
+	if p := snap.Tables[tbl.id].Turn.Payload; p.BudgetMs != 45000 || p.ElapsedMs < 20000 || p.ElapsedMs > 21000 {
+		t.Errorf("snapshot turn %+v, want budget 45000 and about 20000 elapsed", p)
+	}
+}
+
 // The hand after a voided one is dealt live: dealing it clears the outage notice, so a viewer
 // who joins during it sees the same table as one who was watching.
 func TestDealingTheProbeHandClearsTheOutageNotice(t *testing.T) {

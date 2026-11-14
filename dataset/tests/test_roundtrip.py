@@ -32,6 +32,7 @@ def repro_source(tmp_path):
     hands = [json.loads(line) for line in REPRO.read_text().splitlines()]
     prompts = [{"prompt_id": a["prompt_id"], "n": a["n"], "prompt": "P", "raw_reply": "R"}
                for h in hands for a in h["actions"]]
+    prompts[0]["retry_prompt"] = "F"  # a retried decision's follow-up message
     p = tmp_path / "repro_prompts.jsonl"
     p.write_text("".join(json.dumps(x) + "\n" for x in prompts))
     return REPRO, p
@@ -112,9 +113,11 @@ def test_every_prompt_id_resolves(exported):
     for d in decisions:
         p = by_id[d["prompt_id"]]
         assert d["prompt"] == p["prompt"] and d["raw_reply"] == p["raw_reply"]
+        assert d["retry_prompt"] == p.get("retry_prompt")
         assert d["prompt_id"].startswith(d["hand_id"] + "-")
     statuses = Counter(d["status"] for d in decisions)
     assert statuses["ok"] and len(statuses) > 1  # the fixtures cover fallbacks
+    assert any(d["retry_prompt"] for d in decisions)
 
 
 def test_missing_prompt_fails_loudly():
@@ -212,6 +215,7 @@ def test_pokerstars_summary_matches_net(exported):
 def test_supabase_pagination(monkeypatch):
     """load_supabase pages through every table and asks only for the day's hands."""
     hs, ps, _ = export.load_jsonl(GENERATED / "hands.jsonl", GENERATED / "prompts.jsonl")
+    ps[0]["retry_prompt"] = "F"
     tables = {"hands": [{"doc": h} for h in hs], "decision_prompts": ps,
               "system_prompts": [{"prompt_version": "d7fd8ae", "system_prompt": "S", "created_at": "x"}]}
     calls = []
@@ -222,13 +226,15 @@ def test_supabase_pagination(monkeypatch):
         if path == "decision_prompts":
             wanted = set(params["hand_id"][4:-1].replace('"', "").split(","))
             rows = [p for p in rows if p["prompt_id"].rsplit("-", 1)[0] in wanted]
-        return rows[params["offset"]:params["offset"] + params["limit"]]
+        cols = params["select"].split(",")  # like PostgREST: only the selected columns come back
+        return [{k: r.get(k) for k in cols} for r in rows[params["offset"]:params["offset"] + params["limit"]]]
 
     monkeypatch.setattr(export, "_get", fake_get)
     monkeypatch.setattr(export, "PAGE", 7)
     from datetime import date
     hands, prompts, systems = export.load_supabase("https://x.supabase.co", "k", date(2026, 11, 1))  # DST ends: a 25-hour day
     assert len(hands) == len(hs) and len(prompts) == len(ps) and systems[0]["system_prompt"] == "S"
+    assert {p["prompt_id"]: p for p in prompts}[ps[0]["prompt_id"]]["retry_prompt"] == "F"
     first = calls[0][1]
     assert first["and"] == "(started_at.gte.2026-11-01T04:00:00+00:00,started_at.lt.2026-11-02T05:00:00+00:00)"
     calls.clear()
