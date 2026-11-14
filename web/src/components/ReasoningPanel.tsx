@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import LLMLogo from "@/components/LLMLogo";
 import TypewriterText from "@/components/TypewriterText";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
@@ -128,5 +128,50 @@ export default function ReasoningPanel({
         </div>
       </div>
     </div>
+  );
+}
+
+// Phones: the caption under the table (page.tsx), in place of the bar above. The model on the clock and what it is doing,
+// then its reasoning typing out on two lines, the second fading out where a longer text is cut; a tap shows it all (a new
+// reason folds it again). It is always there: "Waiting for the next action" between turns.
+export function Caption({ displayState, blank = false }: { displayState: DisplayState | null; blank?: boolean }) {
+  const bb = useBigBlind();
+  const ref = useRef<HTMLButtonElement>(null);
+  useFillIn(ref, !blank);
+  const [open, setOpen] = useState<string | null>(null);
+  const d = displayState, shown = d && d.phase !== 'thinking';
+  const reason = shown ? d.reason?.trim() || null : null;
+  const action = shown ? d.action : null, amount = d?.amount ?? 0;
+  const expanded = !!reason && open === reason;
+  const said = action ? `${action.toLowerCase().replace('_', '-')}${amount > 0 ? ` ${formatAmount(amount, bb)}` : ''}` : '';
+  return (
+    <button
+      ref={ref}
+      type="button"
+      data-caption
+      onClick={() => reason && setOpen(expanded ? null : reason)}
+      aria-expanded={reason ? expanded : undefined}
+      className={`w-full min-h-[76px] text-left bg-white rounded px-3 py-2 ${blank ? '[&>*]:invisible' : ''}`}
+      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', color: 'rgb(55, 53, 47)' }}
+    >
+      <span className="sr-only" aria-live="polite">{shown && action ? `${d.playerName}: ${said}.${reason ? ` ${reason}` : ''}` : ''}</span>
+      <span className="flex items-center gap-1.5 h-5 text-[13px] whitespace-nowrap min-w-0">
+        {d ? <LLMLogo model={d.playerName} size={16} /> : null}
+        <span className="font-bold truncate">{d ? d.playerName : 'Waiting for the next action…'}</span>
+        {action && (
+          <span className="flex items-center gap-1 shrink-0 text-[12px]">
+            <span className="uppercase font-bold tracking-wider">{action.replace('_', '-')}</span>
+            {amount > 0 && action !== 'FOLD' && action !== 'CHECK' && <span data-chips={amount} className="tabular-nums" style={{ color: MUTED }}>{formatAmount(amount, bb)}</span>}
+          </span>
+        )}
+      </span>
+      {/* The second line fades out at its end when a long reason is cut (the mask's bottom line). */}
+      <span
+        className={`block mt-1 text-[13px] leading-[18px] italic ${expanded ? '' : 'line-clamp-2'}`}
+        style={!expanded && reason && reason.length > 70 ? { maskImage: 'linear-gradient(#000, #000) top / 100% calc(100% - 18px) no-repeat, linear-gradient(to right, #000 55%, transparent) bottom / 100% 18px no-repeat' } : undefined}
+      >
+        {d?.phase === 'thinking' ? <span style={{ color: MUTED }}>Thinking…</span> : reason ? <TypewriterText key={reason} text={reason} /> : null}
+      </span>
+    </button>
   );
 }

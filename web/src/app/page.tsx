@@ -6,18 +6,19 @@ import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
-import ReasoningPanel from "@/components/ReasoningPanel";
+import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import StatsSections from "@/components/StatsSections";
 import PlaySoonButton from "@/components/PlaySoonButton";
 import ModelDrawer from "@/components/ModelDrawer";
-import StickyBar from "@/components/StickyBar";
+import StickyBar, { PhoneBar } from "@/components/StickyBar";
+import TabBar, { type Tab } from "@/components/TabBar";
 import SessionProgress from "@/components/SessionProgress";
 import DevPace from "@/components/DevPace";
 import { setTypingPace } from "@/components/TypewriterText";
 import { useGameState } from "@/hooks/useGameState";
-import { NEXT_BUTTON, NEXT_STYLE, isPaging, pageBy, pageTo, resnap, scrollsInside } from "@/components/Section";
+import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, useScreen } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { useTypeSwitch } from "@/lib/tableSwitches";
 import { MUTED, BLUE } from "@/lib/stats";
@@ -176,6 +177,11 @@ export default function Home() {
   }, []);
   const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
 
+  // Phones: the tab bar's part is where the page is (the table while it shows, else About or the stats); a tap goes to
+  // the top of that part: the table, Profits & Losses over the stats (#phone-stats), About. On an opened stats card,
+  // Stats goes back to the overview.
+  const screen = useScreen();
+
   const tableRef = useRef<HTMLDivElement>(null);
   // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
   // starts out of view (a reload below the table).
@@ -184,7 +190,7 @@ export default function Home() {
   useEffect(() => {
     let first = true;
     // The top 44px sit under the bar itself, so they do not count as visible. On a phone the row has no box of its own
-    // (it lets the reasoning bar sit between the table and the sidebar), so the phone table (data-ring) is watched too.
+    // (it lets the caption sit between the table and the sidebar), so the phone table (data-oval) is watched too.
     const seen = new Map<Element, boolean>();
     const io = new IntersectionObserver(es => {
       for (const e of es) seen.set(e.target, e.isIntersecting);
@@ -193,7 +199,7 @@ export default function Home() {
       first = false;
     }, { rootMargin: '-44px 0px 0px 0px' });
     const row = tableRef.current;
-    if (row) [row, ...row.querySelectorAll('[data-ring]')].forEach(e => io.observe(e));
+    if (row) [row, ...row.querySelectorAll('[data-oval]')].forEach(e => io.observe(e));
     return () => io.disconnect();
   }, []);
 
@@ -349,16 +355,28 @@ export default function Home() {
       }, {} as Record<number, { amount: number; handDesc: string }>)
     : {};
 
+  const tab: Tab = tableInView ? 'table' : screen === 'about' ? 'about' : 'stats';
+  const onTab = (t: Tab) => {
+    if (t === 'table') window.scrollTo({ top: 0 });
+    else if (t === 'about') pageTo('about');
+    else if (screen === 'race' || screen === 'stats-table' || screen === 'pairwise') backToOverview();
+    else pageTo('phone-stats');
+  };
+
   return (
     <MotionConfig reducedMotion="user">
-    {/* --bar-h: room the connection bar takes at the bottom, so it never covers a screen's edge. data-page: the page's
-        one background (globals.css) behind every screen. */}
-    <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: bar ? '40px' : '0px' }}>
+    {/* --bar-h: room the connection bar (and a phone's tab bar, --tab-h in globals.css) takes at the bottom, so it never
+        covers a screen's edge. data-page: the page's one background (globals.css) behind every screen. */}
+    <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: bar ? 'calc(40px + var(--tab-h))' : 'var(--tab-h)' }}>
       <main className="flex flex-col items-center-safe">
       {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
-      <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-auto flex flex-col items-center-safe justify-center-safe pt-3 pb-[calc(1rem+var(--bar-h))] lg:pt-4">
+      {/* Phones: under the slim bar (PhoneBar) only the table and its caption fill the first screen (the header's rows are
+          the bar's), Profits & Losses and API usage under them start the stats (the tab bar's Stats): their own snap point,
+          which stops a swipe (the screen's own stop would hold a scroll at its end, short of them), so the screen is no
+          scroll container there (clip, not auto: a snap point counts only in its nearest one). */}
+      <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always max-md:snap-normal overflow-x-auto max-md:overflow-x-clip flex flex-col items-center-safe justify-center-safe max-md:justify-start pt-3 max-md:pt-[calc(48px+env(safe-area-inset-top))] pb-[calc(1rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
-        <div className="mb-1 text-center">
+        <div className="mb-1 text-center max-md:hidden">
           <h1 className="text-[28px] font-bold text-balance" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
           <p className="text-[14px]" style={{ color: MUTED }}>
             Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
@@ -375,12 +393,12 @@ export default function Home() {
         </div>
 
         {/* Action buttons row */}
-        <div className="mb-1.5 flex items-center justify-center gap-3">
+        <div className="mb-1.5 flex items-center justify-center gap-3 max-md:hidden">
           <PlaySoonButton />
         </div>
 
         {/* Status row - live indicator, hand counter, blinds, timer */}
-        <div className="mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+        <div className="mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 max-md:hidden">
           {/* Live indicator */}
           <div ref={labelRef} className={`flex items-center gap-2 ${statusKnown ? '' : '[&>*]:invisible'}`}>
             <span
@@ -410,10 +428,10 @@ export default function Home() {
           <SoundToggle />
         </div>
 
-        <SessionProgress table={usageError ? undefined : usage?.table} />
+        <div className="max-md:hidden"><SessionProgress table={usageError ? undefined : usage?.table} /></div>
 
         {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
-        <div className="mt-6 flex items-center-safe justify-center-safe w-full md:w-auto">
+        <div className="mt-6 max-md:mt-0 flex items-center-safe justify-center-safe w-full md:w-auto">
           {/* suppressHydrationWarning: BEFORE_PAINT fits it before React hydrates. */}
           <div ref={stageRef} className="stage-zoom flex flex-col w-full md:w-auto" suppressHydrationWarning>
             {/* Row 1: Table + Winnings. On phones the row dissolves (contents) so the reasoning bar comes right under the
@@ -434,10 +452,13 @@ export default function Home() {
                 street={street}
                 handNumber={handNumber}
                 stats={seatStats}
+                display={displayState}
+                clockLeft={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? shotClockRemaining : null}
               />
 
-              {/* Right sidebar column - leaderboard, then API usage */}
-              <div className="flex flex-col w-full md:w-[240px] shrink-0 max-md:order-1 max-md:mt-4">
+              {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
+                  here, its top under the bar). */}
+              <div id="phone-stats" className="flex flex-col w-full md:w-[240px] shrink-0 max-md:order-1 max-md:snap-start max-md:snap-always max-md:pt-[calc(56px+env(safe-area-inset-top))]">
                 <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />
                 </div>
@@ -447,18 +468,22 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Reasoning Panel - LLM thinking + reasoning */}
-            <div className="mt-4 w-full">
+            {/* Reasoning Panel - LLM thinking + reasoning; phones: the caption under the table (its shot clock is the ring
+                round the seat), the first screen's slack split above the table and under the caption. */}
+            <div className="mt-4 w-full max-md:hidden">
               <ReasoningPanel
                 displayState={displayState}
                 shotClockRemaining={shotClockRemaining}
                 blank={players.length === 0}
               />
             </div>
+            <div className="md:hidden mt-1.5 w-full" style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
+              <Caption displayState={displayState} blank={players.length === 0} />
+            </div>
           </div>
         </div>
 
-        <button onClick={() => pageBy(1)} className={`mt-6 ${NEXT_BUTTON}`} style={NEXT_STYLE}>
+        <button onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={NEXT_STYLE}>
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>
       </section>
@@ -470,11 +495,13 @@ export default function Home() {
       </main>
 
       <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />
+      <PhoneBar blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />
+      <TabBar tab={tab} onTab={onTab} />
       <ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status */}
       {bar && (
-        <div role="status" className="fixed bottom-0 left-0 right-0 px-4 py-2 flex items-center justify-center gap-4 z-50" style={{ background: 'rgb(203, 145, 47)', color: 'rgb(30, 28, 24)' }}>
+        <div role="status" className="fixed bottom-0 left-0 right-0 px-4 py-2 flex items-center justify-center gap-4 z-50" style={{ bottom: 'var(--tab-h)', background: 'rgb(203, 145, 47)', color: 'rgb(30, 28, 24)' }}>
           <div className="flex items-center gap-2">
             {gaveUp ? (
               <span className="text-sm font-medium">Can&apos;t reach the game server.</span>

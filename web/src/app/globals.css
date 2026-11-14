@@ -300,6 +300,27 @@ html:has([data-screen]) {
   .stats-room { --card-m-phone: 420px; }
 }
 
+/* Phones: the tab bar at the bottom (TabBar) takes --tab-h from every screen (page.tsx adds it to --bar-h, which the
+   screens leave free); the table (PokerTable's oval) is --oval-h tall, about two thirds of the window and at least the
+   460px phoneTable.ts is laid out for, with the bar, its caption and the tab bar on one screen. --phone-slack is the
+   first screen's room to spare, split above the table and under the caption. Registered lengths, so --bar-h reads as
+   one length (0px with no bars). */
+@property --tab-h { syntax: '<length>'; inherits: true; initial-value: 0px; }
+@property --bar-h { syntax: '<length>'; inherits: true; initial-value: 0px; }
+@media (max-width: 767px) {
+  [data-page] {
+    --tab-h: calc(52px + env(safe-area-inset-bottom));
+    --oval-h: min(100svh - 200px, max(460px, 70svh));
+    --phone-slack: max(0px, 100svh - var(--oval-h) - var(--tab-h) - 138px - env(safe-area-inset-top));
+  }
+}
+/* The action over a phone seat (Player): in, held, out over its 2 s; under reduced motion it just shows and goes. */
+@keyframes bubble {
+  0% { opacity: 0; transform: translateY(4px); }
+  10%, 80% { opacity: 1; transform: none; }
+  100% { opacity: 0; }
+}
+
 /* Card backs: Card's face-down side, the deck and the dealt cards' flights (TableMotion). The element is positioned by
    its user (absolute or relative). Plain ink black with a hairline inset (owner 2026-11-10: "the black one", no N). */
 @layer components {

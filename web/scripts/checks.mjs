@@ -54,7 +54,7 @@ const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { wh
 // --changed: only the checks tied to the files changed against $BASE_REF (committed, uncommitted, untracked).
 // A web file no rule names, or a change to this script outside a check's own block, selects every check.
 const COVERS = [
-  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle)\.tsx|hooks\/|lib\/(sound|amounts)\./, /^(seat-size|table-|no-currency|main-scroll|stats-type-scale)/],
+  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle|TabBar|StickyBar)\.tsx|hooks\/|lib\/(sound|amounts|phoneTable)\./, /^(seat-size|table-|phone-|no-currency|main-scroll|stats-type-scale)/],
   [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges|handover-|glide-clean)/],
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
   [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],
@@ -149,8 +149,8 @@ const sharedAt = async (w, h, id = 'stats') => {
     shared().__park ??= await ctx.newPage(); shared().set(`${w}x${h}`, q); await q.bringToFront(); return q;
   }
   await p.bringToFront();
-  // A resumed page reconnects for a moment; measure once its connection bar is gone.
-  await p.waitForFunction(() => getComputedStyle(document.querySelector('[data-page]')).getPropertyValue('--bar-h').trim() === '0px', { polling: 250, timeout: 15000 }).catch(() => {});
+  // A resumed page reconnects for a moment; measure once its connection bar is gone (--bar-h back to a phone's tab bar, or 0).
+  await p.waitForFunction(() => { const s = getComputedStyle(document.querySelector('[data-page]')); return s.getPropertyValue('--bar-h').trim() === s.getPropertyValue('--tab-h').trim(); }, { polling: 250, timeout: 15000 }).catch(() => {});
   await goto(p, id); await sleep(2000);
   return p;
 };
@@ -320,71 +320,97 @@ group(async () => {
   });
 });
 
-// The felt's edge bets line up with the desktop ring of seats, and with the phone's ring (owner 2026-11-14: the seats
-// on the table, not below it), where each sits beside its seat. The old phone layout (?m=1, kept to compare) has its seats
-// in a grid below the felt, so its felt draws none (they lined up with no seat and could cover the board).
-group(() => check('phone-felt-no-bets', 'With bets out, the felt draws them at 1440x900 and in the phone ring at 390x844, and none in the old phone layout (390x844, ?m=1)', async () => {
+// The felt's edge bets line up with the desktop ring of seats; a phone draws each bet between its seat and the pot, on the
+// oval (owner 2026-11-14). The old phone layouts (the grid, the ring, ?m=1) are gone, by the owner's new phone design.
+group(() => check('phone-felt-no-bets', 'With bets out, the felt draws them at 1440x900 and on the phone oval at 390x844', async () => {
   const bad = [], seen = [];
-  for (const [w, h, want, query] of [[1440, 900, true], [390, 844, true], [390, 844, false, '?m=1']]) {
-    const p = await scriptedTable(w, h, false, query);
+  for (const [w, h] of [[1440, 900], [390, 844]]) {
+    const p = await scriptedTable(w, h);
     await p.evaluate(() => window.__stream.bets()); await sleep(1000);
     const r = await p.evaluate(() => { const all = [...document.querySelectorAll('[data-bet]')]; return { all: all.length, shown: all.filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 || b.height > 0; }).length }; });
-    seen.push(`${w}x${h}${query ?? ''}: ${r.shown} of ${r.all} bets drawn`);
-    if (!r.all) bad.push(`${w}x${h}${query ?? ''}: no bets in the page`);
-    else if (want ? r.shown < 3 : r.shown) bad.push(`${w}x${h}${query ?? ''}: ${r.shown} of ${r.all} bets drawn on the felt`);
+    seen.push(`${w}x${h}: ${r.shown} of ${r.all} bets drawn`);
+    if (!r.all) bad.push(`${w}x${h}: no bets in the page`);
+    else if (r.shown < 3) bad.push(`${w}x${h}: ${r.shown} of ${r.all} bets drawn on the felt`);
     await p.close();
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
 
-// Owner 2026-11-14: "on mobile view it should just be the table with the players on there. the players shouldn't be at
-// the bottom." Phones fold the desktop ring for a tall screen (three seats across the top, two down each side, two across
-// the bottom), small enough that the reasoning bar is on the first screen. Scripted: bets out on seats 1-3 and a full board.
-group(() => check('phone-table-ring', 'At 390x844 and 375x667 the table is one ring: all nine seats inside the table\'s box, none below the felt\'s bottom edge by more than one seat row, no two overlapping, none over the board or the pot, no bet on the board, the pot or a seat; every seat\'s name, stack and badge visible and not cut (the name may end in an ellipsis); the table at most 400px tall and the reasoning bar\'s top on the first screen', async () => {
+// Owner 2026-11-14, rejecting the phone grid and ring: "get rid of the grids and squares and just do logos with positions
+// and stack sizes and cards then pot in the middle but nothing else ... based on industry standard uxui practices", then
+// "make sure the UX/UI is all good". The phone design (mobile poker rooms, the iOS and Android guidelines): a tall oval,
+// nine round logos on its rim, each with its position chip, stack and label; the shot clock a ring round the acting logo;
+// a caption under the table; a bottom tab bar (Table, Stats, About). Scripted: bets out on seats 1-3, a full board, seat 4
+// on the clock.
+group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its caption fit one screen between the top bar and the tab bar; nine logos sit on the oval\'s rim, none over another, the board or the pot; every position chip, stack and label is visible (painted on top), inside the window and not cut; no text under 11px; the shot clock\'s ring is round the acting logo only; the tab bar is at the bottom with three targets at least 44px tall that switch to the table, the stats (Profits & Losses on top) and About; tapping a logo opens its drawer', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[390, 844], [375, 667]]) {
     const size = `${w}x${h}`, p = await scriptedTable(w, h);
     try {
-      await p.evaluate(() => { window.__stream.bets(); const s = window.__stream; s.last = { ...s.last, communityCards: ['Kh', '7d', '2c', '9s', 'Ks'] }; s.feed({ type: 'game_state', payload: s.last }); });
-      await sleep(1500);
+      await p.evaluate(() => {
+        window.__stream.bets(); const s = window.__stream;
+        s.last = { ...s.last, communityCards: ['Kh', '7d', '2c', '9s', 'Ks'], currentPlayerIdx: 4 }; s.feed({ type: 'game_state', payload: s.last });
+        s.feed({ type: 'llm_thinking', payload: { turn: 9, playerIdx: 4, playerName: s.last.players[4].name, budgetMs: 45000, elapsedMs: 0 } });
+      });
+      await sleep(2500); // the action's bubble has gone
       const r = await p.evaluate(() => {
-        const vis = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
-        const ring = [...document.querySelectorAll('[data-ring]')].find(vis);
-        if (!ring) return null;
+        const vis = e => { const b = e?.getBoundingClientRect(); return !!b && b.width > 0 && b.height > 0; };
         const box = e => { const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; };
         const meet = (a, b) => Math.min(a.r, b.r) - Math.max(a.l, b.l) > 0.5 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 0.5;
-        const inside = (a, b) => a.l >= b.l - 1 && a.r <= b.r + 1 && a.t >= b.t - 1 && a.b <= b.b + 1;
-        const table = box(ring), felt = box(ring.querySelector('[data-felt]')), out = [];
-        const seats = [...ring.querySelectorAll('[data-seat]')].filter(vis).map(e => ({ e, i: e.dataset.seat, b: box(e) }));
-        const board = [...ring.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(box);
-        const pot = [...ring.querySelectorAll('[aria-label^="Pot"]')].filter(vis).map(box);
-        const bets = [...ring.querySelectorAll('[data-bet]')].filter(vis).map(e => ({ i: e.dataset.bet, b: box(e) }));
-        for (const s of seats) {
-          if (!inside(s.b, table)) out.push(`seat ${s.i} outside the table`);
-          if (s.b.b > felt.b + s.b.h + 1) out.push(`seat ${s.i} ${Math.round(s.b.b - felt.b)}px below the felt`);
-          for (const t of seats) if (t.i > s.i && meet(s.b, t.b)) out.push(`seats ${s.i} and ${t.i} overlap`);
-          if ([...board, ...pot].some(c => meet(c, s.b))) out.push(`seat ${s.i} over the board or the pot`);
-          // Name, stack and badge: inside the seat and painted on top there (nothing over their middle); the stack and the
-          // badge whole, the name whole or cut short by its ellipsis.
-          const name = [...s.e.querySelectorAll('[title]')].find(e => !e.hasAttribute('data-position'));
-          for (const [what, e] of [['name', name], ['stack', s.e.querySelector('[data-chips]')], ['badge', s.e.querySelector('[data-position]')]]) {
-            if (!e || !vis(e)) { out.push(`seat ${s.i} has no ${what}`); continue; }
+        const oval = [...document.querySelectorAll('[data-oval]')].find(vis), caption = [...document.querySelectorAll('[data-caption]')].find(vis);
+        const nav = document.querySelector('nav[aria-label=Sections]'), top = [...document.querySelectorAll('div.fixed.top-0')].find(vis);
+        if (!oval || !caption || !vis(nav) || !top) return { missing: `${oval ? '' : 'table '}${caption ? '' : 'caption '}${vis(nav) ? '' : 'tab bar '}${top ? '' : 'top bar'}` };
+        const out = [], felt = box(oval.querySelector('[data-felt-oval]'));
+        const logos = [...oval.querySelectorAll('[data-seat] a[aria-label]')].filter(vis).map(e => ({ e, i: e.closest('[data-seat]').dataset.seat, b: box(e) }));
+        const middle = [...oval.querySelectorAll('[data-felt-cards] [role=img], [aria-label^="Pot"]')].filter(vis).map(box);
+        for (const s of logos) {
+          const x = (s.b.l + s.b.r) / 2, y = (s.b.t + s.b.b) / 2, f = ((x - (felt.l + felt.r) / 2) / (felt.w / 2)) ** 2 + ((y - (felt.t + felt.b) / 2) / (felt.h / 2)) ** 2;
+          if (Math.abs(f - 1) > 0.1) out.push(`logo ${s.i} off the rim (${f.toFixed(2)})`);
+          for (const t of logos) if (t.i > s.i && meet(s.b, t.b)) out.push(`logos ${s.i} and ${t.i} overlap`);
+          if (middle.some(m => meet(m, s.b))) out.push(`logo ${s.i} over the board or the pot`);
+          if (s.b.w < 44 || s.b.h < 44) out.push(`logo ${s.i} is ${Math.round(s.b.w)}x${Math.round(s.b.h)}`);
+          const seat = s.e.closest('[data-seat]');
+          for (const [what, e] of [['position', seat.querySelector('[data-position]')], ['stack', seat.querySelector('[data-chips]')], ['label', seat.querySelector('[data-label]')]]) {
+            if (!vis(e)) { out.push(`seat ${s.i} has no ${what}`); continue; }
             const b = box(e), hit = document.elementFromPoint((b.l + b.r) / 2, (b.t + b.b) / 2);
-            if (!inside(b, s.b)) out.push(`seat ${s.i}'s ${what} runs out of the seat`);
             if (!hit || !(e === hit || e.contains(hit))) out.push(`seat ${s.i}'s ${what} is covered`);
-            if (e.scrollWidth > e.clientWidth + 1 && (what !== 'name' || getComputedStyle(e).textOverflow !== 'ellipsis' || b.w < 30)) out.push(`seat ${s.i}'s ${what} is cut`);
+            if (b.l < 0 || b.r > innerWidth || b.t < 0 || b.b > innerHeight) out.push(`seat ${s.i}'s ${what} is outside the window`);
+            if (e.scrollWidth > e.clientWidth + 1) out.push(`seat ${s.i}'s ${what} is cut`);
           }
         }
-        for (const t of bets) if ([...board, ...pot, ...seats.map(s => s.b)].some(c => meet(c, t.b))) out.push(`bet ${t.i} on the board, the pot or a seat`);
-        const reasoning = [...document.querySelectorAll('.stage-zoom .h-\\[100px\\]')].find(vis);
-        return { out, seats: seats.length, board: board.length, pot: pot.length, bets: bets.length, height: table.h, reasoning: reasoning ? reasoning.getBoundingClientRect().top + scrollY : null, screen: innerHeight };
+        // Text: every element with text of its own, at 11px at least.
+        const small = [oval, caption, nav, top].flatMap(r => [...r.querySelectorAll('*')]).filter(e => vis(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 11);
+        for (const e of small.slice(0, 3)) out.push(`"${e.textContent.trim().slice(0, 12)}" at ${getComputedStyle(e).fontSize}`);
+        const rings = [...document.querySelectorAll('[data-clock-ring]')].filter(vis).map(e => e.closest('[data-seat]').dataset.seat);
+        const tabs = [...nav.querySelectorAll('button')].map(e => ({ t: e.textContent.trim(), h: e.getBoundingClientRect().height }));
+        return { out, logos: logos.length, middle: middle.length, rings, tabs, oval: box(oval), caption: box(caption), nav: box(nav), top: box(top), H: innerHeight };
       });
-      if (!r) { bad.push(`${size}: no phone table`); continue; }
-      if (r.seats !== 9 || r.board !== 5 || r.pot !== 1 || r.bets < 3) bad.push(`${size}: ${r.seats} seats, ${r.board} board cards, ${r.pot} pots, ${r.bets} bets drawn`);
-      if (r.height > 400) bad.push(`${size}: the table is ${Math.round(r.height)}px tall`);
-      if (r.reasoning === null || r.reasoning >= r.screen) bad.push(`${size}: the reasoning bar starts at ${Math.round(r.reasoning)}px, past the first screen (${r.screen}px)`);
+      if (r.missing) { bad.push(`${size}: no ${r.missing}`); continue; }
+      if (r.logos !== 9 || r.middle !== 6) bad.push(`${size}: ${r.logos} logos, ${r.middle} board cards and pot`);
+      if (r.oval.t < r.top.b - 0.5 || r.caption.b > r.nav.t + 0.5) bad.push(`${size}: the table (${Math.round(r.oval.t)}..) and caption (..${Math.round(r.caption.b)}) do not fit between the bars (${Math.round(r.top.b)}, ${Math.round(r.nav.t)})`);
+      if (Math.abs(r.nav.b - r.H) > 1) bad.push(`${size}: the tab bar ends at ${Math.round(r.nav.b)}, not the window's foot`);
+      if (r.rings.join() !== '4') bad.push(`${size}: the clock's ring on seats [${r.rings}], want [4]`);
+      if (r.tabs.map(t => t.t).join() !== 'Table,Stats,About' || r.tabs.some(t => t.h < 44)) bad.push(`${size}: tabs ${r.tabs.map(t => `${t.t} ${Math.round(t.h)}px`).join(', ')}`);
       if (r.out.length) bad.push(`${size}: ${r.out.slice(0, 6).join(', ')}${r.out.length > 6 ? ` and ${r.out.length - 6} more` : ''}`);
-      seen.push(`${size}: table ${Math.round(r.height)}px, reasoning bar at ${Math.round(r.reasoning)}px, 9 seats and ${r.bets} bets clear`);
+      // The tabs: each lands its part at the top, under the bar, and is the one marked current.
+      const tab = async t => {
+        await p.evaluate(t => [...document.querySelectorAll('nav[aria-label=Sections] button')].find(b => b.textContent.trim() === t).click(), t);
+        await sleep(2000);
+        return p.evaluate(() => {
+          const at = s => { const e = document.querySelector(s); return e && Math.round(e.getBoundingClientRect().top); };
+          return { current: document.querySelector('nav[aria-label=Sections] [aria-current=page]')?.textContent.trim(), oval: at('[data-oval]'), pnl: at('#phone-stats ol'), about: at('section[aria-label=About]') };
+        });
+      };
+      const st = await tab('Stats'), ab = await tab('About'), ta = await tab('Table');
+      if (st.current !== 'Stats' || !(st.pnl > 44 && st.pnl < r.H / 2)) bad.push(`${size}: Stats → ${st.current}, Profits & Losses at ${st.pnl}px`);
+      if (ab.current !== 'About' || Math.abs(ab.about) > 1) bad.push(`${size}: About → ${ab.current}, About at ${ab.about}px`);
+      if (ta.current !== 'Table' || Math.abs(ta.oval - r.oval.t) > 1) bad.push(`${size}: Table → ${ta.current}, the table at ${ta.oval}px`);
+      // A logo opens its model's drawer.
+      const logo = await p.evaluate(() => { const e = document.querySelector('[data-oval] [data-seat="2"] a[aria-label]'), b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, name: e.getAttribute('aria-label') }; });
+      await p.mouse.click(logo.x, logo.y); await sleep(1000);
+      const drawer = await p.evaluate(() => document.querySelector('dialog[open] #drawer-title')?.textContent.trim());
+      if (!drawer || !drawer.includes(logo.name)) bad.push(`${size}: tapping ${logo.name}'s logo opened ${drawer ? `"${drawer}"` : 'no drawer'}`);
+      seen.push(`${size}: table ${Math.round(r.oval.t)}-${Math.round(r.oval.b)}, caption to ${Math.round(r.caption.b)}, tab bar from ${Math.round(r.nav.t)}; 9 logos clear, ring on 4, tabs ${r.tabs.map(t => Math.round(t.h)).join('/')}px; ${logo.name} → drawer`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
@@ -573,8 +599,8 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
       pressed: group && btn('BB')?.getAttribute('aria-pressed') === 'true',
       amounts: [...sec.querySelectorAll('[data-chips]')].filter(vis).map(e => ({
         chips: +e.dataset.chips, text: (e.getAttribute('aria-label')?.replace(/^Pot /, '') ?? e.textContent).trim().replace(/^[+−-]/, ''),
-        // A seat's first amount is its stack; any after it is the seat's own bet line (BET 35, RAISE 35). The felt's bets
-        // show on phones too, beside the ring's seats (owner 2026-11-14).
+        // A seat's first amount is its stack; any after it is the seat's own bet line (BET 35, RAISE 35; desktop: a phone
+        // seat has none, its action is a moment's bubble). The felt's bets show on phones too, on the oval (owner 2026-11-14).
         where: e.closest('[data-seat]') ? (e === e.closest('[data-seat]').querySelector('[data-chips]') ? 'seat' : 'seat bet') : e.closest('[data-bet]') ? 'bet' : e.closest('ol') ? 'pnl' : e.hasAttribute('aria-label') ? 'pot' : e.closest('[data-pot]') ? 'collected' : 'reasoning',
         lines: lines(e), clipped: clipped(e),
       })),
@@ -623,7 +649,7 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
         if (a.clipped && !c?.clipped) bad.push(`${size} BB: ${a.where} "${a.text}" is clipped`);
       });
       const where = new Set(big.amounts.map(a => a.where));
-      for (const k of ['seat', ...(phone ? ['seat bet'] : []), 'bet', 'pot', 'pnl', 'reasoning']) if (!where.has(k)) bad.push(`${size}: no ${k} amount to check`);
+      for (const k of ['seat', 'bet', 'pot', 'pnl', 'reasoning']) if (!where.has(k)) bad.push(`${size}: no ${k} amount to check`);
       if (!big.unit || chips.unit) bad.push(`${size}: Profits & Losses header unit ${chips.unit ? 'shown in chips' : 'missing in BB'}`);
       if (!/Raising to 35\b/.test(big.words)) bad.push(`${size}: the model's words changed in BB ("${big.words.slice(0, 40)}")`);
       const moved = big.boxes.filter((b, i) => b !== chips.boxes[i]).length;
@@ -893,7 +919,7 @@ const holeFace = c => (c.turn < -0.99 ? 'down' : c.turn > 0.99 ? 'up' : 'mid');
 // Owner, 2026-11-11: "Hole cards are dealt face down ... then stay face up for the rest of the hand. A seat that never acts
 // flips at the end of the hand." Owner, 2026-11-14, on how players peek: "they put both cards on top of each other, then
 // peel BOTH from the side so they can see the suit and the value", and "the orientation in which cards land in front of
-// players should be random". Scripted (at 1440x900, also ?cards=3, the biggest card, and 390x844, the phone ring; and
+// players should be random". Scripted (at 1440x900, also ?cards=3, the biggest card, and 390x844, the phone oval; and
 // with reduced motion), every painted frame: a deal with peeked [] (every card face down, each seat's two at two
 // different angles, no two seats alike, inside the seat and off its text); a seat's llm_thinking (its cards square into
 // one upright stack, the second lower and a hair right; the flaps of both lift together, at the hold both corner indexes

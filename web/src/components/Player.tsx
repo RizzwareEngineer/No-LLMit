@@ -3,11 +3,13 @@
 import Card from "@/components/Card";
 import HoleCard from "@/components/HoleCard";
 import LLMLogo from "@/components/LLMLogo";
+import { logoFile } from "@/lib/families";
+import { LOGO, type Spot, seatLabel, seatPlace } from "@/lib/phoneTable";
 import { useRef, useState } from "react";
 import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
-import { BLUE, DASH, MUTED, ModelStats, ciHalf, pct, signed } from "@/lib/stats";
+import { BLUE, DASH, MUTED, ModelStats, ciHalf, modelHref, pct, signed } from "@/lib/stats";
 import { CARD_CLASS, CARD_SIZES, useCardSize } from "@/lib/tableSwitches";
 import { useFillIn } from "@/lib/boxes";
 
@@ -25,7 +27,10 @@ interface PlayerProps {
   dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
   faceUp?: boolean; // the hole cards show their faces: the seat's turn has come this hand, or the hand is over
   peek?: boolean; // they turn up by the peek (HoleCard): the seat's turn; otherwise (the hand's end) they just turn over
-  compact?: boolean; // the phone ring's small seat (PokerTable): no hover band, the stack and action under the name beside the cards
+  compact?: boolean; // the phone table's seat (PokerTable), placed at `spot` (phoneTable.ts)
+  spot?: Spot;
+  ring?: { left: number; urgent: boolean } | null; // the shot clock's share left, for the seat on the clock; null: no clock
+  bubble?: string; // the action just taken, shown for a moment (phone)
 }
 
 // Position badge colors, for exactly the engine's names (game.PositionName)
@@ -57,7 +62,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peek = false, compact = false }: PlayerProps) {
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peek = false, compact = false, spot, ring, bubble }: PlayerProps) {
   const [hovered, setHovered] = useState(false);
   const bb = useBigBlind();
   const cards = player.holeCards || [];
@@ -102,7 +107,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const badge = position && (
     <div
       data-position
-      className={`${compact ? 'w-7 text-[8px] leading-3' : 'w-8 py-0.5 text-[8px]'} rounded font-bold shrink-0 text-center ${positionColor}`}
+      className={`w-8 py-0.5 text-[8px] rounded font-bold shrink-0 text-center ${positionColor}`}
       title={getPositionFullName(position)}
     >
       {position}
@@ -111,37 +116,46 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const seatBox = `overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`;
   const seatStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', background: seatBg };
 
-  if (compact) {
-    // Name and badge across the top; under them the stack, the action and its amount (a line each) beside the cards.
-    const word = isWinner ? null : player.lastAction && showAction ? player.lastAction
-      : player.currentBet > 0 ? (position === 'SB' || position === 'BB' ? 'BLIND' : 'BET')
-      : player.status === 'folded' ? 'FOLD' : player.status === 'all-in' ? 'ALL-IN' : player.status === 'eliminated' ? 'OUT' : isThinking ? 'THINKING' : 'WAITING';
-    const said = player.lastAction && showAction;
-    const amount = said ? player.lastAmount ?? 0 : player.currentBet;
+  if (compact && spot) {
+    // The phone table's seat (PokerTable): a round logo on the felt's rim with its position chip on the logo's lower
+    // edge, the stack and a short label under it, the two hole cards toward the middle (phoneTable's spot). The seat on
+    // the clock has the shot clock as a ring round its logo; its action shows over the logo for a moment (`bubble`). The
+    // box is the seat's whole extent (the cards' flights and the peek's bounds); only what it draws takes taps.
+    const place = seatPlace(spot), [ox, oy] = place.logo, logo = logoFile(player.name);
+    const c = spot.cards, R = 27, C = 2 * Math.PI * R;
     return (
-      <div ref={ref} data-seat={seatIdx} className={`${seatBox} pl-1 pr-0.5 py-1.5`} style={seatStyle}>
-        <div className="flex items-center gap-1 min-w-0">
-          <LLMLogo model={player.name} size={14} />
-          <div className="flex-1 text-[11px] leading-[14px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
-          {badge}
-        </div>
-        <div className="mt-auto flex items-end justify-between gap-1 min-w-0">
-          <div className="flex flex-col min-w-0 text-[10px] leading-[13px] tabular-nums">
-            <div data-chips={player.stack} className="truncate" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
-            {isWinner ? (
-              <>
-                <div data-chips={winAmount} className="font-bold truncate" style={{ color: 'rgb(15, 123, 108)' }}>+{formatAmount(winAmount, bb)}</div>
-                <div className="truncate" style={{ color: 'rgb(15, 123, 108)' }}>{winDesc}</div>
-              </>
-            ) : (
-              <>
-                <div data-action className={`text-[9px] tracking-tight uppercase truncate ${said ? 'font-bold' : ''}`} style={{ color: said ? 'rgb(55, 53, 47)' : isThinking && !player.currentBet ? BLUE : MUTED }}>{word}</div>
-                <div className="h-[13px] truncate" style={{ color: MUTED }}>{(said || player.currentBet > 0) && amount > 0 && <span data-chips={amount}>{formatAmount(amount, bb)}</span>}</div>
-              </>
-            )}
+      <div ref={ref} data-seat={seatIdx} className={`absolute pointer-events-none transition-opacity ${folded && !isWinner ? 'opacity-40' : ''}`} style={place.style}>
+        {active && (
+          // The shot clock: the share of the turn left (ring), the whole ring with no clock; red for the last 5 s.
+          <svg data-clock-ring aria-hidden width={2 * R + 4} height={2 * R + 4} className="absolute -rotate-90" style={{ left: ox - R - 2, top: oy - R - 2 }}>
+            <circle cx={R + 2} cy={R + 2} r={R} fill="none" stroke="rgba(31, 111, 196, 0.15)" strokeWidth={3} />
+            <circle cx={R + 2} cy={R + 2} r={R} fill="none" stroke={ring?.urgent ? 'rgb(235, 87, 87)' : BLUE} strokeWidth={3} strokeLinecap="round"
+              strokeDasharray={C} strokeDashoffset={C * (1 - (ring?.left ?? 1))} className="motion-safe:transition-[stroke-dashoffset] motion-safe:duration-1000 motion-safe:ease-linear" />
+          </svg>
+        )}
+        <a href={modelHref(player.name)} aria-label={player.name} className="absolute pointer-events-auto rounded-full bg-white flex items-center justify-center" style={{ left: ox - LOGO / 2, top: oy - LOGO / 2, width: LOGO, height: LOGO, boxShadow: 'rgba(15, 15, 15, 0.12) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {logo ? <img src={logo} alt="" width={28} height={28} /> : <span className="text-[13px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{player.name.slice(0, 2).toUpperCase()}</span>}
+        </a>
+        {position && (
+          <div data-position title={getPositionFullName(position)} className={`absolute pointer-events-auto -translate-x-1/2 rounded px-1 text-[11px] leading-4 font-bold whitespace-nowrap ${positionColor}`}
+            style={{ left: ox, top: oy + 11, boxShadow: '0 0 0 1.5px white' }}>
+            {position}
           </div>
-          {hole}
+        )}
+        <div className="absolute flex flex-col items-center pointer-events-auto tabular-nums whitespace-nowrap" style={{ left: ox - 28, top: oy + LOGO / 2 + 4, width: 56 }}>
+          <div data-chips={player.stack} className="text-[12px] leading-[14px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(player.stack, bb)}</div>
+          {isWinner
+            ? <div data-label data-chips={winAmount} className="text-[11px] leading-[14px] font-bold" style={{ color: 'rgb(15, 123, 108)' }} aria-label={`won ${formatAmount(winAmount, bb)}, ${winDesc}`}>+{formatAmount(winAmount, bb)}</div>
+            : <div data-label className="text-[11px] leading-[14px]" style={{ color: MUTED }}>{seatLabel(player.name)}</div>}
         </div>
+        <div className="absolute pointer-events-auto" style={{ left: ox + c[0] - 30, top: oy + c[1] - 20 }}>{hole}</div>
+        {bubble && (
+          <div data-bubble className="absolute z-10 rounded-full bg-white px-2 text-[12px] leading-5 font-bold whitespace-nowrap -translate-x-1/2 motion-safe:animate-[bubble_2s_ease-out_both]"
+            style={{ left: ox, top: oy - LOGO / 2 - 14, color: 'rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.12) 0px 0px 0px 1px, rgba(15, 15, 15, 0.12) 0px 2px 6px' }}>
+            {bubble}
+          </div>
+        )}
       </div>
     );
   }
