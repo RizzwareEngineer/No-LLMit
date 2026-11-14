@@ -73,11 +73,14 @@ function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
         <Moon size={14} weight="bold" aria-hidden />
         {headline}
       </div>
-      <div className="text-[13px]">
-        {reopens
-          ? <>Reopens at {formatLocalTime(reopens)} your time (in {formatDuration(reopens.getTime() - now)}).</>
-          : notice.message}
-      </div>
+      {/* A notice with no reopen time and no headline of its own (saving) says its message once. */}
+      {(reopens || headline !== notice.message) && (
+        <div className="text-[13px]">
+          {reopens
+            ? <>Reopens at {formatLocalTime(reopens)} your time (in {formatDuration(reopens.getTime() - now)}).</>
+            : notice.message}
+        </div>
+      )}
       <Link href="/about" className="text-[12px] hover:underline" style={{ color: 'rgb(35, 131, 226)' }}>
         What is this? About No-LLMit
       </Link>

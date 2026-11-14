@@ -42,7 +42,10 @@ async function check(id, rule, fn) {
 const LANES = +arg('--lanes', 3);
 const lane = new AsyncLocalStorage(), groups = [], lates = [], steps = [];
 const group = fn => groups.push(fn), late = fn => lates.push(fn), main = fn => steps.push(fn);
-const newPage = () => (lane.getStore() ?? browser).newPage();
+// Every page remembers the engine stream it opened (an open EventSource has no resource timing entry), so a check can
+// ask the same engine for its stats (engineStats).
+const watchStream = p => { p.on('request', r => { if (/\/stream$/.test(r.url())) p.__stream = r.url(); }); return p; };
+const newPage = async () => watchStream(await (lane.getStore() ?? browser).newPage());
 // Runs fn in a fresh browser context (its own window), beside whatever else is running.
 const alone = async fn => { const ctx = await browser.createBrowserContext(); try { return await lane.run(ctx, fn); } finally { await ctx.close().catch(() => {}); } };
 const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { while (fns.length) await alone(fns.shift()); }));
@@ -120,7 +123,7 @@ const replayHand = async pg => {
 const waitStats = p => p.waitForFunction(() => document.querySelector('#pairwise-card td[data-cell]') && document.querySelector('#stats-panel tbody tr') && document.querySelector('#race-panel svg'), { timeout: 90000 }).catch(() => {});
 // A fresh page at a window size, on the screen `id` once the stats have loaded.
 const pageAt = async (w, h, id = 'stats', ctx = lane.getStore() ?? browser) => {
-  const p = await ctx.newPage(); await p.setViewport({ width: w, height: h });
+  const p = watchStream(await ctx.newPage()); await p.setViewport({ width: w, height: h });
   await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await waitStats(p);
   await sleep(3000); await goto(p, id); await sleep(2000);
@@ -147,18 +150,24 @@ const sharedAt = async (w, h, id = 'stats') => {
   return p;
 };
 const parkShared = () => Promise.all([...shared().values()].map(p => life(p, 'frozen').catch(() => {})));
-// The table's game socket, scripted (test-only). Before the page's scripts run, WebSocket is wrapped: the engine's
+// The table's game stream, scripted (test-only). Before the page's scripts run, EventSource is wrapped: the engine's
 // messages reach the page until a check takes over, then only the messages the check plays, built from the engine's
-// last state. So a check can put bets out, end a hand and deal the next on cue, whatever the shared table is doing (it
-// may be closed or at its daily call cap). Each of window.__sock's plays returns when it was fed (performance.now()).
+// last state (a game_state or a snapshot's) and sent to its table. So a check can put bets out, end a hand and deal the
+// next on cue, whatever the shared table is doing (it may be closed or at its daily call cap). Each of window.__sock's
+// plays returns when it was fed (performance.now()).
 const scriptSocket = p => p.evaluateOnNewDocument(() => {
-  const Real = window.WebSocket, s = window.__sock = { last: null, scripted: false, feed: null };
-  window.WebSocket = class extends Real {
+  const Real = window.EventSource, s = window.__sock = { last: null, table: null, scripted: false, feed: null };
+  window.EventSource = class extends Real {
     set onmessage(fn) {
-      s.feed = m => fn(new MessageEvent('message', { data: JSON.stringify(m) }));
+      s.feed = m => fn(new MessageEvent('message', { data: JSON.stringify({ table: s.table, ...m }) }));
       super.onmessage = e => {
         if (s.scripted) return;
-        try { const m = JSON.parse(e.data); if (m.type === 'game_state') s.last = m.payload; } catch {}
+        try {
+          const m = JSON.parse(e.data);
+          if (m.type === 'game_state') { s.last = m.payload; s.table = m.table; }
+          const [id, t] = m.type === 'snapshot' ? Object.entries(m.payload.tables)[0] ?? [] : [];
+          if (t) { s.last = t.state; s.table = id; }
+        } catch {}
         fn(e);
       };
     }
@@ -195,7 +204,7 @@ const scriptSocket = p => p.evaluateOnNewDocument(() => {
       players: l.players.map((q, i) => ({ ...q, isButton: i === btn, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: blind(i), stack: q.stack - blind(i) })) } });
   };
 });
-// A page at a window size on the live table, its game socket scripted, once the engine's state is in.
+// A page at a window size on the live table, its game stream scripted, once the engine's state is in.
 const scriptedTable = async (w, h, reduced = false) => {
   const p = await newPage(); await p.setViewport({ width: w, height: h });
   if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -526,7 +535,7 @@ group(async () => {
 // Profits & Losses, API usage, the reasoning bar, the sticky bar, the Trends, Profiles and Matchups tiles and cards,
 // About, whose text is no data and stays) stands in blank at exactly the place and size it has once its data is in; the
 // data fills it in place. A refresh:
-// one visit first (what lib/boxes remembers), then a reload with the table's socket and every /api/ answer held back while
+// one visit first (what lib/boxes remembers), then a reload with the table's stream and every /api/ answer held back while
 // the placeholders are measured at each screen, then let through and the same boxes measured again.
 const SKELETON = {
   stage: '.stage-zoom', grid: '.stage-zoom table', seat: '[data-seat]', felt: '[data-felt]', reasoning: '.stage-zoom .h-\\[100px\\]',
@@ -570,8 +579,8 @@ group(() => check('skeleton-matches', 'While the page loads, every box (table, s
       let open; const held = new Promise(r => (open = r)); window.__release = () => open();
       const fetch0 = window.fetch;
       window.fetch = async (...a) => { if (String(a[0]?.url ?? a[0]).includes('/api/')) await held; return fetch0(...a); };
-      const Real = window.WebSocket;
-      window.WebSocket = class extends Real { set onmessage(fn) { super.onmessage = e => held.then(() => fn(e)); } get onmessage() { return super.onmessage; } };
+      const Real = window.EventSource;
+      window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => held.then(() => fn(e)); } get onmessage() { return super.onmessage; } };
     });
     await p.reload({ waitUntil: 'domcontentloaded', timeout: 120000 }); await sleep(2500);
     const ske = await measure(p);
@@ -1675,17 +1684,17 @@ main(() => check('profiles-no-llm-cost', 'No Errors, Latency or Cost columns in 
 // from an engine without it), its header says what it counts, and it sorts lowest first (lower is better).
 main(() => check('profiles-misses', 'The Profiles card\'s Misses column shows the engine\'s miss_rate per model, defines it, and sorts lowest first', async () => {
   await goto(pg, 'stats-table'); await sleep(1500);
-  const r = await pg.evaluate(async () => {
-    // The all-time stats the page fetched, from the engine its build points at.
-    const url = performance.getEntriesByType('resource').map(e => e.name).find(u => /\/api\/stats$/.test(u)) ?? 'http://localhost:8080/api/stats';
-    const models = (await (await fetch(url)).json()).models;
+  // The all-time stats, from the engine the page's build points at.
+  const e = await engineStats(pg);
+  if (!e) return { pass: false, detail: 'the page never opened the engine stream' };
+  const r = await pg.evaluate(async (url, models) => {
     const ths = [...document.querySelectorAll('#stats-card thead tr:last-child th')];
     const i = ths.findIndex(th => th.querySelector('button')?.textContent.trim() === 'Misses');
     if (i < 0) return { err: 'no Misses column' };
     const rows = [...document.querySelectorAll('#stats-card tbody tr')].filter(tr => tr.querySelector('th a'))
       .map(tr => { const name = tr.querySelector('th [translate=no]').textContent; return { name, cell: tr.children[i].textContent.trim(), rate: models.find(m => m.name === name)?.miss_rate }; });
     return { url, rows, tip: ths[i].querySelector('[role=tooltip]')?.textContent ?? '' };
-  });
+  }, e.url, e.stats.models);
   if (r.err) return { pass: false, detail: r.err };
   const sortBy = label => pg.evaluate(label => {
     const th = [...document.querySelectorAll('#stats-card thead tr:last-child th')].find(t => t.querySelector('button')?.textContent.trim() === label);
@@ -2832,9 +2841,9 @@ main(() => check('matchups-tile-no-total', 'The Matchups tile has no Total colum
 // together x 100, as the engine counts them); the card's "All models" lineup shows everyone with hands at the
 // seated lineup's cell size, scrolling inside the card with the names and logos pinned; a pair that never sat
 // together is an empty cell whose readout says so; the Leader line is bb/100 among models with 500 hands.
-// The engine's /api/stats, from the page's own request (the build's NEXT_PUBLIC_WS_URL); null if it never asked.
+// The engine's /api/stats, at the address of the page's own stream (the build's NEXT_PUBLIC_WS_URL); null if it never opened one.
 const engineStats = async p => {
-  const url = await p.evaluate(() => performance.getEntriesByType('resource').map(e => e.name).find(u => /\/api\/stats(\?|$)/.test(u)));
+  const url = p.__stream?.replace(/\/stream$/, '/api/stats');
   return url ? { url, stats: await (await fetch(url)).json() } : null;
 };
 // bb/100 as the cards print it (lib/stats signedBrief): +12.3 below a thousand, +1.2k above.
@@ -2849,7 +2858,7 @@ group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/
   const p = await pageAt(1440, 900, 'race');
   await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
   const e = await engineStats(p);
-  if (!e) { await p.close(); return { pass: false, detail: 'the page never fetched /api/stats' }; }
+  if (!e) { await p.close(); return { pass: false, detail: 'the page never opened the engine stream' }; }
   const bb = e.stats.scope.big_blind, by = Object.fromEntries(e.stats.models.map(m => [m.name, m]));
   const cells = await cardCells(p);
   await p.close();
@@ -2871,7 +2880,7 @@ group(() => check('matchups-all-models', 'The Matchups card\'s "All models" show
   const p = await pageAt(1440, 900, 'race');
   await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
   const e = await engineStats(p);
-  if (!e) { await p.close(); return { pass: false, detail: 'the page never fetched /api/stats' }; }
+  if (!e) { await p.close(); return { pass: false, detail: 'the page never opened the engine stream' }; }
   const seated = seatedOf(e.stats).length, all = e.stats.models.length;
   const state = () => p.evaluate(() => {
     const card = document.querySelector('#pairwise-card'), sc = card.querySelector('.panel-scroll'), box = sc.getBoundingClientRect();
@@ -2907,24 +2916,43 @@ group(() => check('matchups-all-models', 'The Matchups card\'s "All models" show
   if (back.rows !== seated) bad.push(`back to Seated now: ${back.rows} rows`);
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${seated} seated -> ${all} models at ${after.cell.map(Math.round).join('x')}px cells, ${after.scrolls.join('x')}px of scroll; names, logos and Total pinned at ${scrolled.scrolled.map(Math.round)}` };
 }));
-// No pair in the local data has never met, so the page is served a /api/stats with one seated pair's head-to-head removed.
+// No pair in the local data has never met, so the page is served stats with one seated pair's head-to-head removed:
+// the stream's stats messages are rewritten before the page reads them, and so is any /api/stats answer it fetches.
 group(() => check('matchups-never-met', 'A pair with no hands together is an empty Matchups cell whose readout says they never sat together', async () => {
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
-  let pair = null;
-  await p.setRequestInterception(true);
-  p.on('request', async req => {
-    if (!/\/api\/stats(\?|$)/.test(req.url()) || req.method() !== 'GET') return req.continue();
-    try {
-      const stats = await (await fetch(req.url())).json();
-      pair ??= seatedOf(stats).slice(0, 2).map(m => m.name); // the first response picks the pair; every response (a session's too) loses it
+  await p.evaluateOnNewDocument(seatedSrc => {
+    const seatedOf = new Function(`return ${seatedSrc}`)();
+    let pair = null;
+    // The first full body picks the pair; every stats body or changed row after it (a session's too) loses it.
+    const strip = stats => {
+      if (stats.models) pair ??= window.__pair = seatedOf(stats).slice(0, 2).map(m => m.name);
+      if (!pair) return stats;
       const [a, b] = pair;
-      for (const m of stats.models) if (m.name === a || m.name === b) delete m.vs[m.name === a ? b : a];
-      await req.respond({ status: 200, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' }, body: JSON.stringify(stats) });
-    } catch (e) { req.continue(); }
-  });
+      for (const m of stats.models ?? stats.changed ?? []) if (m.name === a || m.name === b) delete m.vs?.[m.name === a ? b : a];
+      return stats;
+    };
+    const Real = window.EventSource;
+    window.EventSource = class extends Real {
+      set onmessage(fn) {
+        super.onmessage = e => {
+          const m = JSON.parse(e.data);
+          if (m.type !== 'stats') return fn(e);
+          fn(new MessageEvent('message', { data: JSON.stringify({ ...m, payload: strip(m.payload) }) }));
+        };
+      }
+      get onmessage() { return super.onmessage; }
+    };
+    const fetch0 = window.fetch;
+    window.fetch = async (...a) => {
+      const res = await fetch0(...a);
+      if (!/\/api\/stats(\?|$)/.test(String(a[0]?.url ?? a[0])) || !res.ok) return res;
+      return new Response(JSON.stringify(strip(await res.json())), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+  }, seatedOf.toString());
   await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p); await sleep(3000);
   await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
-  if (!pair) { await p.close(); return { pass: false, detail: 'the page never fetched /api/stats' }; }
+  const pair = await p.evaluate(() => window.__pair ?? null);
+  if (!pair) { await p.close(); return { pass: false, detail: 'the page never got stats from the engine stream' }; }
   const keys = [`${pair[0]}|${pair[1]}`, `${pair[1]}|${pair[0]}`];
   const cells = (await cardCells(p)).filter(c => keys.includes(c.key));
   const tips = [];
@@ -2944,7 +2972,7 @@ group(() => check('leader-bb100', 'The Leader line is the best bb/100 among the 
   const p = await pageAt(1440, 900, 'race');
   await clickText(p, 'Skip'); await sleep(800); await goto(p, 'pairwise'); await sleep(1500);
   const e = await engineStats(p);
-  if (!e) { await p.close(); return { pass: false, detail: 'the page never fetched /api/stats' }; }
+  if (!e) { await p.close(); return { pass: false, detail: 'the page never opened the engine stream' }; }
   const read = () => p.evaluate(() => { const l = [...document.querySelectorAll('#pairwise-card span[data-scope]')].find(e => e.getBoundingClientRect().width > 0); return l && { text: l.textContent, name: l.querySelector('[translate=no]')?.textContent ?? null, figure: l.querySelector('.font-bold.shrink-0')?.textContent ?? null }; });
   const want = ms => ms.filter(m => m.hands >= 500).sort((a, b) => b.bb100 - a.bb100)[0] ?? null;
   const bad = [], seen = [];
@@ -3025,6 +3053,105 @@ group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'
     await p.close();
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+
+// The server ends every stream after 10 to 14 minutes and the page reopens it (docs/stream.md); the viewer must not
+// see it. On the live table, in each phase of a turn (thinking; reasoning while it types; revealed), the page's stream
+// is ended as the server ends it (closed, then its error handler), so the page reopens it against the engine. From then
+// until 3 s after the new stream's snapshot is applied, every frame: no connection bar, no Offline; the reasoning text
+// never gets shorter and the shot clock never goes up, except after a live message; seats, cards, pot and
+// stacks change only after a live message, never after the snapshot. A try whose snapshot is newer than the last live
+// message (the table moved while the stream was down) shows something real, so it is retried.
+group(() => check('reconnect-unseen', 'The routine stream reconnect is unseen: no connection bar or Offline, the reasoning neither shortens nor retypes, the shot clock never jumps up, and the table changes only on live events, in the thinking, reasoning and revealed phases', async () => {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  await p.evaluateOnNewDocument(() => {
+    const Real = window.EventSource, s = window.__es = { cur: null, log: [] };
+    window.EventSource = class extends Real {
+      constructor(...a) { super(...a); s.cur = this; }
+      set onmessage(fn) {
+        super.onmessage = e => {
+          try { const m = JSON.parse(e.data); s.log.push({ at: performance.now(), type: m.type, seq: m.seq, live: m.type !== 'snapshot' && m.type !== 'stats' }); } catch {}
+          fn(e);
+        };
+      }
+      get onmessage() { return super.onmessage; }
+    };
+    // As the server ends it: the stream closes and EventSource reports an error.
+    window.__endStream = () => { const es = s.cur; es.close(); es.onerror?.(new Event('error')); };
+    window.__read = () => {
+      const panel = document.querySelector('.stage-zoom .h-\\[100px\\]');
+      const clock = panel?.querySelector('.font-mono.text-lg');
+      const shown = clock && !clock.closest('.invisible');
+      const look = e => e.textContent + [...e.querySelectorAll('[aria-label]')].map(c => c.getAttribute('aria-label')).join(',');
+      return {
+        reason: (panel?.querySelector('p.italic')?.textContent ?? '').replace('▌', ''), // the typing cursor goes when it ends
+        clock: shown ? parseInt(clock.textContent, 10) : null,
+        bar: !!document.querySelector('div[role=status].fixed'),
+        offline: [...document.querySelectorAll('span')].some(e => /^Offline/.test(e.textContent) && e.getBoundingClientRect().width > 0),
+        table: [...document.querySelectorAll('[data-seat], [data-felt]')].map(look).join('|').replace(/Next hand in \d+s/, ''),
+      };
+    };
+  });
+  await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  const ready = () => p.evaluate(() => ({ snapshot: window.__es.log.some(m => m.type === 'snapshot'), cards: !!document.querySelector('[data-seat] [data-hole]'), messages: window.__es.log.length }));
+  if (!(await p.waitForFunction(() => window.__es.log.some(m => m.type === 'snapshot') && document.querySelector('[data-seat] [data-hole]'), { timeout: 120000 }).catch(() => null))) {
+    const r = await ready(); await p.close();
+    return { pass: false, detail: `the live table never showed in 120 s: ${JSON.stringify(r)}` };
+  }
+  // Waits for the next live message of the phase's type (a thinking turn at least 4 s into its hand, so the deal has landed).
+  const phases = {
+    thinking: { type: 'llm_thinking', after: 300 },
+    reasoning: { type: 'llm_action', after: 300 },
+    revealed: { type: 'game_state', after: 100, prev: 'llm_action' },
+  };
+  const bad = [], seen = [];
+  for (const [name, ph] of Object.entries(phases)) {
+    let done = false;
+    for (let attempt = 1; attempt <= 6 && !done; attempt++) {
+      const from = await p.evaluate(() => window.__es.log.length);
+      const ok = await p.waitForFunction((from, ph) => {
+        const log = window.__es.log.filter(m => m.live);
+        const i = log.findLastIndex(m => m.type === ph.type);
+        if (i < 0 || window.__es.log.indexOf(log[i]) < from) return false;
+        if (ph.prev && log[i - 1]?.type !== ph.prev) return false;
+        const start = log.findLast(m => m.type === 'hand_start');
+        return ph.type !== 'llm_thinking' || !start || log[i].at - start.at > 4000;
+      }, { timeout: 90000, polling: 'raf' }, from, ph).then(() => true, () => false);
+      if (!ok) { bad.push(`${name}: no ${ph.type} on the live table in 90 s`); break; }
+      await sleep(ph.after);
+      const r = await p.evaluate(() => new Promise(resolve => {
+        const s = window.__es, cut = s.log.length, last = s.log.at(-1)?.seq;
+        const t0 = performance.now(), frames = [], faults = [];
+        let prev = window.__read(), snapAt = null;
+        window.__endStream();
+        const frame = () => {
+          const now = performance.now(), cur = window.__read(), since = s.log.slice(cut);
+          const snap = since.find(m => m.type === 'snapshot');
+          if (snap && snapAt === null) snapAt = snap.at;
+          const lastMsg = since.filter(m => m.type !== 'stats').at(-1);
+          const liveLast = lastMsg?.live; // since the stream was ended, the table's latest word was a live message, not the snapshot
+          const t = (now - t0).toFixed(0);
+          if (cur.bar) faults.push(`connection bar at ${t} ms`);
+          if (cur.offline) faults.push(`Offline at ${t} ms`);
+          if (cur.reason.length < prev.reason.length && !liveLast) faults.push(`reasoning ${prev.reason.length} -> ${cur.reason.length} chars ("${cur.reason.slice(-16)}") at ${t} ms, after the ${lastMsg?.type ?? 'reopen'}`);
+          if (cur.clock !== null && prev.clock !== null && cur.clock > prev.clock && !liveLast) faults.push(`shot clock ${prev.clock}s -> ${cur.clock}s at ${t} ms, after the ${lastMsg?.type ?? 'reopen'}`);
+          if (cur.table !== prev.table && !liveLast && since.length) faults.push(`table changed after the ${lastMsg?.type ?? 'nothing'} at ${t} ms`);
+          prev = cur; frames.push(now);
+          if (snapAt !== null && now > snapAt + 3000) return resolve({ frames: frames.length, gapMs: Math.round(snapAt - t0), moved: snap.seq !== last, faults: [...new Set(faults)] });
+          if (now - t0 > 15000) return resolve({ frames: frames.length, gapMs: null, moved: false, faults: [...new Set(faults), 'no snapshot within 15 s'] });
+          requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      }));
+      if (r.moved && !r.faults.some(f => /bar|Offline|no snapshot/.test(f))) { seen.push(`${name} try ${attempt}: the table moved while the stream was down, retried`); continue; }
+      done = true;
+      seen.push(`${name}: reopened in ${r.gapMs} ms, ${r.frames} frames watched`);
+      if (r.faults.length) bad.push(`${name}: ${r.faults.slice(0, 4).join(', ')}`);
+    }
+    if (!done && !bad.some(b => b.startsWith(name))) bad.push(`${name}: the table moved during every reconnect`);
+  }
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? `${bad.join('; ')} (${seen.join('; ')})` : seen.join('; ') };
 }));
 
 const beside = drain(groups, Math.max(1, LANES - 1));

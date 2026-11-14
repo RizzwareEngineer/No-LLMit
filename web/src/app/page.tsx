@@ -88,14 +88,13 @@ export default function Home() {
     gaveUp,
     tableNotice,
     isLoading,
-    error,
     lastHandResult,
     displayState,
     shotClockRemaining,
     buttonDetermination,
+    stats,
     connect,
     retry,
-    clearError,
   } = useGameState();
 
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
@@ -104,10 +103,10 @@ export default function Home() {
   const { usage, error: usageError } = useUsage(usageRefreshTrigger);
   const watching = usageError ? undefined : usage?.table?.spectators;
   const isLive = isConnected && !tableNotice;
-  // The connection bar waits for the first attempt (3 s at most): on a refresh the socket opens in a moment, and a bar
+  // The connection bar waits for the first attempt (3 s at most): on a refresh the stream opens in a moment, and a bar
   // shown until then moved every screen by its height (--bar-h) twice.
   const [tried, setTried] = useState(false);
-  const bar = (tried && !isConnected) || !!error;
+  const bar = tried && !isConnected;
 
   // Auto-connect on mount
   useEffect(() => {
@@ -170,8 +169,8 @@ export default function Home() {
   const winners = gameState?.winners || lastHandResult?.winners || [];
   const isHandComplete = street === 'complete';
 
-  // All-time stats feed the leaderboard, the drawer and the stats sections; they refetch as each hand finishes.
-  const all = useStats(undefined, true, handNumber);
+  // All-time stats feed the leaderboard, the drawer and the stats sections; the stream sends them on connect and as each hand is saved.
+  const all = useMemo(() => ({ data: stats, sample: false, loading: !stats, error: null, current: true }), [stats]);
   // Profits & Losses covers the live table session (the one not ended yet: the table the engine
   // is playing). Until that session has a saved hand, the panel shows this game's winnings.
   const liveId = all.data?.sessions.find(s => !s.ended_at)?.id;
@@ -483,30 +482,25 @@ export default function Home() {
       <StickyBar show={!tableInView} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />
       <ModelDrawer models={all.data?.models ?? []} error={all.error} loading={all.loading} slug={drawerSlug} onClose={closeModel} />
 
-      {/* Fixed notification bar for connection status/errors */}
+      {/* Fixed notification bar for connection status */}
       {bar && (
         <div role="status" className="fixed bottom-0 left-0 right-0 px-4 py-2 flex items-center justify-center gap-4 z-50" style={{ background: 'rgb(203, 145, 47)', color: 'rgb(30, 28, 24)' }}>
           <div className="flex items-center gap-2">
             {gaveUp ? (
               <span className="text-sm font-medium">Can&apos;t reach the game server.</span>
-            ) : !isConnected ? (
+            ) : (
               <>
                 <CircleNotch size={14} className="animate-spin" aria-hidden />
                 <span className="text-sm font-medium">Connecting to the game server…</span>
               </>
-            ) : (
-              <span className="text-sm font-medium">{error}</span>
             )}
           </div>
-          {(gaveUp || (isConnected && error)) && (
+          {gaveUp && (
             <button
-              onClick={() => {
-                clearError();
-                if (gaveUp) retry();
-              }}
+              onClick={retry}
               className="text-xs bg-white/40 hover:bg-white/60 px-3 py-1 rounded font-bold"
             >
-              {gaveUp ? 'Retry' : 'Dismiss'}
+              Retry
             </button>
           )}
         </div>

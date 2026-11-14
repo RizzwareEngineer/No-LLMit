@@ -1,286 +1,139 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  PokerWebSocket,
-  GameState,
-  HandCompletePayload,
-  ErrorPayload,
-  ButtonCardPayload,
-  ButtonWinnerPayload,
-  TableNoticePayload,
-} from '@/lib/api';
+import { GameStream, GameState, HandCompletePayload, MessageType, TableNoticePayload } from '@/lib/api';
+import { StatsResponse } from '@/lib/stats';
+import { ButtonDetermination, DisplayState, EMPTY_TABLE, Tables, applyMessage, applyStats } from '@/lib/stream';
+
+export type { ButtonCard, ButtonDetermination, DisplayPhase, DisplayState } from '@/lib/stream';
 
 // The engine's per-turn time limit, shown as the shot clock.
 const SHOT_CLOCK_MS = 30000;
+// How long the stream may be down before the page says Offline: the server ends every stream after 10 to 14 minutes,
+// and the reopen that follows should not flash the connection bar.
+const OFFLINE_AFTER_MS = 4000;
+
+const TABLE_MESSAGES: MessageType[] = [
+  'snapshot', 'game_state', 'hand_start', 'street_change', 'hand_complete',
+  'llm_thinking', 'llm_action', 'button_card', 'button_winner', 'table_notice',
+];
 
 interface UseGameStateOptions {
   autoConnect?: boolean;
-}
-
-interface LLMDecision {
-  playerIdx: number;
-  playerName: string;
-  action: string;
-  amount: number;
-  reason: string;
-}
-
-// Display phases for each LLM turn
-export type DisplayPhase = 'idle' | 'waiting' | 'thinking' | 'reasoning' | 'revealed';
-
-// What's currently being displayed to the user
-export interface DisplayState {
-  phase: DisplayPhase;
-  playerIdx: number;
-  playerName: string;
-  reason: string | null;
-  action: string | null;
-  amount: number;
-  turnStartTime: number; // For shot clock countdown
-}
-
-// Button determination state
-export interface ButtonCard {
-  playerIdx: number;
-  playerName: string;
-  card: string;
-}
-
-export interface ButtonDetermination {
-  cards: ButtonCard[];
-  winnerIdx: number | null;
-  winnerName: string | null;
-  isComplete: boolean;
 }
 
 interface UseGameStateReturn {
   gameState: GameState | null;
   isConnected: boolean;
   gaveUp: boolean; // reconnect attempts exhausted
-  tableNotice: TableNoticePayload | null; // table closed or capped
+  tableNotice: TableNoticePayload | null; // table closed, capped, in an outage or saving
   isLoading: boolean;
-  error: string | null;
   lastHandResult: HandCompletePayload | null;
   displayState: DisplayState | null;
   shotClockRemaining: number; // Seconds remaining on shot clock
   buttonDetermination: ButtonDetermination | null;
+  stats: StatsResponse | null; // all-time stats, from the stream
   connect: () => Promise<void>;
   retry: () => void;
   disconnect: () => void;
-  clearError: () => void;
 }
 
 export function useGameState(options: UseGameStateOptions = {}): UseGameStateReturn {
   const { autoConnect = false } = options;
-  
-  const [gameState, setGameState] = useState<GameState | null>(null);
+
+  // Every table the stream reports, by table id; the page draws the only one.
+  const [tables, setTables] = useState<Tables>({});
+  const [stats, setStats] = useState<StatsResponse | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [gaveUp, setGaveUp] = useState(false);
-  const [tableNotice, setTableNotice] = useState<TableNoticePayload | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const connectingRef = useRef(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastHandResult, setLastHandResult] = useState<HandCompletePayload | null>(null);
-  const [displayState, setDisplayState] = useState<DisplayState | null>(null);
-  const [shotClockRemaining, setShotClockRemaining] = useState(30);
-  const [buttonDetermination, setButtonDetermination] = useState<ButtonDetermination | null>(null);
-  
-  const wsRef = useRef<PokerWebSocket | null>(null);
-  
-  // Timer refs
-  const shotClockIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const offlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamRef = useRef<GameStream | null>(null);
 
-  // Clear all timers
-  const clearTimers = useCallback(() => {
-    if (shotClockIntervalRef.current) {
-      clearInterval(shotClockIntervalRef.current);
-      shotClockIntervalRef.current = null;
-    }
-  }, []);
+  const table = Object.values(tables)[0] ?? EMPTY_TABLE;
 
-  // Start shot clock countdown display
-  const startShotClockDisplay = useCallback((startTime: number) => {
-    // Clear existing interval
-    if (shotClockIntervalRef.current) {
-      clearInterval(shotClockIntervalRef.current);
-    }
-    
-    // Update every second
-    shotClockIntervalRef.current = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, Math.ceil((SHOT_CLOCK_MS - elapsed) / 1000));
-      setShotClockRemaining(remaining);
+  // The shot clock ticks from llm_thinking until the next game_state, then holds its last value.
+  const { clock } = table;
+  const [tick, setTick] = useState({ start: 0, left: 30 });
+  useEffect(() => {
+    if (!clock?.running) return;
+    const start = clock.start;
+    const id = setInterval(() => {
+      setTick({ start, left: Math.max(0, Math.ceil((SHOT_CLOCK_MS - (Date.now() - start)) / 1000)) });
     }, 1000);
-    
-    // Initial update
-    setShotClockRemaining(30);
-  }, []);
+    return () => clearInterval(id);
+  }, [clock?.running, clock?.start]);
+  const shotClockRemaining = clock && tick.start === clock.start ? tick.left : 30;
 
-  // The server owns the clock: it sends llm_thinking, then llm_action, then the
-  // game_state with the action applied, each at the moment it should appear.
-
-  // A player's turn has started
-  const handleLLMThinking = useCallback((payload: { playerIdx: number; playerName: string }) => {
-    const turnStartTime = Date.now();
-    startShotClockDisplay(turnStartTime);
-    setDisplayState({
-      phase: 'thinking',
-      playerIdx: payload.playerIdx,
-      playerName: payload.playerName,
-      reason: null,
-      action: null,
-      amount: 0,
-      turnStartTime,
-    });
-  }, [startShotClockDisplay]);
-
-  // The player's decision and reasoning are in
-  const handleLLMAction = useCallback((payload: LLMDecision) => {
-    setDisplayState(prev => ({
-      phase: 'reasoning',
-      playerIdx: payload.playerIdx,
-      playerName: payload.playerName,
-      reason: payload.reason,
-      action: payload.action,
-      amount: payload.amount,
-      turnStartTime: prev?.playerIdx === payload.playerIdx ? prev.turnStartTime : Date.now(),
-    }));
-  }, []);
-
-  // The action has been applied to the table
-  const handleGameState = useCallback((newState: GameState) => {
-    setGameState(newState);
-    setDisplayState(prev => prev?.phase === 'reasoning' ? { ...prev, phase: 'revealed' } : prev);
-    if (shotClockIntervalRef.current) {
-      clearInterval(shotClockIntervalRef.current);
-      shotClockIntervalRef.current = null;
-    }
-    setIsLoading(false);
-  }, []);
-
-  // Reset the turn display
-  const clearQueues = useCallback(() => {
-    clearTimers();
-    setDisplayState(null);
-    setShotClockRemaining(30);
-  }, [clearTimers]);
+  const clearOfflineTimer = () => {
+    if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+    offlineTimerRef.current = null;
+  };
 
   const connect = useCallback(async () => {
-    if (wsRef.current?.isConnected()) {
+    if (streamRef.current) {
       return;
     }
-    
+
     if (connectingRef.current || isLoading) {
       return;
     }
 
     connectingRef.current = true;
     setIsLoading(true);
-    setError(null);
 
     try {
-      const ws = new PokerWebSocket();
-      
-      ws.on('game_state', (payload) => {
-        handleGameState(payload as GameState);
+      const stream = new GameStream();
+
+      for (const type of TABLE_MESSAGES) {
+        stream.on(type, (m) => {
+          const now = Date.now();
+          setTables(t => applyMessage(t, m, now));
+        });
+      }
+      stream.on('stats', (m) => {
+        setStats(s => applyStats(s, m.payload as StatsResponse));
       });
 
-      ws.on('error', (payload) => {
-        const err = payload as ErrorPayload;
-        setError(err.message);
-        setIsLoading(false);
-        if (err.message.includes('No game found') || err.message.includes('game not found')) {
-          setGameState(null);
-        }
-      });
-
-      ws.on('hand_complete', (payload) => {
-        setLastHandResult(payload as HandCompletePayload);
-      });
-
-      ws.on('table_notice', (payload) => {
-        const notice = payload as TableNoticePayload;
-        setTableNotice(notice.kind ? notice : null);
-      });
-
-      ws.on('hand_start', () => {
-        setTableNotice(null);
-        setLastHandResult(null);
-        setButtonDetermination(null); // Clear button determination when hand starts
-        clearQueues();
-      });
-
-      ws.on('llm_thinking', (payload) => {
-        handleLLMThinking(payload as { playerIdx: number; playerName: string });
-      });
-
-      ws.on('llm_action', (payload) => {
-        handleLLMAction(payload as LLMDecision);
-      });
-
-      ws.on('button_card', (payload) => {
-        const bc = payload as ButtonCardPayload;
-        setButtonDetermination(prev => ({
-          cards: [...(prev?.cards || []), { playerIdx: bc.playerIdx, playerName: bc.playerName, card: bc.card }],
-          winnerIdx: null,
-          winnerName: null,
-          isComplete: false,
-        }));
-      });
-
-      ws.on('button_winner', (payload) => {
-        const bw = payload as ButtonWinnerPayload;
-        setButtonDetermination(prev => prev ? {
-          ...prev,
-          winnerIdx: bw.playerIdx,
-          winnerName: bw.playerName,
-          isComplete: true,
-        } : null);
-      });
-
-      ws.onStatus = (status) => {
-        setIsConnected(status === 'open');
+      // Nothing is cleared on open: the snapshot that follows replaces the tables.
+      stream.onStatus = (status) => {
         setGaveUp(status === 'gave_up');
-        // The server resends the current turn and any notice on join, so drop what we had
         if (status === 'open') {
-          setTableNotice(null);
-          clearQueues();
+          clearOfflineTimer();
+          setIsConnected(true);
+        } else if (!offlineTimerRef.current) {
+          offlineTimerRef.current = setTimeout(() => setIsConnected(false), OFFLINE_AFTER_MS);
         }
       };
       try {
-        await ws.connect();
+        await stream.connect();
       } catch {
-        // A failed first attempt closes the socket, which starts the reconnect loop;
-        // onStatus reports when it gives up.
+        // A failed first attempt starts the reconnect loop; onStatus reports when it gives up.
       }
       // Set after the first attempt (not before) so a Strict Mode effect cleanup
       // during the handshake does not close it.
-      wsRef.current = ws;
+      streamRef.current = stream;
     } finally {
       setIsLoading(false);
       connectingRef.current = false;
     }
-  }, [handleGameState, handleLLMThinking, handleLLMAction, clearQueues, isLoading]);
+  }, [isLoading]);
 
   const disconnect = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.disconnect();
-      wsRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.disconnect();
+      streamRef.current = null;
     }
+    clearOfflineTimer();
     setIsConnected(false);
-    setGameState(null);
-    clearQueues();
-  }, [clearQueues]);
+    setTables({});
+  }, []);
 
   const retry = useCallback(() => {
-    if (wsRef.current) wsRef.current.retry();
+    if (streamRef.current) streamRef.current.retry();
     else connect();
   }, [connect]);
-
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
 
   // Auto-connect if option is set
   useEffect(() => {
@@ -289,29 +142,28 @@ export function useGameState(options: UseGameStateOptions = {}): UseGameStateRet
     }
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.disconnect();
-        wsRef.current = null;
+      if (streamRef.current) {
+        streamRef.current.disconnect();
+        streamRef.current = null;
       }
-      clearTimers();
+      clearOfflineTimer();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoConnect]);
 
   return {
-    gameState,
+    gameState: table.gameState,
     isConnected,
     gaveUp,
-    tableNotice,
+    tableNotice: table.notice,
     isLoading,
-    error,
-    lastHandResult,
-    displayState,
+    lastHandResult: table.lastHandResult,
+    displayState: table.display,
     shotClockRemaining,
-    buttonDetermination,
+    buttonDetermination: table.buttonDetermination,
+    stats,
     connect,
     retry,
     disconnect,
-    clearError,
   };
 }
