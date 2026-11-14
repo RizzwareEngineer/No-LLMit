@@ -6,6 +6,7 @@ import CornerBorders from "@/components/CornerBorders";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
+import { useRememberedBox } from "@/lib/boxes";
 
 interface WinningsPanelProps {
   players: PlayerState[];
@@ -13,10 +14,14 @@ interface WinningsPanelProps {
 
 export default function WinningsPanel({ players }: WinningsPanelProps) {
   const bb = useBigBlind();
+  // No state yet: a blank box at its size (a phone's is as tall as its rows: remembered).
+  const [box, size, attrs] = useRememberedBox<HTMLDivElement>('pnl', players.length > 0);
   return (
     <div 
-      className="flex flex-col relative w-full bg-white flex-1 rounded overflow-hidden"
-      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
+      ref={box}
+      {...attrs}
+      className={`flex flex-col relative w-full bg-white flex-1 rounded overflow-hidden ${players.length ? '' : '[&>*]:invisible'}`}
+      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', ...size }}
     >
       <CornerBorders />
       <div className="flex items-start justify-between p-3 border-b border-notion">

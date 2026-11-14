@@ -17,6 +17,7 @@ import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
 import { useStats } from "@/lib/stats";
 import { NEXT_BUTTON, NEXT_STYLE, isPaging, pageBy, pageTo, resnap, scrollsInside } from "@/components/Section";
+import { holdBoxes } from "@/lib/boxes";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -50,6 +51,34 @@ const closeModel = () => {
   window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
 };
 
+// Fit-to-screen: the stage (table, sidebar, reasoning) takes one uniform zoom so the whole
+// table screen fits the window, up to 125% (the size the owner chose) and down to 75%; below
+// that the screen scrolls instead of shrinking further. Browser zoom shrinks the CSS viewport,
+// so it lowers this scale and is never fought. Phones (< 768px) reflow to the list layout at 1.
+// The stage's width as drawn (at most the screen's, where it scrolls at the floor) is --stage-w on the root: the
+// stats overview, its cards, About and the sticky bar take that column (StatsSections), so every screen has its margins.
+// Self-contained (nothing from outside its body): BEFORE_PAINT runs its source inline too.
+function fitStage() {
+  const stage = document.querySelector<HTMLElement>('.stage-zoom'), screen = stage?.closest('section');
+  if (!stage || !screen) return;
+  if (window.innerWidth < 768) stage.style.zoom = '';
+  else {
+    const cs = getComputedStyle(screen);
+    const kids = [...screen.children];
+    // Everything on the screen but the stage: header, gaps, Stats button and padding.
+    const chrome = kids[kids.length - 1].getBoundingClientRect().bottom - kids[0].getBoundingClientRect().top
+      - stage.getBoundingClientRect().height + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    // offsetWidth/offsetHeight are the stage's unzoomed size.
+    const s = Math.min(screen.clientWidth / stage.offsetWidth, (document.documentElement.clientHeight - chrome) / stage.offsetHeight);
+    stage.style.zoom = String(Math.floor(Math.min(1.25, Math.max(0.75, s)) * 1000) / 1000);
+  }
+  document.documentElement.style.setProperty('--stage-w', `${Math.min(stage.getBoundingClientRect().width, screen.clientWidth)}px`);
+}
+// The prerendered page, as parsed, before its first paint: the stage fitted and the blank boxes at their remembered sizes
+// (lib/boxes), as the effects set them once React has hydrated, so nothing changes size when it does. Run where the
+// parser has just passed the table screen, and again after the stats.
+const BEFORE_PAINT = `(${fitStage})();(${holdBoxes})(true)`;
+
 const PAGE_KEYS: Record<string, 1 | -1> = { ArrowDown: 1, ArrowRight: 1, PageDown: 1, ArrowUp: -1, ArrowLeft: -1, PageUp: -1 };
 
 export default function Home() {
@@ -75,14 +104,20 @@ export default function Home() {
   const { usage, error: usageError } = useUsage(usageRefreshTrigger);
   const watching = usageError ? undefined : usage?.table?.spectators;
   const isLive = isConnected && !tableNotice;
-  
+  // The connection bar waits for the first attempt (3 s at most): on a refresh the socket opens in a moment, and a bar
+  // shown until then moved every screen by its height (--bar-h) twice.
+  const [tried, setTried] = useState(false);
+  const bar = (tried && !isConnected) || !!error;
+
   // Auto-connect on mount
   useEffect(() => {
+    const t = setTimeout(() => setTried(true), 3000);
     if (!isConnected && !isLoading) {
       connect().catch(err => {
         console.error('Failed to auto-connect:', err);
-      });
+      }).finally(() => setTried(true));
     }
+    return () => clearTimeout(t);
     // Only run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -169,36 +204,17 @@ export default function Home() {
     return () => io.disconnect();
   }, []);
 
-  // Fit-to-screen: the stage (table, sidebar, reasoning) takes one uniform zoom so the whole
-  // table screen fits the window, up to 125% (the size the owner chose) and down to 75%; below
-  // that the screen scrolls instead of shrinking further. Browser zoom shrinks the CSS viewport,
-  // so it lowers this scale and is never fought. Phones (< 768px) reflow to the list layout at 1.
-  // The stage's width as drawn (at most the screen's, where it scrolls at the floor) is --stage-w on the root: the
-  // stats overview, its cards, About and the sticky bar take that column (StatsSections), so every screen has its margins.
+  // The stage's fit (fitStage), kept as the window, the stage or the screen change size.
   const stageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const stage = stageRef.current, screen = stage?.closest('section');
     if (!stage || !screen) return;
-    const fit = () => {
-      if (window.innerWidth < 768) stage.style.zoom = '';
-      else {
-        const cs = getComputedStyle(screen);
-        const kids = [...screen.children];
-        // Everything on the screen but the stage: header, gaps, Stats button and padding.
-        const chrome = kids[kids.length - 1].getBoundingClientRect().bottom - kids[0].getBoundingClientRect().top
-          - stage.getBoundingClientRect().height + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-        // offsetWidth/offsetHeight are the stage's unzoomed size.
-        const s = Math.min(screen.clientWidth / stage.offsetWidth, (document.documentElement.clientHeight - chrome) / stage.offsetHeight);
-        stage.style.zoom = String(Math.floor(Math.min(1.25, Math.max(0.75, s)) * 1000) / 1000);
-      }
-      document.documentElement.style.setProperty('--stage-w', `${Math.min(stage.getBoundingClientRect().width, screen.clientWidth)}px`);
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
+    fitStage();
+    const ro = new ResizeObserver(fitStage);
     ro.observe(stage);
     ro.observe(screen);
-    window.addEventListener('resize', fit);
-    return () => { ro.disconnect(); window.removeEventListener('resize', fit); };
+    window.addEventListener('resize', fitStage);
+    return () => { ro.disconnect(); window.removeEventListener('resize', fitStage); };
   }, []);
 
   // ↑ ↓ ← →, PageUp/PageDown and Space page between screens, unless a field, the drawer or a panel
@@ -344,7 +360,7 @@ export default function Home() {
     <MotionConfig reducedMotion="user">
     {/* --bar-h: room the connection bar takes at the bottom, so it never covers a screen's edge. data-page: the page's
         one background (globals.css) behind every screen. */}
-    <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: !isConnected || error ? '40px' : '0px' }}>
+    <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: bar ? '40px' : '0px' }}>
       <main className="flex flex-col items-center-safe">
       {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
       <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always overflow-x-auto flex flex-col items-center-safe justify-center-safe pt-3 pb-[calc(1rem+var(--bar-h))] lg:pt-4">
@@ -385,17 +401,16 @@ export default function Home() {
             </span>
           </div>
 
-          {/* Hand counter, blinds, timer */}
-          {handNumber > 0 && (
-            <>
-              <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[14px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber}</span>
-              <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[14px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
-              <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-              <span className="text-[14px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
-            </>
-          )}
+          {/* Hand counter, blinds, timer. Held blank until the first state, so the row keeps its width (a phone wraps it
+              to the same lines) and nothing under it moves when they fill in. */}
+          <div className={`contents ${handNumber > 0 ? '' : '[&>*]:invisible'}`}>
+            <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+            <span className="text-[14px] tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>Hand #{handNumber || '00'}</span>
+            <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+            <span className="text-[14px]" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
+            <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+            <span className="text-[14px] font-mono tabular-nums" style={{ color: 'rgba(55, 53, 47, 0.65)' }}>{elapsedTime}</span>
+          </div>
           <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
           <UnitToggle bigBlind={stakes.bigBlind} />
           <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
@@ -406,7 +421,8 @@ export default function Home() {
 
         {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
         <div className="mt-6 flex items-center-safe justify-center-safe w-full md:w-auto">
-          <div ref={stageRef} className="stage-zoom flex flex-col w-full md:w-auto">
+          {/* suppressHydrationWarning: BEFORE_PAINT fits it before React hydrates. */}
+          <div ref={stageRef} className="stage-zoom flex flex-col w-full md:w-auto" suppressHydrationWarning>
             {/* Row 1: Table + Winnings (stacked on phones) */}
             <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
               {/* Main game grid */}
@@ -444,6 +460,7 @@ export default function Home() {
               <ReasoningPanel
                 displayState={displayState}
                 shotClockRemaining={shotClockRemaining}
+                blank={players.length === 0}
               />
             </div>
           </div>
@@ -453,19 +470,21 @@ export default function Home() {
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>
       </section>
+      <script dangerouslySetInnerHTML={{ __html: BEFORE_PAINT }} />
 
       {/* Screens 2-5: the overview, then race, stats and pairwise one at a time. */}
       <StatsSections
         all={all}
         seated={seated}
       />
+      <script dangerouslySetInnerHTML={{ __html: BEFORE_PAINT }} />
       </main>
 
-      <StickyBar show={!tableInView && players.length > 0} pot={pot} handNumber={handNumber} display={displayState} />
+      <StickyBar show={!tableInView} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />
       <ModelDrawer models={all.data?.models ?? []} error={all.error} loading={all.loading} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status/errors */}
-      {(!isConnected || error) && (
+      {bar && (
         <div role="status" className="fixed bottom-0 left-0 right-0 px-4 py-2 flex items-center justify-center gap-4 z-50" style={{ background: 'rgb(203, 145, 47)', color: 'rgb(30, 28, 24)' }}>
           <div className="flex items-center gap-2">
             {gaveUp ? (

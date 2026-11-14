@@ -23,7 +23,8 @@ function acting(d: DisplayState | null, bb: number | null) {
 }
 
 // One-line bar fixed to the top once the live table has scrolled out of view.
-export default function StickyBar({ show, pot, handNumber, display }: { show: boolean; pot: number; handNumber: number; display: DisplayState | null }) {
+// `blank`: no table state yet: the bar at its size with nothing in it.
+export default function StickyBar({ show, blank = false, pot, handNumber, display }: { show: boolean; blank?: boolean; pot: number; handNumber: number; display: DisplayState | null }) {
   const bb = useBigBlind(); // the Chips/BB switch, as the felt's
   const doing = acting(display, bb);
   const screen = useScreen();
@@ -41,7 +42,7 @@ export default function StickyBar({ show, pot, handNumber, display }: { show: bo
         >
           {/* The page's padding, the stats column (--stage-w, page.tsx) and the cards' padding (16px from lg), so the
               bar's text lines up with the card content below. */}
-          <div className="px-3 lg:px-4"><div className="max-w-(--stage-w) mx-auto h-11 px-3 lg:px-4 flex items-center gap-3 text-[13px] whitespace-nowrap" style={{ color: TEXT }}>
+          <div className="px-3 lg:px-4"><div className={`max-w-(--stage-w) mx-auto h-11 px-3 lg:px-4 flex items-center gap-3 text-[13px] whitespace-nowrap ${blank ? '[&>*]:invisible' : ''}`} style={{ color: TEXT }}>
             <span className="font-bold hidden sm:inline">No-LLMit</span>
             {handNumber > 0 && <span className="tabular-nums hidden sm:inline" style={{ color: MUTED }}>#{handNumber}</span>}
             <span className="tabular-nums shrink-0">

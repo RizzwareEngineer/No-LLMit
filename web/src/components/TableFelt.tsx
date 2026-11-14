@@ -50,6 +50,7 @@ interface TableFeltProps {
   buttonDetermination?: ButtonDetermination | null;
   notice?: TableNoticePayload | null;
   deck?: DeckPhase | null; // the deck between hands, in the board's place (TableMotion)
+  blank?: boolean; // no state yet: the felt at its size with nothing on it
 }
 
 // Shown on the felt while the table is closed or at its daily call cap.
@@ -114,6 +115,7 @@ export default function TableFelt({
   buttonDetermination,
   notice,
   deck,
+  blank = false,
 }: TableFeltProps) {
   const bb = useBigBlind();
   const potIn = amountParts(pot, bb);
@@ -123,7 +125,7 @@ export default function TableFelt({
   return (
     <div 
       data-felt
-      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'pt-[44px] pb-3' : 'py-2'}`}
+      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'pt-[44px] pb-3' : 'py-2'} ${blank ? '[&>*]:invisible' : ''}`}
       style={{
         backgroundImage: `
           linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
