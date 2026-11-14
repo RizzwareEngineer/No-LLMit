@@ -63,3 +63,12 @@ test('peel: stacked exactly, turned a quarter counterclockwise, lifted together 
     close(corners(peekPose(SHOW, 1, W, l1), 1), corners(REST, 1), 1e-6, 'slot 1 rests');
   }
 });
+
+test('peel: one rotation for both cards while lifted, and turned upright inside the two slots\' width', () => {
+  const lin = m => [0, 1, 2].flatMap(i => [0, 1, 2].map(j => m[i][j]));
+  for (const [l0, l1] of lays.slice(0, 8)) {
+    for (let t = STEPS[1]; t <= STEPS[4]; t += 0.01) close([lin(matrix(css(peekPose(t, 0, W, l0), W)))], [lin(matrix(css(peekPose(t, 1, W, l1), W)))], 1e-9, `${t}: one rotation`);
+    for (let t = STEPS[4]; t <= SHOW + 1e-9; t += 0.005) for (const [slot, l] of [[0, l0], [1, l1]])
+      for (const [x] of corners(peekPose(t, slot, W, l), slot)) assert.ok(Math.abs(x) <= W + 2 + 0.5, `${t}: slot ${slot} corner at ${x.toFixed(1)}`);
+  }
+});
