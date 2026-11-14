@@ -209,10 +209,12 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
       hold(late);
       pin(true); // before the jump into the loop (on the overview pinned or not looks the same)
       put(tile);
-      const land = (e?: Event) => {
-        if (!busy || (e && (e as CustomEvent<string>).detail !== TILES[tile].panel)) return;
+      let landed = false;
+      const land = () => {
+        if (!busy || landed) return;
+        landed = true;
         clearTimeout(timer);
-        window.removeEventListener('glideend', land);
+        window.removeEventListener('glideend', ended);
         hold(0);
         // The card shows what the tile showed: its top (the tile never scrolls on its way).
         const card = document.querySelector(`#${TILES[tile].land} .panel-scroll`);
@@ -237,7 +239,10 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
           setMuFold(false);
         }));
       };
-      window.addEventListener('glideend', land);
+      // glideend comes in the frame that draws the glide's last step (under a pixel, its scale not yet 1): handed over in
+      // that frame, the card's first frame replaced a tile never drawn at rest. The tile is drawn landed first, for a frame.
+      const ended = (e: Event) => { if ((e as CustomEvent<string>).detail === TILES[tile].panel) requestAnimationFrame(land); };
+      window.addEventListener('glideend', ended);
       const timer = setTimeout(land, late);
     };
     const back = () => {
