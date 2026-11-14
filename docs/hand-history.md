@@ -55,10 +55,10 @@ With `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` set, the engine saves to Supabase
 `save_hand` function. Without them it appends to `data/hands.jsonl` and `data/prompts.jsonl`.
 Hands played by the mock provider are never sent to Supabase.
 
-A hand that still fails after 5 attempts is appended to `unsaved.jsonl` in `HAND_LOG_DIR`
-(default `data/`), and that file is replayed at startup and after every successful save.
-The engine also reads one row from `hands` every 6 hours so a free Supabase project is
-never paused for inactivity.
+If a save fails, the table waits and retries (2 s, doubling to 60 s) until it succeeds,
+and viewers see the "saving" notice meanwhile. A hand is counted in the stats only after it
+is saved. The stats poll that reads new hands from Supabase every 5 minutes also keeps a
+free Supabase project from being paused for inactivity.
 
 `hands_voided` and `decision_prompts_voided` (same columns as `hands` and `decision_prompts`)
 hold the 71 hands saved between 2026-11-04 and 2026-11-09 in which every call failed at the

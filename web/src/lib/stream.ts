@@ -14,7 +14,6 @@ export interface DisplayState {
   reason: string | null;
   action: string | null;
   amount: number;
-  turnStartTime: number; // For shot clock countdown
 }
 
 // Button determination state
@@ -67,12 +66,11 @@ function applyTurn(v: TableView, turn: Turn, now: number): TableView {
     const p = turn.payload as { turn: number; playerIdx: number; playerName: string };
     return {
       ...v,
-      display: { phase: 'thinking', turn: p.turn, playerIdx: p.playerIdx, playerName: p.playerName, reason: null, action: null, amount: 0, turnStartTime: now },
+      display: { phase: 'thinking', turn: p.turn, playerIdx: p.playerIdx, playerName: p.playerName, reason: null, action: null, amount: 0 },
       clock: { start: now, running: true },
     };
   }
   const p = turn.payload as LLMDecision;
-  const prev = v.display;
   return {
     ...v,
     display: {
@@ -83,7 +81,6 @@ function applyTurn(v: TableView, turn: Turn, now: number): TableView {
       reason: p.reason,
       action: p.action,
       amount: p.amount,
-      turnStartTime: prev?.turn === p.turn ? prev.turnStartTime : now,
     },
   };
 }
@@ -170,12 +167,12 @@ export function applyMessage(tables: Tables, m: ServerMessage, now: number): Tab
 type ChangedStats = Omit<StatsResponse, 'models'> & { model_names: string[]; changed: ModelStats[] };
 
 // A stats message: the full all-time body replaces the held one; the changed form replaces rows by model name.
-// With nothing held, a changed form that carries every row stands in for the full body; any other waits for one.
+// A changed form with nothing held is ignored: every stream starts with the full body.
 export function applyStats(held: StatsResponse | null, payload: StatsResponse | ChangedStats): StatsResponse | null {
   if (!('changed' in payload)) return payload;
+  if (!held) return held;
   const { model_names, changed, ...envelope } = payload;
-  if (!held && !model_names.every(name => changed.some(r => r.name === name))) return held;
-  const byName = new Map(held?.models.map(m => [m.name, m]));
+  const byName = new Map(held.models.map(m => [m.name, m]));
   for (const row of changed) byName.set(row.name, row);
   return { ...envelope, models: model_names.flatMap(name => byName.get(name) ?? []) };
 }

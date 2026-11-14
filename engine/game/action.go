@@ -354,8 +354,7 @@ func (gs *GameState) ResetBettingRound() {
 func (gs *GameState) GetFirstToAct() int {
 	if gs.Street == StreetPreflop {
 		// Preflop: UTG (left of BB) acts first
-		sbIdx := gs.getNextActivePlayer(gs.ButtonIdx)
-		bbIdx := gs.getNextActivePlayer(sbIdx)
+		_, bbIdx := gs.blindSeats()
 		utgIdx := gs.getNextActivePlayer(bbIdx)
 
 		for i := 0; i < len(gs.Players); i++ {

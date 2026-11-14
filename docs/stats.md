@@ -14,7 +14,8 @@ stats endpoints send gzip to clients that accept it: the demo's 191 KB of stats 
 
 All-ins are worked out a few hands at a time after a restart, so serving never waits on
 them. While some are left, `partial` is `true` and those hands count at their actual result
-in all-in EV bb/100. `ended_at` is `null` only for the session of the latest hand.
+in all-in EV bb/100. `ended_at` is `null` only for the table being played now (right
+after a restart that is a new session with no hands yet, not the session of the latest hand).
 
 ## Which decisions count
 
@@ -43,7 +44,7 @@ A rate with nothing to count, such as c-bet for a model that never had the chanc
   put in. Side pots are split by contribution level and only the players in each pot can
   win it. After the flop or turn every runout is counted exactly (990 for two players on
   the flop); preflop it is 10,000 random runouts from a fixed seed, so the number never
-  changes between runs (its error is about 0.1% of the pot per hand). Every other hand counts
+  changes between runs (its standard error is about 0.5% of the pot per hand for a coin flip). Every other hand counts
   at its actual net.
 - **Biggest pot won**: the largest pot in a hand the model finished ahead in, counting the
   whole pot even when it was split.
@@ -126,13 +127,6 @@ Style rates settle much faster (a few hundred decisions), but rates built on rar
 such as 3-bet, c-bet and fold to c-bet, need many more hands than the headline count
 suggests: check how many chances the model actually had. Rates also pool every prompt
 version in the scope, so compare models within one prompt version.
-
-The Profiles card shows a **rank spread** beside bb/100, as LMArena does: the best and worst
-rank each model's 95% interval allows among the models at the table. Best is 1 plus the
-number of models whose interval lies wholly above its own; worst is the field size minus
-the number whose interval lies wholly below it. "1–9" at a nine-model table means the data
-cannot yet order that model against anyone. Computed in the web app (`rankSpread` in
-`web/src/lib/stats.ts`), not by the engine.
 
 ## Timeline
 

@@ -37,12 +37,12 @@ Without the snapshot: a joiner would only see the game from its next event.
 Without one writer per viewer: one slow socket would block everyone else's delivery.
 
 **6. Snapshot, then every new event.** On connect the writer flushes the 200, then writes one `snapshot` message holding, for every table, its state, the hand's last turn (thinking or an action, with whether the action is applied) or null, the notice or null, the whole button-cards list and the button winner or null. Then it writes one `stats` message with the full precomputed all-time stats body. After that it writes each new event, flushes, and waits on `wake`, a 20 s heartbeat ticker (`: hb`), a lifetime timer of a random 10 to 14 minutes, or the request context. Each write has a 10 s deadline (60 s for the snapshot and stats). Any write error ends the handler.
-The browser replaces all table state when a snapshot arrives. It keeps the turn already on screen when the snapshot's turn is the same one, so a reconnect every 10 to 14 minutes changes nothing on screen: reasoning does not retype, the revealed action stays, and the shot clock does not reset.
+The browser replaces all table state when a snapshot arrives. It keeps the turn already on screen when the snapshot's turn has the same hand number and turn number (the engine counts turns per hand from 1), so a reconnect every 10 to 14 minutes changes nothing on screen: reasoning does not retype, the revealed action stays, and the shot clock does not reset.
 Without the one-message snapshot: a mid-stream snapshot would leave a cleared notice or finished turn on screen and double the button cards.
 
 **7. Hand end: save it, then deal the next hand.** The table publishes `hand_complete` and `game_state`. Then, outside every lock, it calls Supabase's `save_hand` database function (`POST /rest/v1/rpc/save_hand`, 15 s timeout), which writes the hand, every decision, the prompts and the system prompt. Voided hands, hands with no decision and mock-provider hands are skipped first. On failure it retries forever, 2 s doubling to a 60 s cap, and after the first failure sets the table notice "The table is paused until the last hand is saved." Stats count the hand only after the save succeeds, so a process death between showing and saving loses at most one hand per table.
-Stats are computed in memory from finished hands. At boot they load from Supabase. After each recompute that added a hand, the hub swaps the full stats body and publishes one `stats` event with every row that changed, as absolute values keyed by model name.
-Without the blocking save: a hand could be shown and never stored, which is the spill-file path this replaces.
+Stats are computed in memory from finished hands. At boot they load from Supabase. After each recompute that added a hand, the hub swaps the full stats body and publishes one `stats` event with every row that changed, as absolute values keyed by model name. The first event after the engine starts carries the full body instead.
+Without the blocking save: a hand could be shown and never stored.
 
 **8. Reconnect: a new GET /stream.** There is no resume. Frames carry no `id:` and the server ignores `Last-Event-ID`. A reconnect gets a new snapshot. The client reopens the stream itself: on every `error` it calls `es.close()`, waits a random 0 to 1 s the first time and then 2 s times the attempt times a random 0.5 to 1.5, and gives up after 10 attempts with a Retry button. It does not rely on `EventSource`'s built-in retry, which stops for good after a non-200 answer, such as Railway's 502 while the engine restarts. The page shows Offline only after 4 s without an open stream.
 Without it: Railway ends every HTTP request at 15 minutes. WebSockets are exempt from that limit and SSE is not, so every viewer reconnects at least four times an hour. The server-chosen 10 to 14 minute lifetime spreads a burst's reconnects over four minutes instead of one second.
@@ -63,18 +63,35 @@ Without it: Railway ends every HTTP request at 15 minutes. WebSockets are exempt
 | Figure | Value | Source |
 |---|---|---|
 | Hands per day, one table | about 150 (9am to 9pm ET, about 12 an hour) | estimated from the call budget |
-| Open-stream cap | 6,000; the next request gets 503 | set in code |
+| Open-stream cap | 6,000; the next request gets 503. 50 per client address; the 51st gets 429 | set in code |
 | Ring size | 50 events | set in code |
 | Egress at 5,000 viewers | about 3.5 MB/s at one table, 21 to 26 MB/s at ten | estimated |
 | Egress price | $0.05/GB on Railway | Railway's price list |
 | Bytes per reconnect | about 185 KB (snapshot plus full stats) | estimated |
 | Memory for 5,000 connections | 100 to 200 MB | estimated |
-| Memory for stats | about 16 KB per finished hand held since boot, on top of the above | estimated |
+| Memory for stats | about 16 KB per saved hand, all loaded at boot (about 880 MB per year at one table), on top of the above | estimated |
 | CPU per event at 5,000 viewers | 10 to 25 ms | estimated |
 | LLM usage refresh | at most once per 60 s, cached in the engine | set in code |
 
 Nothing here was measured under load. A 5,000-connection load test is an experiment that needs the owner's go.
 More replicas do not help, because the game state lives in one process. The next step past one instance would be relay servers. That is not planned.
+
+## Settings
+
+Environment variables the engine and the web read. Set them in Railway and Vercel.
+
+| Variable | Code default | Production | Purpose |
+|---|---|---|---|
+| `DAILY_CALL_CAP` | 5000 | not in the repo; copy it from Railway | Model calls per day; the table stops when it is reached. |
+| `TABLE_OPEN_HOUR` | 0 | 9 | Hour the table opens, in `TABLE_TIMEZONE`. |
+| `TABLE_CLOSE_HOUR` | 24 | 21 | Hour the table closes. |
+| `TABLE_TIMEZONE` | unset: open all day | America/New_York | Zone for the two hours above. Without it the hours are ignored. |
+| `TABLE_PACE` | 1 | not in the repo | Multiplier on every pacing sleep; 0.3 plays faster. |
+| `WAITLIST_DAILY_MAX` | 5000 | not in the repo | New waitlist rows per UTC day. |
+| `LLM_SERVICE_URL` | `http://localhost:5001` | not in the repo | Where the engine posts `/decide`. |
+| `NEXT_PUBLIC_SITE_URL` | `https://nollmit.vercel.app` | not in the repo | Base URL for page metadata (web). |
+
+A service without `TABLE_TIMEZONE` runs the table 24 hours a day.
 
 ## When something fails
 
@@ -85,29 +102,12 @@ More replicas do not help, because the game state lives in one process. The next
 | The engine restarts | Every stream ends and Railway's edge answers 502 until the process is back. Clients keep retrying. The hand in progress is lost, and at most one shown but unsaved hand. The table gets a new 8-byte random id so hand ids cannot collide with saved ones. Stats reload from Supabase. |
 | Postgres (Supabase) is down | The save retries forever with backoff. The table pauses with the "saving" notice. Streams stay open. Stats do not change until the save succeeds. |
 | The LLM service or OpenRouter is down | Each failed call is a check or fold. If every call in a hand fails, the hand is voided: stacks and button are restored, the outage notice is set, nothing is saved, and the table pauses 5 minutes. |
-| More than 6,000 streams | `/stream` answers 503 before any stream header. The client retries with backoff and shows Retry after 10 failures. |
+| More than 6,000 streams, or 50 from one address | `/stream` answers 503 (total) or 429 (address) before any stream header. The client retries with backoff and shows Retry after 10 failures. |
 
-## What the review attacked, and what came of it
-
-Twelve changes were adopted:
-
-1. The client reopens the stream itself, because `EventSource` never retries after a non-200.
-2. The routine 15-minute reconnect is hidden: 0 to 1 s first retry, a 4 s Offline grace, and a 10 to 14 minute server lifetime.
-3. The snapshot is one message that replaces all table state, used on connect and when 51 or more behind.
-4. A snapshot keeps the turn already on screen, and `nextHandInMs` is computed when it is written.
-5. Joiners get the full stats on the stream, and each hand end sends whole changed rows.
-6. The save keeps `save_hand`, blocks the table with retry, and shows the "saving" notice. The queue, spill file and replay are deleted.
-7. `/api/usage` is cached for 60 s in the engine, and the viewer count comes from an atomic counter of open streams.
-8. Streams are capped at 6,000 with a 503.
-9. The table id is 8 random bytes instead of 3, because the hand number restarts at 1 on every boot.
-10. Every event carries its table id and the browser keeps state by table id, with exactly one table constructed.
-11. The merge-gate checks in `web/scripts/checks.mjs` script `EventSource` instead of `WebSocket`.
-12. Four sentences of the design were corrected: egress, the Railway 15-minute rule, when a hand counts, and what the browser still sends.
-
-Rejected:
+## Alternatives rejected
 
 - Polling once a second. It also meets the written requirements, but the review found no failure in SSE, and SSE was a deliberate choice.
-- Dropping the buffer of 50. Its only failure case came from the old multi-message snapshot, fixed by change 3. The ring is also the main delivery path on every wake, and the stats event is a delta that needs it.
+- Dropping the buffer of 50. Its only failure case came from the old multi-message snapshot, fixed by the one-message snapshot. The ring is also the main delivery path on every wake, and the stats event is a delta that needs it.
 
 ## Not decided
 

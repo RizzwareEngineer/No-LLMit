@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The gate every change passes before it merges. Exits non-zero on any failure.
 #   scripts/verify.sh [--base http://localhost:3100] [--changed] [--skip id,id] [--only id,id] [--no-ui]
-# Engine: go vet + tests. LLM service: pytest. Web: tsc, eslint on changed files, then the headless UI
+# Engine: go vet + tests (+ the race detector on ./api). LLM service and dataset exporter: pytest. Web: node tests of src/lib, tsc, eslint on changed files, then the headless UI
 # checks (web/scripts/checks.mjs). Without --base the UI checks run against a production build of this
 # worktree (next build into web/.next-verify, reused while web/ is unchanged; next start on a free port,
 # stopped at the end). --base points them at a running server instead (the owner's :3100 dev preview).
@@ -10,6 +10,7 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export BASE_REF="${BASE_REF:-preview/ui}"
+git -C "$ROOT" rev-parse -q --verify "$BASE_REF^{commit}" >/dev/null || { echo "BASE_REF $BASE_REF not found: set BASE_REF"; exit 2; }
 UI=1; BASE=""; CHANGED=0; PASS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -25,10 +26,16 @@ t0=$(date +%s)
 step() { printf '\n== %s (at %ss)\n' "$1" $(( $(date +%s) - t0 )); }
 
 step "engine: go vet + go test"
-(cd "$ROOT/engine" && go vet ./... && go test ./... >/tmp/verify-go.$$ 2>&1; s=$?; tail -8 /tmp/verify-go.$$; rm -f /tmp/verify-go.$$; exit $s) || fail=1
+(cd "$ROOT/engine" && go vet ./... && go test ./... >/tmp/verify-go.$$ 2>&1 && go test -race ./api/... >>/tmp/verify-go.$$ 2>&1; s=$?; tail -8 /tmp/verify-go.$$; rm -f /tmp/verify-go.$$; exit $s) || fail=1
 
 step "llm: pytest"
-(cd "$ROOT/llm" && PYTHONPATH=. uv run --quiet --no-project --with-requirements requirements.txt --with pytest --with httpx pytest -q 2>&1 | tail -3; exit "${PIPESTATUS[0]}") || fail=1
+(cd "$ROOT/llm" && PYTHONPATH=. uv run --quiet --python 3.11 --no-project --with-requirements requirements-dev.txt pytest -q 2>&1 | tail -3; exit "${PIPESTATUS[0]}") || fail=1
+
+step "dataset: pytest"
+(cd "$ROOT/dataset" && uv run --quiet --no-project --with-requirements requirements.txt pytest -q 2>&1 | tail -3; exit "${PIPESTATUS[0]}") || fail=1
+
+step "web: node tests (src/lib)"
+(cd "$ROOT/web" && node --experimental-strip-types --test src/lib/*.test.mjs 2>&1 | tail -8; exit "${PIPESTATUS[0]}") || fail=1
 
 step "web: tsc"
 (cd "$ROOT/web" && npx tsc --noEmit -p .) || fail=1
@@ -42,6 +49,10 @@ if [ -n "$changed" ]; then (cd "$ROOT/web" && npx eslint $changed) || fail=1; el
 if [ "$UI" = 1 ] && [ "$CHANGED" = 1 ] && ! changed_files | grep -q '^web/'; then
   step "ui: headless checks"; echo "no changed files under web/: no UI checks"; UI=0
 fi
+
+# Without --base, the UI checks need the engine the build's NEXT_PUBLIC_WS_URL names: fail before the lock and the build if it is down.
+api=$(printf %s "${NEXT_PUBLIC_WS_URL:-ws://localhost:8080/ws}" | sed 's#^ws#http#; s#/ws$##')
+if [ "$UI" = 1 ] && [ -z "$BASE" ] && ! curl -sf -m 5 "$api/health" >/dev/null; then echo "no engine at $api: start it first"; fail=1; UI=0; fi
 
 LOCK=/tmp/nollmit-checks.lock SERVER="" PORT=""
 cleanup() {

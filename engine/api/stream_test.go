@@ -91,7 +91,7 @@ func TestTwoTablesShareOneOrder(t *testing.T) {
 		t.Errorf("frames %v", got)
 	}
 
-	b, err := h.since(0, true).snapshotFrames()
+	b, err := h.since(0, true).snapshotFrame()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestSnapshotCarriesClearedNoticeAndTurnAsNull(t *testing.T) {
 	tbl.turn = &thinking
 	tbl.setNotice(TableNoticePayload{Kind: "saving", Message: "paused"})
 	tbl.publish(thinking)
-	b, _ := tbl.hub.since(0, true).snapshotFrames()
+	b, _ := tbl.hub.since(0, true).snapshotFrame()
 	if s := string(b); !strings.Contains(s, `"notice":{"kind":"saving"`) || !strings.Contains(s, `"turn":{"type":"llm_thinking"`) {
 		t.Fatalf("live snapshot %s", s)
 	}
@@ -117,7 +117,7 @@ func TestSnapshotCarriesClearedNoticeAndTurnAsNull(t *testing.T) {
 	tbl.setNotice(TableNoticePayload{})
 	tbl.turn = nil // as after hand_start (TestSnapshotKeepsTheAppliedActionUntilTheNextHand)
 	tbl.publish(tbl.stateMessage())
-	b, _ = tbl.hub.since(0, true).snapshotFrames()
+	b, _ = tbl.hub.since(0, true).snapshotFrame()
 	s := string(b)
 	for _, want := range []string{`"notice":null`, `"turn":null`, `"buttonCards":[]`, `"buttonWinner":null`} {
 		if !strings.Contains(s, want) {
