@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowUpRight, Heart, X } from '@phosphor-icons/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import PlaySoonButton from '@/components/PlaySoonButton';
 import { motion, useInView, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
@@ -126,7 +126,10 @@ const SAID: Partial<Record<Status, string>> = {
 };
 function Waitlist() {
   const ref = useRef<HTMLFormElement>(null);
-  const seen = useInView(ref, { once: true, margin: '0px 0px 300px 0px' });
+  // On About's dial the form is clipped out of view until its row turns forward: watch the dial's window instead.
+  const near = useRef<Element | null>(null);
+  useLayoutEffect(() => { near.current = ref.current!.closest('[data-dial]') ?? ref.current; }, []);
+  const seen = useInView(near, { once: true, margin: '0px 0px 300px 0px' });
   const [count, setCount] = useState<number | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   useEffect(() => {
@@ -164,7 +167,8 @@ function Waitlist() {
         />
         <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="sr-only" />
         <button type="submit" disabled={status === 'pending'} className="btn-brutal px-3 py-1 disabled:opacity-60">Join the waitlist</button>
-        {count !== null && <Label as="span" data-waitlist-count>{count ? `${count.toLocaleString()} on the waitlist` : 'Be the first on the waitlist.'}</Label>}
+        {/* Held in place (invisible) until the count arrives, so the row keeps its height (skeleton-matches). */}
+        <Label as="span" data-waitlist-count className={count === null ? 'invisible' : ''}>{count ? `${count.toLocaleString()} on the waitlist` : 'Be the first on the waitlist.'}</Label>
       </div>
       <div aria-live="polite" className="-mt-1.5">{said && <Label className="mt-1.5">{said}</Label>}</div>
     </form>
@@ -172,7 +176,7 @@ function Waitlist() {
 }
 
 // The main ask: a stats card with the screen's only filled button (about-support-prominent).
-const SPONSORS = 'https://github.com/sponsors/RizzwareEngineer';
+export const SPONSORS = 'https://github.com/sponsors/RizzwareEngineer';
 export function Support({ as: H, className = '' }: { as: Heading; className?: string }) {
   return (
     <section className={`${CARD} relative gap-3 ${className}`} style={{ boxShadow: CARD_SHADOW }}>
@@ -303,7 +307,10 @@ const ranked = (ms: ModelStats[]) =>
 
 function useField() {
   const ref = useRef<HTMLElement>(null);
-  const seen = useInView(ref, { once: true, margin: '0px 0px 300px 0px' });
+  // On About's dial the form is clipped out of view until its row turns forward: watch the dial's window instead.
+  const near = useRef<Element | null>(null);
+  useLayoutEffect(() => { near.current = ref.current!.closest('[data-dial]') ?? ref.current; }, []);
+  const seen = useInView(near, { once: true, margin: '0px 0px 300px 0px' });
   const { data, error } = useStats(undefined, seen);
   const field = useMemo(() => (data ? ranked(seatedModels(data.models, data.seated).filter(m => m.hands > 0)) : []), [data]);
   return { ref, field, failed: !data && !!error };
