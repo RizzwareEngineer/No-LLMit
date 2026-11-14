@@ -9,7 +9,7 @@ import { PlayerState, TableNoticePayload } from "@/lib/api";
 import { ModelStats } from "@/lib/stats";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { FELT, LOGO, MIDDLE, POT_TOP, type Spot, css, seatPlace, seatSpots } from "@/lib/phoneTable";
-import type { ButtonDetermination, DisplayState } from "@/lib/stream";
+import { clockShare, type ButtonDetermination, type DisplayState } from "@/lib/stream";
 
 interface PlayerLayout {
   top: number[];
@@ -39,6 +39,7 @@ interface PokerTableProps {
   stats?: Record<string, ModelStats>; // by model name, for the hover stats on each seat
   display?: DisplayState | null; // the turn on screen: the phone shows each action over its seat for a moment
   clockLeft?: number | null; // seconds left on the shot clock (null: no clock): the phone's ring round the seat on the clock
+  clockBudgetMs?: number | null; // the turn's whole budget, the ring's full circle
 }
 
 // The phone's action bubble: "Raise 79", "Call 10", "Fold".
@@ -60,6 +61,7 @@ export default function PokerTable({
   stats,
   display = null,
   clockLeft = null,
+  clockBudgetMs = null,
 }: PokerTableProps) {
   const layout = getPlayerLayout(players.length || 9);
   const hidePositions = !!buttonDetermination; // the position badges wait for the button draw
@@ -89,17 +91,15 @@ export default function PokerTable({
   const [deck, setDeck] = useState<DeckPhase | null>(null);
 
   // Phones: a turn's action shows over its seat for 2 s once the table applies it (reasoning, then revealed), not for one
-  // already applied when the page joined. The shot clock's ring is the share of the turn left: of the most seen this turn.
-  // shortcut: a viewer who joins mid-turn sees a full ring for the time left; pass the stream's budgetMs to fix that.
+  // already applied when the page joined. The shot clock's ring is the share of the turn's budget left, the desktop clock's time.
   const bb = useBigBlind();
   const turnKey = display ? `${handNumber}:${display.turn}` : '';
-  const [turn, setTurn] = useState({ key: '', phase: '', max: 0, bubble: null as { seat: number; text: string } | null });
-  if (turnKey !== turn.key || (display?.phase ?? '') !== turn.phase || (clockLeft ?? 0) > turn.max) {
+  const [turn, setTurn] = useState({ key: '', phase: '', bubble: null as { seat: number; text: string } | null });
+  if (turnKey !== turn.key || (display?.phase ?? '') !== turn.phase) {
     const said = display?.phase === 'revealed' && turn.key === turnKey && turn.phase === 'reasoning' && display.action;
     setTurn({
       key: turnKey,
       phase: display?.phase ?? '',
-      max: turnKey === turn.key ? Math.max(turn.max, clockLeft ?? 0) : clockLeft ?? 0,
       bubble: said ? { seat: display.playerIdx, text: `${SAY[display.action!] ?? display.action}${display.amount > 0 && display.action !== 'FOLD' && display.action !== 'CHECK' ? ` ${formatAmount(display.amount, bb)}` : ''}` } : turn.bubble,
     });
   }
@@ -108,7 +108,7 @@ export default function PokerTable({
     const t = setTimeout(() => setTurn(v => ({ ...v, bubble: null })), 2000);
     return () => clearTimeout(t);
   }, [turn.bubble]);
-  const ring = clockLeft !== null && turn.max > 0 ? { left: clockLeft / turn.max, urgent: clockLeft <= 5 } : null;
+  const ring = clockLeft !== null && clockBudgetMs ? { left: clockShare(clockLeft, clockBudgetMs), urgent: clockLeft <= 5 } : null;
 
   const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
   // Until the first state arrives (`players` empty) the table stands in blank: the same grid, a blank seat box in every

@@ -3,7 +3,7 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameStream } from './api.ts';
-import { applyMessage, applyStats, clockLeft } from './stream.ts';
+import { applyMessage, applyStats, clockLeft, clockShare } from './stream.ts';
 
 // Every EventSource the client opens; the test makes each one open or fail.
 let opened = [];
@@ -183,4 +183,11 @@ test("hand_start clears the last hand's turn, clock and notice, and turn numbers
   assert.notEqual(joined.display, t[T].display);
   assert.equal(joined.display.playerIdx, 3);
   assert.equal(joined.clock.received, 3000);
+});
+
+test('the ring is the share of the budget left, even for a viewer who joins mid-turn', () => {
+  const c = { budgetMs: 30_000, elapsedMs: 12_000, received: 1000, running: true }; // joined 12 s into a 30 s turn
+  assert.equal(clockShare(clockLeft(c, 1000), c.budgetMs), 0.6);
+  assert.equal(clockShare(clockLeft(c, 19_000), c.budgetMs), 0);
+  assert.equal(clockShare(clockLeft({ ...c, budgetMs: 29_500, elapsedMs: 0 }, 1000), 29_500), 1); // rounded-up seconds never pass a full ring
 });

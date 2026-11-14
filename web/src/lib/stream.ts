@@ -55,6 +55,9 @@ export interface Clock {
 // Whole seconds left on the shot clock at `now`, never below 0.
 export const clockLeft = (c: Clock, now: number) => Math.max(0, Math.ceil((c.budgetMs - c.elapsedMs - (now - c.received)) / 1000));
 
+// The share of the turn's budget left, 0 to 1, for `left` seconds from clockLeft (rounded up, so capped at 1).
+export const clockShare = (left: number, budgetMs: number) => Math.min(1, (left * 1000) / budgetMs);
+
 export type Tables = Record<string, TableView>;
 
 export const EMPTY_TABLE: TableView = { gameState: null, notice: null, display: null, clock: null, buttonDetermination: null };

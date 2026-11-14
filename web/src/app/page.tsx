@@ -94,6 +94,7 @@ export default function Home() {
     tableNotice,
     displayState,
     shotClockRemaining,
+    shotClockBudgetMs,
     buttonDetermination,
     stats,
     retry,
@@ -454,6 +455,7 @@ export default function Home() {
                 stats={seatStats}
                 display={displayState}
                 clockLeft={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? shotClockRemaining : null}
+                clockBudgetMs={shotClockBudgetMs}
               />
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands

@@ -19,6 +19,7 @@ interface UseGameStateReturn {
   tableNotice: TableNoticePayload | null; // table closed, capped, in an outage or saving
   displayState: DisplayState | null;
   shotClockRemaining: number | null; // seconds left on the shot clock; null: no clock (the engine sent no budget)
+  shotClockBudgetMs: number | null; // the turn's whole budget, for the phone's ring; null: no clock
   buttonDetermination: ButtonDetermination | null;
   stats: StatsResponse | null; // all-time stats, from the stream
   retry: () => void;
@@ -84,6 +85,7 @@ export function useGameState(): UseGameStateReturn {
     tableNotice: table.notice,
     displayState: table.display,
     shotClockRemaining,
+    shotClockBudgetMs: clock?.budgetMs ?? null,
     buttonDetermination: table.buttonDetermination,
     stats,
     retry: () => streamRef.current?.retry(),
