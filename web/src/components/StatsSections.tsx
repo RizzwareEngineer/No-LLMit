@@ -256,12 +256,22 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
       if (at !== 'race') still();
       room.current?.toggleAttribute('data-leaving', fade > 0);
       put(at, true);
-      // A scrolled card goes back to its top as it fades (the tile shows its top on the overview), never in one jump.
+      // A scrolled card goes back to its top as it fades (the tile shows its top on the overview), never in one jump. It
+      // eases there a step per drawn frame, not over a time: the browser's smooth scroll takes ~100 ms, and a frame that a
+      // busy machine stretched past that drew most of it at once (60px -> 15px in one frame).
       const from = document.querySelector(`#${TILES[at].land} .panel-scroll`);
-      const top = new Promise(r => {
-        if (!fade || !from || (!from.scrollTop && !from.scrollLeft)) return r(0);
-        from.addEventListener('scrollend', r, { once: true });
-        from.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+      const top = new Promise<void>(r => {
+        if (!fade || !from || (!from.scrollTop && !from.scrollLeft)) return r();
+        const y0 = from.scrollTop, x0 = from.scrollLeft;
+        // Sine in-out over n frames: its largest step is pi/2n of the way, at most ~20px (8 to 20 frames).
+        const n = Math.min(20, Math.max(8, Math.ceil((Math.max(y0, x0) * Math.PI) / 40)));
+        let k = 0;
+        const step = () => {
+          const left = 1 - (1 - Math.cos((Math.PI * ++k) / n)) / 2;
+          from.scrollTo({ top: Math.round(y0 * left), left: Math.round(x0 * left), behavior: 'instant' });
+          if (k < n) requestAnimationFrame(step); else r();
+        };
+        requestAnimationFrame(step);
       });
       // The fade, then two frames: the snapped stage is painted under the card before the card leaves. The fade is
       // waited for (its animations), not timed: mounting the stand-in can hold the main thread past FADE_MS.
