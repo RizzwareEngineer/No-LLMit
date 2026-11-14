@@ -398,7 +398,7 @@ group(() => check('table-reason-empty', 'An action that came with no reason stil
     await sleep(800);
     const r = await p.evaluate(() => { const live = [...document.querySelectorAll('p.sr-only[aria-live]')].find(e => e.closest('.h-\\[100px\\]'));
       const panel = live?.parentElement; return { text: panel ? panel.innerText.replace(/\s+/g, ' ').trim() : null, said: live?.textContent ?? '' }; });
-    const ok = !!r.text && /Reasoning/.test(r.text) && /CALL/.test(r.text) && /call/.test(r.said);
+    const ok = !!r.text && /Reasoning/i.test(r.text) && /CALL/.test(r.text) && /call/.test(r.said);
     return { pass: ok, detail: `panel: '${r.text}'; announced: '${r.said}'` };
   } finally { await p.close(); }
 }));
@@ -710,10 +710,14 @@ group(() => check('table-card-sizes', 'Hole card sizes (?cards=1|2|3; none: as t
 // Filming (every frame Chrome presented, via the CDP screencast, each acked) and pixel stats of boxes in those frames,
 // computed in a page of their own: per box, the share of pixels near the card back's #37352f and near white, and a
 // sample of its pixels (two frames with the same sample paint the box the same).
-const filmFrames = async (p, run) => {
+const filmFrames = async (p, run, cast = { format: 'png' }) => {
   const cdp = await p.createCDPSession(), frames = [];
+  // The screencast paints only what the window shows (headless Chrome's window is 756x556 here), so the window is made
+  // bigger than the viewport first: every frame then holds the whole viewport at its own pixels.
+  const { windowId } = await cdp.send('Browser.getWindowForTarget'), [vw, vh] = await p.evaluate(() => [innerWidth, innerHeight]);
+  await cdp.send('Browser.setWindowBounds', { windowId, bounds: { width: vw + 200, height: vh + 200 } });
   cdp.on('Page.screencastFrame', f => { frames.push({ data: f.data, ts: f.metadata.timestamp * 1000 }); cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {}); });
-  await cdp.send('Page.startScreencast', { format: 'png', everyNthFrame: 1 });
+  await cdp.send('Page.startScreencast', { ...cast, everyNthFrame: 1 });
   try { await run(); } finally { await cdp.send('Page.stopScreencast').catch(() => {}); await cdp.detach().catch(() => {}); }
   return frames;
 };
@@ -748,7 +752,8 @@ const holeBoxes = p => p.evaluate(() => [...document.querySelectorAll('[data-sea
 // cards change over 3 or more painted frames and end face up; every other seat stays down), its game_state with peeked
 // (no change), a second seat's turn, then the hand complete (the rest turn up). Reduced motion: the faces switch with
 // no frame in between. Live engine: a reload mid-hand, once a seat has had its turn and one has not: the first painted
-// frame with cards shows the snapshot's peeked seats up and the rest down, and nothing turns over after it.
+// frame with the cards drawn (faded in, owner 2026-11-11: "on a mid-hand refresh the dealt cards just fade in") shows the
+// snapshot's peeked seats up and the rest down, and nothing turns over after it.
 group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s two cards peel up when its turn first comes (either motion, ?peel=1|2) and stay up; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no peel; reduced motion switches faces with no motion', async () => {
   const bad = [], seen = [];
   const face = s => s.map(c => c.face).join('');
@@ -810,8 +815,9 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
   // Live: reload until the snapshot has a seat that has had its turn and one that has not.
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   try {
-    await p.evaluateOnNewDocument(() => { const look = () => { if (document.querySelector('[data-seat] [data-hole] [data-back]')) window.__cardsAt = performance.timeOrigin + performance.now(); else requestAnimationFrame(look); }; requestAnimationFrame(look); });
-    await p.evaluateOnNewDocument(() => { const Real = window.EventSource; window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'snapshot' && !window.__snap) { const t = Object.values(m.payload.tables)[0]; window.__snap = t && { peeked: t.state.peeked, street: t.state.street, players: t.state.players.length, at: performance.now() }; } } catch {} fn(e); }; } get onmessage() { return super.onmessage; } }; });
+    // The cards are drawn once their fade-in is done: a hole card (a folded seat's are at 40%) at full opacity.
+    await p.evaluateOnNewDocument(() => { const op = e => (e ? +getComputedStyle(e).opacity * op(e.parentElement) : 1); const look = () => { if (document.querySelector('[data-seat] [data-hole] [data-back]') && Math.max(...[...document.querySelectorAll('[data-seat] [data-hole] > *')].filter(e => e.getBoundingClientRect().width > 0).map(op)) > 0.99) window.__cardsAt = performance.timeOrigin + performance.now(); else requestAnimationFrame(look); }; requestAnimationFrame(look); });
+    await p.evaluateOnNewDocument(() => { const Real = window.EventSource; window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'snapshot' && !window.__snap) { const t = Object.values(m.payload.tables)[0]; window.__snap = t && { peeked: t.state.peeked, street: t.state.street, players: t.state.players.length, at: performance.now() }; } if (m.type === 'game_state') window.__now = { peeked: m.payload.peeked, street: m.payload.street, players: m.payload.players.length }; } catch {} fn(e); }; } get onmessage() { return super.onmessage; } }; });
     let ok = null, lastSnap = null;
     for (let tries = 0; tries < 12 && !ok; tries++) {
       let none = false;
@@ -822,7 +828,9 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
       });
       if (none) { bad.push('live: no hole card with a face-down side within 60 s of the reload'); break; }
       const snap = await p.evaluate(() => window.__snap);
-      if (!snap?.peeked || snap.street === 'complete' || !snap.peeked.length || snap.peeked.length >= snap.players) { lastSnap = snap; await sleep(1500); continue; }
+      // Not mid-hand with a seat peeked and one not: at the live pace that moment is the first orbit of a hand, so wait (up
+      // to 4 minutes) until the live table is in it again, then reload.
+      if (!snap?.peeked || snap.street === 'complete' || !snap.peeked.length || snap.peeked.length >= snap.players) { lastSnap = snap; await p.waitForFunction(() => { const s = window.__now; return s?.peeked?.length && s.peeked.length < s.players - 1 && s.street !== 'complete'; }, { timeout: 240000, polling: 250 }).catch(() => {}); continue; }
       const seats = await holeBoxes(p), cardsAt = await p.evaluate(() => window.__cardsAt);
       const from = frames.findIndex(f => f.ts >= cardsAt);
       ok = { snap, seats, stats: from < 0 ? [] : await boxStats(frames.slice(from), seats.flatMap(s => s.cards)), from };
@@ -843,6 +851,237 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
     }
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 8).join('; ') + (bad.length > 8 ? ` and ${bad.length - 8} more` : '') : seen.join('; ') };
+}));
+
+// Owner, 2026-11-11: "On refresh everything fades in where it sits: no sliding (hole cards slide up today), nothing
+// popping in (the timer, Profits & Losses). On a mid-hand refresh the dealt cards just fade in." At 1440x900 and 390x844,
+// after a first visit (what lib/boxes remembers): a reload with the stream and every /api/ answer held 2.5 s, its
+// snapshot played as a turn in progress and then as the pause between hands (nothing live after it), sampled every frame
+// (requestAnimationFrame) for 3 s from the release. Each watched element (hole and board cards, the felt, the seats' text,
+// the status row, the Profits & Losses rows, the reasoning bar, API usage): never from under 0.1 opacity (with its
+// ancestors', hidden or absent: 0) to over 0.9 between two frames, never moved or resized by more than 1px between two
+// frames it shows in (over 0.1), and no card or chip flies. With reduced motion (1440x900, mid-hand) nothing fades: no
+// watched element is ever between its first and last opacity.
+const FADE_WATCH = () => {
+  const vis = e => e.getBoundingClientRect().width > 0, out = [];
+  const add = (k, list) => list.filter(vis).forEach((e, i) => out.push([`${k}${i}`, e]));
+  add('hole', [...document.querySelectorAll('[data-seat] [data-hole] > *')]);
+  add('board', [...document.querySelectorAll('[data-felt-cards] > *')]);
+  add('felt', [...document.querySelectorAll('[data-felt] > *')]);
+  add('seat', [...document.querySelectorAll('[data-seat] [title], [data-seat] [data-chips], [data-seat] [data-action], [data-seat] [data-position]')]);
+  add('status', [...(document.querySelector('section[data-screen]')?.children[2]?.querySelectorAll('span, button') ?? [])]);
+  add('pnl', [...document.querySelectorAll('#table ol li')]);
+  add('reason', [...document.querySelectorAll('.stage-zoom .h-\\[100px\\] > div > div')]);
+  const u = document.querySelector('#table a[href*="sponsors"]')?.closest('.rounded');
+  if (u) add('usage', [...u.children]);
+  add('sticky', [...document.querySelectorAll('div.fixed.top-0')]);
+  return out;
+};
+group(() => check('table-refresh-fades', 'On a refresh, mid-hand or between hands, everything on the table screen fades in where it sits: no card or text slides or moves, nothing pops in from nothing, nothing flies', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, reduced] of [[1440, 900], [390, 844], [1440, 900, true]]) {
+    const p = await newPage(); await p.setViewport({ width: w, height: h });
+    if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    try {
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => document.querySelector('[data-seat] [data-hole]') && document.querySelector('#table ol li'), { timeout: 120000 });
+      await sleep(3000); // the visit: lib/boxes remembers the filled boxes
+      await p.evaluateOnNewDocument(watch => {
+        const phase = sessionStorage.getItem('__phase');
+        let open; const held = new Promise(r => (open = r));
+        const fetch0 = window.fetch;
+        window.fetch = async (...a) => { if (String(a[0]?.url ?? a[0]).includes('/api/')) await held; return fetch0(...a); };
+        const Real = window.EventSource;
+        window.EventSource = class extends Real {
+          set onmessage(fn) {
+            super.onmessage = e => {
+              const m = JSON.parse(e.data);
+              if (m.type === 'stats') return held.then(() => fn(e));
+              if (m.type !== 'snapshot' || window.__snapped) return; // nothing live after the snapshot
+              window.__snapped = true;
+              const t = Object.values(m.payload.tables)[0], st = t.state, deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => r + x));
+              Object.assign(t, { notice: null, buttonCards: [], buttonWinner: null, turnApplied: false, turn: null });
+              st.players.forEach((q, i) => Object.assign(q, { status: 'active', holeCards: [deck[2 * i], deck[2 * i + 1]] }));
+              if (phase === 'between') Object.assign(st, { street: 'complete', nextHandInMs: 8000, currentPlayerIdx: -1, winners: [], peeked: [] });
+              else {
+                Object.assign(st, { street: 'flop', communityCards: ['Kh', '7d', '2c'], currentPlayerIdx: 2, peeked: [0, 1], winners: undefined, nextHandInMs: undefined });
+                t.turn = { type: 'llm_thinking', payload: { turn: 3, playerIdx: 2, playerName: st.players[2].name, budgetMs: 45000, elapsedMs: 3000 } };
+              }
+              held.then(() => fn(new MessageEvent('message', { data: JSON.stringify(m) })));
+            };
+          }
+          get onmessage() { return super.onmessage; }
+        };
+        // From the page's first frame to 3 s after the release, every frame: each watched element's opacity and box (in the
+        // page, so a restored scroll is no move; the fixed sticky bar in the window), and the flights (times from the
+        // release). Read once the frame's animation callbacks have all run: what it paints.
+        const W = new Function(`return (${watch})()`), s = [];
+        let t0 = Infinity, done;
+        window.__release = () => new Promise(d => { done = d; t0 = performance.now(); open(); });
+        const f = ts => setTimeout(() => {
+          const memo = new Map(), up = a => { if (!a) return 1; if (!memo.has(a)) memo.set(a, +getComputedStyle(a).opacity * up(a.parentElement)); return memo.get(a); };
+          const els = {};
+          for (const [k, e] of W()) { const b = e.getBoundingClientRect(), y = e.closest('.fixed') ? 0 : scrollY; els[k] = [getComputedStyle(e).visibility === 'hidden' ? 0 : up(e), b.left, b.top + y, b.width, b.height]; }
+          s.push({ t: ts, els, flights: document.querySelectorAll('[data-flight]').length });
+          if (ts - t0 < 3000) requestAnimationFrame(f); else done(s.map(x => ({ ...x, t: x.t - t0 })));
+        });
+        requestAnimationFrame(f);
+      }, FADE_WATCH.toString());
+      // Last, a reload below the table: the sticky bar shows at once, and fades in where it sits.
+      for (const phase of reduced ? ['mid-hand'] : w > 768 ? ['mid-hand', 'between', 'below the table'] : ['mid-hand', 'between']) {
+        await p.evaluate(ph => sessionStorage.setItem('__phase', ph), phase);
+        if (phase === 'below the table') await goto(p, 'stats');
+        await p.reload({ waitUntil: 'domcontentloaded', timeout: 120000 }); await sleep(2500);
+        if (phase === 'below the table' && !(await p.evaluate(() => scrollY > innerHeight / 2))) bad.push('below the table: the reload went back to the top');
+        const s = await p.evaluate(() => window.__release());
+        const tag = `${w}x${h} ${phase}${reduced ? ' reduced motion' : ''}`, keys = new Set(s.flatMap(x => Object.keys(x.els))), pops = [], moves = [], fades = [];
+        for (const k of keys) {
+          const ops = s.map(x => x.els[k]?.[0] ?? 0), lo = Math.min(ops[0], ops.at(-1)) + 0.05, hi = Math.max(ops[0], ops.at(-1)) - 0.05;
+          if (reduced && ops.some(o => o > lo && o < hi)) { fades.push(k); continue; }
+          if (reduced) continue;
+          for (let i = 1; i < s.length; i++) {
+            const a = s[i - 1].els[k] ?? [0], b = s[i].els[k] ?? [0];
+            if (a[0] < 0.1 && b[0] > 0.9) { pops.push(`${k} at ${s[i].t.toFixed(0)} ms, ${(s[i].t - s[i - 1].t).toFixed(0)} ms after the frame before`); break; }
+            if (a[0] > 0.1 && b[0] > 0.1 && Math.max(...[1, 2, 3, 4].map(j => Math.abs(a[j] - b[j]))) > 1) { moves.push(`${k} ${a.slice(1).map(v => v.toFixed(0)).join(',')} → ${b.slice(1).map(v => v.toFixed(0)).join(',')} at ${s[i].t.toFixed(0)} ms`); break; }
+          }
+        }
+        const flown = Math.max(0, ...s.map(x => x.flights)), last = s.at(-1).els;
+        const shown = Object.values(last).filter(v => v[0] > 0.9).length;
+        if (pops.length) bad.push(`${tag}: ${pops.length} popped in (${pops.slice(0, 5).join('; ')})`);
+        if (fades.length) bad.push(`${tag}: ${fades.length} faded (${fades.slice(0, 5).join(', ')})`);
+        if (moves.length) bad.push(`${tag}: ${moves.length} moved (${moves.slice(0, 5).join('; ')})`);
+        if (flown) bad.push(`${tag}: ${flown} flights`);
+        if (phase === 'below the table') { if (!last.sticky0 || last.sticky0[0] < 0.9) bad.push(`${tag}: no sticky bar`); }
+        else if (!Object.keys(last).some(k => k.startsWith('hole')) || shown < 20) bad.push(`${tag}: only ${shown} watched elements showing at the end`);
+        seen.push(`${tag}: ${shown} elements ${reduced ? 'shown at once' : 'faded in'} over ${s.length} frames`);
+      }
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join('; ') };
+}));
+
+// Owner, 2026-11-11: "The yellow connection bar must not flash on a normal refresh (today it shows, hides, shows again);
+// it shows only once, when the server is really unreachable." Nor does a normal load say Offline. Every frame
+// (requestAnimationFrame, from the page's first script) records whether the bar (its rgb(203, 145, 47) across the
+// window's bottom) or a visible Offline is drawn: at 1440x900, five plain reloads, one with the stream's request held
+// 3.5 s and one with the CPU 4x slower, each until 5 s after its snapshot: never. Then a load whose stream is refused:
+// the bar first drawn 3.5 to 6 s after the load, and in every frame after that for 20 s.
+group(() => check('table-bar-once', 'The connection bar and Offline never show on a normal load (a slow stream or a slow machine included); with the server unreachable the bar shows once, about 4 s after the load, and stays', async () => {
+  const bad = [], seen = [];
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  try {
+    await p.evaluateOnNewDocument(() => {
+      const Real = window.EventSource;
+      window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { if (!window.__snapAt && /"type":"snapshot"/.test(e.data)) window.__snapAt = performance.now(); fn(e); }; } get onmessage() { return super.onmessage; } };
+      const s = window.__bar = [];
+      const f = () => {
+        const bar = [...document.querySelectorAll('div.fixed')].some(e => { const b = e.getBoundingClientRect(); return getComputedStyle(e).backgroundColor === 'rgb(203, 145, 47)' && b.bottom >= innerHeight - 1 && b.width >= innerWidth - 1 && b.height >= 20; });
+        const off = [...document.querySelectorAll('section[data-screen] span')].some(e => /^Offline/.test(e.textContent) && e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== 'hidden' && +getComputedStyle(e).opacity > 0);
+        s.push({ t: performance.now(), bar, off });
+        requestAnimationFrame(f);
+      };
+      requestAnimationFrame(f);
+    });
+    let mode = 'plain';
+    await p.setRequestInterception(true);
+    p.on('request', r => {
+      const go = () => r.continue().catch(() => {});
+      if (!/\/stream$/.test(r.url())) go();
+      else if (mode === 'held') setTimeout(go, 3500);
+      else if (mode === 'refused') r.abort().catch(() => {});
+      else go();
+    });
+    const cdp = await p.createCDPSession();
+    const load = async (m, i) => {
+      mode = m;
+      if (m === 'slow') await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      if (m === 'refused') { await sleep(26000); }
+      else {
+        const ok = await p.waitForFunction(() => window.__snapAt, { timeout: 60000 }).then(() => true, () => false);
+        if (!ok) { bad.push(`${m} ${i}: no snapshot in 60 s`); return; }
+        await p.waitForFunction(() => performance.now() > window.__snapAt + 5000, { timeout: 60000, polling: 250 });
+      }
+      if (m === 'slow') await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      const s = await p.evaluate(() => window.__bar);
+      if (m === 'refused') {
+        const first = s.findIndex(x => x.bar), t = first < 0 ? null : s[first].t, gone = s.slice(first).filter(x => !x.bar && x.t < t + 20000).length;
+        if (t === null || t < 3500 || t > 6000) bad.push(`refused: the bar first drawn ${t === null ? 'never' : `at ${(t / 1000).toFixed(2)} s`}`);
+        else if (gone) bad.push(`refused: the bar missing from ${gone} frames after it first showed at ${(t / 1000).toFixed(2)} s`);
+        else seen.push(`refused: bar from ${(t / 1000).toFixed(2)} s, in all ${s.filter(x => x.t >= t).length} frames after`);
+        return;
+      }
+      const bars = s.filter(x => x.bar), offs = s.filter(x => x.off);
+      if (bars.length || offs.length) bad.push(`${m} ${i}: the bar in ${bars.length} of ${s.length} frames${bars.length ? ` (from ${(bars[0].t / 1000).toFixed(2)} s)` : ''}, Offline in ${offs.length}${offs.length ? ` (from ${(offs[0].t / 1000).toFixed(2)} s)` : ''}`);
+      else seen.push(`${m}${m === 'plain' ? ` ${i}` : ''}: ${s.length} frames clean`);
+    };
+    for (let i = 1; i <= 5; i++) await load('plain', i);
+    await load('held', 1); await load('slow', 1); await load('refused', 1);
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
+}));
+
+// Owner, 2026-11-11: "The shuffle sound must line up with the shuffle animation." Scripted at 1440x900, sound stored on
+// and unlocked by a real click on an empty spot; the hand ends with the next due in 4 s and the deck is riffled. Every
+// Web Audio start is recorded (its time heard, in page time: when scheduled plus the output's latency), and each frame
+// (requestAnimationFrame) where each riffled card lands back on the pile and where the pile is squared; filmed (the CDP
+// screencast), each of those is the first frame painted at or after it. Each card's flicks (three, in landing order)
+// must start from 30 ms before to 60 ms after its painted landing, the tap likewise at the squared pile; nothing before
+// the click.
+group(() => check('table-shuffle-sound', 'The shuffle sound is in time with the riffle: each card\'s flicks are heard as it lands on the pile, the tap as the deck is squared; no sound before a click', async () => {
+  const bad = [];
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  try {
+    await p.evaluateOnNewDocument(() => {
+      const snd = window.__snd = [];
+      const start = AudioBufferSourceNode.prototype.start;
+      AudioBufferSourceNode.prototype.start = function (when = 0, offset, duration) {
+        const c = this.context;
+        snd.push({ heard: performance.now() + (Math.max(when, c.currentTime) - c.currentTime + (c.outputLatency || 0)) * 1000, duration });
+        return start.apply(this, arguments);
+      };
+      try { localStorage.setItem('nollmit:sound', 'on'); } catch {}
+    });
+    await scriptStream(p);
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+    await sleep(2000);
+    const early = await p.evaluate(() => window.__snd.length);
+    await p.mouse.click(4, 4); await sleep(300); // the first trusted click unlocks audio
+    // Each frame while a deck shows: when each card first lands back on the pile (x back to 0 after its spread) and when
+    // every card is squared (no x, no rotation). Read once the frame's animation callbacks have all run (what it paints),
+    // timed at the frame's start.
+    await p.evaluate(() => {
+      const r = window.__riffle = { land: [], squared: null };
+      const f = ts => setTimeout(() => {
+        const d = [...document.querySelectorAll('[data-deck]')].find(e => e.getBoundingClientRect().width > 0);
+        if (d) {
+          const now = performance.timeOrigin + ts, m = [...d.children].map(c => new DOMMatrix(getComputedStyle(c).transform));
+          m.forEach((x, k) => { const at = Math.abs(x.m41); if (at > 10) r.land[k] = r.land[k] ?? 0; else if (at < 0.5 && r.land[k] === 0) r.land[k] = now; });
+          if (r.land.length === m.length && r.land.every(Boolean) && r.squared === null && m.every(x => Math.abs(x.m41) < 0.5 && Math.abs(Math.atan2(x.m12, x.m11)) < 0.005)) r.squared = now;
+        }
+        if (r.squared === null) requestAnimationFrame(f);
+      });
+      requestAnimationFrame(f);
+    });
+    const n0 = await p.evaluate(() => window.__snd.length);
+    // Small JPEG frames: only their times are read, and the screencast skips fewer frames when each is cheap to send.
+    const frames = await filmFrames(p, async () => { await p.evaluate(() => window.__stream.end(4000)); await sleep(3500); }, { format: 'jpeg', quality: 10, maxWidth: 320, maxHeight: 200 });
+    const { land, squared, snd, origin } = await p.evaluate(n0 => ({ ...window.__riffle, snd: window.__snd.slice(n0), origin: performance.timeOrigin }), n0);
+    const painted = t => frames.find(f => f.ts >= t)?.ts;
+    // sound.ts: a flick is 0.01 s of noise, the tap 0.05 s (a board card's deal sound, 0.065 s, plays as the hand ends).
+    const flicks = snd.filter(s => s.duration === 0.01).map(s => origin + s.heard).sort((a, b) => a - b), tap = snd.find(s => s.duration === 0.05);
+    const off = (heard, t) => { const fr = painted(t); return fr === undefined ? null : heard - fr; };
+    const out = (d, what) => { if (d === null) bad.push(`${what}: no frame painted after it`); else if (d < -30 || d > 60) bad.push(`${what} heard ${d.toFixed(0)} ms ${d < 0 ? 'before' : 'after'} its frame`); };
+    if (early) bad.push(`${early} sounds before the click`);
+    if (land.length !== 12 || land.some(x => !x)) bad.push(`${land.filter(Boolean).length} cards seen landing`);
+    else if (flicks.length !== 3 * land.length) bad.push(`${flicks.length} flicks for ${land.length} cards`);
+    const offs = flicks.length === 3 * land.length ? land.slice().sort((a, b) => a - b).map((t, k) => off(flicks[3 * k], t)) : [];
+    if (land.length === 12 && !land.some(x => !x) && offs.length) offs.forEach((d, k) => out(d, `card ${k + 1}'s flicks`));
+    if (!squared || !tap) bad.push(`${squared ? 'squared' : 'never squared'}, ${tap ? 'a tap' : 'no tap'}`);
+    else out(off(origin + tap.heard, squared), 'the tap');
+    return { pass: !bad.length, detail: bad.length ? bad.slice(0, 8).join('; ') : `${land.length} cards, ${flicks.length} flicks, each card's heard ${Math.min(...offs).toFixed(0)} to ${Math.max(...offs).toFixed(0)} ms from its painted landing; the tap ${off(origin + tap.heard, squared).toFixed(0)} ms from the squared pile; ${frames.length} frames; nothing before the click` };
+  } finally { await p.close(); }
 }));
 
 // Owner, 2026-11-09: "Any time I refresh the site, the loading skeleton is so much different compared to the shapes that
@@ -1740,6 +1979,8 @@ main(() => check('profiles-rows-no-overlap', 'During the replay, no two Profiles
 // Owner, 2026-11-07: "the animation that you use to switch rows in profits and losses, I want that same
 // animation for profiles". While the replay reorders Profiles, a row's content is seen mid-slide.
 main(() => check('profiles-rows-slide', 'When the replay reorders Profiles, rows slide to their new place (not snap)', async () => {
+  // The replay must be playing: the Trends checks before this one end it (Skip), so the tile's Replay restarts it.
+  await goto(pg, 'stats'); await sleep(1200); await pg.evaluate(() => document.querySelector('#race-panel [data-tile-replay]')?.click()); await sleep(300);
   await goto(pg, 'stats-table'); await sleep(300);
   const r = await pg.evaluate(src => new Promise(res => {
     const read = (0, eval)(src);
@@ -1914,16 +2155,23 @@ const filmable = p => p.evaluate(() => {
     const t = document.querySelector(tile), c = card && document.querySelector(`${card} .card-chrome`);
     const onCard = !!c && document.getElementById(screen).getBoundingClientRect().top < 2;
     const el = onCard ? c : t;
-    const parts = [...el.querySelectorAll('[role=group], [data-scope], p, .add-in, [translate=no], span[aria-hidden]')].filter(shown).map(e => [part(e), R(e)]).filter(([k]) => k);
+    // A part drawn fully transparent (an add-in before its fade starts) paints nothing: its box would only measure what
+    // shows through it (the tile's own columns under the card's layout), read as the part appearing in one frame.
+    const seen = e => { for (let x = e; x && x !== el; x = x.parentElement) if (+getComputedStyle(x).opacity < 0.01) return false; return true; };
+    // A part inside the card's scroller is drawn only where the scroller shows it (scrolled away, its box lies over the header).
+    const sc = el.querySelector('.panel-scroll'), S = sc && R(sc);
+    const box = e => { const b = R(e); return S && sc.contains(e) ? [Math.max(b[0], S[0]), Math.max(b[1], S[1]), Math.min(b[2], S[2]), Math.min(b[3], S[3])] : b; };
+    const parts = [...el.querySelectorAll('[role=group], [data-scope], p, .add-in, [translate=no], span[aria-hidden]')].filter(e => shown(e) && seen(e)).map(e => [part(e), box(e)]).filter(([k]) => k);
     const names = [...el.querySelectorAll('a[title] [translate=no]')];
     const rows = [...el.querySelectorAll('tbody tr')].map((tr, i) => {
       const cells = [...tr.querySelectorAll(card === '#pairwise-card' ? 'td[data-hands]' : 'td')].filter(d => shown(d) && /\d/.test(d.textContent)).map(R);
       const name = card === '#pairwise-card' ? names[i] : tr.querySelector('th [translate=no]');
-      return cells.length && name && shown(name) && { n: name.textContent.trim(), nx: R(name), cy: [Math.min(...cells.map(b => b[1])), Math.max(...cells.map(b => b[3]))], cx: [Math.min(...cells.map(b => b[0])), Math.max(...cells.map(b => b[2]))], tr: R(tr) };
+      // Its opacity (a row fading as a whole, or faded by picked rows): faint text on a tint still reads as ink, on white not.
+      let o = 1; for (let x = tr; x && x !== el; x = x.parentElement) o *= +getComputedStyle(x).opacity;
+      return cells.length && name && shown(name) && { n: name.textContent.trim(), o, nx: R(name), cy: [Math.min(...cells.map(b => b[1])), Math.max(...cells.map(b => b[3]))], cx: [Math.min(...cells.map(b => b[0])), Math.max(...cells.map(b => b[2]))], tr: R(tr) };
     }).filter(Boolean);
     const tip = [...el.querySelectorAll('[role=tooltip]')].find(e => shown(e) && getComputedStyle(e).visibility === 'visible');
-    const sc = el.querySelector('.panel-scroll');
-    return { y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), title: R(el.querySelector('h2')) };
+    return { y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), st: sc ? sc.scrollTop + sc.scrollLeft : 0, head: Math.max(0, ...[...el.querySelectorAll('thead th')].map(e => e.getBoundingClientRect().bottom)), title: R(el.querySelector('h2')) };
   };
   new ResizeObserver(() => {
     if (!F.on) return;
@@ -2081,15 +2329,19 @@ const judge = (fr, name, how, state) => {
     const r = d.map(v => v / top);
     for (let n = 1; n < seq.length; n++) {
       if (gap(seq[n - 1], seq[n]) > 1) continue; // a frame between them was not captured
+      if (seq[n].s.st !== seq[n - 1].s.st) continue; // scrolled into or out of the card's view (a closing card returns to its top), not drawn or dropped
       if (r[n - 1] <= 0.1 && r[n] >= 0.9) out.clean.push(`${name}: ${k} appears in one frame (${at(n - 1)} → ${at(n)})`);
       if (r[n - 1] >= 0.9 && r[n] <= 0.1) out.clean.push(`${name}: ${k} ${r[n + 1] >= 0.8 ? 'drops out for one frame' : 'vanishes in one frame'} (${at(n - 1)} → ${at(n)})`);
     }
   }
-  const torn = new Map(), tips = [], bars = [];
+  const torn = new Map(), tips = [], bars = [], jumps = [];
   seq.forEach((f, n) => {
+    // A scrolled card closes from where it is: its content never jumps to its top in one frame (it did as the glide back started).
+    // (A smooth scroll back that a slow frame stretches is moving already: the jump starts from a still scroll.)
+    if (n > 1 && gap(seq[n - 1], f) <= 1 && Math.abs(f.s.st - seq[n - 1].s.st) >= 30 && seq[n - 1].s.st === seq[n - 2].s.st) jumps.push(`${seq[n - 1].s.st} → ${f.s.st}px (${at(n - 1)} → ${at(n)})`);
     const [l, t, r, b] = f.s.box;
     for (const row of f.s.rows) {
-      if (row.cy[0] < Math.max(t, 44) || row.cy[1] > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar
+      if (row.o < 0.99 || row.cy[0] < Math.max(t, 44, f.s.head - 1) || Math.max(row.cy[1], row.nx[3]) > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar or the card's pinned header (scrolled)
       if (share(f, [row.cx[0], row.cy[0], row.cx[1], row.cy[1]], INK) * (row.cx[1] - row.cx[0]) * (row.cy[1] - row.cy[0]) / 4 < 8) continue; // no numbers drawn
       if (share(f, [row.nx[0], row.cy[0], row.nx[2], row.cy[1]], INK) === 0 && !torn.has(row.n)) torn.set(row.n, at(n));
     }
@@ -2100,6 +2352,7 @@ const judge = (fr, name, how, state) => {
   for (const [row, n] of torn) out.clean.push(`${name}: row "${row}" has its numbers but no name (frame ${n})`);
   if (tips.length) out.clean.push(`${name}: a hover tooltip shows with the pointer still (frames ${tips[0]}–${tips.at(-1)})`);
   if (bars.length) out.clean.push(`${name}: a scrollbar shows on the gliding tile (frames ${bars[0]}–${bars.at(-1)})`);
+  if (jumps.length) out.clean.push(`${name}: the content's scroll jumps in one frame (${jumps.join(', ')})`);
   return out;
 };
 let filmed;
@@ -2165,7 +2418,7 @@ main(() => check('handover-no-blank', 'Opening and closing Trends, Profiles and 
   (fs, n) => `${n} opens and closes filmed, at least ${(100 * Math.min(...fs.map(f => f.cal.ink ?? 1))).toFixed(0)}% of the card's box painted in every frame`)));
 main(() => check('handover-same-picture', 'At each hand-over between tile and card (opening and closing, as opened and after the viewer changed the lineup, the sort, All models, picked rows or the scroll), the last frame before the swap and the first after it show the same picture in the card\'s box, the box itself within 2px', report('same',
   (fs, n) => `${n} hand-overs, changed pixels at the swap ≤ ${Math.max(...fs.map(f => f.cal.swap ?? 0))}, at rest ≤ ${Math.max(...fs.map(f => f.cal.still ?? 0))}`)));
-main(() => check('glide-clean', 'While a tile glides to its card and back: no scrollbar on it, no hover readout the pointer did not ask for (a real move still shows one), no row with numbers but no name, and nothing the card adds (Lineup, Total, extra columns, the definition and button rows, Open ↓, the Leader, the names) appears, vanishes or drops out in one frame', report('clean',
+main(() => check('glide-clean', 'While a tile glides to its card and back: no scrollbar on it, no hover readout the pointer did not ask for (a real move still shows one), no row with numbers but no name, no scroll jumping in one frame, and nothing the card adds (Lineup, Total, extra columns, the definition and button rows, Open ↓, the Leader, the names) appears, vanishes or drops out in one frame', report('clean',
   (fs, n) => `${n} glides, every frame clean`)));
 // Closing a card marked the room as leaving (what the card adds fades out) and nothing cleared it: a card reached
 // afterwards without its tile (wheel, keys, Next) showed no extra columns, group header, button row, definition or Total.
@@ -3104,9 +3357,9 @@ group(() => check('about-home-no-fetch', 'On the home page About\'s race is draw
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await waitStats(p); await sleep(2000);
     await goto(p, 'about');
-    const drawn = await p.waitForFunction(() => document.querySelector('#about [data-race-row]'), { timeout: 30000, polling: 250 }).then(() => true, () => false);
+    const drawn = await p.waitForFunction(() => document.querySelector('section[aria-label=About] [data-race-row]'), { timeout: 30000, polling: 250 }).then(() => true, () => false);
     await sleep(1500);
-    const rows = await p.evaluate(() => document.querySelectorAll('#about [data-race-row]').length);
+    const rows = await p.evaluate(() => document.querySelectorAll('section[aria-label=About] [data-race-row]').length);
     return { pass: drawn && !asked.length, detail: `${rows} race rows; ${asked.length} GET /api/stats${asked.length ? ` (${asked[0]})` : ''}` };
   } finally { await p.close(); }
 }));
@@ -3821,8 +4074,9 @@ group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/
     }
     if (!v?.hands) { if (c.text) bad.push(`${c.key}: "${c.text}" for a pair without hands together`); continue; }
     if (col) n++;
-    const x = bb100(v, bb), want = bbText(x), whole = `${x > 0 ? '+' : x < 0 ? '−' : ''}${Math.round(Math.abs(x))}`; // a whole where the decimal does not fit
-    if (c.text !== want && c.text !== whole) bad.push(`${c.key}: shows "${c.text}", engine ${v.net_chips} chips over ${v.hands} hands = ${want}`);
+    // The figure in full where it fits (owner, 2026-11-09: not "+1k", "+2.4k"; HeadToHead's fitFigure), else a whole, else short.
+    const x = bb100(v, bb), want = bbText(x), sign = x > 0 ? '+' : x < 0 ? '−' : '', full = `${sign}${Math.abs(x).toFixed(1)}`, whole = `${sign}${Math.round(Math.abs(x))}`;
+    if (![full, whole, want].includes(c.text)) bad.push(`${c.key}: shows "${c.text}", engine ${v.net_chips} chips over ${v.hands} hands = ${full}`);
     if (+c.hands !== v.hands) bad.push(`${c.key}: data-hands ${c.hands}, engine ${v.hands}`);
   }
   if (n < 20) bad.push(`only ${n} pairs with hands together`);
@@ -3948,7 +4202,11 @@ group(() => check('matchups-tip-inside', 'Hovering a Matchups card cell (the fou
       const at = await p.evaluate((r, c) => {
         const td = document.querySelectorAll('#pairwise-card tbody tr')[r].querySelectorAll('td')[c];
         td.scrollIntoView({ block: 'nearest', inline: 'center' }); // a phone's grid scrolls: bring the cell out from under the pinned names
-        const sc = document.querySelector('#pairwise-card .panel-scroll'), b = td.getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2;
+        const sc = document.querySelector('#pairwise-card .panel-scroll');
+        // scrollIntoView centres it in the whole scroller, half under the pinned names: centre it in the part beside them.
+        const pin = sc.querySelector('.sticky.left-0').getBoundingClientRect(), s = sc.getBoundingClientRect(), b0 = td.getBoundingClientRect();
+        sc.scrollLeft += (b0.left + b0.right) / 2 - (pin.right + s.right) / 2;
+        const b = td.getBoundingClientRect(), x = b.left + b.width / 2, y = b.top + b.height / 2;
         return { x, y, key: td.dataset.cell, hit: td.contains(document.elementFromPoint(x, y)), size: [sc.scrollWidth, sc.scrollHeight] };
       }, r, c);
       if (!at.hit) { bad.push(`${w}x${h} ${at.key}: the cell is covered at its centre`); continue; }

@@ -1,10 +1,12 @@
 "use client";
 
+import { useRef } from "react";
 import LLMLogo from "@/components/LLMLogo";
 import TypewriterText from "@/components/TypewriterText";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { MUTED, BLUE } from "@/lib/stats";
 import type { DisplayState } from "@/lib/stream";
+import { useFillIn } from "@/lib/boxes";
 
 interface ReasoningPanelProps {
   displayState: DisplayState | null;
@@ -18,6 +20,8 @@ export default function ReasoningPanel({
   blank = false,
 }: ReasoningPanelProps) {
   const bb = useBigBlind(); // the action's amount follows the Chips/BB switch; the model's own words stay as written
+  const ref = useRef<HTMLDivElement>(null);
+  useFillIn(ref, !blank);
 
   const phase = displayState?.phase;
   const playerName = displayState?.playerName || '—';
@@ -46,6 +50,7 @@ export default function ReasoningPanel({
 
   return (
     <div 
+      ref={ref}
       className={`relative bg-white h-[100px] rounded overflow-hidden ${blank ? '[&>*]:invisible' : ''}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
     >

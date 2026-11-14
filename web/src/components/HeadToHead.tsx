@@ -67,7 +67,7 @@ export default memo(function HeadToHead({
   mini?: boolean; // the overview tile: the same grid, no links or readout (the tile opens the screen)
   snap?: boolean; // switch between tile and card without gliding (the stage is hidden under the card)
   hand?: number | null; // the hand History is replaying, when `models` are as of then (null: now)
-  fitTo?: number; // the card's matrix box holds this many models (the seated lineup); more keep that cell size and scroll
+  fitTo?: string[]; // the seated lineup: the card's matrix box holds them; more keep that cell size and scroll, and fade in as the card adds them
   leader?: string | null; // the Leader line's model: its row, and the opponent it did best against, are marked
 }) {
   const outer = useRef<HTMLDivElement>(null);
@@ -161,7 +161,9 @@ export default memo(function HeadToHead({
   // card hugs it. One font size per place: 14px in the card, like Profiles' cells; TILE_PX on the tile. A figure
   // keeps PAD clear each side and is shortened (+1.2k, +12) only when it does not fit that.
   const n = sorted.length;
-  const grow = mini ? 1 : n / Math.max(1, Math.min(n, fitTo ?? n));
+  const grow = mini ? 1 : n / Math.max(1, Math.min(n, fitTo?.length ?? n));
+  // A model outside the seated lineup (All models): its row and column are what the card adds, like Profiles' extra columns.
+  const adds = (name: string) => (!mini && fitTo?.includes(name) === false ? 'add-in' : '');
   const px = mini ? TILE_PX : 14;
   const strip = mini ? STRIP : 28;
   const totals = mini ? 0 : TOTALS;
@@ -180,12 +182,13 @@ export default memo(function HeadToHead({
       {/* On the tile, a size container: the matrix takes what its names leave. No scroller of its own. */}
       {/* Centred, but never past the left edge: a card that scrolls (a phone, All models) keeps the names pinned. */}
       <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : ''}`} style={{ containerType: mini ? 'size' : undefined, fontSize: px }} onMouseLeave={() => setTip(null)}>
-        {/* No overflow-hidden in the card: it would make the column the sticky container of its own top spacer. */}
-        <div className={`shrink-0 flex flex-col ${mini ? 'overflow-hidden' : `${pin} left-0 z-[2]`}`} style={{ width: namesW }}>
+        {/* No overflow-hidden: in the card it would make the column the sticky container of its own top spacer, and on the tile
+            it cut the names gliding back from the card's wider column (a phone's: each name truncates itself). */}
+        <div className={`shrink-0 flex flex-col ${mini ? '' : `${pin} left-0 z-[2]`}`} style={{ width: namesW }}>
           <span className={`block shrink-0 ${pin && `${pin} top-0 z-[1]`}`} style={{ height: strip }} />
           {/* Model names as in Profiles (14px bold); the Leader on the highlight. */}
           {sorted.map(row => (
-            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold ${mini ? '' : 'hover:underline'}`}>
+            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold ${mini ? '' : 'hover:underline'} ${adds(row.name)}`}>
               <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{row.name}</motion.span>
             </a>
           ))}
@@ -200,7 +203,7 @@ export default memo(function HeadToHead({
                 <th aria-hidden className="p-0" />
                 {/* Opaque when pinned (the highlight over white, a white 1px ring over the cell spacing): scrolled cells never show through. */}
                 {sorted.map(m => (
-                  <th key={m.name} scope="col" className={`p-0 font-medium rounded-sm ${pin && `${pin} top-0 z-[1]`}`} title={m.name} style={{ background: m.name === from?.col ? `linear-gradient(${HOT}, ${HOT}) white` : undefined, boxShadow: pin ? '0 0 0 1px white' : undefined }}>
+                  <th key={m.name} scope="col" className={`p-0 font-medium rounded-sm ${pin && `${pin} top-0 z-[1]`} ${adds(m.name)}`} title={m.name} style={{ background: m.name === from?.col ? `linear-gradient(${HOT}, ${HOT}) white` : undefined, boxShadow: pin ? '0 0 0 1px white' : undefined }}>
                     <motion.span layout layoutDependency={mini} transition={move} className="flex justify-center"><LLMLogo model={m.name} size={mini ? 16 : 24} /></motion.span>
                     <span className="sr-only">{m.name}</span>
                   </th>
@@ -209,15 +212,16 @@ export default memo(function HeadToHead({
             </thead>
             <tbody>
               {sorted.map(row => (
-                <tr key={row.name} style={rowH}>
+                <tr key={row.name} style={rowH} className={adds(row.name)}>
                   <th scope="row" className="p-0 overflow-hidden"><span className="sr-only">{row.name}</span></th>
                   {sorted.map(col => {
                     const { v, hands, bb } = cellOf(row, col.name);
                     const self = row.name === col.name;
+                    const add = adds(row.name) ? '' : adds(col.name);
                     if (self || bb === null) {
                       // Itself, or a pair that never sat together: an empty cell (the card's readout says so).
                       return (
-                        <td key={col.name} data-cell={`${row.name}|${col.name}`} className="p-0 rounded-sm" style={{ background: self ? 'rgba(55, 53, 47, 0.16)' : 'rgba(55, 53, 47, 0.04)' }} onMouseMove={mini || self ? undefined : e => show(e, row.name, col.name)}>
+                        <td key={col.name} data-cell={`${row.name}|${col.name}`} className={`p-0 rounded-sm ${add}`} style={{ background: self ? 'rgba(55, 53, 47, 0.16)' : 'rgba(55, 53, 47, 0.04)' }} onMouseMove={mini || self ? undefined : e => show(e, row.name, col.name)}>
                           {!self && <span className="sr-only">{row.name} and {col.name} {NEVER_MET}</span>}
                         </td>
                       );
@@ -227,7 +231,7 @@ export default memo(function HeadToHead({
                         key={col.name}
                         data-cell={`${row.name}|${col.name}`}
                         data-hands={hands}
-                        className="relative p-0 text-center rounded-sm whitespace-nowrap overflow-hidden"
+                        className={`relative p-0 text-center rounded-sm whitespace-nowrap overflow-hidden ${add}`}
                         style={{ color: TEXT, background: tint(bb), opacity: hands < MIN_PAIR_HANDS ? FAINT : undefined, outline: tip?.row === row.name && tip.col === col.name ? `2px solid ${TEXT}` : undefined }}
                         onMouseMove={mini ? undefined : e => show(e, row.name, col.name)}
                       >
@@ -251,7 +255,7 @@ export default memo(function HeadToHead({
             const none = row.hands === 0 || t.hands === 0; // no hands together yet at the replay's hand
             // Faint by the row's own hands, as Profiles and the Leader: t.hands counts a hand once per opponent in it.
             return (
-              <div key={row.name} data-cell={`${row.name}|`} data-hands={t.hands} style={{ ...slot, color: none ? MUTED : netColor(t.bb100), opacity: !none && row.hands < MIN_HANDS ? FAINT : undefined }} className="flex items-center pl-2 whitespace-nowrap">
+              <div key={row.name} data-cell={`${row.name}|`} data-hands={t.hands} style={{ ...slot, color: none ? MUTED : netColor(t.bb100), opacity: !none && row.hands < MIN_HANDS ? FAINT : undefined }} className={`flex items-center pl-2 whitespace-nowrap ${adds(row.name)}`}>
                 {none ? DASH : <>
                   <span aria-hidden>{fitFigure(t.bb100, totals - 8, px)}</span>
                   <span className="sr-only">{row.name} {signed(t.bb100)} bb/100 against the models shown, over {plural(row.hands, 'hand')} played</span>

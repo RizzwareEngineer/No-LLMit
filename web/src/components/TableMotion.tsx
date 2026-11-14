@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useEffectEvent, useRef, useSyncExternalStore } from "react";
+import { memo, useEffect, useEffectEvent, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { animate, motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
@@ -101,8 +101,16 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: Box | null, to: Bo
 // backs only, on RIFFLE's beat, which its sound shares), then squared until the deal flies from it. data-deck: its phase.
 export function Deck({ phase }: { phase: DeckPhase }) {
   const size = useCardSize(), box = deckSize(size);
+  // The sound starts on the frame the cards start to move (motion starts them on the next frame after this commit), so
+  // each flick is heard as its card lands. Only the deck that shows: the phone layout's felt is in the page too.
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const f = requestAnimationFrame(() => ref.current?.offsetWidth && playSound('shuffle'));
+    return () => cancelAnimationFrame(f);
+  }, []);
   return (
     <motion.div
+      ref={ref}
       data-deck={phase}
       className={size ? 'relative' : 'relative w-11 h-16'}
       style={size ? { width: box.w, height: box.h } : undefined}
@@ -128,7 +136,7 @@ const RiffleCard = memo(function RiffleCard({ k, spread }: { k: number; spread: 
       className={`absolute inset-0 ${BACK}`}
       style={{ zIndex: k, y: -k * 0.5 }}
       animate={{ x: [0, side * spread, side * spread, 0, 0, 0], rotate: [0, side * 8, side * 8, lean, lean, 0] }}
-      transition={{ duration: RIFFLE.length, times: [0, at(RIFFLE.start - 0.04), at(fall), at(fall + 0.08), at(RIFFLE.square), 1], ease: 'easeInOut' }}
+      transition={{ duration: RIFFLE.length, times: [0, at(RIFFLE.start - 0.04), at(fall), at(fall + RIFFLE.land), at(RIFFLE.square), 1], ease: 'easeInOut' }}
     />
   );
 });
@@ -253,8 +261,11 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
     if (wait < 0) return;
     const t = setTimeout(() => {
       if (!onScreen()) return;
-      playSound('shuffle');
-      if (reduce) return;
+      // With reduced motion there is no deck, and the sound plays now; otherwise the deck starts it (Deck).
+      if (reduce) {
+        playSound('shuffle');
+        return;
+      }
       showDeck('riffle');
       timers.current.push(
         setTimeout(() => showDeck('ready'), RIFFLE.length * 1000),

@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
 import About from '@/components/About';
@@ -50,6 +51,9 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
   // The tile filling the stage (null: the overview grid); `lift`, the one focused last, stays on top
   // while it glides back. Race fills it on every screen after the overview: the cards slide over it.
   const [tiles, setTiles] = useState<{ on: Tile | null; snap: boolean; lift: Tile | null }>({ on: null, snap: false, lift: null });
+  // The Matchups card shows the seated lineup while it hands over to its tile (which glides with that lineup): with
+  // "All models", the other models' rows and columns fade in once it has landed and out before it glides back.
+  const [muFold, setMuFold] = useState(false);
   const stage = useRef<HTMLDivElement>(null);
   const statsCard = useRef<HTMLElement>(null);
   const statsScreen = useRef<HTMLDivElement>(null);
@@ -134,9 +138,6 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
   // A phone's overview scrolls inside its stage: a tile opening starts from the stage's top, where its card sits.
   useLayoutEffect(() => {
     if (tiles.on && innerWidth < 768) stage.current?.scrollTo({ top: 0, behavior: 'instant' });
-    // A close is over once the tile is back to its overview content (nothing it adds is mounted): a card reached
-    // afterwards by scrolling shows all of itself again.
-    if (!tiles.on) room.current?.removeAttribute('data-leaving');
   }, [tiles.on]);
 
   // The screen crossing the middle of the window sets the stage; the table screen counts as the
@@ -201,6 +202,7 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
       busy = true;
       room.current?.removeAttribute('data-leaving');
       if (tile !== 'race') still();
+      if (tile === 'pairwise') setMuFold(true);
       // The card takes over once the tile has landed (Panel's glideend). A timer fired before a busy machine's glide had
       // ended (it starts when React commits), and the card took over off the tile; a late one stays as the fallback.
       const late = glide() && glide() + 1500;
@@ -232,6 +234,7 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
           chrome?.style.removeProperty('opacity');
           hideUnder();
           if (currentScreen() === tile) put('race', true); // as arriving under a card does (show)
+          setMuFold(false);
         }));
       };
       window.addEventListener('glideend', land);
@@ -248,17 +251,25 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
       if (at !== 'race') still();
       room.current?.toggleAttribute('data-leaving', fade > 0);
       put(at, true);
+      // A scrolled card goes back to its top as it fades (the tile shows its top on the overview), never in one jump.
+      const from = document.querySelector(`#${TILES[at].land} .panel-scroll`);
+      const top = new Promise(r => {
+        if (!fade || !from || (!from.scrollTop && !from.scrollLeft)) return r(0);
+        from.addEventListener('scrollend', r, { once: true });
+        from.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+      });
       // The fade, then two frames: the snapped stage is painted under the card before the card leaves. The fade is
       // waited for (its animations), not timed: mounting the stand-in can hold the main thread past FADE_MS.
       const faded = () => Promise.race([
-        Promise.all((document.getElementById(TILES[at].land)?.getAnimations({ subtree: true }) ?? [])
-          .filter(a => (a as CSSAnimation).animationName === 'add-out').map(a => a.finished.catch(() => {}))),
-        new Promise(r => setTimeout(r, 500)),
+        Promise.all([top, ...(document.getElementById(TILES[at].land)?.getAnimations({ subtree: true }) ?? [])
+          .filter(a => (a as CSSAnimation).animationName === 'add-out').map(a => a.finished.catch(() => {}))]),
+        new Promise(r => setTimeout(r, 800)),
       ]);
-      setTimeout(() => faded().then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+      // Matchups then shows the seated lineup, as its tile under it does (flushed: painted in the two frames).
+      setTimeout(() => faded().then(() => at === 'pairwise' && flushSync(() => setMuFold(true))).then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
         busy = false;
         // The tile standing in is scrolled as the card was.
-        const from = document.querySelector(`#${TILES[at].land} .panel-scroll`), to = document.querySelector(`#${TILES[at].panel} .panel-scroll`);
+        const to = document.querySelector(`#${TILES[at].panel} .panel-scroll`);
         if (from && to && from !== to) to.scrollTop = from.scrollTop;
         const el = stage.current;
         el?.removeAttribute('inert');
@@ -269,6 +280,10 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
         jump('stats');
         hideUnder(); // now, not at the next frame's scroll event: that frame would paint the stage still hidden (blank)
         put(null);
+        setMuFold(false);
+        // A close is over once the tile has glided back (the header extra it leaves is unseen until then): a card reached
+        // afterwards by scrolling shows all of itself again.
+        setTimeout(() => !busy && room.current?.removeAttribute('data-leaving'), glide());
         document.getElementById(TILES[at].panel)?.focus({ preventScroll: true });
       }))), fade);
     };
@@ -362,11 +377,13 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
       <SyncedProfiles tl={tl} models={models} seated={seated} mini={!card} snap={snap} view={profView} />
     </>
   );
-  const pairwiseBody = (card: boolean, snap = false) => !ready ? message : (
-    <AtHand tl={tl} models={card ? muModels : field}>
+  // The tile always shows the seated lineup (`lineup`); the card the Lineup chosen, except while it hands over (muFold).
+  const seatedNames = useMemo(() => field.map(m => m.name), [field]);
+  const pairwiseBody = (card: boolean, lineup: ModelStats[], snap = false) => !ready ? message : (
+    <AtHand tl={tl} models={lineup}>
       {(ms, hand) => (
         <div {...syncAttrs(tl, hand)} className="contents">
-          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} mini={!card} snap={snap} fitTo={field.length} leader={leaderAt(tl, ms, hand)?.m.name} />
+          <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} mini={!card} snap={snap} fitTo={seatedNames} leader={leaderAt(tl, ms, hand)?.m.name} />
         </div>
       )}
     </AtHand>
@@ -435,7 +452,7 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
                 title="Profiles"
                 away={{ x: -1 }}
                 className="row-start-2 md:col-start-1"
-                extra={on === 'stats-table' && <div className={ASIDE}>{lead}</div>}
+                extra={on === 'stats-table' && <div className={`${ASIDE} added`}>{lead}</div>}
                 fit="content"
                 blank={blank}
                 {...tile('stats-table')}
@@ -448,12 +465,12 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
                 title="Matchups"
                 away={{ x: 1 }}
                 className="row-start-3 md:row-start-2 md:col-start-2 max-md:h-(--mu-h)"
-                extra={on === 'pairwise' && <div className={ASIDE}>{muAside}</div>}
+                extra={on === 'pairwise' && <div className={`${ASIDE} added`}>{muAside}</div>}
                 fit="hug"
                 blank={blank}
                 {...tile('pairwise')}
               >
-                {pairwiseBody(on === 'pairwise', snap)}
+                {pairwiseBody(on === 'pairwise', field, snap)}
               </Panel>
             </div>
           </div>
@@ -492,7 +509,7 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
         </Card>
 
         <Card id="pairwise-card" title="Matchups" aside={muAside} z="z-20" fit="hug" blank={blank} record={muLineup === 'seated'}>
-          {pairwiseBody(true)}
+          {pairwiseBody(true, muFold ? field : muModels)}
         </Card>
       </div>
     </div>
@@ -693,7 +710,8 @@ function Card({
           <div ref={chrome} {...attrs} className={`${CARD} absolute ${fit === 'hug' ? HUG : `inset-x-0 inset-y-0 my-auto max-h-full ${fit ? 'h-fit' : ''}`} ${blank ? '[&>*]:invisible' : ''}`} style={{ boxShadow: CARD_SHADOW, ...size }}>
             <div className={HEADER}>
               <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
-              {aside && <div className={ASIDE}>{aside}</div>}
+              {/* `added`: the header extras fade out first when the card closes (data-leaving), as what it adds does. */}
+              {aside && <div className={`${ASIDE} added`}>{aside}</div>}
             </div>
             <motion.div layoutScroll className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{children}</motion.div>
           </div>

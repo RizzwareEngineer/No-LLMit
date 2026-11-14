@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef, useSyncExternalStore } from "react";
+import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
@@ -16,7 +16,7 @@ import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
 import { useGameState } from "@/hooks/useGameState";
 import { NEXT_BUTTON, NEXT_STYLE, isPaging, pageBy, pageTo, resnap, scrollsInside } from "@/components/Section";
-import { holdBoxes } from "@/lib/boxes";
+import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { useTypeSwitch } from "@/lib/tableSwitches";
 import { MUTED, BLUE } from "@/lib/stats";
 
@@ -86,8 +86,7 @@ export default function Home() {
   useTypeSwitch(); // ?type=2
   const {
     gameState,
-    isConnected,
-    tried,
+    connection,
     gaveUp,
     tableNotice,
     displayState,
@@ -101,12 +100,24 @@ export default function Home() {
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
   const { usage, error: usageError } = useUsage();
   const watching = usageError ? undefined : usage?.table?.spectators;
-  const isLive = isConnected && !tableNotice;
-  // The connection bar waits for the first attempt: a bar shown until then moved every screen by its height (--bar-h) twice.
-  const bar = tried && !isConnected;
+  const isLive = connection === 'open' && !tableNotice;
+  // The connection bar only once the server has been unreachable for a while (useGameState): a bar shown and hidden on a
+  // normal load moved every screen by its height (--bar-h).
+  const bar = connection === 'down';
+  // The status label and the hand counter, blinds and timer stand in blank until they are known, then fade in together,
+  // with what the label appends (· N watching), so the row changes once and unseen. The label and the hand number hold
+  // their remembered widths while blank (lib/boxes), so the toggles beside them do not move when they fill in.
+  const statusKnown = connection === 'down' || (!!gameState && (!!usage || usageError));
+  const handKnown = statusKnown && (gameState?.handNumber ?? 0) > 0;
+  const labelRef = useRef<HTMLDivElement>(null), handRef = useRef<HTMLDivElement>(null);
+  useFillIn(labelRef, statusKnown);
+  useFillIn(handRef, handKnown);
+  const [labelBox, labelSize, labelAttrs] = useRememberedBox<HTMLSpanElement>('status-label', statusKnown, 'wh');
+  const [handBox, handSize, handAttrs] = useRememberedBox<HTMLSpanElement>('hand-no', handKnown, 'wh');
 
-  // Timer effect - update elapsed time every second using server's gameStartTime
-  useEffect(() => {
+  // Timer effect - update elapsed time every second using server's gameStartTime. Before the paint, so the row's first
+  // frame has the time and not 00:00:00.
+  useLayoutEffect(() => {
     if (!gameState?.gameStartTime) return;
     
     const serverStartTime = new Date(gameState.gameStartTime);
@@ -166,9 +177,15 @@ export default function Home() {
   // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
   // starts out of view (a reload below the table).
   const [tableInView, setTableInView] = useState(true);
+  const [scrolled, setScrolled] = useState(false); // the sticky bar slides in on a scroll, not on a load below the table
   useEffect(() => {
+    let first = true;
     // The top 44px sit under the bar itself, so they do not count as visible.
-    const io = new IntersectionObserver(([e]) => setTableInView(e.isIntersecting), { rootMargin: '-44px 0px 0px 0px' });
+    const io = new IntersectionObserver(([e]) => {
+      setTableInView(e.isIntersecting);
+      if (!first) setScrolled(true);
+      first = false;
+    }, { rootMargin: '-44px 0px 0px 0px' });
     if (tableRef.current) io.observe(tableRef.current);
     return () => io.disconnect();
   }, []);
@@ -358,23 +375,23 @@ export default function Home() {
         {/* Status row - live indicator, hand counter, blinds, timer */}
         <div className="mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
           {/* Live indicator */}
-          <div className="flex items-center gap-2">
+          <div ref={labelRef} className={`flex items-center gap-2 ${statusKnown ? '' : '[&>*]:invisible'}`}>
             <span
               aria-hidden
               className="inline-block w-2.5 h-2.5 rounded-full"
               style={{ background: isLive ? 'rgb(220, 38, 38)' : MUTED }}
             />
-            <span className="text-[14px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)' }}>
-              {!isConnected ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
-              {watching !== undefined && ` · ${watching.toLocaleString()} watching`}
+            <span ref={labelBox} {...labelAttrs} className="text-[14px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)', ...labelSize }}>
+              {connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+              {statusKnown && watching !== undefined && ` · ${watching.toLocaleString()} watching`}
             </span>
           </div>
 
           {/* Hand counter, blinds, timer. Held blank until the first state, so the row keeps its width (a phone wraps it
               to the same lines) and nothing under it moves when they fill in. */}
-          <div className={`contents ${handNumber > 0 ? '' : '[&>*]:invisible'}`}>
+          <div ref={handRef} className={`contents ${handKnown ? '' : '[&>*]:invisible'}`}>
             <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-            <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>Hand #{handNumber || '00'}</span>
+            <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '00'}</span>
             <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
             <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
             <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
@@ -444,7 +461,7 @@ export default function Home() {
       <script dangerouslySetInnerHTML={{ __html: BEFORE_PAINT }} />
       </main>
 
-      <StickyBar show={!tableInView} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />
+      <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />
       <ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status */}

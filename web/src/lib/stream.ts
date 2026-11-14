@@ -39,7 +39,7 @@ export interface TableView {
   gameState: GameState | null;
   notice: TableNoticePayload | null; // table closed, capped, in an outage or saving
   display: DisplayState | null;
-  clock: Clock | null; // the shot clock: llm_thinking starts it, the next game_state stops it; null when the engine sent no budget
+  clock: Clock | null; // the shot clock: llm_thinking starts it, the turn's llm_action stops it; null when the engine sent no budget
   buttonDetermination: ButtonDetermination | null;
 }
 
@@ -84,6 +84,7 @@ function applyTurn(v: TableView, turn: Turn, now: number): TableView {
   const p = turn.payload as LLMDecision;
   return {
     ...v,
+    clock: stopped(v.clock), // the move has arrived: the clock holds (owner, A24)
     display: {
       phase: 'reasoning',
       turn: p.turn,
@@ -96,12 +97,14 @@ function applyTurn(v: TableView, turn: Turn, now: number): TableView {
   };
 }
 
-// The action has been applied to the table: its reasoning is revealed and the shot clock stops.
+const stopped = (c: Clock | null) => (c?.running ? { ...c, running: false } : c);
+
+// The action has been applied to the table: its reasoning is revealed and the shot clock stops, if it still runs.
 function reveal(v: TableView): TableView {
   return {
     ...v,
     display: v.display?.phase === 'reasoning' ? { ...v.display, phase: 'revealed' } : v.display,
-    clock: v.clock?.running ? { ...v.clock, running: false } : v.clock,
+    clock: stopped(v.clock),
   };
 }
 

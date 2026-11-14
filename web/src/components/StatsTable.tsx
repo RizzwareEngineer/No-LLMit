@@ -370,16 +370,16 @@ function Grid({
           </tr>
         ))}
       </tbody>
-      {/* Everyone else with hands, under a divider: shown by "All models". */}
+      {/* Everyone else with hands, under a divider: shown by "All models". Card only: it fades as the card's columns do. */}
       {rest.length > 0 && (
-        <tbody className="divide-y divide-black/10 border-t-2 border-[rgba(55,53,47,0.16)]">
+        <tbody className="add-in divide-y divide-black/10 border-t-2 border-[rgba(55,53,47,0.16)]">
           <tr><td colSpan={columns.length + 1} className={`${cell} pt-3 pb-1 text-[13px] font-medium`} style={{ color: MUTED }}>Not at the table</td></tr>
           {rest.map(m => row(m, null))}
         </tbody>
       )}
       {/* Roster models not seated: one wrapped row of names, so a long roster never adds a row each. */}
       {waiting.length > 0 && (
-        <tbody style={{ color: MUTED }}>
+        <tbody className="add-in" style={{ color: MUTED }}>
           <tr className="border-t border-notion" title={NOT_SEATED_HINT}>
             <td colSpan={columns.length + 1} className={`${cell} pt-2 text-[13px]`}>
               <span className="font-medium">{NOT_SEATED}</span>
