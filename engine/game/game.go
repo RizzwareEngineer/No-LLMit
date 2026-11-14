@@ -247,9 +247,7 @@ func (gs *GameState) AdvanceStreet() error {
 	if gs.CountActivePlayers() == 1 {
 		return gs.finishHandOnePlayerRemains()
 	}
-	if gs.CountActiveNonAllInPlayers() <= 1 {
-		return gs.runOutBoard()
-	}
+	runOut := gs.CountActiveNonAllInPlayers() <= 1 // nobody can bet: the board runs out, one street per call
 
 	switch gs.Street {
 	case StreetPreflop:
@@ -271,6 +269,9 @@ func (gs *GameState) AdvanceStreet() error {
 
 	gs.resetBettingRound()
 	gs.CurrentPlayerIdx = gs.getFirstToAct()
+	if runOut {
+		gs.CurrentPlayerIdx = -1
+	}
 
 	return nil
 }
@@ -284,14 +285,6 @@ func (gs *GameState) dealFlop() {
 func (gs *GameState) dealOne() {
 	gs.deck.burn()
 	gs.CommunityCards = append(gs.CommunityCards, gs.deck.Deal(1)[0])
-}
-
-func (gs *GameState) runOutBoard() error {
-	for len(gs.CommunityCards) < 5 {
-		gs.dealOne()
-	}
-	gs.Street = StreetShowdown
-	return gs.resolveShowdown()
 }
 
 func (gs *GameState) finishHandOnePlayerRemains() error {
