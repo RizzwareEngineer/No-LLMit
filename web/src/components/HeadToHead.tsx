@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 import { GLIDE, NONE } from '@/components/Section';
 import LLMLogo from '@/components/LLMLogo';
@@ -44,8 +45,11 @@ export const TOTAL_TITLE = 'Big blinds won from the models shown per 100 hands d
 const NEVER_MET = 'never sat together';
 // A pair's or a row's figure under its sample rule is drawn at this opacity.
 const FAINT = 0.4;
-// The cell readout's width: its longest line (two long names around a figure) on one line, never wrapped.
-const TIP_W = 380;
+// The cell readout hugs its longest line (two long names around a figure), up to TIP_MAX; it wraps only in a box
+// narrower than that (a phone). It keeps TIP_M clear of the card's and the window's edges, TIP_GAP off its cell.
+const TIP_MAX = 480;
+const TIP_M = 8;
+const TIP_GAP = 6;
 
 // Big blinds the row model won from the column model per 100 hands they were both dealt in. With `focus`,
 // one model's opponents as a list (the drawer); without it, the full grid of row model against column
@@ -72,7 +76,10 @@ export default memo(function HeadToHead({
   leader?: string | null; // the Leader line's model: its row, and the opponent it did best against, are marked
 }) {
   const outer = useRef<HTMLDivElement>(null);
-  const [tip, setTip] = useState<{ row: string; col: string; x: number; y: number; below: boolean } | null>(null);
+  // The hovered cell, its box on screen, and the card's chrome the readout is drawn in (outside the card's scroller,
+  // so it is never cut by it and never adds to its scroll; the grid itself where there is no chrome).
+  const [tip, setTip] = useState<{ row: string; col: string; at: DOMRect; host: HTMLElement } | null>(null);
+  const tipEl = useRef<HTMLDivElement>(null);
   // Rows and columns in overall rank order (bb/100 over the range shown, the Leader's unit), like a chess
   // crosstable; the Total column is the row's bb/100 against the models shown.
   const sorted = [...models].sort((a, b) => b.bb100 - a.bb100);
@@ -107,6 +114,26 @@ export default memo(function HeadToHead({
     ro.observe(el);
     return () => ro.disconnect();
   }, [models.length]);
+  // The readout goes above its cell, else below, else beside it (right, then left): the first place where it lies
+  // whole inside the card and the window, never over the cell. Placed before it is painted, at its own size.
+  useLayoutEffect(() => {
+    const el = tipEl.current;
+    if (!tip || !el) return;
+    const h = tip.host.getBoundingClientRect(), r = tip.at, w = el.offsetWidth, ht = el.offsetHeight;
+    const L = Math.max(h.left, 0) + TIP_M, R = Math.min(h.right, innerWidth) - TIP_M, T = Math.max(h.top, 0) + TIP_M, B = Math.min(h.bottom, innerHeight) - TIP_M;
+    const x = Math.max(L, Math.min(r.left + r.width / 2 - w / 2, R - w)), y = Math.max(T, Math.min(r.top + r.height / 2 - ht / 2, B - ht));
+    const spots = [[x, r.top - TIP_GAP - ht], [x, r.bottom + TIP_GAP], [r.right + TIP_GAP, y], [r.left - TIP_GAP - w, y]];
+    const [left, top] = spots.find(([sx, sy]) => sx >= L && sx + w <= R && sy >= T && sy + ht <= B) ?? [x, Math.max(T, Math.min(spots[0][1], B - ht))];
+    el.style.left = `${left - h.left - tip.host.clientLeft}px`;
+    el.style.top = `${top - h.top - tip.host.clientTop}px`;
+  }, [tip]);
+  // A scroll (the grid sideways, or the page) moves the cell from under the readout: it closes until the pointer moves.
+  useEffect(() => {
+    if (!tip) return;
+    const off = () => setTip(null);
+    addEventListener('scroll', off, true);
+    return () => removeEventListener('scroll', off, true);
+  }, [tip]);
   if (focus) {
     const rows = Object.entries(focus.vs ?? {}).sort((a, b) => b[1].net_chips - a[1].net_chips);
     if (rows.length === 0) return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
@@ -151,10 +178,7 @@ export default memo(function HeadToHead({
   const show = (e: React.MouseEvent, row: string, col: string) => {
     // Not until the pointer has moved since a tile opened or closed (StatsSections' data-still), nor twice for one cell.
     if (outer.current!.closest('[data-still]') || (tip?.row === row && tip.col === col)) return;
-    const o = outer.current!.getBoundingClientRect();
-    const r = e.currentTarget.getBoundingClientRect();
-    const below = r.top - o.top < 90; // no room above the cell: show it underneath
-    setTip({ row, col, x: Math.min(Math.max(r.left - o.left + r.width / 2, TIP_W / 2), o.width - TIP_W / 2), y: below ? r.bottom - o.top + 4 : r.top - o.top - 4, below });
+    setTip({ row, col, at: e.currentTarget.getBoundingClientRect(), host: outer.current!.closest<HTMLElement>('.card-chrome') ?? outer.current! });
   };
   const tipRow = tip && sorted.find(m => m.name === tip.row);
   const tipCell = tipRow && cellOf(tipRow, tip.col);
@@ -272,12 +296,13 @@ export default memo(function HeadToHead({
           })}
         </motion.div>}
       </div>
-      {/* The hovered cell's readout floats over the grid, clamped inside it. One sentence per line. */}
-      {tip && tipCell && (
+      {/* The hovered cell's readout floats over the card (placed by the layout effect above). One sentence per line. */}
+      {tip && tipCell && createPortal(
         <div
+          ref={tipEl}
           role="tooltip"
-          className="absolute z-10 pointer-events-none rounded bg-white px-2.5 py-2 text-[13px] leading-snug tabular-nums whitespace-nowrap"
-          style={{ width: TIP_W, left: tip.x, top: tip.y, transform: `translate(-50%, ${tip.below ? '0' : '-100%'})`, color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}
+          className="absolute z-10 pointer-events-none rounded bg-white px-2.5 py-2 text-[13px] leading-snug tabular-nums w-max"
+          style={{ left: 0, top: 0, maxWidth: `min(${TIP_MAX}px, 100% - ${2 * TIP_M}px, 100vw - ${2 * TIP_M}px)`, color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px' }}
         >
           {tipCell.bb === null ? (
             <div><span className="font-bold">{tip.row}</span> and <span className="font-bold">{tip.col}</span> {NEVER_MET}.</div>
@@ -291,7 +316,8 @@ export default memo(function HeadToHead({
               {tipCell.hands < MIN_PAIR_HANDS && <div style={{ color: MUTED }}>Under {MIN_PAIR_HANDS} hands together: mostly luck so far.</div>}
             </>
           )}
-        </div>
+        </div>,
+        tip.host,
       )}
     </div>
   );

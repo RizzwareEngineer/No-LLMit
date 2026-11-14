@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUp, SquaresFour } from '@phosphor-icons/react';
 import NumberFlow from '@number-flow/react';
@@ -24,7 +25,7 @@ function acting(d: DisplayState | null, bb: number | null) {
 
 // One-line bar fixed to the top once the live table has scrolled out of view.
 // `blank`: no table state yet: the bar at its size with nothing in it.
-export default function StickyBar({ show, blank = false, pot, handNumber, display }: { show: boolean; blank?: boolean; pot: number; handNumber: number; display: DisplayState | null }) {
+function StickyBar({ show, blank = false, pot, handNumber, display }: { show: boolean; blank?: boolean; pot: number; handNumber: number; display: DisplayState | null }) {
   const bb = useBigBlind(); // the Chips/BB switch, as the felt's
   const doing = acting(display, bb);
   const screen = useScreen();
@@ -84,3 +85,6 @@ export default function StickyBar({ show, blank = false, pot, handNumber, displa
     </AnimatePresence>
   );
 }
+
+// While About's prompt is open (<html data-hold>, about/content.tsx) the bar keeps its last frame; it catches up on the next event.
+export default memo(StickyBar, () => document.documentElement.hasAttribute('data-hold'));

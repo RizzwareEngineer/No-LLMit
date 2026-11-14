@@ -8,11 +8,12 @@ import { Caveats, Eyebrow, Footer, Hours, How, Intro, LABEL, Next, RULE, Race, S
 // labelled rules); the ask and the race in a column of their own on the right. On a phone: the thesis, the ask, the
 // race, then the dial. Laid out by its own width (container queries).
 
-function Row({ as: H, title, children }: { as: 'h2' | 'h3'; title: string; children: React.ReactNode }) {
+// `soft`: the topic's words when the row is behind (its blur and fade); the label beside them is never blurred.
+function Row({ as: H, title, soft, children }: { as: 'h2' | 'h3'; title: string; soft: React.CSSProperties; children: React.ReactNode }) {
   return (
     <section className="grid gap-x-6 gap-y-2 @2xl:grid-cols-[112px_minmax(0,1fr)] py-3.5 [@media(min-height:960px)]:py-5 border-t" style={{ borderColor: RULE }}>
       <H className={`${LABEL} @2xl:pt-px`} style={{ color: MUTED }}>{title}</H>
-      <div className="min-w-0">{children}</div>
+      <div data-dial-body className="min-w-0 motion-safe:transition-[filter,opacity] motion-safe:duration-[400ms]" style={{ ...soft, transitionTimingFunction: EASE }}>{children}</div>
     </section>
   );
 }
@@ -20,11 +21,13 @@ function Row({ as: H, title, children }: { as: 'h2' | 'h3'; title: string; child
 const TOPICS = [['How it works', How], ['Caveats', Caveats], ['Hours', Hours], ['What’s next', Next]] as const;
 // How much of the row above the focused one shows; past the tallest row, twice that shows below.
 const PEEK = 40;
-// The rows behind the focused one, by distance: further back, softer, fainter.
+// The rows behind the focused one, by distance: further back, smaller and fainter (`opacity`, the whole row: its label
+// only fades), the topic's words a little blurred and fainter still (`soft`: 0.45 and 0.25 in all), so the row next to
+// the focused one can still be read and every label stays sharp.
 const BACK = [
-  { transform: 'none', filter: 'none', opacity: 1 },
-  { transform: 'scale(0.96)', filter: 'blur(2px)', opacity: 0.45 },
-  { transform: 'scale(0.92)', filter: 'blur(3px)', opacity: 0.25 },
+  { transform: 'none', opacity: 1, soft: { filter: 'none', opacity: 1 } },
+  { transform: 'scale(0.96)', opacity: 0.7, soft: { filter: 'blur(1px)', opacity: 0.65 } },
+  { transform: 'scale(0.92)', opacity: 0.5, soft: { filter: 'blur(1.5px)', opacity: 0.5 } },
 ];
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
@@ -147,15 +150,14 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
                   wasAt.current = null;
                 }}
                 onFocusCapture={() => { if (i !== atRef.current) { setReady(false); turn(i); requestAnimationFrame(() => requestAnimationFrame(() => setReady(true))); } }}
-                className={`${ready ? 'motion-safe:transition-[transform,filter,opacity]' : 'motion-safe:transition-opacity'} motion-safe:duration-[400ms] ${d ? 'cursor-pointer select-none' : ''}`}
+                className={`${ready ? 'motion-safe:transition-[transform,opacity]' : 'motion-safe:transition-opacity'} motion-safe:duration-[400ms] ${d ? 'cursor-pointer select-none' : ''}`}
                 style={{
                   transform: `translateY(${shift}px)${back.transform === 'none' ? '' : ` ${back.transform}`}`,
-                  filter: back.filter,
                   opacity: tops || !i ? back.opacity : 0,
                   transitionTimingFunction: EASE,
                 }}
               >
-                <Row as={as} title={title}><Body /></Row>
+                <Row as={as} title={title} soft={back.soft}><Body /></Row>
               </div>
             );
           })}
@@ -168,7 +170,7 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
 export default function SpecSheet({ heading }: { heading: 'h1' | 'h2' }) {
   const Sub = heading === 'h1' ? 'h2' : 'h3';
   return (
-    <article data-about className="@container flex flex-col gap-6 text-[14px] leading-snug" style={{ color: TEXT }}>
+    <article data-about className="@container flex flex-col gap-6 text-[16px] leading-normal" style={{ color: TEXT }}>
       <div className="flex flex-col gap-6 @4xl:grid @4xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] @4xl:gap-x-14">
         {/* Each column's parts join one stack on a phone (display: contents), in reading order there. */}
         <div className="contents @4xl:flex @4xl:flex-col @4xl:min-w-0">
