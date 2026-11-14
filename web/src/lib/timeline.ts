@@ -53,7 +53,7 @@ export function lastAtOrBefore(xs: number[], x: number) {
 }
 
 type Table = { fields: string[]; rows: (number | null)[][] };
-function parse(j: { hands?: unknown; profile_step?: unknown; models?: unknown; profiles?: Table; matchups?: Table; lineups?: number[][] }): Timeline {
+export function parse(j: { hands?: unknown; profile_step?: unknown; models?: unknown; profiles?: Table; matchups?: Table; lineups?: number[][] }): Timeline {
   if (typeof j?.hands !== 'number' || !Array.isArray(j.models) || !Array.isArray(j.profiles?.rows) || !Array.isArray(j.matchups?.rows)) {
     throw new Error('timeline: unexpected shape');
   }
@@ -158,21 +158,4 @@ export function matchupsAt(tl: Timeline, models: ModelStats[], hand: number): Mo
     if (rb) rb.net_chips = -p.sum[i];
   }
   return models.map(m => ({ ...m, hands: Math.floor(playedAt(tl, m.name, hand)), vs: vs.get(m.name)! }));
-}
-
-if (process.env.NODE_ENV === 'development') {
-  console.assert(lastAtOrBefore([25, 50, 75], 24) === -1 && lastAtOrBefore([25, 50, 75], 50) === 1 && lastAtOrBefore([25, 50, 75], 99) === 2, 'lastAtOrBefore');
-  const tl = parse({
-    hands: 50, models: ['A', 'B'],
-    profiles: { fields: ['hand', 'model', 'hands', 'bb100', 'vpip', 'pfr', 'af'], rows: [[25, 0, 25, 10, 0.5, 0.2, 1], [50, 0, 50, 20, 0.5, 0.2, 1], [50, 1, 10, -5, 0.3, 0.1, null]] },
-    matchups: { fields: ['hand', 'a', 'b', 'chips'], rows: [[3, 0, 1, 40], [40, 0, 1, -15]] },
-    lineups: [[1, 0], [3, 0, 1], [10, 0], [41, 0, 1]], // B dealt in over hands 3-9 and from 41
-  });
-  console.assert(playedAt(tl, 'A', 25) === 25 && playedAt(tl, 'B', 25) === 0 && playedAt(tl, 'B', 45) === 8, 'playedAt: exact on snapshots, linear between');
-  console.assert(handsTogetherAt(tl, 'A', 'B', 2) === 0 && handsTogetherAt(tl, 'A', 'B', 5) === 3 && handsTogetherAt(tl, 'A', 'B', 20) === 7 && handsTogetherAt(tl, 'A', 'B', 50) === 17, 'handsTogetherAt: the runs both were dealt in, cut at the hand');
-  const at = (h: number) => matchupsAt(tl, [{ name: 'A' }, { name: 'B' }] as ModelStats[], h);
-  const live = { name: 'A', cumulative_bb: [[50, 9]], three_bet: 0.1, aiev_bb100: 7, bb100_ci: [1, 2] } as unknown as ModelStats;
-  const [row] = profilesAt(tl, [live], 0).shown;
-  console.assert(row.hands === 25 && row.bb100 === 10 && row.three_bet === null && row.aiev_bb100 === null && row.bb100_ci === null, 'profilesAt: only the snapshot\'s figures, the rest null');
-  console.assert(!('B' in at(2)[0].vs) && at(39)[0].vs.B.net_chips === 40 && at(39)[0].vs.B.hands === 7 && at(40)[1].vs.A.net_chips === -25, 'matchupsAt: running pair sums both ways, with hands together');
 }

@@ -23,7 +23,7 @@ The numbers match the diagram.
 **1. GET the page.** The browser GETs the static Next.js build (HTML, JS, CSS) from Vercel's CDN. No server renders HTML.
 Without it: the Go process would serve page assets to every burst viewer, on the same CPU that runs the table.
 
-**2. GET /stream, one per viewer.** The browser opens `EventSource` at `${API_URL}/stream` on the Go engine on Railway. `API_URL` is still derived from `NEXT_PUBLIC_WS_URL`. The response is `200`, `Content-Type: text/event-stream`, `Cache-Control: no-store`, `Access-Control-Allow-Origin: *` with the other CORS headers, no `Content-Length`. Traffic on it is one-way, server to browser. The browser sends nothing per event. The usage, timeline and waitlist requests remain as ordinary GETs and POSTs.
+**2. GET /stream, one per viewer.** The browser opens `EventSource` at `${API_URL}/stream` on the Go engine on Railway. `API_URL` is the `NEXT_PUBLIC_API_URL` setting. The response is `200`, `Content-Type: text/event-stream`, `Cache-Control: no-store`, `Access-Control-Allow-Origin: *` with the other CORS headers, no `Content-Length`. Traffic on it is one-way, server to browser. The browser sends nothing per event. The usage, timeline and waitlist requests remain as ordinary GETs and POSTs.
 Without it: viewers would have to poll, and moves would arrive late and out of step with the table's pacing.
 
 **3. Table loop asks the LLM service.** One goroutine per table runs deal, ask the next player, apply the action, repeat. To ask, it POSTs the game state as that player sees it plus the legal actions to `POST /decide` on the Python FastAPI service on Railway. That service builds the prompt, calls the model through OpenRouter, and parses the reply. The engine checks legality. If the service reports no playable move (an unparseable or illegal reply, a provider error, or its 45 s turn budget running out), or the engine gets no answer from the service within its 50 s request timeout, the engine checks if it can and otherwise folds. All pacing sleeps live in this goroutine, so an event is published at the moment it should appear.
@@ -91,7 +91,7 @@ Environment variables the engine and the web read. Set them in Railway and Verce
 | `WAITLIST_DAILY_MAX` | 5000 | not in the repo | New waitlist rows per UTC day. |
 | `LLM_SERVICE_URL` | `http://localhost:5001` | not in the repo | Where the engine posts `/decide`. |
 | `NEXT_PUBLIC_SITE_URL` | `https://nollmit.vercel.app` | not in the repo | Base URL for page metadata (web). |
-| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8080/ws` | not in the repo; the engine's Railway address | The engine's address (web). `ws` becomes `http` and a trailing `/ws` is dropped; the stream and every API call go there. Unset, the site talks to localhost. |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | not in the repo; the engine's Railway address, `https://` and no trailing slash | The engine's address (web). The stream and every API call go there. Unset, the site talks to localhost; a production build on Vercel fails without it. |
 | `SUPABASE_URL` | unset | not in the repo | Supabase project URL (engine). With `SUPABASE_SERVICE_KEY`, hands, stats and the waitlist use Supabase; without both, hands go to `HAND_LOG_DIR` and are lost on a Railway restart. |
 | `SUPABASE_SERVICE_KEY` | unset | not in the repo; a secret | Supabase service-role key (engine). |
 | `HAND_LOG_DIR` | `data` | unset | Folder for `hands.jsonl` when Supabase is not set (engine). |

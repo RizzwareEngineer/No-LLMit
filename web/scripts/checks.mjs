@@ -1,6 +1,6 @@
 // Headless checks for the owner's locked UI rules. Each one can fail; a failure exits non-zero.
 // Run: node scripts/checks.mjs [--base http://localhost:3100] [--skip id,id] [--only id,id] [--changed] [--replay-speed 4]
-// Needs a running web server and an engine (the build's NEXT_PUBLIC_WS_URL, default :8080); scripts/verify.sh starts the server, holds the machine-wide lock and checks the engine is up.
+// Needs a running web server and an engine (the build's NEXT_PUBLIC_API_URL, default :8080); scripts/verify.sh starts the server, holds the machine-wide lock and checks the engine is up.
 // Chrome is the system install (CHROME_PATH to override).
 import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
@@ -157,10 +157,10 @@ const parkShared = () => Promise.all([...shared().values()].map(p => life(p, 'fr
 // The table's game stream, scripted (test-only). Before the page's scripts run, EventSource is wrapped: the engine's
 // messages reach the page until a check takes over, then only the messages the check plays, built from the engine's
 // last state (a game_state or a snapshot's) and sent to its table. So a check can put bets out, end a hand and deal the
-// next on cue, whatever the shared table is doing (it may be closed or at its daily call cap). Each of window.__sock's
+// next on cue, whatever the shared table is doing (it may be closed or at its daily call cap). Each of window.__stream's
 // plays returns when it was fed (performance.now()).
-const scriptSocket = p => p.evaluateOnNewDocument(() => {
-  const Real = window.EventSource, s = window.__sock = { last: null, table: null, scripted: false, feed: null };
+const scriptStream = p => p.evaluateOnNewDocument(() => {
+  const Real = window.EventSource, s = window.__stream = { last: null, table: null, scripted: false, feed: null };
   window.EventSource = class extends Real {
     set onmessage(fn) {
       s.feed = m => fn(new MessageEvent('message', { data: JSON.stringify({ table: s.table, ...m }) }));
@@ -212,9 +212,9 @@ const scriptSocket = p => p.evaluateOnNewDocument(() => {
 const scriptedTable = async (w, h, reduced = false) => {
   const p = await newPage(); await p.setViewport({ width: w, height: h });
   if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  await scriptSocket(p);
+  await scriptStream(p);
   await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await p.waitForFunction(() => window.__sock?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+  await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
   await sleep(2000);
   return p;
 };
@@ -315,11 +315,11 @@ group(async () => {
 // reload. Every amount on the table screen follows it in one format: seat stacks and actions, bets, the pot, Profits &
 // Losses (bare, its unit in the panel's header) and the reasoning panel's action; the model's own words stay as written.
 // Text only: the locked sizes never move (seats 200x128, 250x160 at 1870x1200; the table 1000px), and big blinds wrap,
-// clip or cut short nothing that chips leave whole, phones included. Bets and a raise are scripted (scriptSocket).
+// clip or cut short nothing that chips leave whole, phones included. Bets and a raise are scripted (scriptStream).
 group(() => check('table-positions', 'Each seat\'s badge is the position the engine sent for it (the name the model is told), in one of the nine engine names\' own colours with a full name, and it moves with the button on the next deal', async () => {
   const p = await scriptedTable(1440, 900), bad = [], seen = [];
   const NAMES = ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO'];
-  const read = () => p.evaluate(() => ({ want: window.__sock.last.players.map(q => q.position ?? ''),
+  const read = () => p.evaluate(() => ({ want: window.__stream.last.players.map(q => q.position ?? ''),
     got: [...document.querySelectorAll('td [data-seat]')].map(e => { const b = e.querySelector('[data-position]'); return { seat: +e.dataset.seat, text: b?.textContent.trim() ?? '', title: b?.title ?? '', grey: !!b?.className.includes('bg-gray-600') }; }) }));
   const test = async when => {
     const { want, got } = await read();
@@ -333,9 +333,9 @@ group(() => check('table-positions', 'Each seat\'s badge is the position the eng
   };
   try {
     // Dealt from the engine's last state (its hand_start ends any draw for the button, which hides the badges).
-    await p.evaluate(() => window.__sock.deal()); await sleep(1500);
+    await p.evaluate(() => window.__stream.deal()); await sleep(1500);
     await test('deal');
-    await p.evaluate(() => window.__sock.deal()); await sleep(1500);
+    await p.evaluate(() => window.__stream.deal()); await sleep(1500);
     await test('next deal');
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
@@ -344,7 +344,7 @@ group(() => check('table-positions', 'Each seat\'s badge is the position the eng
 group(() => check('table-shot-clock', 'The shot clock shows the turn\'s budgetMs - elapsedMs from the stream (a viewer who joins mid-turn sees the time really left) and counts down; with no budgetMs there is no clock', async () => {
   const p = await scriptedTable(1440, 900), bad = [], seen = [];
   const read = () => p.evaluate(() => { const c = document.querySelector('.font-mono.text-lg'); return c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null; });
-  const think = (budgetMs, elapsedMs) => p.evaluate((budgetMs, elapsedMs) => { const s = window.__sock; s.scripted = true;
+  const think = (budgetMs, elapsedMs) => p.evaluate((budgetMs, elapsedMs) => { const s = window.__stream; s.scripted = true;
     s.feed({ type: 'llm_thinking', payload: { turn: 1, playerIdx: 2, playerName: s.last.players[2].name, budgetMs, elapsedMs } }); }, budgetMs, elapsedMs);
   const near = (got, want) => got !== null && Math.abs(got - want) <= 1;
   try {
@@ -369,9 +369,9 @@ group(() => check('table-no-turn-glow', 'The seat on the clock glows; once the h
   const p = await scriptedTable(1440, 900), seen = [];
   const glowing = () => p.evaluate(() => [...document.querySelectorAll('td [data-seat].border-animation')].map(e => +e.dataset.seat));
   try {
-    await p.evaluate(() => window.__sock.bets()); await sleep(1000);
+    await p.evaluate(() => window.__stream.bets()); await sleep(1000);
     const during = await glowing();
-    await p.evaluate(() => window.__sock.end(8000)); await sleep(500);
+    await p.evaluate(() => window.__stream.end(8000)); await sleep(500);
     const after = await glowing();
     await sleep(3000);
     const later = await glowing();
@@ -383,7 +383,7 @@ group(() => check('table-no-turn-glow', 'The seat on the clock glows; once the h
 group(() => check('table-reason-empty', 'An action that came with no reason still shows in the reasoning panel (its label and the action), and is announced', async () => {
   const p = await scriptedTable(1440, 900);
   try {
-    await p.evaluate(() => { const s = window.__sock, q = s.last.players[2]; s.scripted = true;
+    await p.evaluate(() => { const s = window.__stream, q = s.last.players[2]; s.scripted = true;
       s.feed({ type: 'llm_thinking', payload: { turn: 1, playerIdx: 2, playerName: q.name, budgetMs: 45000, elapsedMs: 0 } });
       s.feed({ type: 'llm_action', payload: { turn: 1, playerIdx: 2, playerName: q.name, action: 'CALL', amount: 10, reason: '' } }); });
     await sleep(800);
@@ -403,7 +403,7 @@ group(() => check('history-timeline-fetches', 'Thirty hands of stats events fetc
     p.on('request', r => { if (/\/api\/stats\/timeline/.test(r.url())) urls.push(r.url()); });
     const base = e.stats.scope.hands, { models, sessions, ...envelope } = e.stats;
     for (let h = base + 1; h <= base + 30; h++) {
-      await p.evaluate(m => { window.__sock.scripted = true; window.__sock.feed(m); },
+      await p.evaluate(m => { window.__stream.scripted = true; window.__stream.feed(m); },
         { type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: h }, model_names: models.map(m => m.name), changed: [] } });
       await sleep(150);
     }
@@ -447,9 +447,9 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
   for (const [w, h] of [[1440, 790], [1870, 1200], [390, 844]]) {
     const size = `${w}x${h}`, p = await scriptedTable(w, h), phone = w < 768;
     try {
-      await p.evaluate(() => window.__sock.bets());
+      await p.evaluate(() => window.__stream.bets());
       await sleep(2000); // the reasoning panel types the model's words
-      const bb = await p.evaluate(() => window.__sock.last.stakes?.bigBlind || 10);
+      const bb = await p.evaluate(() => window.__stream.last.stakes?.bigBlind || 10);
       // Both modes from one state (the engine's messages are held back): chips, then big blinds, a frame after each click.
       const m = await p.evaluate(async read => {
         read = eval(`(${read})`);
@@ -505,7 +505,7 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
 group(() => check('sticky-pot-bb', 'The sticky bar\'s pot follows the Chips/BB switch: in BB it reads in big blinds, the same as the felt\'s pot; back in Chips it reads in chips; its box changes size by no more than its text', async () => {
   const p = await scriptedTable(1440, 900);
   try {
-    await p.evaluate(() => window.__sock.bets());
+    await p.evaluate(() => window.__stream.bets());
     await goto(p, 'stats');
     await p.waitForFunction(() => { const bar = [...document.querySelectorAll('div.fixed')].find(d => d.textContent.includes('Back to table')); return bar && Math.abs(bar.getBoundingClientRect().top) < 0.5; }, { timeout: 10000, polling: 100 }).catch(() => {});
     // The switch as table-bb-toggle drives it, then the bar's pot: what it says, its box, its text's box, the bar, the felt's pot.
@@ -535,7 +535,7 @@ group(() => check('sticky-pot-bb', 'The sticky bar\'s pot follows the Chips/BB s
 }));
 
 // The deal and the shuffle (owner 2026-11-08: "what happened to the shuffling process and the sound effects? ... let's try
-// the dealing animation, the dealing sounds, the shuffle animation, and the shuffle sounds"). Scripted (scriptSocket): a
+// the dealing animation, the dealing sounds, the shuffle animation, and the shuffle sounds"). Scripted (scriptStream): a
 // hand ends with the next due in 4 s, and the next is dealt on time. A second page with reduced motion watches the same.
 // Times are the page's (performance.now()), recorded by a MutationObserver: card and chip flights, the deck's phases.
 group(async () => {
@@ -575,19 +575,19 @@ group(async () => {
           }
         }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-deck'] });
       });
-      const ended = await p.evaluate(() => window.__sock.end(4000));
+      const ended = await p.evaluate(() => window.__stream.end(4000));
       await sleep(4000);
-      const dealt = await p.evaluate(() => window.__sock.deal());
+      const dealt = await p.evaluate(() => window.__stream.deal());
       await sleep(600);
       const soon = await p.evaluate(() => window.__cards()); // reduced motion: all there
       await sleep(3200); // the deal's samples are in, and the deck is put away
-      const t = await p.evaluate(() => ({ ...window.__t, seats: window.__sock.last.players.length, deckNow: [...document.querySelectorAll('[data-deck]')].some(d => d.getBoundingClientRect().width > 0) }));
+      const t = await p.evaluate(() => ({ ...window.__t, seats: window.__stream.last.players.length, deckNow: [...document.querySelectorAll('[data-deck]')].some(d => d.getBoundingClientRect().width > 0) }));
       return { ...t, ended, dealt, soon };
     } finally { await p.close(); }
   };
   const [full, reduced] = await Promise.all([run(false), alone(() => run(true))]);
   const cards = r => r.flights.filter(f => f.kind === 'card' && f.t >= r.dealt);
-  // The dealt hand's cards by name (scriptSocket deals seat i the deck's cards 2i and 2i + 1), and how many of them show.
+  // The dealt hand's cards by name (scriptStream deals seat i the deck's cards 2i and 2i + 1), and how many of them show.
   const NAMES = { T: '10', J: 'Jack', Q: 'Queen', K: 'King', A: 'Ace' }, SUITS = { h: 'hearts', d: 'diamonds', c: 'clubs', s: 'spades' };
   const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => `${NAMES[r] ?? r} of ${SUITS[x]}`));
   const fresh = (r, list) => (list ?? []).filter(c => deck.indexOf(c.label) >= 0 && deck.indexOf(c.label) < 2 * r.seats);
@@ -643,9 +643,9 @@ group(() => check('table-card-sizes', 'Hole card sizes (?cards=1|2|3; none: as t
     for (const n of [0, 1, 2, 3]) {
       const p = await newPage(); await p.setViewport({ width: w, height: h });
       try {
-        await scriptSocket(p);
+        await scriptStream(p);
         await p.goto(`${BASE}/${n ? `?cards=${n}` : ''}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-        await p.waitForFunction(() => window.__sock?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+        await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
         await sleep(1500);
         const tag = `${n || 'default'} ${w}x${h}`;
         const box = s => { const e = [...document.querySelectorAll(s)].find(x => x.getBoundingClientRect().width > 0); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, w: b.width, h: b.height }; };
@@ -655,18 +655,18 @@ group(() => check('table-card-sizes', 'Hole card sizes (?cards=1|2|3; none: as t
         if (w === 1440 && Math.abs(cells[2] - 1000) > 1) bad.push(`${tag}: table ${cells[2]}px`);
         // Each frame, every flying card's box: the last one painted before it is removed is the box it lands at.
         await p.evaluate(() => { const last = window.__fl = new Map(); const tick = () => { for (const e of document.querySelectorAll('[data-flight=card]')) { const b = e.getBoundingClientRect(); last.set(e, { w: b.width, h: b.height, o: +getComputedStyle(e).opacity }); } requestAnimationFrame(tick); }; requestAnimationFrame(tick); });
-        await p.evaluate(() => window.__sock.end(4000)); await sleep(3300);
+        await p.evaluate(() => window.__stream.end(4000)); await sleep(3300);
         const deck = await p.evaluate(box, '[data-deck]'), hole = await p.evaluate(box, '[data-seat] [data-hole] > *');
         // The default is today's: hole cards 28x40 under a deck of the board's 44x64 (both times the stage's zoom). Phones
         // keep today's size whatever the switch says (their seats are about 116px wide).
         const want = n && w >= 768 ? hole : hole && { w: (hole.w * 44) / 28, h: (hole.h * 64) / 40 };
         if (!deck || !hole || Math.abs(deck.w - want.w) > 1 || Math.abs(deck.h - want.h) > 1) bad.push(`${tag}: deck ${deck ? `${deck.w.toFixed(1)}x${deck.h.toFixed(1)}` : 'none'}, hole card ${hole ? `${hole.w.toFixed(1)}x${hole.h.toFixed(1)}` : 'none'}`);
-        await sleep(700); await p.evaluate(() => window.__sock.deal()); await sleep(3500);
+        await sleep(700); await p.evaluate(() => window.__stream.deal()); await sleep(3500);
         const flown = await p.evaluate(() => [...window.__fl.values()]), hole2 = await p.evaluate(box, '[data-seat] [data-hole] > *');
         const off = flown.filter(f => Math.abs(f.w - hole2.w) > 1.5 || Math.abs(f.h - hole2.h) > 1.5);
         if (!flown.length || off.length) bad.push(`${tag}: ${flown.length} flights, ${off.length} landing off the hole card's ${hole2.w.toFixed(1)}x${hole2.h.toFixed(1)} (e.g. ${off[0] ? `${off[0].w.toFixed(1)}x${off[0].h.toFixed(1)}` : '-'})`);
         // The longest action texts: a raise with a 4-digit amount on seat 3, the blinds on theirs; the band on seat 3, hovered.
-        await p.evaluate(() => { const s = window.__sock; s.last = { ...s.last, players: s.last.players.map((q, i) => i === 3 ? { ...q, lastAction: 'RAISE', lastAmount: 1234, currentBet: 1234 } : q) }; s.feed({ type: 'game_state', payload: s.last }); });
+        await p.evaluate(() => { const s = window.__stream; s.last = { ...s.last, players: s.last.players.map((q, i) => i === 3 ? { ...q, lastAction: 'RAISE', lastAmount: 1234, currentBet: 1234 } : q) }; s.feed({ type: 'game_state', payload: s.last }); });
         await sleep(600);
         if (w >= 768) { const b = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).getBoundingClientRect(); return [e.left + 20, e.top + 20]; }); await p.mouse.move(b[0], b[1]); await sleep(400); }
         // Text boxes per seat: the name, the stack, the badge, the action text (each text's own painted extent), the band's lines.
@@ -747,15 +747,15 @@ group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s 
   const run = async (reduced, query = '') => {
     const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
     if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-    await scriptSocket(p);
+    await scriptStream(p);
     await p.goto(`${BASE}/${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    await p.waitForFunction(() => window.__sock?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+    await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
     await sleep(2000);
     try {
-      const feed = msgs => p.evaluate(msgs => { const s = window.__sock; s.scripted = true; for (const m of msgs) { if (m.type === 'game_state') s.last = m.payload; s.feed(m); } }, msgs);
-      await p.evaluate(() => window.__sock.end(4000)); await sleep(4200);
-      // The deal, as scriptSocket's deal() but with peeked [] (its own copies the last state's).
-      const st = await p.evaluate(() => { const l = window.__sock.last, n = l.players.length, btn = (l.players.findIndex(q => q.isButton) + 1) % n;
+      const feed = msgs => p.evaluate(msgs => { const s = window.__stream; s.scripted = true; for (const m of msgs) { if (m.type === 'game_state') s.last = m.payload; s.feed(m); } }, msgs);
+      await p.evaluate(() => window.__stream.end(4000)); await sleep(4200);
+      // The deal, as scriptStream's deal() but with peeked [] (its own copies the last state's).
+      const st = await p.evaluate(() => { const l = window.__stream.last, n = l.players.length, btn = (l.players.findIndex(q => q.isButton) + 1) % n;
         const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => r + x));
         return { ...l, handNumber: l.handNumber + 1, street: 'preflop', pot: 15, currentBet: 10, communityCards: [], winners: undefined, nextHandInMs: undefined, currentPlayerIdx: (btn + 3) % n, peeked: [],
           players: l.players.map((q, i) => ({ ...q, isButton: i === btn, position: l.players[(i + n - 1) % n].position, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: 0 })) }; });
@@ -2694,10 +2694,19 @@ const GESTURES = {
   'gentle swipe': (p, dir) => fireWheel(p, GENTLE, dir),
   'wheel notch': (p, dir) => p.mouse.wheel({ deltaY: 100 * dir }),
   // Chrome's own touchpad path (began/changed/ended phases, one latched gesture).
-  'phased gesture': async (p, dir) => { const v = p.viewport(); p.__cdp ??= await p.target().createCDPSession(); await p.__cdp.send('Input.synthesizeScrollGesture', { x: v.width / 2, y: v.height / 2, yDistance: -300 * dir, gestureSourceType: 'mouse', speed: 1500 }); },
+  // At (x, y), the viewport's middle unless given (the dial's gestures aim at the pointer).
+  'phased gesture': async (p, dir, x = p.viewport().width / 2, y = p.viewport().height / 2) => { p.__cdp ??= await p.target().createCDPSession(); await p.__cdp.send('Input.synthesizeScrollGesture', { x, y, yDistance: -300 * dir, gestureSourceType: 'mouse', speed: 1500 }); },
   PageDown: (p, dir) => p.keyboard.press(dir > 0 ? 'PageDown' : 'PageUp'),
   ArrowDown: (p, dir) => p.keyboard.press(dir > 0 ? 'ArrowDown' : 'ArrowUp'),
   Space: (p, dir) => (dir > 0 ? p.keyboard.press('Space') : shiftSpace(p)),
+};
+// Waits for the page to rest: still for 450 ms and on a screen edge (a loaded machine can stall a scroll's frames), or 5 s at most.
+// `key`: the window property whose `last` is when the page last moved (__mv in step, __dm in dialStep).
+const atRest = async (p, key) => {
+  for (let t = Date.now(); Date.now() - t < 5000; await sleep(60)) {
+    const r = await p.evaluate(k => ({ quiet: performance.now() - window[k].last, edge: [...document.querySelectorAll('[data-screen]')].some(e => Math.abs(e.getBoundingClientRect().top) < 2) }), key);
+    if (r.quiet >= 450 && r.edge) break;
+  }
 };
 // The card that recedes under each transition's incoming card (the stage under Profiles, Profiles under Matchups).
 const UNDER = { 'race>stats-table': '#race-panel', 'stats-table>pairwise': '#stats-card .card-chrome' };
@@ -2719,11 +2728,7 @@ async function step(p, kind, dir, under) {
   await GESTURES[kind](p, dir);
   // A loaded machine can handle the input late: wait up to 1.5 s for the page to start moving (none: it stays put).
   await p.waitForFunction(() => window.__mv.first !== null, { timeout: 1500, polling: 50 }).catch(() => {});
-  // At rest: still for 450 ms and on a screen edge (a loaded machine can stall a scroll's frames), or 5 s at most.
-  for (let t = Date.now(); Date.now() - t < 5000; await sleep(60)) {
-    const r = await p.evaluate(() => ({ quiet: performance.now() - __mv.last, edge: [...document.querySelectorAll('[data-screen]')].some(e => Math.abs(e.getBoundingClientRect().top) < 2) }));
-    if (r.quiet >= 450 && r.edge) break;
-  }
+  await atRest(p, '__mv');
   return p.evaluate(() => {
     const m = window.__mv; m.done = true;
     const hit = [...document.querySelectorAll('[data-screen]')].find(e => Math.abs(e.getBoundingClientRect().top) < 2);
@@ -3330,19 +3335,12 @@ group(() => check('about-dial', 'About\'s four topics are a dial at 1440x900, 17
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
 // One gesture at the pointer, then the page at rest (still for 450 ms on a screen edge, 5 s at most): its screen and scrollY.
-const DIAL_GESTURES = {
-  'wheel notch': (p, dir) => p.mouse.wheel({ deltaY: 100 * dir }),
-  'trackpad swipe': (p, dir) => fireWheel(p, SWIPE, dir),
-  'phased gesture': async (p, dir, x, y) => { p.__cdp ??= await p.target().createCDPSession(); await p.__cdp.send('Input.synthesizeScrollGesture', { x: Math.round(x), y: Math.round(y), yDistance: -300 * dir, gestureSourceType: 'mouse', speed: 1500 }); },
-};
+const DIAL_GESTURES = Object.fromEntries(['wheel notch', 'trackpad swipe', 'phased gesture'].map(k => [k, GESTURES[k]]));
 const dialStep = async (p, kind, dir, x, y) => {
   await p.evaluate(() => { const m = (window.__dm = { y: scrollY, last: performance.now(), done: false }); const f = () => { if (scrollY !== m.y) { m.y = scrollY; m.last = performance.now(); } if (!m.done) requestAnimationFrame(f); }; requestAnimationFrame(f); });
-  await DIAL_GESTURES[kind](p, dir, x, y);
+  await DIAL_GESTURES[kind](p, dir, Math.round(x), Math.round(y));
   await sleep(600);
-  for (let t = Date.now(); Date.now() - t < 5000; await sleep(60)) {
-    const r = await p.evaluate(() => ({ quiet: performance.now() - __dm.last, edge: [...document.querySelectorAll('[data-screen]')].some(e => Math.abs(e.getBoundingClientRect().top) < 2) }));
-    if (r.quiet >= 450 && r.edge) break;
-  }
+  await atRest(p, '__dm');
   return p.evaluate(() => { __dm.done = true; const hit = [...document.querySelectorAll('[data-screen]')].find(e => Math.abs(e.getBoundingClientRect().top) < 2); return { id: hit ? (hit.id || 'table') : null, y: Math.round(scrollY) }; });
 };
 late(() => check('about-dial-wheel', 'With the pointer on About\'s dial (1440x900), one wheel gesture (notch, trackpad swipe, phased) turns it exactly one row and the page stays (scrollY unchanged): down to What’s next, where down stays on About; up back to How it works, where up pages to the overview. With the pointer in the side margin the page pages and the dial does not turn', async () => {
@@ -3781,7 +3779,7 @@ main(() => check('matchups-tile-no-total', 'The Matchups tile has no Total colum
 // together x 100, as the engine counts them); the card's "All models" lineup shows everyone with hands at the
 // seated lineup's cell size, scrolling inside the card with the names and logos pinned; a pair that never sat
 // together is an empty cell whose readout says so; the Leader line is bb/100 among models with 500 hands.
-// The engine's /api/stats, at the address of the page's own stream (the build's NEXT_PUBLIC_WS_URL); null if it never opened one.
+// The engine's /api/stats, at the address of the page's own stream (the build's NEXT_PUBLIC_API_URL); null if it never opened one.
 const engineStats = async p => {
   const url = p.__stream?.replace(/\/stream$/, '/api/stats');
   return url ? { url, stats: await (await fetch(url)).json() } : null;
