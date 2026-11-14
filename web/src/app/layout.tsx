@@ -15,6 +15,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: "#ffffff",
   colorScheme: "light",
+  viewportFit: "cover", // lets env(safe-area-inset-*) report the notch and home indicator; 0 on desktop
 };
 
 export default function RootLayout({
