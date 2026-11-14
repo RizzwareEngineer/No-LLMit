@@ -5,7 +5,6 @@ package stats
 import (
 	"math"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
@@ -16,10 +15,8 @@ type Stats struct {
 	Scope       Scope     `json:"scope"`
 	Sessions    []Session `json:"sessions"`
 	Models      []Model   `json:"models"`
-	// Seated is the table's current lineup, set by the engine on the all-time and live
-	// session payloads; absent elsewhere.
-	Seated         []string `json:"seated,omitempty"`
-	DefinitionsURL string   `json:"definitions_url"`
+	// Seated is the table's current lineup, set by the engine; absent until it knows it.
+	Seated []string `json:"seated,omitempty"`
 	// Partial is true while some all-ins are still being worked out; those hands count at
 	// their actual result in aiev_bb100 until then.
 	Partial bool `json:"partial"`
@@ -45,7 +42,6 @@ type Model struct {
 	Name           string              `json:"name"`
 	Model          string              `json:"model"`
 	Hands          int                 `json:"hands"`
-	Decisions      int                 `json:"decisions"`
 	NetChips       int                 `json:"net_chips"`
 	BB100          float64             `json:"bb100"`
 	BB100CI        *[2]float64         `json:"bb100_ci"`
@@ -65,7 +61,6 @@ type Model struct {
 	MissRate       *float64            `json:"miss_rate"`
 	AvgLatencyMs   int                 `json:"avg_latency_ms"`
 	CostUSD        float64             `json:"cost_usd"`
-	CostPerHandUSD float64             `json:"cost_per_hand_usd"`
 	BiggestPotWon  int                 `json:"biggest_pot_won"`
 	BiggestPotLost int                 `json:"biggest_pot_lost"`
 	ByPosition     map[string]Position `json:"by_position"`
@@ -73,23 +68,6 @@ type Model struct {
 	// The same curve scored by all-in EV: a hand that ended all-in counts its equity share, not the runout.
 	CumulativeAIEVBB [][2]float64  `json:"cumulative_aiev_bb"`
 	Vs               map[string]Vs `json:"vs"`
-	// Keyed "2", "3" and "4+": hands the model saw the flop in, by how many saw it.
-	ByPlayersToFlop map[string]FlopBucket `json:"by_players_to_flop"`
-	MultiwayShare   MultiwayShare         `json:"multiway_share"`
-	HeadsUpVs       map[string]Vs         `json:"heads_up_vs"` // only flops seen by exactly these two
-}
-
-type FlopBucket struct {
-	Hands    int      `json:"hands"`
-	Won      int      `json:"won"` // hands it won at least one pot in, even at a net loss
-	NetChips int      `json:"net_chips"`
-	BB100    *float64 `json:"bb100"`
-}
-
-// MultiwayShare is over the hands the model saw a flop with two or more others.
-type MultiwayShare struct {
-	ChipsWonPct  *float64 `json:"chips_won_pct"`  // chips collected over chips in those pots
-	FairSharePct *float64 `json:"fair_share_pct"` // sum of pot/players-to-flop over the same chips
 }
 
 type Position struct {
@@ -102,7 +80,7 @@ type Position struct {
 type Vs struct {
 	Pots     int `json:"pots"`
 	NetChips int `json:"net_chips"`
-	Hands    int `json:"hands,omitempty"` // hands both were dealt in (vs only; heads_up_vs leaves it out)
+	Hands    int `json:"hands"` // hands both were dealt in
 }
 
 // SessionID is the session a hand belongs to. Until there is a sessions table, each
@@ -144,14 +122,6 @@ type acc struct {
 	potWon, potLost                   int
 	pos                               map[string]*posAcc
 	vs                                map[string]*vsAcc
-	flop                              map[string]*flopAcc
-	mwWon, mwPot, mwFair              float64
-	hu                                map[string]*vsAcc
-}
-
-type flopAcc struct {
-	hands, won, net int
-	bb              float64
 }
 
 type posAcc struct {
@@ -181,12 +151,11 @@ func ComputeWithTimeline(hands []history.HandRecord) (Stats, Timeline) {
 }
 
 func compute(hands []history.HandRecord, tl *timelineBuilder) (Stats, Timeline) {
-	out := Stats{Sessions: []Session{}, Models: []Model{}, DefinitionsURL: "/docs/stats.md"}
+	out := Stats{Sessions: []Session{}, Models: []Model{}}
 	accs := map[string]*acc{}
 	get := func(name string) *acc {
 		if accs[name] == nil {
-			accs[name] = &acc{name: name, pos: map[string]*posAcc{}, vs: map[string]*vsAcc{},
-				flop: map[string]*flopAcc{"2": {}, "3": {}, "4+": {}}, hu: map[string]*vsAcc{}}
+			accs[name] = &acc{name: name, pos: map[string]*posAcc{}, vs: map[string]*vsAcc{}}
 		}
 		return accs[name]
 	}
@@ -394,23 +363,6 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 		}
 	}
 
-	// Players still in when the flop was dealt; empty for a hand that ended preflop.
-	var flop []int
-	if len(h.Board) >= 3 {
-		for _, s := range h.Seats {
-			if !sh[s.Seat].foldedPre {
-				flop = append(flop, s.Seat)
-			}
-		}
-	}
-	bucket := ""
-	switch n := len(flop); {
-	case n >= 4:
-		bucket = "4+"
-	case n >= 2:
-		bucket = strconv.Itoa(n)
-	}
-
 	aiev, evDone := aievNet(h)
 	for _, seat := range h.Seats {
 		s, a := sh[seat.Seat], sh[seat.Seat].a
@@ -454,40 +406,6 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 			a.potLost = max(a.potLost, totalPot)
 		}
 
-		if bucket != "" && !s.foldedPre {
-			f := a.flop[bucket]
-			f.hands++
-			if s.wonPot {
-				f.won++
-			}
-			f.net += net
-			f.bb += float64(net) / bb
-			if len(flop) >= 3 {
-				// Collected is net plus what the model put in, less any uncalled part.
-				a.mwWon += float64(net) + min(contrib[seat.Seat], put[1])
-				a.mwPot += float64(totalPot)
-				a.mwFair += float64(totalPot) / float64(len(flop))
-			}
-		}
-		if len(flop) == 2 && !s.foldedPre {
-			other := flop[0]
-			if other == seat.Seat {
-				other = flop[1]
-			}
-			v := a.hu[sh[other].name]
-			if v == nil {
-				v = &vsAcc{}
-				a.hu[sh[other].name] = v
-			}
-			v.pots++
-			// Only these two can finish ahead, so a loss by one is a win for the other.
-			if on := netOf(&h, other); net > 0 && on < 0 {
-				v.net -= float64(on)
-			} else if net < 0 && on > 0 {
-				v.net += float64(net)
-			}
-		}
-
 		// Head to head: each loser's chips are shared among the winners in proportion
 		// to what they won, and only hands where both put chips in or reached showdown count.
 		for _, other := range h.Seats {
@@ -519,7 +437,7 @@ func (a *acc) result() Model {
 	n := len(a.bbs)
 	decisions := int(a.errs.d)
 	m := Model{
-		Name: a.name, Model: a.model, Hands: n, Decisions: decisions,
+		Name: a.name, Model: a.model, Hands: n,
 		NetChips: a.net, BB100: a.bb100(), BB100CI: ci95(a.bbs), AIEVBB100: 100 * mean(a.aievBBs),
 		VPIP: a.vpip.rate(), PFR: a.pfr.rate(), AF: a.af(), ThreeBet: a.threeBet.rate(),
 		CBet: a.cbet.rate(), FoldToCBet: a.ftc.rate(), WTSD: a.wtsd.rate(), WSD: a.wsd.rate(),
@@ -527,34 +445,15 @@ func (a *acc) result() Model {
 		ErrorRate: a.errs.rate(), RetryRate: a.retry.rate(), MissRate: a.miss.rate(),
 		CostUSD: a.cost, BiggestPotWon: a.potWon, BiggestPotLost: a.potLost,
 		ByPosition: map[string]Position{}, CumulativeBB: curve(a.bbs), CumulativeAIEVBB: curve(a.aievBBs), Vs: map[string]Vs{},
-		ByPlayersToFlop: map[string]FlopBucket{}, HeadsUpVs: map[string]Vs{},
 	}
 	if decisions > 0 {
 		m.AvgLatencyMs = int(math.Round(a.latency / float64(decisions)))
-	}
-	if n > 0 {
-		m.CostPerHandUSD = a.cost / float64(n)
 	}
 	for name, p := range a.pos {
 		m.ByPosition[name] = Position{Hands: p.hands, VPIP: p.vpip.rate(), PFR: p.pfr.rate(), BB100: 100 * p.bb / float64(p.hands)}
 	}
 	for name, v := range a.vs {
 		m.Vs[name] = Vs{Pots: v.pots, NetChips: int(math.Round(v.net)), Hands: v.hands}
-	}
-	for name, v := range a.hu {
-		m.HeadsUpVs[name] = Vs{Pots: v.pots, NetChips: int(math.Round(v.net))}
-	}
-	for key, f := range a.flop {
-		b := FlopBucket{Hands: f.hands, Won: f.won, NetChips: f.net}
-		if f.hands > 0 {
-			r := 100 * f.bb / float64(f.hands)
-			b.BB100 = &r
-		}
-		m.ByPlayersToFlop[key] = b
-	}
-	if a.mwPot > 0 {
-		won, fair := a.mwWon/a.mwPot, a.mwFair/a.mwPot
-		m.MultiwayShare = MultiwayShare{ChipsWonPct: &won, FairSharePct: &fair}
 	}
 	return m
 }

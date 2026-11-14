@@ -111,7 +111,7 @@ that stream, and so is an `llm_thinking` turn's `elapsedMs`. Examples here are w
 
 ```json
 {"seq":1042,"type":"snapshot","payload":{"tables":{"tbl_9f2c41d07ab35e18":{
-  "state":{"id":"game_1762804860000000000","handNumber":12,"street":"flop","pot":120,"communityCards":["Ah","7d","2c"],"currentPlayerIdx":3,"buttonIdx":1,"players":[],"stakes":{"smallBlind":5,"bigBlind":10},"gameStartTime":"2026-11-10T20:01:00Z"},
+  "state":{"handNumber":12,"street":"flop","pot":120,"communityCards":["Ah","7d","2c"],"currentPlayerIdx":3,"buttonIdx":1,"players":[],"stakes":{"smallBlind":5,"bigBlind":10},"gameStartTime":"2026-11-10T20:01:00Z"},
   "turn":{"type":"llm_thinking","payload":{"turn":4,"playerIdx":3,"playerName":"Phi-4","budgetMs":45000,"elapsedMs":20480}},
   "turnApplied":false,
   "notice":null,
@@ -128,27 +128,27 @@ has `table`.
 The payload is exactly the `GET /api/stats` body, `models` as the list of row objects.
 
 ```json
-{"seq":1042,"type":"stats","payload":{"generated_at":"...","scope":{},"sessions":[],"models":[{"name":"Phi-4","hands":128}],"seated":["Phi-4"],"definitions_url":"/docs/stats.md","partial":false}}
+{"seq":1042,"type":"stats","payload":{"generated_at":"...","scope":{},"sessions":[],"models":[{"name":"Phi-4","hands":128}],"seated":["Phi-4"],"partial":false}}
 ```
 
 The first `stats` event after the engine starts is also the full form, so a stream that
 opened before any stats were loaded gets them whole.
 
 **Changed rows.** Sent once per recompute that added a hand and once when the all-in
-warm-up reaches zero left, never per warm-up pass, after that first full event. It has the same envelope keys except `models`, plus `model_names` (every model in the
+warm-up reaches zero left, never per warm-up pass, after that first full event. It has the same envelope keys except `models` and `sessions`, plus `model_names` (every model in the
 order `models` must have) and `changed` (each row whose encoded bytes differ from the last
 one published, whole and absolute).
 
 ```json
-{"seq":2209,"type":"stats","payload":{"generated_at":"...","scope":{},"sessions":[],"seated":["Phi-4","Mistral Nemo"],"definitions_url":"/docs/stats.md","partial":false,"model_names":["Mistral Nemo","Phi-4"],"changed":[{"name":"Phi-4","hands":129}]}}
+{"seq":2209,"type":"stats","payload":{"generated_at":"...","scope":{},"seated":["Phi-4","Mistral Nemo"],"partial":false,"model_names":["Mistral Nemo","Phi-4"],"changed":[{"name":"Phi-4","hands":129}]}}
 ```
 
 The client tells them apart by `"changed" in payload`. For the full form it replaces its
-stats. For the changed form it copies the envelope keys and sets
+stats. For the changed form it copies the envelope keys (keeping the `sessions` it holds) and sets
 `models = model_names.map(name => changed row with that name, else the held row)`, dropping a
 name with neither. Rows are matched by `name` only, never by position.
 
-`GET /api/stats` and `GET /api/stats/timeline` stay for `/about`, `?session=` and the timeline.
+`GET /api/stats` and `GET /api/stats/timeline` stay for `/about` and the timeline.
 
 ## Client rules
 

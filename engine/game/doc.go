@@ -9,5 +9,5 @@
 //	    Stakes:        game.Stakes{SmallBlind: 5, BigBlind: 10},
 //	})
 //	gs.StartHand()
-//	gs.ProcessAction(game.Action{Type: game.ActionCall, Amount: 10})
+//	gs.ProcessAction(game.Action{Type: game.ActionCall, PlayerIdx: gs.CurrentPlayerIdx})
 package game
