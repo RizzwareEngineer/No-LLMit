@@ -81,7 +81,7 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: Box | null, to: Bo
   const [x1, y1] = [to.left + to.width / 2, to.top + to.height / 2];
   if (kind === 'card') {
     // Slides flat across the felt; the seat's own card shows as it lands (Player's dealDelays).
-    // At the hole cards' size (?cards=), from the deck's size: the board's for the default, the hole cards' for a picked size.
+    // At the hole cards' size, from the deck's size (lib/tableSwitches: the board's on phones, the hole cards' on desktop).
     const card = CARD_SIZES[cardSizeNow()];
     Object.assign(el.style, { width: `${card.w}px`, height: `${card.h}px`, marginLeft: `${-card.w / 2}px`, marginTop: `${-card.h / 2}px` });
     animate(el, { x: [x0, x1], y: [y0, y1], scale: [(deckSize().w / card.w) * z, z], opacity: [1, 1] }, { duration: CARD_FLIGHT, delay, ease: 'easeOut' }).then(() => el.remove());

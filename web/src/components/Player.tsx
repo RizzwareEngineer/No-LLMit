@@ -76,7 +76,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const [landed, setLanded] = useState(0);
   const up = faceUp && (!dealDelays || landed === handNumber);
   const seatBg = isWinner ? 'rgb(237, 253, 244)' : '#ffffff';
-  // A picked bigger size reaches up into the hover band: its lines then sit on the hovered seat's colour, above the cards.
+  // Desktop's 40x56 cards reach up into the hover band: its lines then sit on the hovered seat's colour, above the cards.
   const bandLine = size ? { background: `linear-gradient(rgba(55, 53, 47, 0.03), rgba(55, 53, 47, 0.03)), ${seatBg}` } : undefined;
   // A seat mounts where the blank one stood (PokerTable) when the table fills: its content fades in.
   const ref = useRef<HTMLDivElement>(null);

@@ -16,6 +16,7 @@ import StickyBar, { PhoneBar } from "@/components/StickyBar";
 import TabBar, { type Tab } from "@/components/TabBar";
 import SessionProgress from "@/components/SessionProgress";
 import DevPace from "@/components/DevPace";
+import PeelLab from "@/components/PeelLab";
 import { setTypingPace } from "@/components/TypewriterText";
 import { useGameState } from "@/hooks/useGameState";
 import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, useScreen } from "@/components/Section";
@@ -85,7 +86,14 @@ const BEFORE_PAINT = `(${fitStage})();(${holdBoxes})(true)`;
 
 const PAGE_KEYS: Record<string, 1 | -1> = { ArrowDown: 1, ArrowRight: 1, PageDown: 1, ArrowUp: -1, ArrowLeft: -1, PageUp: -1 };
 
+// /?peellab shows the peek lab (PeelLab) instead of the table.
+const noSubscribe = () => () => {};
 export default function Home() {
+  const lab = useSyncExternalStore(noSubscribe, () => new URLSearchParams(window.location.search).has('peellab'), () => false);
+  return lab ? <PeelLab /> : <Table />;
+}
+
+function Table() {
   useTypeSwitch(); // ?type=2
   const {
     gameState,
