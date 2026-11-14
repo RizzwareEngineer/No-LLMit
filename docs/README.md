@@ -11,7 +11,8 @@ Every document in this repository, in reading order.
 7. [../llm/README.md](../llm/README.md): the LLM service: the prompts, how replies are read, the roster and its prices.
 8. [../dataset/README.md](../dataset/README.md): the nightly export to the open dataset.
 9. [agent-workflow.md](agent-workflow.md): the test gate and how agent work is merged.
-10. [backlog.md](backlog.md): work not started yet.
+10. [launch.md](launch.md): the release runbook, from an approved stack to an open table, with `scripts/smoke.sh` and the rollback.
+11. [backlog.md](backlog.md): work not started yet.
 
 Also in the repository: [../web/AGENTS.md](../web/AGENTS.md) (written by `next dev`: read Next's own docs before changing `web/`),
 [../.github/pull_request_template.md](../.github/pull_request_template.md) (the pull request layout), the `.env.example` file in
