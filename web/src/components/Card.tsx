@@ -65,12 +65,11 @@ const Card = ({ value, className = "", faceDown = false }: CardProps) => {
         </div>
       ) : (
         // Face down card
-        <div className="w-full h-full bg-gradient-to-br from-blue-800 to-blue-600 flex items-center justify-center rounded">
-          <div className="w-3/4 h-3/4 border-2 border-blue-300 rounded opacity-50"></div>
-        </div>
+        <div className="card-back relative w-full h-full rounded" />
       )}
     </motion.div>
   );
 };
 
 export default Card;
+

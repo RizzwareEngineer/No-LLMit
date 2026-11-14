@@ -374,3 +374,16 @@ html:has([data-screen]) {
 @media (max-width: 767px) {
   .stats-room { --card-m-phone: 420px; }
 }
+
+/* Card backs: Card's face-down side, the deck and the dealt cards' flights (TableMotion). The element is positioned by
+   its user (absolute or relative). Plain ink black with a hairline inset (owner 2026-11-10: "the black one", no N). */
+@layer components {
+  .card-back { background: #37352f; }
+  .card-back::before {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border: 1px solid rgb(255 255 255 / 0.14);
+    border-radius: 2px;
+  }
+}
