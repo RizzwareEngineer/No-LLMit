@@ -14,6 +14,8 @@ import PlaySoonButton from "@/components/PlaySoonButton";
 import ModelDrawer from "@/components/ModelDrawer";
 import StickyBar from "@/components/StickyBar";
 import SessionProgress from "@/components/SessionProgress";
+import DevPace from "@/components/DevPace";
+import { setTypingPace } from "@/components/TypewriterText";
 import { useGameState } from "@/hooks/useGameState";
 import { NEXT_BUTTON, NEXT_STYLE, isPaging, pageBy, pageTo, resnap, scrollsInside } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
@@ -95,6 +97,7 @@ export default function Home() {
     stats,
     retry,
   } = useGameState();
+  useEffect(() => setTypingPace(gameState?.pace), [gameState?.pace]); // reasons type in step with the table's pace
 
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
@@ -487,6 +490,7 @@ export default function Home() {
           )}
         </div>
       )}
+      <DevPace />
     </div>
     </MotionConfig>
   );

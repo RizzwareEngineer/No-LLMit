@@ -190,3 +190,7 @@ export function applyStats(held: StatsResponse | null, payload: StatsResponse | 
   for (const row of changed) byName.set(row.name, row);
   return { ...envelope, models: model_names.flatMap(name => byName.get(name) ?? []) };
 }
+
+// Milliseconds per character of a reason: 25 times the table's pace (1 when absent), faster for a long reason, so it ends
+// inside the engine's longest reasoning pause plus the pause after the action (10 s + 5 s, engine/api/table.go) at any pace.
+export const typingMs = (chars: number, pace?: number) => (pace && pace > 0 ? pace : 1) * Math.min(25, 15000 / Math.max(chars, 1));

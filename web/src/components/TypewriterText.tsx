@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { typingMs } from "@/lib/stream";
 
 interface TypewriterTextProps {
   text: string; // the caller keys it by the text, so a new text starts typing afresh
 }
 
-const SPEED = 25; // ms per character
+let pace = 1; // the table's pace, from the stream's game_state; the page sets it
+export const setTypingPace = (p?: number) => { pace = p || 1; };
 
 export default function TypewriterText({ text }: TypewriterTextProps) {
   const full = text.trim();
@@ -16,7 +18,7 @@ export default function TypewriterText({ text }: TypewriterTextProps) {
 
   useEffect(() => {
     if (n > full.length) return;
-    const id = setTimeout(() => setN(n + 1), SPEED);
+    const id = setTimeout(() => setN(n + 1), typingMs(full.length, pace));
     return () => clearTimeout(id);
   }, [n, full.length]);
 

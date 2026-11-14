@@ -72,6 +72,7 @@ export interface GameState {
   gameStartTime: string; // ISO8601 timestamp from server
   nextHandInMs?: number; // Shared table: time until the server deals the next hand
   peeked?: number[]; // seats whose turn has come this hand (face up); always sent by the engine, [] when none
+  pace?: number; // Shared table: multiplier on every pause (the engine's TABLE_PACE); reasons type at 25 ms per character times it
 }
 
 // Why the shared table is stopped. An empty kind means it is running again.
