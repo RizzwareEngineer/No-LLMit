@@ -1,5 +1,5 @@
-// WebSocket message types and payloads for communication between frontend (web/) and server.
-// Used by server.go to serialize/deserialize messages.
+// Stream message types and payloads sent to the frontend (web/) on GET /stream; see
+// docs/stream.md.
 package api
 
 import (
@@ -9,12 +9,7 @@ import (
 type MessageType string
 
 const (
-	// Client → Server
-	MsgGetState MessageType = "get_state"
-
-	// Server → Client
 	MsgGameState    MessageType = "game_state"
-	MsgError        MessageType = "error"
 	MsgHandStart    MessageType = "hand_start"
 	MsgStreetChange MessageType = "street_change"
 	MsgHandComplete MessageType = "hand_complete"
@@ -22,13 +17,10 @@ const (
 	MsgLLMAction    MessageType = "llm_action"
 	MsgButtonCard   MessageType = "button_card"   // Card dealt for button determination
 	MsgButtonWinner MessageType = "button_winner" // Who won the button
-	MsgTableNotice  MessageType = "table_notice"  // Table closed or capped; an empty kind clears it
+	MsgTableNotice  MessageType = "table_notice"  // Table stopped or paused; an empty kind clears it
+	MsgSnapshot     MessageType = "snapshot"      // Every table as it is now; replaces all table state
+	MsgStats        MessageType = "stats"         // All-time stats: the full body, or the rows that changed
 )
-
-type ClientMessage struct {
-	Type    MessageType `json:"type"`
-	Payload interface{} `json:"payload,omitempty"`
-}
 
 type ServerMessage struct {
 	Type    MessageType `json:"type"`
@@ -88,15 +80,11 @@ type StakesPayload struct {
 }
 
 // TableNoticePayload says why the shared table is stopped. Kind is "closed", "cap",
-// or "" when the table reopens.
+// "outage", "saving", or "" when the table runs again.
 type TableNoticePayload struct {
 	Kind      string `json:"kind"`
 	Message   string `json:"message"`
 	ReopensAt string `json:"reopensAt,omitempty"` // RFC3339
-}
-
-type ErrorPayload struct {
-	Message string `json:"message"`
 }
 
 type HandCompletePayload struct {
