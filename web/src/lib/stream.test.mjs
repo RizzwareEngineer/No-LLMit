@@ -23,6 +23,7 @@ const start = () => {
   return { s, statuses };
 };
 const wait = () => mock.timers.tick(30_000); // longer than any one reconnect delay (2 s x 10 x 1.5)
+const message = () => opened.at(-1).onmessage({ data: JSON.stringify({ seq: 1, type: 'snapshot', payload: { tables: {} } }) });
 
 test('two errors, then an open, end at open', () => {
   const { statuses } = start();
@@ -48,6 +49,20 @@ test('ten failed reconnects end at gave_up, and Retry starts a fresh round', () 
   mock.timers.reset();
 });
 
+test('a stream that opens and ends before any message keeps backing off to gave_up; a message resets the count', () => {
+  let { statuses } = start();
+  for (let i = 0; i < 10; i++) { open(); fail(); wait(); }
+  open(); fail();
+  assert.equal(statuses.at(-1), 'gave_up');
+  mock.timers.reset();
+  ({ statuses } = start());
+  for (let i = 0; i < 9; i++) { open(); fail(); wait(); }
+  open(); message(); fail(); wait();
+  for (let i = 0; i < 9; i++) { fail(); wait(); }
+  assert.equal(statuses.at(-1), 'reconnecting', 'after a message the count starts over');
+  mock.timers.reset();
+});
+
 test('the first reopen waits at most 1 s, later ones 2 s x n x 0.5 to 1.5', () => {
   mock.method(Math, 'random', () => 0.999);
   start();
@@ -68,14 +83,14 @@ test('a snapshot keeps the turn on screen and replaces everything else', () => {
   let t = applyMessage({}, { seq: 1, table: T, type: 'game_state', payload: state(4) }, 0);
   t = applyMessage(t, { seq: 2, table: T, type: 'table_notice', payload: { kind: 'cap', message: 'x' } }, 0);
   t = applyMessage(t, { seq: 3, table: T, type: 'button_card', payload: { playerIdx: 0, playerName: 'A', card: 'Ah' } }, 0);
-  const thinking = { type: 'llm_thinking', payload: { playerIdx: 2, playerName: 'B' } };
+  const thinking = { type: 'llm_thinking', payload: { turn: 5, playerIdx: 2, playerName: 'B' } };
   t = applyMessage(t, { seq: 4, table: T, ...thinking }, 1000);
   const kept = applyMessage(t, snap({ turn: thinking, buttonCards: [{ playerIdx: 0, playerName: 'A', card: 'Ah' }] }), 5000);
   assert.equal(kept[T].display.turnStartTime, 1000, 'same hand, seat and phase: display and clock kept');
   assert.equal(kept[T].notice, null, 'a null notice clears the one on screen');
   assert.equal(kept[T].buttonDetermination.cards.length, 1, 'button cards replaced, not appended');
-  const fresh = applyMessage(t, snap({ turn: { type: 'llm_thinking', payload: { playerIdx: 3, playerName: 'C' } } }), 5000);
-  assert.equal(fresh[T].display.turnStartTime, 5000, 'another seat: set as if just arrived');
+  const fresh = applyMessage(t, snap({ turn: { type: 'llm_thinking', payload: { turn: 6, playerIdx: 3, playerName: 'C' } } }), 5000);
+  assert.equal(fresh[T].display.turnStartTime, 5000, 'another turn: set as if just arrived');
   assert.equal(applyMessage(t, snap({}), 5000)[T].display, null, 'a null turn clears the display');
   assert.deepEqual(Object.keys(applyMessage(t, { seq: 9, type: 'snapshot', payload: { tables: {} } }, 0)), [], 'tables absent are dropped');
 });
@@ -89,9 +104,17 @@ test('changed stats rows replace held rows by name, in model_names order', () =>
   assert.equal('changed' in next, false);
 });
 
+test('with nothing held, a changed form stands in for the full body only when it carries every row', () => {
+  const env = { generated_at: 'a', sessions: [], seated: [], partial: false };
+  assert.equal(applyStats(null, { ...env, model_names: ['A', 'B'], changed: [{ name: 'A', hands: 1 }] }), null, 'a row missing: wait for a full body');
+  const all = applyStats(null, { ...env, model_names: ['B', 'A'], changed: [{ name: 'A', hands: 1 }, { name: 'B', hands: 2 }] });
+  assert.deepEqual(all.models, [{ name: 'B', hands: 2 }, { name: 'A', hands: 1 }]);
+  assert.equal('changed' in all, false);
+});
+
 test('a snapshot shows thinking, reasoning or revealed, and keeps the very display object of the turn on screen', () => {
-  const thinking = { type: 'llm_thinking', payload: { playerIdx: 2, playerName: 'B' } };
-  const action = { type: 'llm_action', payload: { playerIdx: 2, playerName: 'B', action: 'RAISE', amount: 60, reason: 'strong' } };
+  const thinking = { type: 'llm_thinking', payload: { turn: 5, playerIdx: 2, playerName: 'B' } };
+  const action = { type: 'llm_action', payload: { turn: 5, playerIdx: 2, playerName: 'B', action: 'RAISE', amount: 60, reason: 'strong' } };
   const phase = (t) => t[T].display.phase;
   // A joiner: each phase from the snapshot alone.
   assert.equal(phase(applyMessage({}, snap({ turn: thinking }), 0)), 'thinking');
@@ -123,8 +146,10 @@ test('a snapshot shows thinking, reasoning or revealed, and keeps the very displ
   assert.equal(again.display, revealed.display, 'revealed stays the very same object');
   assert.equal(again.clock, revealed.clock);
 
-  const other = { type: 'llm_action', payload: { ...action.payload, reason: 'weak' } };
+  // The same seat acting again with the same words is still a new turn: the turn number tells them apart.
+  const other = { type: 'llm_action', payload: { ...action.payload, turn: 7 } };
   const replaced = applyMessage(t, snap({ turn: other, turnApplied: true }), 9000)[T];
   assert.notEqual(replaced.display, revealed.display, 'a different turn replaces it');
-  assert.equal(replaced.display.reason, 'weak');
+  assert.equal(replaced.display.turn, 7);
+  assert.equal(replaced.display.turnStartTime, 9000);
 });

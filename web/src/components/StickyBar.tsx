@@ -14,7 +14,7 @@ const ACTIONS: Record<string, string> = { FOLD: 'folds', CHECK: 'checks', CALL: 
 
 // What the seat to act is doing, in a few words; an amount in the unit of the Chips/BB switch (bb null: chips).
 function acting(d: DisplayState | null, bb: number | null) {
-  if (!d || d.phase === 'idle' || d.phase === 'waiting') return null;
+  if (!d) return null;
   if (d.phase === 'revealed' && d.action) {
     const amount = d.amount > 0 && d.action !== 'FOLD' && d.action !== 'CHECK' ? ` ${formatAmount(d.amount, bb)}` : '';
     return `${ACTIONS[d.action] ?? d.action.toLowerCase()}${amount}`;

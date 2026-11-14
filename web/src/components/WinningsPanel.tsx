@@ -2,7 +2,6 @@
 
 import { motion } from "motion/react";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
-import CornerBorders from "@/components/CornerBorders";
 import LLMLogo from "@/components/LLMLogo";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
@@ -23,7 +22,6 @@ export default function WinningsPanel({ players }: WinningsPanelProps) {
       className={`flex flex-col relative w-full bg-white flex-1 rounded overflow-hidden ${players.length ? '' : '[&>*]:invisible'}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', ...size }}
     >
-      <CornerBorders />
       <div className="flex items-start justify-between p-3 border-b border-notion">
         <div className="flex flex-col">
           <h2 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>

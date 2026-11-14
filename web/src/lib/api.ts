@@ -53,19 +53,11 @@ export interface PlayerState {
   winnings: number;
 }
 
-export interface ValidAction {
-  type: string;
-  minAmount?: number;
-  maxAmount?: number;
-}
-
 export interface Winner {
   playerIdx: number;
   amount: number;
   handType: string;
   handDesc: string;
-  eligiblePlayers: number[]; // Player indices who competed for this pot
-  potNumber: number;         // 1 = main pot, 2+ = side pots
 }
 
 export interface GameState {
@@ -74,12 +66,9 @@ export interface GameState {
   street: string;
   pot: number;
   communityCards: string[];
-  currentBet: number;
-  minRaise: number;
   currentPlayerIdx: number;
   buttonIdx: number;
   players: PlayerState[];
-  validActions?: ValidAction[];
   winners?: Winner[];
   stakes: {
     smallBlind: number;
@@ -87,11 +76,6 @@ export interface GameState {
   };
   gameStartTime: string; // ISO8601 timestamp from server
   nextHandInMs?: number; // Shared table: time until the server deals the next hand
-}
-
-export interface HandCompletePayload {
-  winners: Winner[];
-  handNumber: number;
 }
 
 // Why the shared table is stopped. An empty kind means it is running again.
@@ -107,12 +91,12 @@ export type ConnectionStatus = 'open' | 'reconnecting' | 'gave_up';
 // answer (a 502 from the edge while the engine restarts), so its own retry is not relied on.
 export class GameStream {
   private es: EventSource | null = null;
-  private messageHandlers: Map<MessageType, ((message: ServerMessage) => void)[]> = new Map();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 2000;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   onStatus?: (status: ConnectionStatus) => void;
+  onMessage?: (message: ServerMessage) => void;
 
   // Resolves on the first open, rejects on the first error; later ones go to the reconnect loop.
   connect(): Promise<void> {
@@ -120,7 +104,6 @@ export class GameStream {
     const es = (this.es = new EventSource(STREAM_URL));
     return new Promise((resolve, reject) => {
       es.onopen = () => {
-        this.reconnectAttempts = 0;
         this.onStatus?.('open');
         resolve();
       };
@@ -132,8 +115,9 @@ export class GameStream {
         this.handleReconnect();
       };
       es.onmessage = (event) => {
+        this.reconnectAttempts = 0; // a message (the snapshot first) proves the stream healthy; an open alone does not
         try {
-          this.handleMessage(JSON.parse(event.data) as ServerMessage);
+          this.onMessage?.(JSON.parse(event.data) as ServerMessage);
         } catch (e) {
           console.error('Failed to parse message:', e);
         }
@@ -171,30 +155,6 @@ export class GameStream {
     this.reconnectAttempts = 0;
     this.onStatus?.('reconnecting');
     this.connect().catch(() => {}); // an error schedules the next attempt
-  }
-
-  private handleMessage(message: ServerMessage) {
-    const handlers = this.messageHandlers.get(message.type);
-    if (handlers) {
-      handlers.forEach(handler => handler(message));
-    }
-  }
-
-  on(type: MessageType, handler: (message: ServerMessage) => void) {
-    if (!this.messageHandlers.has(type)) {
-      this.messageHandlers.set(type, []);
-    }
-    this.messageHandlers.get(type)!.push(handler);
-  }
-
-  off(type: MessageType, handler: (message: ServerMessage) => void) {
-    const handlers = this.messageHandlers.get(type);
-    if (handlers) {
-      const index = handlers.indexOf(handler);
-      if (index > -1) {
-        handlers.splice(index, 1);
-      }
-    }
   }
 
   disconnect() {

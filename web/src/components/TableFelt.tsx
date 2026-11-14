@@ -9,6 +9,7 @@ import { type CSSProperties, useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { Deck, DeckPhase } from "@/components/TableMotion";
 import { TableNoticePayload } from "@/lib/api";
+import type { ButtonDetermination } from "@/lib/stream";
 import { amountParts, formatAmount, useBigBlind } from "@/lib/amounts";
 import { formatDuration, formatLocalTime } from "@/lib/time";
 
@@ -16,19 +17,6 @@ interface WinnerDisplay {
   name: string;
   amount: number;
   handDesc: string;
-}
-
-interface ButtonCard {
-  playerIdx: number;
-  playerName: string;
-  card: string;
-}
-
-interface ButtonDetermination {
-  cards: ButtonCard[];
-  winnerIdx: number | null;
-  winnerName: string | null;
-  isComplete: boolean;
 }
 
 // A bet in front of a seat, on the felt's edge facing it. `at` is 0..1 along that edge.
@@ -46,7 +34,6 @@ interface TableFeltProps {
   bets?: FeltBet[]; // desktop only: placed on the felt's edges
   winners?: WinnerDisplay[];
   nextHandCountdown?: number | null;
-  onSkipCountdown?: () => void;
   buttonDetermination?: ButtonDetermination | null;
   notice?: TableNoticePayload | null;
   deck?: DeckPhase | null; // the deck between hands, in the board's place (TableMotion)
@@ -114,7 +101,6 @@ export default function TableFelt({
   bets,
   winners = [],
   nextHandCountdown,
-  onSkipCountdown,
   buttonDetermination,
   notice,
   deck,
@@ -155,8 +141,6 @@ export default function TableFelt({
             )}
           </div>
         ) : (
-          // Three counters, like CoinPoker: bets in front of the seats, the chips already collected
-          // in the middle (POT), and both together above it (TOTAL POT).
           // One labelled number, as the big rooms do it: POT is the whole pot, bets out included
           // (the number pot odds need). The chips already collected are drawn under it as a chip
           // stack with a bare amount, like the stacks in front of the seats; no second label.
@@ -222,15 +206,6 @@ export default function TableFelt({
           <span className="text-[12px]" style={{ color: 'rgb(55, 53, 47)' }}>
             Next hand in <span className="font-bold">{nextHandCountdown}s</span>
           </span>
-          {onSkipCountdown && (
-            <button
-              onClick={onSkipCountdown}
-              className="text-[11px] hover:underline ml-1"
-              style={{ color: 'rgb(35, 131, 226)' }}
-            >
-              Skip
-            </button>
-          )}
         </div>
       )}
       </div>
