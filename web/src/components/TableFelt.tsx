@@ -33,13 +33,14 @@ interface TableFeltProps {
   cards: string[];
   pot: number; // the engine's pot, which already includes the bets still in front of the seats
   betsOut?: number; // sum of those bets
-  bets?: FeltBet[]; // desktop only: placed on the felt's edges
+  bets?: FeltBet[]; // placed on the felt's edges (desktop) or beside the seats (compact)
   winners?: WinnerDisplay[];
   nextHandCountdown?: number | null;
   buttonDetermination?: ButtonDetermination | null;
   notice?: TableNoticePayload | null;
   deck?: DeckPhase | null; // the deck between hands, in the board's place (TableMotion)
   blank?: boolean; // no state yet: the felt at its size with nothing on it
+  compact?: boolean; // the phone ring's felt (PokerTable): smaller pot and board, bets beside the seats
 }
 
 // Shown on the felt while the table is closed or at its daily call cap.
@@ -77,15 +78,16 @@ function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
   );
 }
 
-// A small chip stack and the amount, like CoinPoker: each street's bets sit in front of the seats. Not on a phone: its
-// seats sit in a grid below the felt and show their own bets, so edge bets would line up with none (and cover the board).
-function BetStack({ seat, amount, style }: { seat: number; amount: number; style: CSSProperties }) {
+// A small chip stack and the amount, like CoinPoker: each street's bets sit in front of the seats. On a phone only in the
+// ring (compact), as one chip: the old phone layout (?m=1) has its seats in a grid below the felt, which edge bets would
+// line up with none of (and cover the board).
+function BetStack({ seat, amount, style, compact }: { seat: number; amount: number; style: CSSProperties; compact?: boolean }) {
   const bb = useBigBlind();
   if (amount <= 0) return null;
   return (
-    <div data-bet={seat} className="absolute flex items-center gap-1.5 max-md:hidden" style={style} title={`Bet ${formatAmount(amount, bb)}`}>
-      <ChipStack amount={amount} />
-      <span data-chips={amount} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(amount, bb)}</span>
+    <div data-bet={seat} className={`absolute flex items-center ${compact ? 'gap-1' : 'gap-1.5 max-md:hidden'}`} style={style} title={`Bet ${formatAmount(amount, bb)}`}>
+      <ChipStack amount={compact ? Math.min(amount, 9) : amount} />
+      <span data-chips={amount} className={`${compact ? 'text-[11px]' : 'text-[12px]'} font-bold tabular-nums leading-5`} style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(amount, bb)}</span>
     </div>
   );
 }
@@ -95,6 +97,17 @@ const EDGE: Record<FeltBet['side'], (at: number) => CSSProperties> = {
   bottom: at => ({ bottom: 8, left: `${at * 100}%`, transform: 'translateX(-50%)' }),
   left: at => ({ left: 10, top: `${at * 100}%`, transform: 'translateY(-50%)' }),
   right: at => ({ right: 10, top: `${at * 100}%`, transform: 'translateY(-50%)' }),
+};
+// The phone ring (PokerTable): a seat is a third of the width less the gaps (SEAT_W), so the centre column between the
+// side seats is SEAT_W wide. Top bets sit under their seat (at 0 to 1 across, as the seats), bottom ones in that column
+// (at 0: its left edge, 1: its right), the side seats' in the board's row beside it (at 0: the upper seat, under it; 1:
+// the lower one, over it).
+const SEAT_W = 'calc((100% - 12px) / 3)';
+const RING: Record<FeltBet['side'], (at: number) => CSSProperties> = {
+  top: at => ({ top: 1, left: `calc((100% - ${SEAT_W}) * ${at} + ${SEAT_W} / 2)`, transform: 'translateX(-50%)' }),
+  bottom: at => ({ bottom: 2, left: `calc(${SEAT_W} + 6px + ${SEAT_W} * ${at})`, transform: `translateX(${-at * 100}%)` }),
+  left: at => ({ left: 4, top: 95 + at * 22 }),
+  right: at => ({ right: 4, top: 95 + at * 22 }),
 };
 
 export default function TableFelt({ 
@@ -108,6 +121,7 @@ export default function TableFelt({
   notice,
   deck,
   blank = false,
+  compact = false,
 }: TableFeltProps) {
   const bb = useBigBlind();
   const potIn = amountParts(pot, bb);
@@ -124,7 +138,7 @@ export default function TableFelt({
     <div 
       ref={ref}
       data-felt
-      className={`relative flex flex-col items-center justify-center gap-3 w-full h-full ${bets ? 'pt-[44px] pb-3' : 'py-2'} ${blank ? '[&>*]:invisible' : ''}`}
+      className={`relative flex flex-col items-center w-full h-full ${compact ? 'justify-start pt-[28px]' : `justify-center gap-3 ${bets ? 'pt-[44px] pb-3' : 'py-2'}`} ${blank ? '[&>*]:invisible' : ''}`}
       style={{
         backgroundImage: `
           linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
@@ -133,14 +147,14 @@ export default function TableFelt({
         backgroundSize: '20px 20px',
       }}
     >
-      {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} />)}
+      {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} style={(compact ? RING : EDGE)[b.side](b.at)} compact={compact} />)}
 
       {/* Winner announcement or Pot */}
-      <div className="h-[74px] w-full flex items-start justify-center">
+      <div className={`${compact ? 'h-[54px]' : 'h-[74px]'} w-full flex items-start justify-center`}>
         {winners.length > 0 ? (
-          <div data-pot className="flex flex-col items-center bg-green-50 p-2 px-3 border border-green-500 max-w-full overflow-hidden">
+          <div data-pot className={`flex flex-col items-center bg-green-50 border border-green-500 overflow-hidden ${compact ? 'p-1 px-2' : 'p-2 px-3 max-w-full'}`} style={compact ? { maxWidth: SEAT_W } : undefined}>
             {winners.slice(0, 1).map((w, i) => (
-              <div key={i} className="text-center">
+              <div key={i} className={`text-center ${compact ? 'max-w-full truncate' : ''}`}>
                 <span className="text-green-700 font-bold text-xs">{w.name}</span>
                 <span data-chips={w.amount} className="text-green-700 text-xs whitespace-nowrap tabular-nums"> +{formatAmount(w.amount, bb)}</span>
                 <div className="text-green-700 text-[11px] truncate">{w.handDesc}</div>
@@ -154,10 +168,10 @@ export default function TableFelt({
           // One labelled number, as the big rooms do it: POT is the whole pot, bets out included
           // (the number pot odds need). The chips already collected are drawn under it as a chip
           // stack with a bare amount, like the stacks in front of the seats; no second label.
-          <div className="flex flex-col items-center gap-3">
-            <div data-chips={pot} className="flex flex-row items-center gap-2 bg-white p-2 px-4 border-2 border-gray-700 shadow-sm" aria-label={`Pot ${formatAmount(pot, bb)}`}>
-              <div className="text-xs uppercase tracking-wider text-gray-600">POT</div>
-              <div className="text-[20px] leading-7 text-gray-700 font-bold tabular-nums">
+          <div className={`flex flex-col items-center ${compact ? 'gap-1' : 'gap-3'}`}>
+            <div data-chips={pot} className={`flex flex-row items-center gap-2 bg-white border-2 border-gray-700 shadow-sm ${compact ? 'p-1 px-2' : 'p-2 px-4'}`} aria-label={`Pot ${formatAmount(pot, bb)}`}>
+              <div className={`${compact ? 'text-[10px]' : 'text-xs'} uppercase tracking-wider text-gray-600`}>POT</div>
+              <div className={`${compact ? 'text-[15px] leading-5' : 'text-[20px] leading-7'} text-gray-700 font-bold tabular-nums`}>
                 <NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} />
               </div>
             </div>
@@ -171,7 +185,8 @@ export default function TableFelt({
       </div>
 
       {/* Community cards or Button Determination; between hands, the deck being shuffled in the board's place */}
-      <div data-felt-cards className="flex gap-2 min-h-[70px] items-center">
+      {/* Compact: above the ring's seats, which a notice or the button draw may reach past the board's row. */}
+      <div data-felt-cards className={`flex items-center ${compact ? 'relative z-10 mt-3 h-[44px] gap-1' : 'gap-2 min-h-[70px]'}`}>
         {notice ? (
           <TableNoticeCard notice={notice} />
         ) : showButtonDetermination ? (
@@ -195,7 +210,7 @@ export default function TableFelt({
         ) : (
           <>
             {!deck && cards.map((card, i) => (
-              <Card key={`${card}-${i}`} value={card} className="w-11 h-16" rise={live} />
+              <Card key={`${card}-${i}`} value={card} className={compact ? 'w-[30px] h-[42px]' : 'w-11 h-16'} rise={live} />
             ))}
             <AnimatePresence>{deck && <Deck key="deck" phase={deck} />}</AnimatePresence>
           </>
@@ -206,7 +221,7 @@ export default function TableFelt({
           change height when it appears: 44+74+12+70+12+32+12 = 256px, two 128px rows. The top
           padding keeps the POT box 16px clear of the top seats' bets; the countdown shares the
           bottom edge with the bottom seats' bets, which are gone by the time it shows. */}
-      <div className="h-[32px] flex items-center">
+      <div className={`h-[32px] flex items-center ${compact ? 'mt-2' : ''}`}>
       {nextHandCountdown !== null && nextHandCountdown !== undefined && nextHandCountdown > 0 && (
         <div 
           className="flex items-center gap-2 bg-white px-4 py-1.5 rounded"

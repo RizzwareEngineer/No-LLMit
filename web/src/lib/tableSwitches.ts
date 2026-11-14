@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 
 // The owner's preview switches, read from the page's query on the client after hydration (no control on the page):
 // ?cards=1|2|3 picks a hole card size, ?peel=1|2|3|4 a peel motion (3 without one), ?type=2 the second type scale (the html[data-type="2"]
-// block in globals.css). Without them the table is as it was.
+// block in globals.css), ?m=1 the old phone layout (the felt over a grid of seats) to compare. Without them the table is as it was.
 
 // Hole card sizes in px, the card's 0.7 ratio; 0 is today's w-7 h-10 (the deck then stays the board's w-11 h-16).
 export const CARD_SIZES = [{ w: 28, h: 40 }, { w: 32, h: 45 }, { w: 36, h: 50 }, { w: 40, h: 56 }] as const;
@@ -36,6 +36,7 @@ const noSubscribe = () => () => {};
 const onWidth = (fn: () => void) => { const m = window.matchMedia(WIDE); m.addEventListener('change', fn); return () => m.removeEventListener('change', fn); };
 export const useCardSize = () => useSyncExternalStore(onWidth, cardSizeNow, () => 0);
 export const usePeel = () => useSyncExternalStore(noSubscribe, peelNow, () => PEEL_DEFAULT);
+export const useOldPhone = () => useSyncExternalStore(noSubscribe, () => param('m') === '1', () => false);
 // ?type=2 sets data-type="2" on <html>, which switches on the type scale's layout edits (globals.css).
 export function useTypeSwitch() {
   useEffect(() => { if (param('type') === '2') document.documentElement.dataset.type = '2'; }, []);

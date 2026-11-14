@@ -25,6 +25,7 @@ interface PlayerProps {
   dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
   faceUp?: boolean; // the hole cards show their faces: the seat's turn has come this hand, or the hand is over
   peel?: Peel; // how they turn up (HoleCard): the picked peel for a seat's turn, motion 1 for the hand's end
+  compact?: boolean; // the phone ring's small seat (PokerTable): no hover band, the stack and action under the name beside the cards
 }
 
 // Position badge colors, for exactly the engine's names (game.PositionName)
@@ -56,7 +57,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peel = 1 }: PlayerProps) {
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peel = 1, compact = false }: PlayerProps) {
   const [hovered, setHovered] = useState(false);
   const bb = useBigBlind();
   const cards = player.holeCards || [];
@@ -72,15 +73,81 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const ref = useRef<HTMLDivElement>(null);
   useFillIn(ref, true);
 
+  const hole = (
+    <div data-hole className="flex flex-row items-center gap-1 shrink-0">
+      {cards.length > 0 ? (
+        cards.map((card, i) => (
+          // Keyed by hand, so a card dealt while watching waits for its flight to land.
+          <motion.div
+            key={`${handNumber}-${card}-${i}`}
+            initial={dealDelays ? { opacity: 0 } : false}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
+          >
+            <HoleCard value={card} faceUp={faceUp} motion={peel} slot={i ? 1 : 0} w={CARD_SIZES[size].w} settle={dealDelays?.[i]} className={cardClass} />
+          </motion.div>
+        ))
+      ) : (
+        <>
+          <Card value="" className={cardClass} />
+          <Card value="" className={cardClass} />
+        </>
+      )}
+    </div>
+  );
+  const badge = position && (
+    <div
+      data-position
+      className={`${compact ? 'w-7 text-[8px] leading-3' : 'w-8 py-0.5 text-[8px]'} rounded font-bold shrink-0 text-center ${positionColor}`}
+      title={getPositionFullName(position)}
+    >
+      {position}
+    </div>
+  );
+  const seatBox = `overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`;
+  const seatStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', background: seatBg };
+
+  if (compact) {
+    // Name and badge across the top; under them the stack, the action and its amount (a line each) beside the cards.
+    const word = isWinner ? null : player.lastAction && showAction ? player.lastAction
+      : player.currentBet > 0 ? (position === 'SB' || position === 'BB' ? 'BLIND' : 'BET')
+      : player.status === 'folded' ? 'FOLD' : player.status === 'all-in' ? 'ALL-IN' : player.status === 'eliminated' ? 'OUT' : isThinking ? 'THINKING' : 'WAITING';
+    const said = player.lastAction && showAction;
+    const amount = said ? player.lastAmount ?? 0 : player.currentBet;
+    return (
+      <div ref={ref} data-seat={seatIdx} className={`${seatBox} pl-1 pr-0.5 py-1.5`} style={seatStyle}>
+        <div className="flex items-center gap-1 min-w-0">
+          <LLMLogo model={player.name} size={14} />
+          <div className="flex-1 text-[11px] leading-[14px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
+          {badge}
+        </div>
+        <div className="mt-auto flex items-end justify-between gap-1 min-w-0">
+          <div className="flex flex-col min-w-0 text-[10px] leading-[13px] tabular-nums">
+            <div data-chips={player.stack} className="truncate" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
+            {isWinner ? (
+              <>
+                <div data-chips={winAmount} className="font-bold truncate" style={{ color: 'rgb(15, 123, 108)' }}>+{formatAmount(winAmount, bb)}</div>
+                <div className="truncate" style={{ color: 'rgb(15, 123, 108)' }}>{winDesc}</div>
+              </>
+            ) : (
+              <>
+                <div data-action className={`text-[9px] tracking-tight uppercase truncate ${said ? 'font-bold' : ''}`} style={{ color: said ? 'rgb(55, 53, 47)' : isThinking && !player.currentBet ? BLUE : MUTED }}>{word}</div>
+                <div className="h-[13px] truncate" style={{ color: MUTED }}>{(said || player.currentBet > 0) && amount > 0 && <span data-chips={amount}>{formatAmount(amount, bb)}</span>}</div>
+              </>
+            )}
+          </div>
+          {hole}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div 
       ref={ref}
       data-seat={seatIdx}
-      className={`overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`}
-      style={{ 
-        boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px',
-        background: seatBg
-      }}
+      className={seatBox}
+      style={seatStyle}
     >
       <div 
         className="relative flex-1 flex flex-col overflow-hidden transition-colors"
@@ -99,15 +166,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             </div>
           </div>
           {/* Position badge, top-right */}
-          {position && (
-            <div 
-              data-position
-              className={`w-8 py-0.5 rounded text-[8px] font-bold shrink-0 text-center ${positionColor}`}
-              title={getPositionFullName(position)}
-            >
-              {position}
-            </div>
-          )}
+          {badge}
         </div>
 
         {/* Hover stats in the empty band between the name block and the bottom row; absolute, so the seat never changes size. */}
@@ -153,26 +212,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
               </div>
             )}
           </div>
-          <div data-hole className="flex flex-row items-center gap-1 shrink-0">
-            {cards.length > 0 ? (
-              cards.map((card, i) => (
-                // Keyed by hand, so a card dealt while watching waits for its flight to land.
-                <motion.div
-                  key={`${handNumber}-${card}-${i}`}
-                  initial={dealDelays ? { opacity: 0 } : false}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
-                >
-                  <HoleCard value={card} faceUp={faceUp} motion={peel} slot={i ? 1 : 0} w={CARD_SIZES[size].w} settle={dealDelays?.[i]} className={cardClass} />
-                </motion.div>
-              ))
-            ) : (
-              <>
-                <Card value="" className={cardClass} />
-                <Card value="" className={cardClass} />
-              </>
-            )}
-          </div>
+          {hole}
         </div>
       </div>
     </div>

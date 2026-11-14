@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { useReducedMotion } from "motion/react";
 import Player from "@/components/Player";
-import { usePeel } from "@/lib/tableSwitches";
+import { useOldPhone, usePeel } from "@/lib/tableSwitches";
 import TableFelt, { FeltBet } from "@/components/TableFelt";
 import TableMotion, { CARD_FLIGHT, DeckPhase, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
-import { ModelStats } from "@/lib/stats";
+import { ModelStats, modelHref } from "@/lib/stats";
 import type { ButtonDetermination } from "@/lib/stream";
 
 interface PlayerLayout {
@@ -80,12 +80,13 @@ export default function PokerTable({
   const dealt = !reduce && firstHand > 0 && handNumber !== firstHand;
   const [deck, setDeck] = useState<DeckPhase | null>(null);
   const peelMotion = usePeel(); // ?peel=1|2, the owner's pick
-  
+  const oldPhone = useOldPhone(); // ?m=1
+
   const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
   // Until the first state arrives (`players` empty) the table stands in blank: the same grid, a blank seat box in every
   // seat of the default lineup (the page's layout for 9) and the felt with nothing on it, so nothing moves when it fills.
   const blank = players.length === 0;
-  const seat = (idx: number) => blank ? <div data-seat={idx} className="h-full w-full rounded bg-white" style={cardStyle} /> : players[idx] && (
+  const seat = (idx: number, compact = false) => blank ? <div data-seat={idx} className="h-full w-full rounded bg-white" style={cardStyle} /> : players[idx] && (
     <Player
       player={players[idx]}
       active={idx === currentPlayerIdx && street !== 'complete'} // between hands nobody is on the clock
@@ -100,6 +101,7 @@ export default function PokerTable({
       dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + CARD_FLIGHT) : undefined}
       faceUp={street === 'complete' || peeked.includes(idx)}
       peel={peeked.includes(idx) ? peelMotion : 1}
+      compact={compact}
     />
   );
 
@@ -115,12 +117,18 @@ export default function PokerTable({
     ...edge('right', layout.right, rows),
   ];
 
-  const felt = (
+  // The phone ring: each side's seats by index (at 0, 1 down a side; across the top and bottom, 0 to 1), as TableFelt's RING.
+  const ringBets: FeltBet[] = (['top', 'bottom', 'left', 'right'] as const).flatMap(side => layout[side].map((seat, i, all) => ({
+    seat, side, at: side === 'left' || side === 'right' ? i : all.length > 1 ? i / (all.length - 1) : 0.5, amount: players[seat]?.currentBet ?? 0,
+  })));
+
+  const felt = (compact = false) => (
     <TableFelt
       cards={communityCards}
       pot={pot}
       betsOut={betsOut}
-      bets={feltBets}
+      bets={compact ? ringBets : feltBets}
+      compact={compact}
       winners={Object.entries(winnersByIdx).map(([idx, info]) => ({
         name: players[Number(idx)]?.name || `Player ${idx}`,
         amount: info.amount,
@@ -149,16 +157,37 @@ export default function PokerTable({
         nextHandCountdown={street === 'complete' ? nextHandCountdown ?? null : null}
         onDeck={setDeck}
       />}
-      {/* Phones: felt on top, seats in a 3-column grid in seat order */}
-      <div className="md:hidden flex flex-col gap-2 w-full">
+      {/* Phones: the desktop ring folded for a tall screen, clockwise as there: three seats across the top, two down each
+          side, two across the bottom, each a third of the width less the gaps (SEAT_W in TableFelt) and 72px tall; the felt
+          spans between the top and bottom rows, the side seats on its edges and the board in the row between them. A seat
+          taps through to its model's stats (the drawer). data-ring: what the page watches for the sticky bar. */}
+      <div data-ring className="md:hidden w-full">
+      {!oldPhone && (
+        <div className="relative w-full h-[360px] bg-white rounded" style={cardStyle}>
+          <div className="absolute inset-x-0 top-[72px] bottom-[72px] flex">{felt(true)}</div>
+          {(['top', 'left', 'right', 'bottom'] as const).flatMap(side => layout[side].map((idx, i, all) => {
+            const n = all.length, w = 'calc((100% - 12px) / 3)';
+            const at = side === 'top' ? { top: 0, left: `calc((100% - ${w}) * ${n > 1 ? i / (n - 1) : 0.5})` }
+              : side === 'bottom' ? { bottom: 0, left: `calc(50% + ${w} * ${i - n / 2} + ${(i - n / 2) * 6 + 3}px)` }
+              : { top: 94 + i * 116, [side]: 0 };
+            const style = { ...at, width: w, height: 72 };
+            return blank || !players[idx]
+              ? <div key={idx} className="absolute" style={style}>{seat(idx)}</div>
+              : <a key={players[idx].id} href={modelHref(players[idx].name)} className="absolute block" style={style}>{seat(idx, true)}</a>;
+          }))}
+        </div>
+      )}
+      {/* ?m=1, the old phone layout: felt on top, seats in a 3-column grid in seat order */}
+      {oldPhone && <div className="flex flex-col gap-2 w-full">
         <div className="relative bg-white rounded min-h-[200px] flex" style={cardStyle}>
-          {felt}
+          {felt()}
         </div>
         <div className="grid grid-cols-3 gap-2">
           {(blank ? Object.values(layout).flat().sort((a, b) => a - b) : players.map((_, i) => i)).map(idx => (
             <div key={players[idx]?.id ?? idx} className="h-[150px]">{seat(idx)}</div>
           ))}
         </div>
+      </div>}
       </div>
 
       {/* md and up: seats around the felt. The table is only for layout. */}
@@ -200,7 +229,7 @@ export default function PokerTable({
 
                 {rowIdx === 0 && (
                   <td colSpan={layout.top.length} rowSpan={rows} style={{ borderBottom: line }}>
-                    <div className="flex items-center justify-center h-full">{felt}</div>
+                    <div className="flex items-center justify-center h-full">{felt()}</div>
                   </td>
                 )}
 

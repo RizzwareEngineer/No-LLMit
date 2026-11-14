@@ -183,13 +183,17 @@ export default function Home() {
   const [scrolled, setScrolled] = useState(false); // the sticky bar slides in on a scroll, not on a load below the table
   useEffect(() => {
     let first = true;
-    // The top 44px sit under the bar itself, so they do not count as visible.
-    const io = new IntersectionObserver(([e]) => {
-      setTableInView(e.isIntersecting);
+    // The top 44px sit under the bar itself, so they do not count as visible. On a phone the row has no box of its own
+    // (it lets the reasoning bar sit between the table and the sidebar), so the phone table (data-ring) is watched too.
+    const seen = new Map<Element, boolean>();
+    const io = new IntersectionObserver(es => {
+      for (const e of es) seen.set(e.target, e.isIntersecting);
+      setTableInView([...seen.values()].some(Boolean));
       if (!first) setScrolled(true);
       first = false;
     }, { rootMargin: '-44px 0px 0px 0px' });
-    if (tableRef.current) io.observe(tableRef.current);
+    const row = tableRef.current;
+    if (row) [row, ...row.querySelectorAll('[data-ring]')].forEach(e => io.observe(e));
     return () => io.disconnect();
   }, []);
 
@@ -412,8 +416,9 @@ export default function Home() {
         <div className="mt-6 flex items-center-safe justify-center-safe w-full md:w-auto">
           {/* suppressHydrationWarning: BEFORE_PAINT fits it before React hydrates. */}
           <div ref={stageRef} className="stage-zoom flex flex-col w-full md:w-auto" suppressHydrationWarning>
-            {/* Row 1: Table + Winnings (stacked on phones) */}
-            <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative">
+            {/* Row 1: Table + Winnings. On phones the row dissolves (contents) so the reasoning bar comes right under the
+                table and the sidebar after it (order). */}
+            <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative max-md:contents">
               {/* Main game grid */}
               <PokerTable
                 players={players}
@@ -432,7 +437,7 @@ export default function Home() {
               />
 
               {/* Right sidebar column - leaderboard, then API usage */}
-              <div className="flex flex-col w-full md:w-[240px] shrink-0">
+              <div className="flex flex-col w-full md:w-[240px] shrink-0 max-md:order-1 max-md:mt-4">
                 <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />
                 </div>

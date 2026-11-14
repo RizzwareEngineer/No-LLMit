@@ -210,11 +210,11 @@ const scriptStream = p => p.evaluateOnNewDocument(() => {
   };
 });
 // A page at a window size on the live table, its game stream scripted, once the engine's state is in.
-const scriptedTable = async (w, h, reduced = false) => {
+const scriptedTable = async (w, h, reduced = false, query = '') => {
   const p = await newPage(); await p.setViewport({ width: w, height: h });
   if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await scriptStream(p);
-  await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p.goto(`${BASE}/${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
   await sleep(2000);
   return p;
@@ -320,20 +320,74 @@ group(async () => {
   });
 });
 
-// The felt's edge bets line up with the desktop ring of seats. On a phone the seats sit in a grid below the felt and
-// each shows its own bet, so the felt draws none (they lined up with no seat and could cover the board).
-group(() => check('phone-felt-no-bets', 'With bets out, the felt draws them at 1440x900 and draws none at 390x844', async () => {
+// The felt's edge bets line up with the desktop ring of seats, and with the phone's ring (owner 2026-11-14: the seats
+// on the table, not below it), where each sits beside its seat. The old phone layout (?m=1, kept to compare) has its seats
+// in a grid below the felt, so its felt draws none (they lined up with no seat and could cover the board).
+group(() => check('phone-felt-no-bets', 'With bets out, the felt draws them at 1440x900 and in the phone ring at 390x844, and none in the old phone layout (390x844, ?m=1)', async () => {
   const bad = [], seen = [];
-  for (const [w, h, want] of [[1440, 900, true], [390, 844, false]]) {
-    const p = await scriptedTable(w, h);
+  for (const [w, h, want, query] of [[1440, 900, true], [390, 844, true], [390, 844, false, '?m=1']]) {
+    const p = await scriptedTable(w, h, false, query);
     await p.evaluate(() => window.__stream.bets()); await sleep(1000);
     const r = await p.evaluate(() => { const all = [...document.querySelectorAll('[data-bet]')]; return { all: all.length, shown: all.filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 || b.height > 0; }).length }; });
-    seen.push(`${w}x${h}: ${r.shown} of ${r.all} bets drawn`);
-    if (!r.all) bad.push(`${w}x${h}: no bets in the page`);
-    else if (want ? r.shown < 3 : r.shown) bad.push(`${w}x${h}: ${r.shown} of ${r.all} bets drawn on the felt`);
+    seen.push(`${w}x${h}${query ?? ''}: ${r.shown} of ${r.all} bets drawn`);
+    if (!r.all) bad.push(`${w}x${h}${query ?? ''}: no bets in the page`);
+    else if (want ? r.shown < 3 : r.shown) bad.push(`${w}x${h}${query ?? ''}: ${r.shown} of ${r.all} bets drawn on the felt`);
     await p.close();
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+
+// Owner 2026-11-14: "on mobile view it should just be the table with the players on there. the players shouldn't be at
+// the bottom." Phones fold the desktop ring for a tall screen (three seats across the top, two down each side, two across
+// the bottom), small enough that the reasoning bar is on the first screen. Scripted: bets out on seats 1-3 and a full board.
+group(() => check('phone-table-ring', 'At 390x844 and 375x667 the table is one ring: all nine seats inside the table\'s box, none below the felt\'s bottom edge by more than one seat row, no two overlapping, none over the board or the pot, no bet on the board, the pot or a seat; every seat\'s name, stack and badge visible and not cut (the name may end in an ellipsis); the table at most 400px tall and the reasoning bar\'s top on the first screen', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[390, 844], [375, 667]]) {
+    const size = `${w}x${h}`, p = await scriptedTable(w, h);
+    try {
+      await p.evaluate(() => { window.__stream.bets(); const s = window.__stream; s.last = { ...s.last, communityCards: ['Kh', '7d', '2c', '9s', 'Ks'] }; s.feed({ type: 'game_state', payload: s.last }); });
+      await sleep(1500);
+      const r = await p.evaluate(() => {
+        const vis = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+        const ring = [...document.querySelectorAll('[data-ring]')].find(vis);
+        if (!ring) return null;
+        const box = e => { const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; };
+        const meet = (a, b) => Math.min(a.r, b.r) - Math.max(a.l, b.l) > 0.5 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 0.5;
+        const inside = (a, b) => a.l >= b.l - 1 && a.r <= b.r + 1 && a.t >= b.t - 1 && a.b <= b.b + 1;
+        const table = box(ring), felt = box(ring.querySelector('[data-felt]')), out = [];
+        const seats = [...ring.querySelectorAll('[data-seat]')].filter(vis).map(e => ({ e, i: e.dataset.seat, b: box(e) }));
+        const board = [...ring.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(box);
+        const pot = [...ring.querySelectorAll('[aria-label^="Pot"]')].filter(vis).map(box);
+        const bets = [...ring.querySelectorAll('[data-bet]')].filter(vis).map(e => ({ i: e.dataset.bet, b: box(e) }));
+        for (const s of seats) {
+          if (!inside(s.b, table)) out.push(`seat ${s.i} outside the table`);
+          if (s.b.b > felt.b + s.b.h + 1) out.push(`seat ${s.i} ${Math.round(s.b.b - felt.b)}px below the felt`);
+          for (const t of seats) if (t.i > s.i && meet(s.b, t.b)) out.push(`seats ${s.i} and ${t.i} overlap`);
+          if ([...board, ...pot].some(c => meet(c, s.b))) out.push(`seat ${s.i} over the board or the pot`);
+          // Name, stack and badge: inside the seat and painted on top there (nothing over their middle); the stack and the
+          // badge whole, the name whole or cut short by its ellipsis.
+          const name = [...s.e.querySelectorAll('[title]')].find(e => !e.hasAttribute('data-position'));
+          for (const [what, e] of [['name', name], ['stack', s.e.querySelector('[data-chips]')], ['badge', s.e.querySelector('[data-position]')]]) {
+            if (!e || !vis(e)) { out.push(`seat ${s.i} has no ${what}`); continue; }
+            const b = box(e), hit = document.elementFromPoint((b.l + b.r) / 2, (b.t + b.b) / 2);
+            if (!inside(b, s.b)) out.push(`seat ${s.i}'s ${what} runs out of the seat`);
+            if (!hit || !(e === hit || e.contains(hit))) out.push(`seat ${s.i}'s ${what} is covered`);
+            if (e.scrollWidth > e.clientWidth + 1 && (what !== 'name' || getComputedStyle(e).textOverflow !== 'ellipsis' || b.w < 30)) out.push(`seat ${s.i}'s ${what} is cut`);
+          }
+        }
+        for (const t of bets) if ([...board, ...pot, ...seats.map(s => s.b)].some(c => meet(c, t.b))) out.push(`bet ${t.i} on the board, the pot or a seat`);
+        const reasoning = [...document.querySelectorAll('.stage-zoom .h-\\[100px\\]')].find(vis);
+        return { out, seats: seats.length, board: board.length, pot: pot.length, bets: bets.length, height: table.h, reasoning: reasoning ? reasoning.getBoundingClientRect().top + scrollY : null, screen: innerHeight };
+      });
+      if (!r) { bad.push(`${size}: no phone table`); continue; }
+      if (r.seats !== 9 || r.board !== 5 || r.pot !== 1 || r.bets < 3) bad.push(`${size}: ${r.seats} seats, ${r.board} board cards, ${r.pot} pots, ${r.bets} bets drawn`);
+      if (r.height > 400) bad.push(`${size}: the table is ${Math.round(r.height)}px tall`);
+      if (r.reasoning === null || r.reasoning >= r.screen) bad.push(`${size}: the reasoning bar starts at ${Math.round(r.reasoning)}px, past the first screen (${r.screen}px)`);
+      if (r.out.length) bad.push(`${size}: ${r.out.slice(0, 6).join(', ')}${r.out.length > 6 ? ` and ${r.out.length - 6} more` : ''}`);
+      seen.push(`${size}: table ${Math.round(r.height)}px, reasoning bar at ${Math.round(r.reasoning)}px, 9 seats and ${r.bets} bets clear`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
 }));
 
 // The table's amounts in chips or in big blinds (owner 2026-11-08: "a toggle view if someone cares about looking at the
@@ -519,8 +573,8 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
       pressed: group && btn('BB')?.getAttribute('aria-pressed') === 'true',
       amounts: [...sec.querySelectorAll('[data-chips]')].filter(vis).map(e => ({
         chips: +e.dataset.chips, text: (e.getAttribute('aria-label')?.replace(/^Pot /, '') ?? e.textContent).trim().replace(/^[+−-]/, ''),
-        // A seat's first amount is its stack; any after it is the seat's own bet line (BET 35, RAISE 35), which is where a
-        // phone shows a bet: the felt's edge bets are desktop only (3b93f02).
+        // A seat's first amount is its stack; any after it is the seat's own bet line (BET 35, RAISE 35). The felt's bets
+        // show on phones too, beside the ring's seats (owner 2026-11-14).
         where: e.closest('[data-seat]') ? (e === e.closest('[data-seat]').querySelector('[data-chips]') ? 'seat' : 'seat bet') : e.closest('[data-bet]') ? 'bet' : e.closest('ol') ? 'pnl' : e.hasAttribute('aria-label') ? 'pot' : e.closest('[data-pot]') ? 'collected' : 'reasoning',
         lines: lines(e), clipped: clipped(e),
       })),
@@ -569,8 +623,7 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
         if (a.clipped && !c?.clipped) bad.push(`${size} BB: ${a.where} "${a.text}" is clipped`);
       });
       const where = new Set(big.amounts.map(a => a.where));
-      for (const k of ['seat', phone ? 'seat bet' : 'bet', 'pot', 'pnl', 'reasoning']) if (!where.has(k)) bad.push(`${size}: no ${k} amount to check`);
-      if (phone && where.has('bet')) bad.push(`${size}: the felt draws its desktop edge bets on a phone`);
+      for (const k of ['seat', ...(phone ? ['seat bet'] : []), 'bet', 'pot', 'pnl', 'reasoning']) if (!where.has(k)) bad.push(`${size}: no ${k} amount to check`);
       if (!big.unit || chips.unit) bad.push(`${size}: Profits & Losses header unit ${chips.unit ? 'shown in chips' : 'missing in BB'}`);
       if (!/Raising to 35\b/.test(big.words)) bad.push(`${size}: the model's words changed in BB ("${big.words.slice(0, 40)}")`);
       const moved = big.boxes.filter((b, i) => b !== chips.boxes[i]).length;
