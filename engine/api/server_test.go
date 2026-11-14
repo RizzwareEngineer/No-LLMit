@@ -86,4 +86,17 @@ func TestDevPace(t *testing.T) {
 	if w := do(on, "DELETE", "/dev/pace"); w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("DELETE: %d", w.Code)
 	}
+	// Another site's page cannot set it; the local site can.
+	post := func(origin string) int {
+		w, r := httptest.NewRecorder(), httptest.NewRequest("POST", "/dev/pace?pace=0.7", nil)
+		r.Header.Set("Origin", origin)
+		on.ServeHTTP(w, r)
+		return w.Code
+	}
+	if c := post("https://evil.example"); c != http.StatusForbidden || s.table.Pace() != 0.5 {
+		t.Errorf("POST from another site: %d, pace %g", c, s.table.Pace())
+	}
+	if c := post("http://localhost:3000"); c != http.StatusOK || s.table.Pace() != 0.7 {
+		t.Errorf("POST from the local site: %d, pace %g", c, s.table.Pace())
+	}
 }

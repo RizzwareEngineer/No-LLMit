@@ -124,6 +124,12 @@ func (s *Server) devRoutes(mux *http.ServeMux) {
 // handlePace reads (GET) or sets (POST ?pace=0.5, or a form body) the table's pace, 0.1 to 2;
 // the next pause uses it.
 func (s *Server) handlePace(w http.ResponseWriter, r *http.Request) {
+	// Only a page served from this machine: with CORS open, any site the owner visits could
+	// otherwise post a form here.
+	if o := r.Header.Get("Origin"); o != "" && !isLocalOrigin(o) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 	case http.MethodPost:
