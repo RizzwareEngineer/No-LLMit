@@ -58,7 +58,7 @@ func newHandRecorder(gs *game.GameState, tableID string, rebought []int) *handRe
 			Name:       p.Name,
 			Position:   gs.PositionName(i),
 			StackStart: p.Stack + p.TotalBetThisHand,
-			HoleCards:  gs.GetLLMHoleCards(i),
+			HoleCards:  game.CardStrings(p.HoleCards),
 			Rebought:   isRebought[i],
 		})
 		if p.TotalBetThisHand > 0 {
@@ -146,7 +146,7 @@ func (r *handRecorder) endDecision(turn llmTurn) {
 // finish is called once the hand is complete and pots are awarded.
 func (r *handRecorder) finish(gs *game.GameState) (history.HandRecord, []HandPrompt) {
 	r.record.EndedAt = time.Now().UTC()
-	r.record.Board = gs.GetLLMCommunityCards()
+	r.record.Board = game.CardStrings(gs.CommunityCards)
 
 	wentToShowdown := false
 	r.record.Result = history.HandResult{Pots: []history.PotRecord{}, Showdown: []history.ShowdownRecord{}, Net: map[string]int{}}

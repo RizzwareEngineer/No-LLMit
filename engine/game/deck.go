@@ -1,5 +1,5 @@
 // This file manages a standard 52-card deck. NewDeck creates and shuffles it, Deal pulls
-// cards off the top, Burn discards one (per poker rules before community cards), and
+// cards off the top, burn discards one (per poker rules before community cards), and
 // Shuffle reshuffles all 52 for the next hand. Called by game.go during StartHand and
 // street transitions.
 package game
@@ -55,6 +55,6 @@ func (d *Deck) Deal(n int) []Card {
 	return cards
 }
 
-func (d *Deck) Burn() {
+func (d *Deck) burn() {
 	d.index++
 }

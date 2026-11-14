@@ -432,6 +432,57 @@ func TestSettledHandEndsWithTheFinalState(t *testing.T) {
 	}
 }
 
+// A settled hand's game_state and a snapshot taken then count down to the same next hand,
+// and a game_state carries the table as it is at publish time.
+func TestGameStateAndSnapshotShareTheNextHandCountdown(t *testing.T) {
+	tbl := testTable(t)
+	tbl.gs.Street = game.StreetComplete
+	tbl.nextHandAt = time.Now().Add(10 * time.Second)
+	tbl.publish(tbl.stateMessage())
+	frames := tbl.hub.since(0, false).frames
+	var live GameStatePayload
+	json.Unmarshal(parseFrames(t, frames[len(frames)-1])[0].Payload, &live)
+	b, _ := tbl.hub.since(0, true).snapshotFrame()
+	var snap struct{ Tables map[string]tableSnap }
+	json.Unmarshal(parseFrames(t, b)[0].Payload, &snap)
+	got := snap.Tables["tbl_test"].State
+	if live.NextHandInMs < 9000 || live.NextHandInMs > 10000 || got.NextHandInMs < 9000 || got.NextHandInMs > live.NextHandInMs {
+		t.Errorf("nextHandInMs live %d, snapshot %d", live.NextHandInMs, got.NextHandInMs)
+	}
+	if live.Street != "complete" || len(live.Players) != 3 || got.Street != "complete" {
+		t.Errorf("live %+v, snapshot %+v", live, got)
+	}
+
+	tbl.nextHandAt = time.Now().Add(-time.Second) // passed: no countdown
+	tbl.publish(tbl.stateMessage())
+	frames = tbl.hub.since(0, false).frames
+	if f := string(frames[len(frames)-1]); strings.Contains(f, "nextHandInMs") {
+		t.Errorf("a passed next hand still counts down: %s", f)
+	}
+}
+
+// Every stream ends between 10 and 14 minutes, before Railway's 15-minute cut, spread over
+// the whole range; the heartbeat is one SSE comment line, sent well inside that.
+func TestStreamLifeAndHeartbeat(t *testing.T) {
+	lo, hi := 14*time.Minute, 10*time.Minute
+	for range 2000 {
+		d := streamLife()
+		if d < 10*time.Minute || d >= 14*time.Minute {
+			t.Fatalf("stream life %v is outside 10 to 14 minutes", d)
+		}
+		lo, hi = min(lo, d), max(hi, d)
+	}
+	if lo > 10*time.Minute+30*time.Second || hi < 13*time.Minute+30*time.Second {
+		t.Errorf("stream lives span only %v to %v", lo, hi)
+	}
+	if hb := string(heartbeat); !strings.HasPrefix(hb, ":") || strings.Index(hb, "\n") != len(hb)-2 || !strings.HasSuffix(hb, "\n\n") {
+		t.Errorf("heartbeat %q is not one SSE comment line", hb)
+	}
+	if heartbeatEvery <= 0 || heartbeatEvery > 30*time.Second {
+		t.Errorf("heartbeat every %v", heartbeatEvery)
+	}
+}
+
 // One address gets maxStreamsPerAddr streams; other addresses are not affected.
 func TestStreamCapPerAddress(t *testing.T) {
 	h := newHub()

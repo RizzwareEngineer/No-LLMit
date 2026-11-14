@@ -119,7 +119,7 @@ A viewer can arrive any time after step 2. The table loop is then somewhere in s
 **14. Send the response headers.**
 - **Where / trigger:** engine, handler goroutine. Both caps passed.
 - **Code:** `engine/api/stream.go` → `handleStream`.
-- **Does:** Sets `Content-Type: text/event-stream` and `Cache-Control: no-store`, writes status 200 and flushes, so the browser has an open stream before any data. Starts a ticker of `heartbeatEvery` (20 s) and a one-shot timer of `streamLifetime` (10 min) plus a random 0 to 4 min. Sets `last`, the highest `seq` this stream has sent, to 0.
+- **Does:** Sets `Content-Type: text/event-stream` and `Cache-Control: no-store`, writes status 200 and flushes, so the browser has an open stream before any data. Starts a ticker of `heartbeatEvery` (20 s) and a one-shot timer of `streamLife()`: `streamLifetime` (10 min) plus a random 0 to 4 min. Sets `last`, the highest `seq` this stream has sent, to 0.
 - **Next:** The browser fires `open` (step 16). The handler enters its loop (step 15). If that first flush fails, the handler returns at once, with no snapshot and no ticker; the deferred calls still take the stream out of both counts.
 
 **15. Write the snapshot, then the full stats.**
@@ -190,8 +190,8 @@ These steps repeat for every turn, with or without viewers.
 
 **25. Build the table's snapshot.**
 - **Where / trigger:** engine, table loop goroutine, holding `t.mu`. Every publish of steps 5, 6, 17, 18, 23, 24, 40 and 42 calls it.
-- **Code:** `engine/api/table.go` → `publish`; `engine/api/messages.go` → `ConvertGameState`.
-- **Does:** Builds a new `tableSnap` from the table's fields: `State`, `Turn`, `TurnApplied`, a copy of `ButtonCards`, `ButtonWinner`, `Notice` when its kind is not empty, and `nextHandAt` when the hand is complete. `State` includes every seat's hole cards: viewers see them all.
+- **Code:** `engine/api/table.go` → `publish`, `nextHandMs`; `engine/api/messages.go` → `ConvertGameState`.
+- **Does:** Builds a new `tableSnap` from the table's fields: `State`, `Turn`, `TurnApplied`, a copy of `ButtonCards`, `ButtonWinner`, `Notice` when its kind is not empty, and `nextHandAt` when the hand is complete. `State` includes every seat's hole cards: viewers see them all. A `game_state` among the publish's messages (`stateMessage` leaves its payload empty) gets this same `State`, with `nextHandInMs` from `nextHandMs`, the one rule step 15's snapshot also uses.
 - **Next:** Passes the snapshot and this publish's messages to the hub (step 26).
 
 **26. Append to the ring and swap the snapshot.**

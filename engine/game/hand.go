@@ -1,6 +1,6 @@
 // This file evaluates poker hands. Given 7 cards (2 hole + 5 community), EvaluateHand
 // finds the best 5-card combination and ranks it (Royal Flush down to High Card).
-// FindWinners compares multiple players' hands to determine who wins. GetHandDescription
+// findWinners compares multiple players' hands to determine who wins. getHandDescription
 // returns human-readable text like "Full House, Kings over Aces". Called by game.go at showdown.
 package game
 
@@ -37,9 +37,9 @@ func (ht HandType) String() string {
 }
 
 type HandResult struct {
-	HandType HandType `json:"handType"`
-	HandRank int      `json:"handRank"` // Overall rank (higher is better); encodes every kicker
-	Kickers  []Rank   `json:"kickers"`  // The ranks that name the hand, for its description
+	HandType HandType
+	HandRank int    // Overall rank (higher is better); encodes every kicker
+	Kickers  []Rank // The ranks that name the hand, for its description
 }
 
 // Base values ensure any higher hand type always beats any lower type
@@ -174,7 +174,7 @@ func CompareHands(a, b HandResult) int {
 	return 0
 }
 
-func FindWinners(players []Player, communityCards []Card, eligibleIndices []int) []int {
+func findWinners(players []Player, communityCards []Card, eligibleIndices []int) []int {
 	if len(eligibleIndices) == 0 {
 		return nil
 	}
@@ -217,7 +217,7 @@ func FindWinners(players []Player, communityCards []Card, eligibleIndices []int)
 	return winners
 }
 
-func GetHandDescription(result HandResult) string {
+func getHandDescription(result HandResult) string {
 	switch result.HandType {
 	case RoyalFlush:
 		return "Royal Flush"

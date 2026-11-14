@@ -32,10 +32,10 @@ func (at ActionType) String() string {
 
 // Action represents a player's action
 type Action struct {
-	Type      ActionType `json:"type"`
-	Amount    int        `json:"amount"`    // For raise/all-in, the total bet amount
-	PlayerIdx int        `json:"playerIdx"` // Which player took the action
-	Bet       bool       `json:"-"`         // an applied raise that opened the street's betting (RaiseName)
+	Type      ActionType
+	Amount    int  // For raise/all-in, the total bet amount
+	PlayerIdx int  // Which player took the action
+	Bet       bool // an applied raise that opened the street's betting (RaiseName)
 }
 
 // Name is what viewers and saved hands call an applied action: its type, or BET for a raise
@@ -49,15 +49,15 @@ func (a Action) Name() string {
 
 // Player represents a player at the table
 type Player struct {
-	ID                string       `json:"id"`
-	Name              string       `json:"name"`
-	Stack             int          `json:"stack"`
-	HoleCards         []Card       `json:"holeCards,omitempty"`
-	Status            PlayerStatus `json:"status"`
-	CurrentBet        int          `json:"currentBet"`       // Bet in current betting round
-	TotalBetThisHand  int          `json:"totalBetThisHand"` // Total invested this hand
-	HasActedThisRound bool         `json:"-"`                // Internal tracking
-	RaiseClosed       bool         `json:"-"`                // Acted, then faced only an incomplete all-in raise: may call or fold, not raise
-	LastAction        *Action      `json:"lastAction,omitempty"`
-	Winnings          int          `json:"winnings"` // Cumulative winnings/losses
+	ID                string
+	Name              string
+	Stack             int
+	HoleCards         []Card
+	Status            PlayerStatus
+	CurrentBet        int  // Bet in current betting round
+	TotalBetThisHand  int  // Total invested this hand
+	HasActedThisRound bool // Internal tracking
+	RaiseClosed       bool // Acted, then faced only an incomplete all-in raise: may call or fold, not raise
+	LastAction        *Action
+	Winnings          int // Cumulative winnings/losses
 }

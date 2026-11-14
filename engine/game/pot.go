@@ -1,91 +1,70 @@
-// This file handles pot math. CalculatePots figures out main pots and side pots (needed
-// when players go all-in for different amounts). AwardPots gives money to winners, handling
-// split pots when hands tie. AwardPotToLastPlayer handles the simple case when everyone
+// This file handles pot math. calculatePots figures out main pots and side pots (needed
+// when players go all-in for different amounts). awardPots gives money to winners, handling
+// split pots when hands tie. awardPotToLastPlayer handles the simple case when everyone
 // else folded. Called by game.go at the end of each hand.
 package game
 
-import "sort"
+import (
+	"slices"
+	"sort"
+)
 
 type Pot struct {
-	Amount          int   `json:"amount"`
-	EligiblePlayers []int `json:"eligiblePlayers"`
+	Amount          int
+	EligiblePlayers []int
 }
 
 type Winner struct {
-	PlayerIdx       int      `json:"playerIdx"`
-	Amount          int      `json:"amount"`
-	HandType        HandType `json:"handType"`
-	HandDesc        string   `json:"handDesc"`        // e.g., "Full House, Kings over Aces"
-	EligiblePlayers []int    `json:"eligiblePlayers"` // Players who were competing for this pot
-	PotNumber       int      `json:"potNumber"`
+	PlayerIdx       int
+	Amount          int
+	HandType        HandType
+	HandDesc        string // e.g., "Full House, Kings over Aces"
+	EligiblePlayers []int  // Players who were competing for this pot
+	PotNumber       int
 }
 
-// CalculatePots splits the chips into a main pot and side pots, one per contribution level
+// calculatePots splits the chips into a main pot and side pots, one per contribution level
 // of the players still in the hand.
-func (gs *GameState) CalculatePots() {
-	type contribution struct {
-		playerIdx int
-		amount    int
-	}
-
-	var activeContributions []contribution
-	var folded []int // each folded player's contribution, split across pot levels below
-
+func (gs *GameState) calculatePots() {
+	put := make(map[int]int, len(gs.Players))
+	var live []int
 	for i, p := range gs.Players {
-		if p.TotalBetThisHand > 0 {
-			if p.Status == PlayerFolded {
-				folded = append(folded, p.TotalBetThisHand)
-			} else {
-				activeContributions = append(activeContributions, contribution{playerIdx: i, amount: p.TotalBetThisHand})
-			}
+		put[i] = p.TotalBetThisHand
+		if p.Status != PlayerFolded {
+			live = append(live, i)
 		}
 	}
+	gs.Pots = SplitPots(put, live)
+}
 
-	sort.SliceStable(activeContributions, func(i, j int) bool {
-		return activeContributions[i].amount < activeContributions[j].amount
-	})
-
+// SplitPots splits the chips each seat put in into a main pot and side pots, one per
+// contribution level of the live seats, each listing the live seats that can win it. A
+// folded seat's chips count toward each level only up to what it put in. stats uses it
+// too, so all-in EV splits the pots the way the table paid them.
+func SplitPots(put map[int]int, live []int) []Pot {
+	live = slices.Clone(live)
+	sort.SliceStable(live, func(i, j int) bool { return put[live[i]] < put[live[j]] })
 	pots := []Pot{}
-	prevLevel := 0
-
-	for i := 0; i < len(activeContributions); i++ {
-		currentLevel := activeContributions[i].amount
-		if currentLevel == prevLevel {
+	prev := 0
+	for i, seat := range live {
+		level := put[seat]
+		if level == prev {
 			continue
 		}
-
-		levelDiff := currentLevel - prevLevel
-		playersAtThisLevel := len(activeContributions) - i
-		potAmount := levelDiff * playersAtThisLevel
-
-		// A folded player's chips count toward each level only up to what they put in.
-		for _, f := range folded {
-			potAmount += min(f, currentLevel) - min(f, prevLevel)
+		amount := 0
+		for _, c := range put {
+			amount += min(c, level) - min(c, prev)
 		}
-
-		var eligible []int
-		for j := i; j < len(activeContributions); j++ {
-			eligible = append(eligible, activeContributions[j].playerIdx)
-		}
-
-		if potAmount > 0 && len(eligible) > 0 {
-			pots = append(pots, Pot{
-				Amount:          potAmount,
-				EligiblePlayers: eligible,
-			})
-		}
-
-		prevLevel = currentLevel
+		pots = append(pots, Pot{Amount: amount, EligiblePlayers: slices.Clone(live[i:])})
+		prev = level
 	}
-
 	// Folded chips above the highest level (not expected, but never lose chips) join the top pot.
-	for _, f := range folded {
-		if f > prevLevel && len(pots) > 0 {
-			pots[len(pots)-1].Amount += f - prevLevel
+	for _, c := range put {
+		if c > prev && len(pots) > 0 {
+			pots[len(pots)-1].Amount += c - prev
 		}
 	}
-
-	gs.Pots = pots
+	return pots
 }
 
 func (gs *GameState) SimplifiedPotCalculation() int {
@@ -96,26 +75,14 @@ func (gs *GameState) SimplifiedPotCalculation() int {
 	return total
 }
 
-func (gs *GameState) GetTotalPot() int {
-	if len(gs.Pots) == 0 {
-		return gs.SimplifiedPotCalculation()
-	}
-
-	total := 0
-	for _, pot := range gs.Pots {
-		total += pot.Amount
-	}
-	return total
-}
-
-func (gs *GameState) CollectBetsIntoPot() {
+func (gs *GameState) collectBetsIntoPot() {
 	for i := range gs.Players {
 		gs.Players[i].CurrentBet = 0
 	}
 }
 
-// AwardPots pays out gs.Pots, which CalculatePots has just set.
-func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player, []Card, []int) []int) []Winner {
+// awardPots pays out gs.Pots, which calculatePots has just set.
+func (gs *GameState) awardPots(communityCards []Card, evaluateFunc func([]Player, []Card, []int) []int) []Winner {
 	var winners []Winner
 	amountWon := make(map[int]int)
 	displayPotNumber := 0
@@ -182,7 +149,7 @@ func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player
 	return winners
 }
 
-func (gs *GameState) AwardPotToLastPlayer() *Winner {
+func (gs *GameState) awardPotToLastPlayer() *Winner {
 	lastPlayerIdx := -1
 	for i, p := range gs.Players {
 		if p.Status == PlayerActive || p.Status == PlayerAllIn {
@@ -217,7 +184,7 @@ func (gs *GameState) AwardPotToLastPlayer() *Winner {
 	}
 }
 
-func (gs *GameState) ResetPotsForNewHand() {
+func (gs *GameState) resetPotsForNewHand() {
 	gs.Pots = []Pot{}
 	for i := range gs.Players {
 		gs.Players[i].TotalBetThisHand = 0

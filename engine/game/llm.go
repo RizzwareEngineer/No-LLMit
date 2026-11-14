@@ -17,9 +17,9 @@ type LLMValidAction struct {
 // One recorded action. Amount is what the player put in for a blind or call, and the
 // total bet on that street for a raise or all-in. Pot is the pot after the action.
 type LLMAction struct {
-	Player string `json:"player"`
-	Action string `json:"action"`
-	Amount int    `json:"amount,omitempty"`
-	Street string `json:"street"`
-	Pot    int    `json:"pot"`
+	Seat   int
+	Action string
+	Amount int
+	Street Street
+	Pot    int
 }
