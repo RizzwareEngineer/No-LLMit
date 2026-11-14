@@ -11,7 +11,7 @@ const POSES: [string, number][] = [['landed', 0], ['stacked', STEPS[0]], ['turne
 
 const Pair = ({ hand, faceUp, at, slow }: { hand: number; faceUp: boolean; at?: number; slow?: number }) => (
   <div className="flex flex-row items-center gap-1 outline outline-1 outline-dashed outline-neutral-300">
-    {CARDS.map((c, i) => <HoleCard key={`${hand}-${i}`} value={c} faceUp={faceUp} peek slot={i ? 1 : 0} w={40} hand={hand} seat={3} at={at} slow={slow} className="w-10 h-14" />)}
+    {CARDS.map((c, i) => <HoleCard key={`${hand}-${i}`} value={c} faceUp={faceUp} peek slot={i ? 1 : 0} w={40} h={56} hand={hand} seat={3} at={at} slow={slow} className="w-10 h-14" />)}
   </div>
 );
 

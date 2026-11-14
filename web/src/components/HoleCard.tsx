@@ -13,21 +13,23 @@ import { GAP, INDEX_TURN, REST, SHOW, TURN, between, css, down, peekPose, type P
 // mid-hand) shows its face at once; with reduced motion the faces switch with no motion.
 // One element carries the whole pose (lib/peel's css), so the card moves only as a rigid piece. Both cards of a seat are
 // seen through one perspective, from the middle of the two slots.
-// `slot` 0 is the first card dealt, under; 1 the second, on top; `w` the card's width in px; `settle` the seconds until
+// `slot` 0 is the first card dealt, under; 1 the second, on top; `w` and `h` the card's size in px; `settle` the seconds until
 // its flight lands, when dealt while watching: it lands square, as it flew (TableMotion), and slides to its pose;
 // `onLanded` is called once it lies there. The peek lab (PeelLab) also passes `at` (a still of the peek at that second)
 // and `slow` (the peek's length times this).
-export default function HoleCard({ value, faceUp, peek = false, slot = 0, w = 28, hand = 0, seat = 0, settle, onLanded, at, slow = 1, className = "" }: { value: string; faceUp: boolean; peek?: boolean; slot?: 0 | 1; w?: number; hand?: number; seat?: number; settle?: number; onLanded?: () => void; at?: number; slow?: number; className?: string }) {
+export default function HoleCard({ value, faceUp, peek = false, slot = 0, w = 28, h = w / 0.7, hand = 0, seat = 0, settle, onLanded, at, slow = 1, className = "" }: { value: string; faceUp: boolean; peek?: boolean; slot?: 0 | 1; w?: number; h?: number; hand?: number; seat?: number; settle?: number; onLanded?: () => void; at?: number; slow?: number; className?: string }) {
   const reduce = useReducedMotion();
   const k = w / 28, dealt = landing(hand, seat, slot), lay = { x: dealt.x * k, y: dealt.y * k, rotate: dealt.rotate };
-  const first: Pose = at !== undefined ? peekPose(at, slot, w, lay) : faceUp ? REST : settle !== undefined ? down({ x: 0, y: 0, rotate: 0 }) : down(lay);
+  const first: Pose = at !== undefined ? peekPose(at, slot, w, lay, h) : faceUp ? REST : settle !== undefined ? down({ x: 0, y: 0, rotate: 0 }) : down(lay);
   const pose = useRef(first);
-  const transform = useMotionValue(css(first, w)), index = useMotionValue(first.index);
+  const transform = useMotionValue(css(first, w, h)), index = useMotionValue(first.index), z = useMotionValue(above(first));
   const was = useRef<boolean | null>(null);
-  const show = (p: Pose) => { pose.current = p; transform.set(css(p, w)); index.set(p.index); };
+  // Face down the second card lies on top; once the stack shows its faces (lifted past upright, or turned over) the first.
+  function above(p: Pose) { return slot === 0 && Math.cos(p.lift * Math.PI / 180) * Math.cos(p.flip * Math.PI / 180) > 0 ? 1 : 0; }
+  const show = (p: Pose) => { pose.current = p; transform.set(css(p, w, h)); index.set(p.index); z.set(above(p)); };
 
   useEffect(() => {
-    if (at !== undefined) { show(peekPose(at, slot, w, lay)); return; }
+    if (at !== undefined) { show(peekPose(at, slot, w, lay, h)); return; }
     const before = was.current;
     was.current = faceUp;
     let move: ReturnType<typeof animate> | undefined;
@@ -41,7 +43,7 @@ export default function HoleCard({ value, faceUp, peek = false, slot = 0, w = 28
     } else if (faceUp && !before) {
       const from = pose.current;
       if (reduce) show(REST);
-      else if (peek) move = animate(0, SHOW * slow, { duration: SHOW * slow, ease: 'linear', onUpdate: t => show(peekPose(t / slow, slot, w, lay)) });
+      else if (peek) move = animate(0, SHOW * slow, { duration: SHOW * slow, ease: 'linear', onUpdate: t => show(peekPose(t / slow, slot, w, lay, h)) });
       else move = animate(0, 1, { duration: TURN, ease: 'easeInOut', onUpdate: u => show(between(from, REST, u)) });
     } else if (!faceUp && before) show(down(lay));
     return () => move?.stop();
@@ -50,7 +52,7 @@ export default function HoleCard({ value, faceUp, peek = false, slot = 0, w = 28
   }, [faceUp, at]);
 
   return (
-    <div className={`relative ${className}`} style={{ perspective: 1000, perspectiveOrigin: `${slot ? -GAP / 2 : w + GAP / 2}px 50%` }}>
+    <motion.div className={`relative ${className}`} style={{ zIndex: z, perspective: 1000, perspectiveOrigin: `${slot ? -GAP / 2 : w + GAP / 2}px 50%` }}>
       <motion.div data-lay className="absolute inset-0" style={{ transform, transformStyle: 'preserve-3d' }}>
         <div data-face className="absolute inset-0" style={{ backfaceVisibility: 'hidden' }}>
           <Card value={value} className="w-full h-full" />
@@ -64,6 +66,6 @@ export default function HoleCard({ value, faceUp, peek = false, slot = 0, w = 28
         </div>
         <div data-back aria-hidden className="absolute inset-0 rounded card-back" style={{ transform: 'rotateY(180deg)', backfaceVisibility: 'hidden', boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px' }} />
       </motion.div>
-    </div>
+    </motion.div>
   );
 }

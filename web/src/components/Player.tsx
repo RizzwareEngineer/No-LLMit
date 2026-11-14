@@ -88,7 +88,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             animate={{ opacity: 1 }}
             transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
           >
-            <HoleCard value={card} faceUp={up} peek={peek} slot={i ? 1 : 0} w={CARD_SIZES[size].w} hand={handNumber} seat={seatIdx} settle={dealDelays?.[i]} onLanded={i ? () => setLanded(handNumber) : undefined} className={cardClass} />
+            <HoleCard value={card} faceUp={up} peek={peek} slot={i ? 1 : 0} w={CARD_SIZES[size].w} h={CARD_SIZES[size].h} hand={handNumber} seat={seatIdx} settle={dealDelays?.[i]} onLanded={i ? () => setLanded(handNumber) : undefined} className={cardClass} />
           </motion.div>
         ))
       ) : (
