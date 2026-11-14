@@ -827,7 +827,10 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
         await p.evaluate(() => document.querySelectorAll('[data-hole]').forEach(e => { e.style.visibility = 'hidden'; }));
         const hidden = await shoot();
         await p.evaluate(() => document.querySelectorAll('[data-hole]').forEach(e => { e.style.visibility = ''; }));
-        const covered = boxes.filter((_, i) => shown[i] !== hidden[i]).map(b => `seat ${b.seat} "${b.what}"`);
+        // A card pixel differs from the text and its ground by far more than 10% in some channel; hiding the cards' 3D
+        // layers can change the text's anti-aliasing by a few levels, which is no card.
+        const apart = (x, y) => { const [A, B] = [png(x), png(y)]; return A.w !== B.w || A.h !== B.h || A.px.some((v, k) => Math.abs(v - B.px[k]) > 26); };
+        const covered = boxes.filter((_, i) => shown[i] !== hidden[i] && apart(shown[i], hidden[i])).map(b => `seat ${b.seat} "${b.what}"`);
         if (covered.length) bad.push(`${tag}: hole cards paint over ${covered.slice(0, 4).join(', ')}${covered.length > 4 ? ` and ${covered.length - 4} more` : ''}`);
         seen.push(`${tag}: card ${hole2.w.toFixed(0)}x${hole2.h.toFixed(0)}, deck ${deck?.w.toFixed(0)}x${deck?.h.toFixed(0)}, ${flown.length} flights, ${boxes.length} text boxes clear`);
       } finally { await p.close(); }
