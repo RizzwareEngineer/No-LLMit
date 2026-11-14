@@ -8,7 +8,7 @@ import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE, DASH, MUTED, ModelStats, ciHalf, pct, signed } from "@/lib/stats";
-import { CARD_CLASS, CARD_SIZES, Peel, useCardSize } from "@/lib/tableSwitches";
+import { CARD_CLASS, CARD_SIZES, useCardSize } from "@/lib/tableSwitches";
 import { useFillIn } from "@/lib/boxes";
 
 interface PlayerProps {
@@ -24,7 +24,7 @@ interface PlayerProps {
   handNumber?: number;
   dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
   faceUp?: boolean; // the hole cards show their faces: the seat's turn has come this hand, or the hand is over
-  peel?: Peel; // how they turn up (HoleCard): the picked peel for a seat's turn, motion 1 for the hand's end
+  peek?: boolean; // they turn up by the peek (HoleCard): the seat's turn; otherwise (the hand's end) they just turn over
   compact?: boolean; // the phone ring's small seat (PokerTable): no hover band, the stack and action under the name beside the cards
 }
 
@@ -57,7 +57,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peel = 1, compact = false }: PlayerProps) {
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peek = false, compact = false }: PlayerProps) {
   const [hovered, setHovered] = useState(false);
   const bb = useBigBlind();
   const cards = player.holeCards || [];
@@ -84,7 +84,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             animate={{ opacity: 1 }}
             transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
           >
-            <HoleCard value={card} faceUp={faceUp} motion={peel} slot={i ? 1 : 0} w={CARD_SIZES[size].w} settle={dealDelays?.[i]} className={cardClass} />
+            <HoleCard value={card} faceUp={faceUp} peek={peek} slot={i ? 1 : 0} w={CARD_SIZES[size].w} hand={handNumber} seat={seatIdx} settle={dealDelays?.[i]} className={cardClass} />
           </motion.div>
         ))
       ) : (

@@ -842,9 +842,7 @@ group(() => check('table-card-sizes', 'Hole card sizes (?cards=1|2|3; none: as t
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 
-// Filming (every frame Chrome presented, via the CDP screencast, each acked) and pixel stats of boxes in those frames,
-// computed in a page of their own: per box, the share of pixels near the card back's #37352f and near white, and a
-// sample of its pixels (two frames with the same sample paint the box the same).
+// Filming: every frame Chrome presented, via the CDP screencast, each acked.
 const filmFrames = async (p, run, cast = { format: 'png' }) => {
   const cdp = await p.createCDPSession(), frames = [];
   // The screencast paints only what the window shows (headless Chrome's window is 756x556 here), so the window is made
@@ -856,176 +854,176 @@ const filmFrames = async (p, run, cast = { format: 'png' }) => {
   try { await run(); } finally { await cdp.send('Page.stopScreencast').catch(() => {}); await cdp.detach().catch(() => {}); }
   return frames;
 };
-const boxStats = async (frames, boxes) => {
-  const a = await newPage(), out = [];
-  try {
-    for (const fr of frames) out.push(await a.evaluate(async (data, boxes) => {
-      const img = new Image(); img.src = `data:image/png;base64,${data}`; await img.decode();
-      const c = new OffscreenCanvas(img.width, img.height), g = c.getContext('2d'); g.drawImage(img, 0, 0);
-      return boxes.map(b => {
-        const d = g.getImageData(Math.round(b.l), Math.round(b.t), Math.max(1, Math.round(b.w)), Math.max(1, Math.round(b.h))).data;
-        let dark = 0, white = 0, sig = 0;
-        for (let i = 0; i < d.length; i += 4) {
-          if (Math.abs(d[i] - 55) < 24 && Math.abs(d[i + 1] - 53) < 24 && Math.abs(d[i + 2] - 47) < 24) dark++;
-          else if (d[i] > 235 && d[i + 1] > 235 && d[i + 2] > 235) white++;
-          sig = (sig * 31 + d[i] + 7 * d[i + 1] + 13 * d[i + 2]) % 1000000007;
+// Every painted frame (requestAnimationFrame) from now until window.__rec is taken: each shown seat's hole cards as they
+// lie and turn. Per card: its angle on the felt and its box ([data-lay]); its turn (the flipper's cos: -1 face down, 1 up);
+// the flap's lift in degrees ([data-flap]); while the peek draws a corner index, its box and whether it is what the page
+// hits at its centre (painted on top, not a hidden backface). Per seat: any card layer outside the seat or over its name,
+// stack, badge or action text.
+const HOLE_REC = () => {
+  const rec = window.__rec = [];
+  const rect = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+  const m = e => new DOMMatrix(getComputedStyle(e).transform);
+  const tick = () => {
+    if (window.__rec !== rec) return;
+    const seats = {};
+    for (const s of document.querySelectorAll('[data-seat]')) {
+      if (!(s.getBoundingClientRect().width > 0) || !s.querySelector('[data-hole] [data-lay]')) continue;
+      const box = s.getBoundingClientRect(), off = [];
+      const texts = [...s.querySelectorAll('[title], [data-chips], [data-position], [data-action]')].filter(e => !e.closest('[data-hole]')).map(e => [rect(e), e.textContent.trim().slice(0, 12)]);
+      const cards = [...s.querySelectorAll('[data-hole] > *')].map(c => {
+        const lay = c.querySelector('[data-lay]'), l = m(lay), flip = m(c.querySelector('[data-flip]')), flap = m(c.querySelector('[data-flap]')), index = c.querySelector('[data-index]');
+        for (const e of c.querySelectorAll('[data-flip], [data-flap], [data-corner]')) {
+          const [a, b, r, d] = rect(e);
+          if (a < box.left - 0.5 || b < box.top - 0.5 || r > box.right + 0.5 || d > box.bottom + 0.5) off.push('a card outside the seat');
+          for (const [t, say] of texts) if (Math.min(r, t[2]) - Math.max(a, t[0]) > 0.5 && Math.min(d, t[3]) - Math.max(b, t[1]) > 0.5) off.push(`a card over "${say}"`);
         }
-        const n = d.length / 4;
-        return { dark: dark / n, white: white / n, sig, face: dark / n > 0.6 ? 'down' : white / n > 0.6 ? 'up' : 'mid' };
+        const at = index && rect(index);
+        return { deg: Math.atan2(l.b, l.a) * 180 / Math.PI, box: rect(lay), turn: flip.m11, lift: Math.atan2(-flap.m13, flap.m11) * 180 / Math.PI,
+          index: at, seen: at && document.elementFromPoint((at[0] + at[2]) / 2, (at[1] + at[3]) / 2)?.closest('[data-index]') === index };
       });
-    }, fr.data, boxes));
-  } finally { await a.close(); }
-  return out;
+      seats[s.dataset.seat] = { cards, off };
+    }
+    rec.push({ t: performance.now(), seats });
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 };
-// Each seat's two hole card boxes in the viewport, inset 2px (the card's own pixels), in seat order.
-const holeBoxes = p => p.evaluate(() => [...document.querySelectorAll('[data-seat]')].filter(s => s.getBoundingClientRect().width > 0 && s.querySelector('[data-hole]'))
-  .map(s => ({ seat: +s.dataset.seat, cards: [...s.querySelectorAll('[data-hole] > *')].map(e => { const b = e.getBoundingClientRect(); return { l: b.left + 2, t: b.top + 2, w: b.width - 4, h: b.height - 4 }; }) })));
+const holeFace = c => (c.turn < -0.99 ? 'down' : c.turn > 0.99 ? 'up' : 'mid');
 
-// Owner, 2026-11-11: "Hole cards are dealt face down. A seat's cards peel up from the side (like a pro checking them) when
-// its turn first comes, then stay face up for the rest of the hand. A seat that never acts flips at the end of the hand."
-// Scripted at 1440x900, filmed: a deal with peeked [] (every card face down once landed), a seat's llm_thinking (its two
-// cards change over 3 or more painted frames and end face up; every other seat stays down), its game_state with peeked
-// (no change), a second seat's turn, then the hand complete (the rest turn up). Reduced motion: the faces switch with
-// no frame in between. Live engine: a reload mid-hand, once a seat has had its turn and one has not: the first painted
-// frame with the cards drawn (faded in, owner 2026-11-11: "on a mid-hand refresh the dealt cards just fade in") shows the
-// snapshot's peeked seats up and the rest down, and nothing turns over after it.
-// Owner, 2026-11-13, motions 3 (the default) and 4: "when cards get dealt face down initially, the cards aren't lined up
-// ... they put both cards on top of each other, and then they peel from the side ... From there, you can put the cards
-// properly lined up vertically for spectators to see." Each run of 3 and 4 also reads the cards' poses (each card's place
-// layer, [data-lay]): after the deal every seat's two cards lie at two different angles, neither 0; after the hand, at 0,
-// side by side and not overlapping. While a seat's cards turn, every painted frame, each card as drawn (its [data-flip],
-// perspective and all) stays inside the seat and off its name, stack, badge and action text.
-group(() => check('table-hole-peel', 'Hole cards are dealt face down (askew for ?peel=3, the default, and 4); a seat\'s two cards peel up when its turn first comes (every motion, ?peel=1|2|3|4) and stay up, upright and side by side, inside the seat throughout; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no peel; reduced motion switches faces with no motion', async () => {
-  const bad = [], seen = [];
-  const face = s => s.map(c => c.face).join('');
-  // scriptedTable's page, at a query (?peel=1|2|4; none is 3).
-  const run = async (reduced, query = '') => {
-    const askew = !/peel=[12]/.test(query), settle = askew && !reduced ? 2300 : 1100; // 3 and 4 take 1.8 s
-    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
-    if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-    await scriptStream(p);
-    await p.goto(`${BASE}/${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
-    await sleep(2000);
+// Owner, 2026-11-11: "Hole cards are dealt face down ... then stay face up for the rest of the hand. A seat that never acts
+// flips at the end of the hand." Owner, 2026-11-14, on how players peek: "they put both cards on top of each other, then
+// peel BOTH from the side so they can see the suit and the value", and "the orientation in which cards land in front of
+// players should be random". Scripted (at 1440x900, also ?cards=3, the biggest card, and 390x844, the phone ring; and
+// with reduced motion), every painted frame: a deal with peeked [] (every card face down, each seat's two at two
+// different angles, no two seats alike, inside the seat and off its text); a seat's llm_thinking (its cards square into
+// one upright stack, the second lower and a hair right; the flaps of both lift together, at the hold both corner indexes
+// are painted and hit, the first's above the second's, for 0.5 s or more; it ends face up, upright, side by side, never
+// outside the seat or over its text; every other seat stays down); its game_state with peeked (no change); a second seat's
+// turn; the hand complete (the rest turn up); the next deal (every seat at new angles). Reduced motion: the faces switch
+// with no frame between and nothing lifts. Live engine: a reload mid-hand, once a seat has had its turn and one has not:
+// the first frame with the cards drawn (faded in) shows the snapshot's peeked seats up and upright and the rest down,
+// and after it nothing moves but the one seat whose turn may come.
+group(() => check('table-hole-peel', 'Hole cards land face down at random angles (two per seat, per seat, per hand); on a seat\'s first turn its two cards square into one stack, lift at the left as one piece so both ranks and suits show, hold, and lie face up, upright and side by side, inside the seat and off its text throughout (1440x900, ?cards=3, 390x844); the rest turn up when the hand completes; a reload mid-hand shows the same faces with no motion; reduced motion switches faces with no motion', async () => {
+  const bad = [], seen = [], degs = a => a.map(d => `${d.toFixed(1)}°`).join(' and ');
+  const run = async (w, h, reduced, query = '') => {
+    const tag = `${w}x${h}${query}${reduced ? ' reduced motion' : ''}: `, settle = reduced ? 1100 : 2600; // the peek takes 2.1 s
+    const p = await scriptedTable(w, h, reduced, query);
     try {
       const feed = msgs => p.evaluate(msgs => { const s = window.__stream; s.scripted = true; for (const m of msgs) { if (m.type === 'game_state') s.last = m.payload; s.feed(m); } }, msgs);
+      const film = async (msgs, ms) => { await p.evaluate(HOLE_REC); await sleep(100); await feed(msgs); await sleep(ms); return p.evaluate(() => { const r = window.__rec; window.__rec = null; return r; }); };
+      const offIn = (rec, seats) => [...new Set(rec.flatMap(f => seats.flatMap(i => (f.seats[i]?.off ?? []).map(o => `seat ${i}: ${o}`))))];
       await p.evaluate(() => window.__stream.end(4000)); await sleep(4200);
       // The deal, as scriptStream's deal() but with peeked [] (its own copies the last state's).
-      const st = await p.evaluate(() => { const l = window.__stream.last, n = l.players.length, btn = (l.players.findIndex(q => q.isButton) + 1) % n;
+      const deal = () => p.evaluate(() => { const l = window.__stream.last, n = l.players.length, btn = (l.players.findIndex(q => q.isButton) + 1) % n;
         const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => r + x));
         return { ...l, handNumber: l.handNumber + 1, street: 'preflop', pot: 15, currentBet: 10, communityCards: [], winners: undefined, nextHandInMs: undefined, currentPlayerIdx: (btn + 3) % n, peeked: [],
           players: l.players.map((q, i) => ({ ...q, isButton: i === btn, position: l.players[(i + n - 1) % n].position, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: 0 })) }; });
-      await feed([{ type: 'hand_start', payload: { handNumber: st.handNumber } }, { type: 'game_state', payload: st }]);
-      await sleep(3600);
-      const seats = await holeBoxes(p), boxes = seats.flatMap(s => s.cards), idx = seats.map(s => s.seat);
-      const a = st.currentPlayerIdx, b = (a + 1) % st.players.length, at = i => idx.indexOf(i);
+      const st = await deal();
+      const dealing = await film([{ type: 'hand_start', payload: { handNumber: st.handNumber } }, { type: 'game_state', payload: st }], 3600);
+      const all = Object.keys(dealing.at(-1).seats), angles = r => Object.fromEntries(Object.entries(r.at(-1).seats).map(([i, s]) => [i, s.cards.map(c => c.deg)]));
+      const dealt = angles(dealing);
+      for (const [i, s] of Object.entries(dealing.at(-1).seats)) {
+        if (s.cards.map(holeFace).join('') !== 'downdown') bad.push(`${tag}after the deal, seat ${i} not face down`);
+        if (Math.abs(dealt[i][0] - dealt[i][1]) < 0.1) bad.push(`${tag}after the deal, seat ${i}'s cards both lie at ${degs(dealt[i])}`);
+        const twin = Object.keys(dealt).find(j => j !== i && dealt[j].every((d, k) => Math.abs(d - dealt[i][k]) < 0.1));
+        if (twin) bad.push(`${tag}seats ${i} and ${twin} landed alike, at ${degs(dealt[i])}`);
+      }
+      for (const o of offIn(dealing, all)) bad.push(`${tag}the deal: ${o}`);
+      seen.push(`${tag}seat ${all[0]} dealt at ${degs(dealt[all[0]])}`);
+      const a = st.currentPlayerIdx, b = (a + 1) % st.players.length, up = new Set();
       const steps = [
         ['thinking A', [{ type: 'llm_thinking', payload: { turn: 1, playerIdx: a, playerName: st.players[a].name } }], [a]],
         ['game_state A', [{ type: 'game_state', payload: { ...st, currentPlayerIdx: b, peeked: [a] } }], []],
         ['thinking B', [{ type: 'llm_thinking', payload: { turn: 2, playerIdx: b, playerName: st.players[b].name } }], [b]],
         // No winner: its chips would fly across the seats being watched.
-        ['complete', [{ type: 'game_state', payload: { ...st, street: 'complete', currentPlayerIdx: -1, peeked: [a, b], nextHandInMs: 60000, winners: [] } }], idx.filter(i => i !== a && i !== b)],
+        ['complete', [{ type: 'game_state', payload: { ...st, street: 'complete', currentPlayerIdx: -1, peeked: [a, b], nextHandInMs: 60000, winners: [] } }], all.map(Number).filter(i => i !== a && i !== b)],
       ];
-      const tag = `${query}${query && reduced ? ' ' : ''}${reduced ? 'reduced motion' : ''}${query || reduced ? ': ' : ''}`;
-      let up = new Set();
-      const first = await boxStats(await filmFrames(p, () => sleep(200)), boxes);
-      const down = seats.filter((s, k) => face(first.at(-1).slice(2 * k, 2 * k + 2)) !== 'downdown').map(s => s.seat);
-      if (down.length) bad.push(`${tag}after the deal, seats ${down.join(',')} not face down`);
-      // Each seat's two cards as they lie: their angle in degrees and their box.
-      const poses = () => p.evaluate(() => [...document.querySelectorAll('[data-seat]')].filter(s => s.getBoundingClientRect().width > 0 && s.querySelector('[data-hole] [data-lay]'))
-        .map(s => ({ seat: +s.dataset.seat, cards: [...s.querySelectorAll('[data-hole] [data-lay]')].map(e => { const m = new DOMMatrix(getComputedStyle(e).transform), b = e.getBoundingClientRect(); return { deg: Math.atan2(m.b, m.a) * 180 / Math.PI, l: b.left, r: b.right, t: b.top }; }) })));
-      const degs = s => s.cards.map(c => `${c.deg.toFixed(1)}°`).join(' and ');
-      if (askew) {
-        const dealt = await poses(), flat = dealt.filter(s => s.cards.length !== 2 || s.cards.some(c => Math.abs(c.deg) < 1) || Math.abs(s.cards[0].deg - s.cards[1].deg) < 1);
-        if (!dealt.length || flat.length) bad.push(`${tag}after the deal, ${dealt.length ? `seat ${flat[0].seat}'s cards lie at ${degs(flat[0])} (want two different angles, neither 0)` : 'no cards'}`);
-        else if (!reduced) seen.push(`${tag}dealt at ${degs(dealt[0])}`);
-      }
-      // Each painted frame from now until read, the watched seats' cards as drawn: outside the seat or over its text.
-      const watch = seats => p.evaluate(seats => {
-        const out = window.__off = [];
-        const tick = () => {
-          if (window.__off !== out) return;
-          for (const i of seats) {
-            const s = [...document.querySelectorAll(`[data-seat="${i}"]`)].find(e => e.getBoundingClientRect().width > 0);
-            if (!s) continue;
-            const box = s.getBoundingClientRect(), texts = [...s.querySelectorAll('[title], [data-chips], [data-position], [data-action]')].filter(e => !e.closest('[data-hole]'));
-            for (const f of s.querySelectorAll('[data-hole] [data-flip]')) {
-              const r = f.getBoundingClientRect();
-              if (r.left < box.left - 0.5 || r.top < box.top - 0.5 || r.right > box.right + 0.5 || r.bottom > box.bottom + 0.5) out.push(`seat ${i}'s card outside the seat`);
-              for (const e of texts) { const t = e.getBoundingClientRect(); if (Math.min(r.right, t.right) - Math.max(r.left, t.left) > 0.5 && Math.min(r.bottom, t.bottom) - Math.max(r.top, t.top) > 0.5) out.push(`seat ${i}'s card over "${e.textContent.trim().slice(0, 12)}"`); }
-            }
-          }
-          requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      }, seats);
-      const watched = () => p.evaluate(() => { const o = window.__off; window.__off = null; return [...new Set(o)]; });
       for (const [name, msgs, turning] of steps) {
-        if (askew) await watch(turning);
-        const frames = await filmFrames(p, async () => { await sleep(100); await feed(msgs); await sleep(settle); });
-        if (askew) { const off = await watched(); if (off.length) bad.push(`${tag}${name}: ${off.slice(0, 3).join(', ')}`); }
-        const stats = await boxStats(frames, boxes);
+        const rec = await film(msgs, settle), peeking = name.startsWith('thinking');
         turning.forEach(i => up.add(i));
-        for (const [k, s] of seats.entries()) {
-          // A frame changes the cards when 2% or more of a card's pixels change class (dark, white); finer raster
-          // noise of the 3D-composited cards is not a change anyone sees.
-          const of = f => stats[f].slice(2 * k, 2 * k + 2), moved = f => of(f).some((c, j) => Math.abs(c.dark - of(f - 1)[j].dark) + Math.abs(c.white - of(f - 1)[j].white) >= 0.02);
-          const changes = stats.filter((_, f) => f > 0 && moved(f)).length;
-          const end = face(of(stats.length - 1)), want = up.has(s.seat) ? 'upup' : 'downdown';
-          if (end !== want) bad.push(`${tag}${name}: seat ${s.seat} ends ${end}, want ${want}`);
-          if (turning.includes(s.seat)) {
-            const mid = stats.filter((_, f) => of(f).some(c => c.face === 'mid') || face(of(f)) === 'downup' || face(of(f)) === 'updown').length;
-            if (!reduced && changes < 3) bad.push(`${tag}${name}: seat ${s.seat}'s cards change over ${changes} frames`);
-            if (reduced && mid) bad.push(`${tag}${name}: seat ${s.seat} has ${mid} frames between the faces`);
-            if (s.seat === a && name === 'thinking A') seen.push(`${tag}seat ${a} turned over ${changes} frames (${mid} between faces)`);
-          } else if (changes) bad.push(`${tag}${name}: seat ${s.seat}'s cards changed in ${changes} frames`);
+        for (const o of offIn(rec, turning.map(String))) bad.push(`${tag}${name}: ${o}`);
+        for (const i of all) {
+          const frames = rec.map(f => f.seats[i]).filter(Boolean), faces = frames.map(s => s.cards.map(holeFace).join(''));
+          const want = up.has(+i) ? 'upup' : 'downdown', last = frames.at(-1);
+          if (faces.at(-1) !== want) { bad.push(`${tag}${name}: seat ${i} ends ${faces.at(-1)}, want ${want}`); continue; }
+          if (!turning.includes(+i)) { if (new Set(faces).size > 1) bad.push(`${tag}${name}: seat ${i}'s cards turned`); continue; }
+          const between = faces.filter(f => f !== 'downdown' && f !== 'upup').length, lifted = frames.filter(s => s.cards.some(c => Math.abs(c.lift) > 1));
+          // Afterwards: upright, side by side (the second starts where the first ends, or after it), level.
+          const [c0, c1] = last.cards;
+          if (Math.abs(c0.deg) > 0.5 || Math.abs(c1.deg) > 0.5 || c0.box[2] > c1.box[0] + 0.5 || Math.abs(c0.box[1] - c1.box[1]) > 0.5) bad.push(`${tag}${name}: seat ${i}'s cards end at ${degs([c0.deg, c1.deg])}, ${c0.box[0].toFixed(1)}-${c0.box[2].toFixed(1)} and ${c1.box[0].toFixed(1)}-${c1.box[2].toFixed(1)} (want 0°, side by side)`);
+          if (reduced || !peeking) {
+            if (reduced && between) bad.push(`${tag}${name}: seat ${i} has ${between} frames between the faces`);
+            if (lifted.length) bad.push(`${tag}${name}: seat ${i}'s cards lifted (${lifted.length} frames)`);
+            if (!reduced && between < 3) bad.push(`${tag}${name}: seat ${i}'s cards turn over ${between} frames`);
+            continue;
+          }
+          // The peek: in every lifted frame the two flaps at one angle, the cards upright, the second lower by about a
+          // fifth of the card's height and a hair right; at the hold (both past 120°) both indexes painted and hit, the
+          // first above the second.
+          const ch = c0.box[3] - c0.box[1], wrong = new Set();
+          for (const s of lifted) {
+            const [d0, d1] = s.cards;
+            if (Math.abs(d0.lift - d1.lift) > 0.5) wrong.add('the flaps at two angles');
+            if (Math.abs(d0.deg) > 0.5 || Math.abs(d1.deg) > 0.5) wrong.add('the stack not upright');
+            const dy = d1.box[1] - d0.box[1], dx = d1.box[0] - d0.box[0];
+            if (Math.abs(dy - 0.22 * ch) > 1 || dx < 0.5 || dx > 0.15 * ch) wrong.add(`the second ${dx.toFixed(1)}px right and ${dy.toFixed(1)}px lower than the first`);
+          }
+          const hold = lifted.filter(s => s.cards.every(c => Math.abs(c.lift) > 120));
+          for (const s of hold) {
+            const [d0, d1] = s.cards;
+            if (!d0.seen || !d1.seen) wrong.add(`at the hold the ${!d0.seen ? 'first' : 'second'} card's rank and suit not painted on top`);
+            else if (d0.index[3] > d1.index[1] + 0.5) wrong.add('at the hold the first card\'s index not above the second\'s');
+          }
+          const held = hold.length ? frames.indexOf(hold.at(-1)) : -1, ms = hold.length ? rec[rec.findIndex(f => f.seats[i] === hold.at(-1))].t - rec[rec.findIndex(f => f.seats[i] === hold[0])].t : 0;
+          if (ms < 500) wrong.add(`held ${Math.round(ms)} ms`);
+          if (held >= 0 && faces.slice(0, held + 1).some(f => f !== 'downdown')) wrong.add('a face turned up before the hold ended');
+          if (wrong.size) bad.push(`${tag}${name}: seat ${i}: ${[...wrong].slice(0, 3).join(', ')}`);
+          else if (name === 'thinking A') seen.push(`${tag}seat ${i} peeked: held ${Math.round(ms)} ms at ${hold[0].cards[0].lift.toFixed(0)}°, both indexes painted`);
         }
-        if (at(a) < 0 || at(b) < 0) bad.push('seats not found');
       }
-      if (askew) {
-        const shown = await poses(), off = shown.filter(s => s.cards.length !== 2 || s.cards.some(c => Math.abs(c.deg) > 0.5) || s.cards[0].r > s.cards[1].l + 0.5 || Math.abs(s.cards[0].t - s.cards[1].t) > 0.5);
-        if (off.length) bad.push(`${tag}after the hand, seat ${off[0].seat}'s cards lie at ${degs(off[0])}, ${off[0].cards.map(c => `${c.l.toFixed(1)}-${c.r.toFixed(1)}`).join(' and ')} (want 0°, side by side)`);
-      }
+      // The next hand: every seat at new angles.
+      const next = await deal();
+      const again = angles(await film([{ type: 'hand_start', payload: { handNumber: next.handNumber } }, { type: 'game_state', payload: next }], 3600));
+      const same = Object.keys(again).filter(i => dealt[i] && again[i].every((d, k) => Math.abs(d - dealt[i][k]) < 0.1));
+      if (same.length) bad.push(`${tag}the next hand, seats ${same.join(',')} landed as in the last`);
     } finally { await p.close(); }
   };
-  // The biggest card size too, for 3 and 4: their stack and lift reach furthest at it.
-  for (const reduced of [false, true]) for (const query of ['', '?peel=1', '?peel=2', '?peel=4', ...(reduced ? [] : ['?cards=3', '?peel=4&cards=3'])]) await run(reduced, query);
+  for (const [w, h, reduced, query] of [[1440, 900, false], [1440, 900, false, '?cards=3'], [390, 844, false], [1440, 900, true], [390, 844, true]]) await run(w, h, reduced, query);
   // Live: reload until the snapshot has a seat that has had its turn and one that has not.
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   try {
-    // The cards are drawn once their fade-in is done: a hole card (a folded seat's are at 40%) at full opacity.
-    await p.evaluateOnNewDocument(() => { const op = e => (e ? +getComputedStyle(e).opacity * op(e.parentElement) : 1); const look = () => { if (document.querySelector('[data-seat] [data-hole] [data-back]') && Math.max(...[...document.querySelectorAll('[data-seat] [data-hole] > *')].filter(e => e.getBoundingClientRect().width > 0).map(op)) > 0.99) window.__cardsAt = performance.timeOrigin + performance.now(); else requestAnimationFrame(look); }; requestAnimationFrame(look); });
+    // The recorder from the first frame; the cards are drawn once their fade-in is done: a hole card (a folded seat's are
+    // at 40%) at full opacity.
+    await p.evaluateOnNewDocument(HOLE_REC);
+    await p.evaluateOnNewDocument(() => { const op = e => (e ? +getComputedStyle(e).opacity * op(e.parentElement) : 1); const look = () => { if (document.querySelector('[data-seat] [data-hole] [data-back]') && Math.max(...[...document.querySelectorAll('[data-seat] [data-hole] > *')].filter(e => e.getBoundingClientRect().width > 0).map(op)) > 0.99) window.__cardsAt = performance.now(); else requestAnimationFrame(look); }; requestAnimationFrame(look); });
     await p.evaluateOnNewDocument(() => { const Real = window.EventSource; window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'snapshot' && !window.__snap) { const t = Object.values(m.payload.tables)[0]; window.__snap = t && { peeked: t.state.peeked, street: t.state.street, players: t.state.players.length, at: performance.now() }; } if (m.type === 'game_state') window.__now = { peeked: m.payload.peeked, street: m.payload.street, players: m.payload.players.length }; } catch {} fn(e); }; } get onmessage() { return super.onmessage; } }; });
     let ok = null, lastSnap = null;
     for (let tries = 0; tries < 12 && !ok; tries++) {
       let none = false;
-      const frames = await filmFrames(p, async () => {
-        await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-        await p.waitForFunction(() => window.__snap && document.querySelector('[data-seat] [data-hole] [data-back]'), { timeout: 60000 }).catch(() => { none = true; });
-        await sleep(1500);
-      });
-      if (none) { bad.push('live: no hole card with a face-down side within 60 s of the reload'); break; }
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => window.__snap && window.__cardsAt, { timeout: 60000 }).catch(() => { none = true; });
+      await sleep(1500);
+      if (none) { bad.push('live: no hole card drawn within 60 s of the reload'); break; }
       const snap = await p.evaluate(() => window.__snap);
       // Not mid-hand with a seat peeked and one not: at the live pace that moment is the first orbit of a hand, so wait (up
       // to 4 minutes) until the live table is in it again, then reload.
       if (!snap?.peeked || snap.street === 'complete' || !snap.peeked.length || snap.peeked.length >= snap.players) { lastSnap = snap; await p.waitForFunction(() => { const s = window.__now; return s?.peeked?.length && s.peeked.length < s.players - 1 && s.street !== 'complete'; }, { timeout: 240000, polling: 250 }).catch(() => {}); continue; }
-      const seats = await holeBoxes(p), cardsAt = await p.evaluate(() => window.__cardsAt);
-      const from = frames.findIndex(f => f.ts >= cardsAt);
-      ok = { snap, seats, stats: from < 0 ? [] : await boxStats(frames.slice(from), seats.flatMap(s => s.cards)), from };
+      const { rec, cardsAt } = await p.evaluate(() => ({ rec: window.__rec, cardsAt: window.__cardsAt }));
+      ok = { snap, rec: rec.filter(f => f.t >= cardsAt) };
     }
     if (!ok && !bad.some(x => x.startsWith('live:'))) bad.push(`live: no reload landed mid-hand with a seat peeked and one not (12 tries; the last snapshot: ${JSON.stringify(lastSnap)})`);
-    else {
-      const { snap, seats, stats, from } = ok, wrong = [], turned = [];
-      seats.forEach((s, k) => {
-        const want = snap.peeked.includes(s.seat) ? 'upup' : 'downdown', faces = stats.map(f => face(f.slice(2 * k, 2 * k + 2)));
-        if (faces[0] !== want) wrong.push(`seat ${s.seat} ${faces[0]}`);
-        if (faces.some(x => x !== want)) turned.push(s.seat);
-      });
-      if (!stats.length) bad.push('live: no frame with cards');
-      else if (wrong.length) bad.push(`live: the first frame with cards (#${from}) shows ${wrong.join(', ')}, snapshot peeked [${snap.peeked}]`);
-      // The seat whose turn comes while filming may peel; no other.
-      if (turned.length > 1) bad.push(`live: seats ${turned.join(',')} turned over after the reload`);
-      seen.push(`live: snapshot peeked [${snap.peeked}] of ${snap.players} seats, the first frame with cards (#${from}) matches it${turned.length ? `, seat ${turned[0]} then had its turn` : ', nothing turned after it'}`);
+    else if (ok) {
+      const { snap, rec } = ok, wrong = [], moved = [];
+      for (const [i, s] of Object.entries(rec[0]?.seats ?? {})) {
+        const peeked = snap.peeked.includes(+i), faces = s.cards.map(holeFace).join('');
+        if (faces !== (peeked ? 'upup' : 'downdown') || (peeked && s.cards.some(c => Math.abs(c.deg) > 0.5))) wrong.push(`seat ${i} ${faces} at ${degs(s.cards.map(c => c.deg))}`);
+        if (rec.some(f => f.seats[i] && f.seats[i].cards.some((c, k) => holeFace(c) !== holeFace(s.cards[k]) || Math.abs(c.deg - s.cards[k].deg) > 0.1))) moved.push(i);
+      }
+      if (!rec.length) bad.push('live: no frame with cards');
+      else if (wrong.length) bad.push(`live: the first frame with cards shows ${wrong.join(', ')}, snapshot peeked [${snap.peeked}]`);
+      // The seat whose turn comes while filming may peek; no other.
+      if (moved.length > 1) bad.push(`live: seats ${moved.join(',')} moved after the reload`);
+      seen.push(`live: snapshot peeked [${snap.peeked}] of ${snap.players} seats, the first frame with cards matches it${moved.length ? `, seat ${moved[0]} then had its turn` : ', nothing moved after it'}`);
     }
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 8).join('; ') + (bad.length > 8 ? ` and ${bad.length - 8} more` : '') : seen.join('; ') };

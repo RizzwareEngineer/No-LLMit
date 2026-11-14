@@ -45,5 +45,16 @@ const Card = ({ value, className = "", rise = false }: CardProps) => {
   );
 };
 
+// A card's corner index, `size` px tall: rank then suit in a row (HoleCard's peek shows it on the lifted corner).
+export const CardIndex = ({ value, size }: { value: string; size: number }) => {
+  const [Suit, suitColor] = SUITS[value.slice(-1)] ?? [null, ''];
+  return (
+    <span data-index className="flex items-center gap-px font-bold" style={{ fontSize: size, lineHeight: `${size}px`, color: 'rgb(55, 53, 47)' }}>
+      {value.slice(0, -1)}
+      {Suit && <Suit className={`shrink-0 ${suitColor}`} style={{ width: size * 0.9, height: size * 0.9 }} weight="fill" />}
+    </span>
+  );
+};
+
 export default Card;
 
