@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
+	"github.com/rizzwareengineer/no-LLMit/engine/game"
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
@@ -175,7 +176,8 @@ func TestStreamServesSnapshotStatsAndEvents(t *testing.T) {
 	}
 }
 
-// Stats go out once per recompute that added a hand, with only the rows that changed.
+// Stats go out once per recompute that added a hand: the full body the first time, so a
+// stream that opened before any stats has rows to change, then only the rows that changed.
 func TestStatsEventCarriesChangedRows(t *testing.T) {
 	hands := statsHands(t)
 	c := newTestCache(nil)
@@ -192,11 +194,13 @@ func TestStatsEventCarriesChangedRows(t *testing.T) {
 	if len(frames) != 2 {
 		t.Fatalf("%d stats events, want 2", len(frames))
 	}
-	var first, second statsChange
-	json.Unmarshal(parseFrames(t, frames[0])[0].Payload, &first)
+	var first struct{ Models []json.RawMessage }
+	var second statsChange
+	firstRaw := parseFrames(t, frames[0])[0].Payload
+	json.Unmarshal(firstRaw, &first)
 	json.Unmarshal(parseFrames(t, frames[1])[0].Payload, &second)
-	if len(first.Changed) != len(first.ModelNames) || len(first.ModelNames) == 0 {
-		t.Errorf("first event: %d changed of %v", len(first.Changed), first.ModelNames)
+	if strings.Contains(string(firstRaw), `"changed"`) || len(first.Models) == 0 {
+		t.Errorf("first event is not the full body: %.200s", firstRaw)
 	}
 	played := map[string]bool{}
 	for _, a := range hands[4].Actions {
@@ -213,12 +217,12 @@ func TestStatsEventCarriesChangedRows(t *testing.T) {
 		t.Error("the new hand changed no row")
 	}
 	c.hub.mu.RLock()
-	full := string(c.hub.statsFull)
+	full := parseFrames(t, c.hub.stats)[0]
 	c.hub.mu.RUnlock()
 	c.mu.Lock()
 	want := string(c.all.json)
 	c.mu.Unlock()
-	if full != want {
+	if full.Type != MsgStats || string(full.Payload) != want {
 		t.Error("the stream's full stats differ from GET /api/stats")
 	}
 }
@@ -238,6 +242,7 @@ func TestSnapshotKeepsTheAppliedActionUntilTheNextHand(t *testing.T) {
 	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
 	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) {
 		r := reply("FOLD", 0)
+		r.Retried = true
 		return &r, nil
 	}
 	tbl := testTable(t)
@@ -250,8 +255,16 @@ func TestSnapshotKeepsTheAppliedActionUntilTheNextHand(t *testing.T) {
 	if s.Turn == nil || s.Turn.Type != MsgLLMAction || !s.TurnApplied {
 		t.Fatalf("after the action: turn %+v, applied %v", s.Turn, s.TurnApplied)
 	}
-	if p := s.Turn.Payload.(LLMActionPayload); p.PlayerIdx != seat || p.Action != "FOLD" || p.Reason != "because" {
+	if p := s.Turn.Payload.(LLMActionPayload); p.Turn != 1 || p.PlayerIdx != seat || p.Action != "FOLD" || p.Reason != "because" {
 		t.Errorf("turn payload %+v", p)
+	}
+	if tbl.calls != 2 {
+		t.Errorf("a retried turn counted %d calls, want 2", tbl.calls)
+	}
+	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+	tbl.playTurn()
+	if p := snap().Turn.Payload.(LLMActionPayload); p.Turn != 2 {
+		t.Errorf("second turn numbered %d", p.Turn)
 	}
 	if s.State.Players[seat].Status != "folded" {
 		t.Errorf("the state does not show the fold: %+v", s.State.Players[seat])
@@ -260,7 +273,71 @@ func TestSnapshotKeepsTheAppliedActionUntilTheNextHand(t *testing.T) {
 	if _, err := tbl.dealHand(); err != nil {
 		t.Fatal(err)
 	}
-	if s := snap(); s.Turn != nil || s.TurnApplied {
-		t.Errorf("after hand_start: turn %+v, applied %v", s.Turn, s.TurnApplied)
+	if s := snap(); s.Turn != nil || s.TurnApplied || tbl.turns != 0 {
+		t.Errorf("after hand_start: turn %+v, applied %v, %d turns", s.Turn, s.TurnApplied, tbl.turns)
 	}
+}
+
+// The hand after a voided one is dealt live: dealing it clears the outage notice, so a viewer
+// who joins during it sees the same table as one who was watching.
+func TestDealingTheProbeHandClearsTheOutageNotice(t *testing.T) {
+	tbl := testTable(t)
+	tbl.notice = TableNoticePayload{Kind: "outage", Message: "down"}
+	if _, err := tbl.dealHand(); err != nil {
+		t.Fatal(err)
+	}
+	if n := tbl.hub.since(0, true).tables[tbl.id].Notice; n != nil {
+		t.Errorf("snapshot notice after hand_start: %+v", n)
+	}
+	if got := strings.Join(noticeKinds(tbl.hub), ","); got != "" || len(tbl.hub.since(0, false).frames) != 3 {
+		t.Errorf("want a cleared table_notice before hand_start, got kinds %q", got)
+	}
+}
+
+// A hand that settleStreets finishes (nobody left to act) ends with a game_state, so live
+// viewers see the final board.
+func TestSettledHandEndsWithTheFinalState(t *testing.T) {
+	tbl := testTable(t)
+	for range 3 {
+		if err := tbl.gs.ProcessAction(game.Action{Type: game.ActionAllIn, PlayerIdx: tbl.gs.CurrentPlayerIdx}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tbl.settleStreets()
+	frames := tbl.hub.since(0, false).frames
+	last := parseFrames(t, frames[len(frames)-1])[0]
+	var state GameStatePayload
+	json.Unmarshal(last.Payload, &state)
+	if last.Type != MsgGameState || state.Street != "complete" || len(state.CommunityCards) != 5 {
+		t.Errorf("last frame %s %+v", last.Type, state)
+	}
+}
+
+// One address gets maxStreamsPerAddr streams; other addresses are not affected.
+func TestStreamCapPerAddress(t *testing.T) {
+	h := newHub()
+	h.addrs["1.2.3.4"] = maxStreamsPerAddr
+	srv := httptest.NewServer(http.HandlerFunc(h.handleStream))
+	defer srv.Close()
+	for _, c := range []struct {
+		addr string
+		want int
+	}{{"1.2.3.4", http.StatusTooManyRequests}, {"5.6.7.8", http.StatusOK}} {
+		req, _ := http.NewRequest("GET", srv.URL, nil)
+		req.Header.Set("X-Real-IP", c.addr)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != c.want {
+			t.Errorf("%s: %d, want %d", c.addr, resp.StatusCode, c.want)
+		}
+	}
+	waitFor(t, "the closed stream to leave the count", func() bool {
+		h.addrMu.Lock()
+		defer h.addrMu.Unlock()
+		_, held := h.addrs["5.6.7.8"]
+		return !held && h.addrs["1.2.3.4"] == maxStreamsPerAddr
+	})
 }

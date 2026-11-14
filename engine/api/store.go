@@ -34,18 +34,33 @@ const (
 	maxSaveWait   = 60 * time.Second
 )
 
+// supabaseEnv returns the Supabase base URL and service key, both "" unless both are set.
+// The hand store, the stats and the waitlist all use it.
+func supabaseEnv() (base, key string) {
+	base, key = strings.TrimRight(os.Getenv("SUPABASE_URL"), "/"), os.Getenv("SUPABASE_SERVICE_KEY")
+	if base == "" || key == "" {
+		return "", ""
+	}
+	return base, key
+}
+
+// handDir is where hands are kept without Supabase: HAND_LOG_DIR, by default "data".
+func handDir() string {
+	if dir := os.Getenv("HAND_LOG_DIR"); dir != "" {
+		return dir
+	}
+	return "data"
+}
+
+func setSupabaseAuth(req *http.Request, key string) {
+	req.Header.Set("apikey", key)
+	req.Header.Set("Authorization", "Bearer "+key)
+}
+
 func newSaver() handSaver {
-	var saver handSaver
-	if url, key := os.Getenv("SUPABASE_URL"), os.Getenv("SUPABASE_SERVICE_KEY"); url != "" && key != "" {
-		sb := &supabaseSaver{url: strings.TrimRight(url, "/"), key: key, http: &http.Client{Timeout: 15 * time.Second}}
-		go sb.keepAlive()
-		saver = sb
-	} else {
-		dir := os.Getenv("HAND_LOG_DIR")
-		if dir == "" {
-			dir = "data"
-		}
-		saver = &fileSaver{dir: dir}
+	var saver handSaver = &fileSaver{dir: handDir()}
+	if base, key := supabaseEnv(); base != "" {
+		saver = &supabaseSaver{url: base, key: key, http: &http.Client{Timeout: 15 * time.Second}}
 	}
 	log.Printf("Saving hands to %s", saver.describe())
 	return saver
@@ -90,38 +105,6 @@ type supabaseSaver struct {
 
 func (s *supabaseSaver) describe() string { return "Supabase (" + s.url + ")" }
 
-// keepAlive reads one row every 6 hours, so a free Supabase project is never paused for
-// inactivity while the table is closed.
-func (s *supabaseSaver) keepAlive() {
-	for {
-		if err := s.ping(); err != nil {
-			log.Printf("!!! Supabase keep-alive failed: %v", err)
-		} else {
-			log.Printf("Supabase keep-alive ok")
-		}
-		time.Sleep(6 * time.Hour)
-	}
-}
-
-func (s *supabaseSaver) ping() error {
-	req, err := http.NewRequest("GET", s.url+"/rest/v1/hands?select=hand_id&limit=1", nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("apikey", s.key)
-	req.Header.Set("Authorization", "Bearer "+s.key)
-	resp, err := s.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
-		return fmt.Errorf("status %d: %s", resp.StatusCode, msg)
-	}
-	return nil
-}
-
 func (s *supabaseSaver) save(h savedHand) error {
 	body, err := json.Marshal(map[string]any{
 		"p_hand":          h.Record,
@@ -137,8 +120,7 @@ func (s *supabaseSaver) save(h savedHand) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("apikey", s.key)
-	req.Header.Set("Authorization", "Bearer "+s.key)
+	setSupabaseAuth(req, s.key)
 
 	resp, err := s.http.Do(req)
 	if err != nil {

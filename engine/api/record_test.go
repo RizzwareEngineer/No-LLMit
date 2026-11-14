@@ -219,12 +219,10 @@ func TestHandRecordUncontestedAndFallbacks(t *testing.T) {
 }
 
 func TestParseActionType(t *testing.T) {
-	for _, s := range []string{"ALL_IN", "ALL-IN", "all-in", "allin"} {
-		if got, ok := ParseActionType(s); !ok || got != game.ActionAllIn {
-			t.Errorf("ParseActionType(%q) = %v, %v; want ALL-IN", s, got, ok)
-		}
+	if got, ok := ParseActionType("ALL_IN"); !ok || got != game.ActionAllIn {
+		t.Errorf("ParseActionType(ALL_IN) = %v, %v; want ALL-IN", got, ok)
 	}
-	for _, s := range []string{"BET", "SHOVE", ""} {
+	for _, s := range []string{"BET", "SHOVE", "", "fold", "ALL-IN"} {
 		if _, ok := ParseActionType(s); ok {
 			t.Errorf("ParseActionType(%q) should not be ok", s)
 		}

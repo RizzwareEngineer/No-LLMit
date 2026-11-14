@@ -20,71 +20,32 @@ type Winner struct {
 	PotNumber       int      `json:"potNumber"`
 }
 
+// CalculatePots splits the chips into a main pot and side pots, one per contribution level
+// of the players still in the hand.
 func (gs *GameState) CalculatePots() {
 	type contribution struct {
 		playerIdx int
 		amount    int
-		isAllIn   bool
 	}
 
 	var activeContributions []contribution
 	var folded []int // each folded player's contribution, split across pot levels below
-	totalFromFolded := 0
 
 	for i, p := range gs.Players {
 		if p.TotalBetThisHand > 0 {
-			if p.Status == PlayerFolded || p.Status == PlayerEliminated {
-				totalFromFolded += p.TotalBetThisHand
+			if p.Status == PlayerFolded {
 				folded = append(folded, p.TotalBetThisHand)
 			} else {
-				activeContributions = append(activeContributions, contribution{
-					playerIdx: i,
-					amount:    p.TotalBetThisHand,
-					isAllIn:   p.Status == PlayerAllIn,
-				})
+				activeContributions = append(activeContributions, contribution{playerIdx: i, amount: p.TotalBetThisHand})
 			}
 		}
 	}
 
-	if len(activeContributions) == 0 {
-		if totalFromFolded > 0 {
-			var eligible []int
-			for i, p := range gs.Players {
-				if p.Status != PlayerFolded && p.Status != PlayerEliminated {
-					eligible = append(eligible, i)
-				}
-			}
-			gs.Pots = []Pot{{Amount: totalFromFolded, EligiblePlayers: eligible}}
-		} else {
-			gs.Pots = []Pot{}
-		}
-		return
-	}
-
-	sort.Slice(activeContributions, func(i, j int) bool {
+	sort.SliceStable(activeContributions, func(i, j int) bool {
 		return activeContributions[i].amount < activeContributions[j].amount
 	})
 
-	needsSidePots := false
-	for i := 0; i < len(activeContributions)-1; i++ {
-		if activeContributions[i].isAllIn && activeContributions[i].amount < activeContributions[i+1].amount {
-			needsSidePots = true
-			break
-		}
-	}
-
-	if !needsSidePots {
-		totalPot := totalFromFolded
-		var eligible []int
-		for _, c := range activeContributions {
-			totalPot += c.amount
-			eligible = append(eligible, c.playerIdx)
-		}
-		gs.Pots = []Pot{{Amount: totalPot, EligiblePlayers: eligible}}
-		return
-	}
-
-	var pots []Pot
+	pots := []Pot{}
 	prevLevel := 0
 
 	for i := 0; i < len(activeContributions); i++ {
@@ -153,11 +114,8 @@ func (gs *GameState) CollectBetsIntoPot() {
 	}
 }
 
+// AwardPots pays out gs.Pots, which CalculatePots has just set.
 func (gs *GameState) AwardPots(communityCards []Card, evaluateFunc func([]Player, []Card, []int) []int) []Winner {
-	if len(gs.Pots) == 0 {
-		gs.CalculatePots()
-	}
-
 	var winners []Winner
 	amountWon := make(map[int]int)
 	displayPotNumber := 0

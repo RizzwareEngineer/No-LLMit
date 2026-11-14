@@ -11,15 +11,14 @@ import (
 	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
-	"github.com/rizzwareengineer/no-LLMit/engine/game"
 )
 
 type Server struct {
 	// The shared spectator table everyone watches.
 	table *Table
 
-	usageMu  sync.Mutex // held during the fetch, so a burst of requests makes one call
-	usageAt  time.Time
+	usageMu  sync.Mutex
+	usageAt  time.Time       // when the last fetch started
 	usageLLM json.RawMessage // nil when the last fetch failed
 }
 
@@ -86,33 +85,28 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
+var getLLMUsage = client.GetLLMUsage // a test swaps in a slow fetch
+
 // llmUsage asks the LLM service at most once a minute, whether the last call worked or not:
-// every open page asks, and the service also answers the table's turns.
+// every open page asks, and the service also answers the table's turns. The request that
+// starts a fetch waits for it; the others get the last answer without waiting. The fetch
+// times out well inside the minute, so only one runs at a time.
 func (s *Server) llmUsage() json.RawMessage {
 	s.usageMu.Lock()
-	defer s.usageMu.Unlock()
-	if time.Since(s.usageAt) >= time.Minute {
+	last, stale := s.usageLLM, time.Since(s.usageAt) >= time.Minute
+	if stale {
 		s.usageAt = time.Now()
-		llm, err := client.GetLLMUsage()
-		if err != nil {
-			log.Printf("Usage: %v", err)
-		}
-		s.usageLLM = llm
 	}
-	return s.usageLLM
-}
-
-func convertWinners(winners []game.Winner) []WinnerPayload {
-	var result []WinnerPayload
-	for _, w := range winners {
-		result = append(result, WinnerPayload{
-			PlayerIdx:       w.PlayerIdx,
-			Amount:          w.Amount,
-			HandType:        w.HandType.String(),
-			HandDesc:        w.HandDesc,
-			EligiblePlayers: w.EligiblePlayers,
-			PotNumber:       w.PotNumber,
-		})
+	s.usageMu.Unlock()
+	if !stale {
+		return last
 	}
-	return result
+	llm, err := getLLMUsage()
+	if err != nil {
+		log.Printf("Usage: %v", err)
+	}
+	s.usageMu.Lock()
+	s.usageLLM = llm
+	s.usageMu.Unlock()
+	return llm
 }

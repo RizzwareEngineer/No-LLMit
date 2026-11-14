@@ -51,6 +51,7 @@ type Table struct {
 	buttonCards  []ButtonCardPayload
 	buttonWinner *ButtonWinnerPayload
 	turn         *ServerMessage // the last llm_thinking or llm_action this hand
+	turns        int            // turns started this hand; the "turn" number of llm_thinking and llm_action
 	turnApplied  bool           // turn is an llm_action already applied to the table
 	nextHandAt   time.Time
 	notice       TableNoticePayload // shown to everyone while the table is stopped; Kind "" when running
@@ -66,6 +67,7 @@ type Table struct {
 	saveWait     time.Duration // first wait between save attempts; doubles each time
 	onSaved      func(history.HandRecord)
 	recorder     *handRecorder
+	rebought     []int  // seats topped up for the hand being played, or for a voided one: flagged on the next saved hand
 	promptVer    string // version of the cached system prompt
 	systemPrompt string
 
@@ -100,31 +102,10 @@ func NewTable(h *hub, onSaved func(history.HandRecord)) *Table {
 			log.Printf("Ignoring table hours: unknown TABLE_TIMEZONE %q", zone)
 		} else {
 			t.hoursZone = loc
-			log.Printf("Table hours: %s", t.hoursLabel())
+			log.Printf("Table hours: %d to %d %s", t.openHour, t.closeHour, zone)
 		}
 	}
 	return t
-}
-
-func hourLabel(h int) string {
-	switch {
-	case h == 0 || h == 24:
-		return "12am"
-	case h == 12:
-		return "12pm"
-	case h < 12:
-		return fmt.Sprintf("%dam", h)
-	default:
-		return fmt.Sprintf("%dpm", h-12)
-	}
-}
-
-// hoursLabel describes the opening hours, or "" when the table is always open.
-func (t *Table) hoursLabel() string {
-	if t.hoursZone == nil {
-		return ""
-	}
-	return fmt.Sprintf("%s to %s %s", hourLabel(t.openHour), hourLabel(t.closeHour), time.Now().In(t.hoursZone).Format("MST"))
 }
 
 func (t *Table) isOpen() bool {
@@ -157,11 +138,11 @@ func (t *Table) waitForOpenHours() {
 	for !t.isOpen() {
 		if !closed {
 			closed = true
-			log.Printf("Table closed for the day (%s)", t.hoursLabel())
+			log.Printf("Table closed for the day (open %d to %d %s)", t.openHour, t.closeHour, t.hoursZone)
 			t.mu.Lock()
 			t.setNotice(TableNoticePayload{
 				Kind:      "closed",
-				Message:   fmt.Sprintf("The table is closed. It is open daily from %s.", t.hoursLabel()),
+				Message:   "The table is closed.",
 				ReopensAt: t.nextOpen(time.Now()).Format(time.RFC3339),
 			})
 			t.mu.Unlock()
@@ -183,7 +164,6 @@ type TableUsage struct {
 	CallsToday   int    `json:"callsToday"`
 	DailyCallCap int    `json:"dailyCallCap"`
 	Open         bool   `json:"open"`
-	Hours        string `json:"hours,omitempty"`
 	OpenHour     int    `json:"openHour"`
 	CloseHour    int    `json:"closeHour"`
 	Timezone     string `json:"timezone,omitempty"` // IANA zone of the hours; empty when always open
@@ -201,7 +181,6 @@ func (t *Table) Usage() TableUsage {
 		CallsToday:   calls,
 		DailyCallCap: t.dailyCallCap,
 		Open:         t.isOpen(),
-		Hours:        t.hoursLabel(),
 		OpenHour:     t.openHour,
 		CloseHour:    t.closeHour,
 		Spectators:   int(t.hub.open.Load()),
@@ -292,10 +271,6 @@ func (t *Table) waitForBudget() {
 
 // Run plays the table forever.
 func (t *Table) Run() {
-	if err := client.CheckLLMServiceHealth(); err != nil {
-		log.Printf("!!! LLM service not available yet: %v", err)
-	}
-
 	t.startGame()
 	for {
 		t.playHand()
@@ -383,15 +358,18 @@ func seatedPlayers(fetch func() ([]string, error), tries int, wait time.Duration
 func (t *Table) dealHand() (handStart, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	rebought := t.gs.RebuyBrokePlayers(tableStartingStack)
+	t.rebought = append(t.rebought, t.gs.RebuyBrokePlayers(tableStartingStack)...)
 	start := startOf(t.gs)
 	if err := t.gs.StartHand(); err != nil {
 		return start, err
 	}
-	t.recorder = newHandRecorder(t.gs, t.id, rebought)
+	t.recorder = newHandRecorder(t.gs, t.id, t.rebought)
 	t.buttonCards = nil
 	t.buttonWinner = nil
-	t.turn, t.turnApplied = nil, false
+	t.turn, t.turnApplied, t.turns = nil, false, 0
+	if t.notice.Kind == "outage" {
+		t.setNotice(TableNoticePayload{}) // the probe hand plays live; if it fails too, the notice is set again
+	}
 	log.Printf("Started hand #%d", t.gs.HandNumber)
 	t.publish(ServerMessage{Type: MsgHandStart, Payload: map[string]interface{}{"handNumber": t.gs.HandNumber}}, t.stateMessage())
 	return start, nil
@@ -423,25 +401,22 @@ func (t *Table) playHand() {
 	if !t.gs.IsHandComplete() {
 		log.Printf("Hand #%d stalled on %s with nobody to act; dealing a new hand", t.gs.HandNumber, t.gs.Street)
 	} else if t.saveHand() {
-		// An outage: wait before the next hand, which is the probe; it clears the notice if the models answer.
+		// An outage: wait before the next hand, the probe; dealing it clears the notice.
 		wait := time.Duration(float64(outagePause) * t.pace)
 		t.mu.Lock()
 		start.restore(t.gs)
+		t.nextHandAt = time.Now().Add(wait) // the countdown and the notice name the same time
 		t.notice = TableNoticePayload{
 			Kind:      "outage",
 			Message:   "The models can't be reached, so that hand doesn't count.",
-			ReopensAt: time.Now().Add(wait).UTC().Format(time.RFC3339),
+			ReopensAt: t.nextHandAt.UTC().Format(time.RFC3339),
 		}
 		t.publish(ServerMessage{Type: MsgTableNotice, Payload: t.notice}, t.stateMessage())
 		t.mu.Unlock()
-		time.Sleep(wait)
+		time.Sleep(wait) // t.rebought is kept: the restored stacks still hold those rebuys
 		return
 	}
-	if t.notice.Kind == "outage" {
-		t.mu.Lock()
-		t.setNotice(TableNoticePayload{})
-		t.mu.Unlock()
-	}
+	t.rebought = nil
 	if wait := time.Until(t.nextHandAt); wait > 0 {
 		time.Sleep(wait)
 	}
@@ -450,17 +425,18 @@ func (t *Table) playHand() {
 // outagePause is how long the table waits after a voided hand before dealing the next one.
 const outagePause = 5 * time.Minute
 
-// handStart is what a voided hand puts back: every stack and the button, as they were
-// before the blinds, so the next hand is dealt as if the voided one never was.
+// handStart is what a voided hand puts back: every stack, winnings and the button, as they
+// were before the blinds, so the next hand is dealt as if the voided one never was.
 type handStart struct {
-	stacks []int
-	button int
+	stacks, winnings []int
+	button           int
 }
 
 func startOf(gs *game.GameState) handStart {
 	s := handStart{button: gs.ButtonIdx}
 	for _, p := range gs.Players {
 		s.stacks = append(s.stacks, p.Stack)
+		s.winnings = append(s.winnings, p.Winnings)
 	}
 	return s
 }
@@ -468,6 +444,7 @@ func startOf(gs *game.GameState) handStart {
 func (s handStart) restore(gs *game.GameState) {
 	for i := range gs.Players {
 		gs.Players[i].Stack = s.stacks[i]
+		gs.Players[i].Winnings = s.winnings[i]
 	}
 	gs.ButtonIdx = s.button
 }
@@ -528,7 +505,7 @@ func (t *Table) saveHand() (voided bool) {
 // Callers hold t.mu.
 func (t *Table) settleStreets() {
 	for i := 0; i < 5 && !t.gs.IsHandComplete() && !t.gs.IsWaitingForAction() && t.gs.NeedToAdvanceStreet(); i++ {
-		t.publish(t.advanceStreet()...)
+		t.publish(append(t.advanceStreet(), t.stateMessage())...)
 	}
 }
 
@@ -559,7 +536,9 @@ func (t *Table) playTurn() {
 	validActions := buildLLMValidActions(t.gs)
 	req := buildDecisionRequest(t.gs, validActions)
 	t.recorder.beginDecision(t.gs, validActions)
-	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{PlayerIdx: playerIdx, PlayerName: playerName}}
+	t.turns++
+	turnNum := t.turns
+	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{Turn: turnNum, PlayerIdx: playerIdx, PlayerName: playerName}}
 	t.turn, t.turnApplied = &thinking, false
 	t.publish(thinking)
 	t.mu.Unlock()
@@ -581,7 +560,11 @@ func (t *Table) playTurn() {
 		shownAction, shownAmount = turn.action.Type.String(), 0
 	}
 	t.mu.Lock()
+	if decision.Retried {
+		t.calls++ // the service asked the model a second time
+	}
 	acted := ServerMessage{Type: MsgLLMAction, Payload: LLMActionPayload{
+		Turn:       turnNum,
 		PlayerIdx:  playerIdx,
 		PlayerName: playerName,
 		Action:     shownAction,

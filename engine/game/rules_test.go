@@ -4,6 +4,7 @@ package game
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -243,6 +244,12 @@ func TestRaiseNeedsAnOpponentWhoCanRespond(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, c.want) {
 				t.Errorf("player %d is offered %v, want %v", gs.CurrentPlayerIdx, got, c.want)
+			}
+			for _, typ := range []ActionType{ActionRaise, ActionAllIn} {
+				a := Action{Type: typ, Amount: gs.CurrentBet + gs.MinRaise, PlayerIdx: gs.CurrentPlayerIdx}
+				if !slices.Contains(c.want, typ) && gs.CheckAction(a) == nil {
+					t.Errorf("the engine accepts %v, which it does not offer", typ)
+				}
 			}
 		})
 	}

@@ -186,6 +186,20 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 	}
 }
 
+// The stats of trimmed hands are the stats of the hands as saved.
+func TestTrimHandKeepsWhatStatsRead(t *testing.T) {
+	hands := statsHands(t)
+	var trimmed []history.HandRecord
+	for _, h := range hands {
+		trimmed = append(trimmed, trimHand(h))
+	}
+	want, _ := json.Marshal(stats.Compute(hands))
+	got, _ := json.Marshal(stats.Compute(trimmed))
+	if string(got) != string(want) {
+		t.Errorf("trimmed stats differ:\n%s\nwant\n%s", got, want)
+	}
+}
+
 func TestStatsEndpoint(t *testing.T) {
 	hands := statsHands(t)
 	c := newTestCache(func() ([]history.HandRecord, error) { return hands[:4:4], nil })

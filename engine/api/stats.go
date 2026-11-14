@@ -30,9 +30,9 @@ import (
 )
 
 const (
-	statsPollEvery  = 5 * time.Minute
+	statsPollEvery  = 5 * time.Minute  // also what keeps a free Supabase project from pausing for inactivity
 	statsRetryEvery = 15 * time.Second // after a failed load, until one succeeds
-	aievPerPass     = 8                // all-ins worked out per recompute, so serving never waits long
+	aievPerPass     = 8                // all-ins worked out per recompute at least (more with a long history), so serving never waits long
 )
 
 type statsCache struct {
@@ -80,16 +80,12 @@ func newPayload(v any) payload {
 
 func newStatsCache() *statsCache {
 	c := &statsCache{dirty: make(chan struct{}, 1), retryWait: statsRetryEvery, seen: map[string]bool{}, changed: map[string]bool{}}
-	if url, key := os.Getenv("SUPABASE_URL"), os.Getenv("SUPABASE_SERVICE_KEY"); url != "" && key != "" {
-		base := strings.TrimRight(url, "/")
+	if base, key := supabaseEnv(); base != "" {
 		c.load = func() ([]history.HandRecord, error) { return loadSupabaseHands(base, key, time.Time{}) }
 		c.loadSince = func(since time.Time) ([]history.HandRecord, error) { return loadSupabaseHands(base, key, since) }
 	} else {
-		dir := os.Getenv("HAND_LOG_DIR")
-		if dir == "" {
-			dir = "data"
-		}
-		c.load = func() ([]history.HandRecord, error) { return loadHandFile(filepath.Join(dir, "hands.jsonl")) }
+		path := filepath.Join(handDir(), "hands.jsonl")
+		c.load = func() ([]history.HandRecord, error) { return loadHandFile(path) }
 	}
 	return c // the caller sets seated, then starts run
 }
@@ -193,18 +189,26 @@ func (c *statsCache) replace(loaded []history.HandRecord) {
 	sort.SliceStable(c.hands, func(i, j int) bool { return c.hands[i].StartedAt.Before(c.hands[j].StartedAt) })
 }
 
-// trimHand drops what stats never read (the deck and the legal action descriptions) to keep memory down.
+// trimHand drops what stats never read (the deck, each decision's reply and labels, and every
+// legal action but CHECK, which stats only asks about) to keep memory down.
 func trimHand(h history.HandRecord) history.HandRecord {
 	h.Deck = nil
 	h.Actions = append([]history.ActionRecord(nil), h.Actions...) // the caller may still hold the original
 	for i, a := range h.Actions {
-		h.Actions[i].LegalActions = append([]game.LLMValidAction(nil), a.LegalActions...)
-		for j := range h.Actions[i].LegalActions {
-			h.Actions[i].LegalActions[j].Description = ""
+		a.Parsed, a.PromptID, a.Player, a.Model, a.UpstreamProvider, a.PromptVersion = history.ParsedAction{}, "", "", "", "", ""
+		legal := a.LegalActions
+		a.LegalActions = nil
+		for _, l := range legal {
+			if l.Type == "CHECK" {
+				a.LegalActions = checkLegal
+			}
 		}
+		h.Actions[i] = a
 	}
 	return h
 }
+
+var checkLegal = []game.LLMValidAction{{Type: "CHECK"}} // shared by every trimmed hand; never changed
 
 // recompute works out the next batch of all-ins, then re-encodes the all-time stats and
 // every session that changed (all of them when full). It returns true while all-ins are
@@ -216,7 +220,8 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	c.changed, c.added = map[string]bool{}, false
 	c.mu.Unlock()
 
-	warmed, remaining := stats.WarmAIEV(hands, aievPerPass)
+	// One all-in per 1,000 hands held, so a warm-up after a restart takes about 100 passes.
+	warmed, remaining := stats.WarmAIEV(hands, max(aievPerPass, len(hands)/1000))
 	for _, i := range warmed {
 		changed[stats.SessionID(hands[i])] = true
 	}
@@ -274,7 +279,12 @@ func (c *statsCache) recompute(full bool) (more bool) {
 	warmedUp := c.warming && remaining == 0
 	c.warming = remaining > 0
 	if c.hub != nil && all[0].json != nil && (added || warmedUp) {
-		c.hub.publish("", nil, all[0].json, ServerMessage{Type: MsgStats, Payload: c.changedRows(allStats)})
+		first := c.rows == nil
+		var ev any = c.changedRows(allStats)
+		if first {
+			ev = json.RawMessage(all[0].json) // a stream that opened before any stats holds no rows to change
+		}
+		c.hub.publish("", nil, all[0].json, ServerMessage{Type: MsgStats, Payload: ev})
 	}
 	return remaining > 0
 }
@@ -367,8 +377,7 @@ func loadSupabaseHands(base, key string, since time.Time) ([]history.HandRecord,
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("apikey", key)
-		req.Header.Set("Authorization", "Bearer "+key)
+		setSupabaseAuth(req, key)
 		req.Header.Set("Range-Unit", "items")
 		req.Header.Set("Range", fmt.Sprintf("%d-%d", offset, offset+page-1))
 		resp, err := client.Do(req)

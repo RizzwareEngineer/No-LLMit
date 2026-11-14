@@ -91,7 +91,6 @@ type LLMDecisionResponse struct {
 	CostUSD          *float64 `json:"cost_usd"`
 	PromptVersion    string   `json:"prompt_version"`
 	ReasoningTokens  *int     `json:"reasoning_tokens"`
-	FinishReason     string   `json:"finish_reason"`
 	UpstreamProvider string   `json:"upstream_provider"`
 }
 
@@ -122,86 +121,50 @@ func GetLLMDecision(req DecisionRequest) (*LLMDecisionResponse, error) {
 	return &result, nil
 }
 
-func CheckLLMServiceHealth() error {
-	httpClient := &http.Client{Timeout: 5 * time.Second}
-	url := fmt.Sprintf("%s/health", llmServiceURL)
-
-	resp, err := httpClient.Get(url)
+// getJSON GETs path on the LLM service and decodes its JSON answer into out.
+func getJSON(path string, out any) error {
+	resp, err := infoClient.Get(llmServiceURL + path)
 	if err != nil {
 		return fmt.Errorf("LLM service not reachable: %w", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("LLM service unhealthy: status %d", resp.StatusCode)
+		return fmt.Errorf("LLM service returned status %d", resp.StatusCode)
 	}
-
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
 	return nil
 }
 
+var infoClient = &http.Client{Timeout: 5 * time.Second}
+
 // GetLLMUsage returns the LLM service's usage report (provider and spend) as raw JSON.
 func GetLLMUsage() (json.RawMessage, error) {
-	httpClient := &http.Client{Timeout: 5 * time.Second}
-	resp, err := httpClient.Get(fmt.Sprintf("%s/usage", llmServiceURL))
-	if err != nil {
-		return nil, fmt.Errorf("LLM service not reachable: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("LLM service returned status %d", resp.StatusCode)
-	}
-
 	var raw json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	if err := getJSON("/usage", &raw); err != nil {
+		return nil, err
 	}
 	return raw, nil
 }
 
 // GetSystemPrompt returns the system prompt every model receives, for the given version.
 func GetSystemPrompt() (version, prompt string, err error) {
-	httpClient := &http.Client{Timeout: 5 * time.Second}
-	resp, err := httpClient.Get(fmt.Sprintf("%s/prompt", llmServiceURL))
-	if err != nil {
-		return "", "", fmt.Errorf("LLM service not reachable: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("LLM service returned status %d", resp.StatusCode)
-	}
-
 	var body struct {
 		PromptVersion string `json:"prompt_version"`
 		SystemPrompt  string `json:"system_prompt"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return "", "", fmt.Errorf("failed to decode response: %w", err)
-	}
-	return body.PromptVersion, body.SystemPrompt, nil
+	err = getJSON("/prompt", &body)
+	return body.PromptVersion, body.SystemPrompt, err
 }
 
 // GetSeated returns the names the LLM service seats at the table, in seat order. session
 // is how many sessions the local hand log holds; only the mock provider uses it, to rotate
 // the lineup over the whole roster.
 func GetSeated(session int) ([]string, error) {
-	httpClient := &http.Client{Timeout: 5 * time.Second}
-	resp, err := httpClient.Get(fmt.Sprintf("%s/models?session=%d", llmServiceURL, session))
-	if err != nil {
-		return nil, fmt.Errorf("LLM service not reachable: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("LLM service returned status %d", resp.StatusCode)
-	}
-
 	var body struct {
 		Seated []string `json:"seated"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-	return body.Seated, nil
+	err := getJSON(fmt.Sprintf("/models?session=%d", session), &body)
+	return body.Seated, err
 }

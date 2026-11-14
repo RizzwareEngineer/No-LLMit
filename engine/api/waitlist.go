@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/mail"
 	"net/netip"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,8 +33,8 @@ type waitlistStore interface {
 }
 
 func newWaitlist() waitlistStore {
-	if url, key := os.Getenv("SUPABASE_URL"), os.Getenv("SUPABASE_SERVICE_KEY"); url != "" && key != "" {
-		return &supabaseWaitlist{url: strings.TrimRight(url, "/"), key: key, http: &http.Client{Timeout: 15 * time.Second}}
+	if base, key := supabaseEnv(); base != "" {
+		return &supabaseWaitlist{url: base, key: key, http: &http.Client{Timeout: 15 * time.Second}}
 	}
 	return &memoryWaitlist{emails: map[string]bool{}}
 }
@@ -269,8 +268,7 @@ func (s *supabaseWaitlist) do(ctx context.Context, method, query string, body []
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("apikey", s.key)
-	req.Header.Set("Authorization", "Bearer "+s.key)
+	setSupabaseAuth(req, s.key)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Prefer", prefer)
 	return s.http.Do(req)

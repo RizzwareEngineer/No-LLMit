@@ -37,11 +37,9 @@ func (ht HandType) String() string {
 }
 
 type HandResult struct {
-	HandType  HandType `json:"handType"`
-	HandRank  int      `json:"handRank"`  // Overall rank (higher is better)
-	Kickers   []Rank   `json:"kickers"`   // Kickers for tie-breaking
-	BestCards []Card   `json:"bestCards"` // The 5 cards that make the hand
-	PlayerIdx int      `json:"playerIdx"`
+	HandType HandType `json:"handType"`
+	HandRank int      `json:"handRank"` // Overall rank (higher is better); encodes every kicker
+	Kickers  []Rank   `json:"kickers"`  // The ranks that name the hand, for its description
 }
 
 // Base values ensure any higher hand type always beats any lower type
@@ -71,10 +69,6 @@ func EvaluateHand(cards []Card) HandResult {
 		result := evaluate5Cards(combo)
 		if result.HandRank > bestResult.HandRank {
 			bestResult = result
-		} else if result.HandRank == bestResult.HandRank {
-			if compareKickers(result.Kickers, bestResult.Kickers) > 0 {
-				bestResult = result
-			}
 		}
 	}
 
@@ -92,9 +86,7 @@ func evaluate5Cards(cards []Card) HandResult {
 	isStraight, straightHigh := checkStraight(sorted)
 	rankCounts := countRanks(sorted)
 
-	result := HandResult{
-		BestCards: sorted,
-	}
+	var result HandResult
 
 	if isFlush && isStraight {
 		if straightHigh == Ace {
@@ -179,7 +171,7 @@ func CompareHands(a, b HandResult) int {
 	if a.HandRank < b.HandRank {
 		return -1
 	}
-	return compareKickers(a.Kickers, b.Kickers)
+	return 0
 }
 
 func FindWinners(players []Player, communityCards []Card, eligibleIndices []int) []int {
@@ -194,15 +186,13 @@ func FindWinners(players []Player, communityCards []Card, eligibleIndices []int)
 
 	var hands []playerHand
 	for _, idx := range eligibleIndices {
-		if players[idx].Status == PlayerFolded || players[idx].Status == PlayerEliminated {
+		if players[idx].Status == PlayerFolded {
 			continue
 		}
 		allCards := append([]Card{}, players[idx].HoleCards...)
 		allCards = append(allCards, communityCards...)
 
 		result := EvaluateHand(allCards)
-		result.PlayerIdx = idx
-
 		hands = append(hands, playerHand{idx: idx, result: result})
 	}
 
@@ -450,16 +440,4 @@ func generateCombinations(cards []Card, n int) [][]Card {
 
 	helper(0, []Card{})
 	return result
-}
-
-func compareKickers(a, b []Rank) int {
-	for i := 0; i < len(a) && i < len(b); i++ {
-		if a[i] > b[i] {
-			return 1
-		}
-		if a[i] < b[i] {
-			return -1
-		}
-	}
-	return 0
 }

@@ -107,7 +107,8 @@ func statuses(r history.HandRecord) []string {
 	return out
 }
 
-// A voided hand puts every stack and the button back, so the next hand is dealt as if it never was.
+// A voided hand puts every stack, winnings and the button back, so the next hand is dealt as
+// if it never was.
 func TestVoidedHandRestoresStacksAndButton(t *testing.T) {
 	gs := game.NewGame(game.GameConfig{PlayerNames: []string{"A", "B", "C", "D"}, StartingStack: 1000, Stakes: game.Stakes{SmallBlind: 5, BigBlind: 10}})
 	gs.ButtonIdx = 0
@@ -133,11 +134,37 @@ func TestVoidedHandRestoresStacksAndButton(t *testing.T) {
 	}
 	start.restore(gs)
 	for i, p := range gs.Players {
-		if p.Stack != start.stacks[i] {
-			t.Errorf("%s has %d, want %d back", p.Name, p.Stack, start.stacks[i])
+		if p.Stack != start.stacks[i] || p.Winnings != 0 {
+			t.Errorf("%s has %d and winnings %d, want %d and 0 back", p.Name, p.Stack, p.Winnings, start.stacks[i])
 		}
 	}
 	if gs.ButtonIdx != 0 {
 		t.Errorf("button %d, want 0 back", gs.ButtonIdx)
+	}
+}
+
+// A rebuy made for a hand that is then voided is flagged on the next hand that is saved.
+func TestRebuyInAVoidedHandIsFlaggedOnTheNextHand(t *testing.T) {
+	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
+	status := "api_error"
+	askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) {
+		r := reply("FOLD", 0)
+		r.Status = status
+		return &r, nil
+	}
+	tbl := testTable(t)
+	tbl.pace, tbl.saver, tbl.dailyCallCap = 1e-6, &fakeSaver{}, 100
+	var saved []history.HandRecord
+	tbl.onSaved = func(h history.HandRecord) { saved = append(saved, h) }
+	tbl.gs.Players[1].Stack = 0
+
+	tbl.playHand() // every call fails: voided
+	if len(saved) != 0 || tbl.gs.Players[1].Stack != tableStartingStack {
+		t.Fatalf("voided hand: %d saved, B has %d", len(saved), tbl.gs.Players[1].Stack)
+	}
+	status = "ok"
+	tbl.playHand()
+	if len(saved) != 1 || !saved[0].Seats[1].Rebought {
+		t.Errorf("next hand: %d saved, seats %+v", len(saved), saved)
 	}
 }
