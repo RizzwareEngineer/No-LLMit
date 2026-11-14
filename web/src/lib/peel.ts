@@ -25,7 +25,7 @@ export const HOLD_LIFT = 135; // degrees lifted at the hold: past upright, the f
 // As the stack lifts, the second card slides from under the first in their shared plane (never turning apart: one
 // rotation for both), by these shares of the card's width: along the long side past the first's corner, and a little along
 // the short side, so at the hold its index shows beside and below the first's (the owner's photo: the A above the K).
-export const SLIDE = -0.45, SIDE = 0.3;
+export const SLIDE = -0.45, SIDE = 0.55;
 // As it lifts, the stack moves toward the player by this share of the card's width at a half turn, so the faces, which rise
 // past the hinge, stay inside the seat (the hinge's lean already carries the lifted corner to the left; on the phone ring
 // the seat's text is just left of the cards, so nothing more leftward).
