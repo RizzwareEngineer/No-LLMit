@@ -7,6 +7,7 @@ import (
 
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
+	"github.com/rizzwareengineer/no-LLMit/engine/history"
 )
 
 // threeHanded deals A, B, C with 5/10 blinds and plays the given steps.
@@ -109,7 +110,7 @@ func TestCoveredStackIsOfferedAnAllInCall(t *testing.T) {
 		t.Errorf("legal types: %v", types)
 	}
 	// The engine plays that CALL as an all-in.
-	if _, err := gs.CheckAction(game.Action{Type: game.ActionCall, PlayerIdx: sb}); err != nil {
+	if _, err := gs.TryAction(game.Action{Type: game.ActionCall, PlayerIdx: sb}); err != nil {
 		t.Errorf("CALL should be legal: %v", err)
 	}
 }
@@ -119,7 +120,7 @@ func TestDecideLLMTurnAppliesTheModelsMove(t *testing.T) {
 	turn := decideLLMTurn(gs, func() (*client.LLMDecisionResponse, error) {
 		return &client.LLMDecisionResponse{Action: "RAISE", Amount: 30, Status: "ok"}, nil
 	})
-	if turn.fallback || turn.serviceErr || turn.action.Type != game.ActionRaise || turn.action.Amount != 30 {
+	if turn.fallback || turn.serviceErr || turn.applied != (history.AppliedAction{Type: "RAISE", Amount: 30}) {
 		t.Errorf("%+v", turn)
 	}
 }
@@ -130,7 +131,7 @@ func TestDecideLLMTurnFallsBackOnEveryBadStatus(t *testing.T) {
 		turn := decideLLMTurn(gs, func() (*client.LLMDecisionResponse, error) {
 			return &client.LLMDecisionResponse{Action: "RAISE", Amount: 15, Status: status, Retried: true}, nil
 		})
-		if !turn.fallback || turn.action.Type != game.ActionFold || turn.decision.Status != status {
+		if !turn.fallback || turn.applied.Type != "FOLD" || turn.decision.Status != status {
 			t.Errorf("%s: %+v", status, turn)
 		}
 	}
@@ -139,7 +140,7 @@ func TestDecideLLMTurnFallsBackOnEveryBadStatus(t *testing.T) {
 	turn := decideLLMTurn(gs, func() (*client.LLMDecisionResponse, error) {
 		return &client.LLMDecisionResponse{Action: "FOLD", Status: "api_error", Error: "502"}, nil
 	})
-	if !turn.fallback || turn.action.Type != game.ActionCheck {
+	if !turn.fallback || turn.applied.Type != "CHECK" {
 		t.Errorf("free check expected: %+v", turn)
 	}
 }
@@ -149,7 +150,7 @@ func TestDecideLLMTurnRefusesAnUnplayableOkMove(t *testing.T) {
 	turn := decideLLMTurn(gs, func() (*client.LLMDecisionResponse, error) {
 		return &client.LLMDecisionResponse{Action: "RAISE", Amount: 12, Status: "ok"}, nil
 	})
-	if !turn.fallback || turn.action.Type != game.ActionFold || turn.decision.Status != "ok" {
+	if !turn.fallback || turn.applied.Type != "FOLD" || turn.decision.Status != "ok" {
 		t.Errorf("engine must refuse a raise below the minimum: %+v", turn)
 	}
 }
@@ -157,7 +158,7 @@ func TestDecideLLMTurnRefusesAnUnplayableOkMove(t *testing.T) {
 func TestDecideLLMTurnServiceDown(t *testing.T) {
 	gs := threeHanded(t)
 	turn := decideLLMTurn(gs, func() (*client.LLMDecisionResponse, error) { return nil, errors.New("connection refused") })
-	if !turn.serviceErr || !turn.fallback || turn.action.Type != game.ActionFold || turn.decision.Status != "service_error" {
+	if !turn.serviceErr || !turn.fallback || turn.applied.Type != "FOLD" || turn.decision.Status != "service_error" {
 		t.Errorf("%+v", turn)
 	}
 }

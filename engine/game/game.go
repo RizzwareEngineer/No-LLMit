@@ -133,19 +133,7 @@ func (gs *GameState) StartHand() error {
 
 	gs.HandNumber++
 	gs.deck.Shuffle()
-	gs.CommunityCards = []Card{}
-	gs.Winners = nil
-	gs.resetPotsForNewHand()
-
-	for i := range gs.Players {
-		gs.Players[i].HoleCards = []Card{}
-		gs.Players[i].LastAction = nil
-		gs.Players[i].HasActedThisRound = false
-		gs.Players[i].RaiseClosed = false
-		if gs.Players[i].Stack > 0 {
-			gs.Players[i].Status = PlayerActive
-		}
-	}
+	gs.ClearHand()
 
 	// Only rotate button after the first hand (first hand uses button from DetermineButton)
 	if gs.HandNumber > 1 {
@@ -161,6 +149,23 @@ func (gs *GameState) StartHand() error {
 	}
 
 	return nil
+}
+
+// ClearHand takes the last hand off the table: the board, the winners, the pot and bets, and
+// every seat's cards and last move. Seats with chips are active again.
+func (gs *GameState) ClearHand() {
+	gs.CommunityCards = []Card{}
+	gs.Winners = nil
+	gs.resetPotsForNewHand()
+	for i := range gs.Players {
+		gs.Players[i].HoleCards = []Card{}
+		gs.Players[i].LastAction = nil
+		gs.Players[i].HasActedThisRound = false
+		gs.Players[i].RaiseClosed = false
+		if gs.Players[i].Stack > 0 {
+			gs.Players[i].Status = PlayerActive
+		}
+	}
 }
 
 func (gs *GameState) rotateButton() {

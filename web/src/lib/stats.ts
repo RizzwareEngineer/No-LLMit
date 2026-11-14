@@ -35,13 +35,8 @@ export interface ModelStats {
   fold_to_cbet: number | null;
   wtsd: number | null;
   wsd: number | null;
-  avg_bet_pct_pot: number | null;
   fold_when_check_free: number | null;
-  error_rate: number | null;
-  retry_rate: number | null;
   miss_rate?: number | null; // absent from older engines
-  avg_latency_ms: number;
-  cost_usd: number;
   biggest_pot_won: number;
   biggest_pot_lost: number;
   by_position: Record<string, PositionStats>;
@@ -50,17 +45,9 @@ export interface ModelStats {
   vs: Record<string, VsStats>;
 }
 
-interface StatsSession {
-  id: string;
-  started_at: string;
-  ended_at: string | null;
-  hands: number;
-}
-
 export interface StatsResponse {
   generated_at: string;
-  scope: { table_id: string; prompt_version: string; big_blind: number; hands: number; sessions: number };
-  sessions: StatsSession[];
+  scope: { table_id: string; prompt_version: string; big_blind: number; hands: number };
   models: ModelStats[];
   partial: boolean; // all-in EV still computing in the background; aiev_bb100 is provisional
   seated?: string[]; // the table's current lineup
@@ -99,7 +86,7 @@ async function fetchStats(): Promise<StatsResponse> {
   if (res.status === 503) throw new StatsLoadingError(); // engine still building its first snapshot
   if (!res.ok) throw new Error(`stats ${res.status}`);
   const json = await res.json();
-  if (!Array.isArray(json?.models) || !Array.isArray(json?.sessions)) throw new Error('stats: unexpected shape');
+  if (!Array.isArray(json?.models)) throw new Error('stats: unexpected shape');
   return json as StatsResponse;
 }
 

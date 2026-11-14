@@ -8,7 +8,9 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -153,8 +155,8 @@ func TestStatsFromScriptedHands(t *testing.T) {
 		t.Errorf("bb100 sums to %v, aiev to %v", sum, aiev)
 	}
 
-	if s.Scope.Hands != 5 || len(s.Sessions) != 1 || s.Sessions[0].ID != "tbl_test" || s.Sessions[0].EndedAt == nil || s.Partial {
-		t.Errorf("scope %+v sessions %+v", s.Scope, s.Sessions)
+	if s.Scope.Hands != 5 || s.Scope.Sessions != 1 || s.Partial {
+		t.Errorf("scope %+v partial %v", s.Scope, s.Partial)
 	}
 }
 
@@ -166,7 +168,7 @@ func deref(p *float64) any {
 }
 
 func newTestCache(load func() ([]history.HandRecord, error)) *statsCache {
-	return &statsCache{load: load, dirty: make(chan struct{}, 1), retryWait: time.Hour, seen: map[string]bool{}, tableID: "tbl_test"}
+	return &statsCache{load: load, dirty: make(chan struct{}, 1), retryWait: time.Hour, seen: map[string]bool{}}
 }
 
 func (c *statsCache) get(url string) (int, stats.Stats) {
@@ -238,7 +240,7 @@ func TestStatsStay503UntilALoadSucceeds(t *testing.T) {
 	waitFor(t, "the retry", func() bool { _, s := c.get("/api/stats"); return s.Scope.Hands == 5 })
 }
 
-func TestStatsSessionsInPlayOrderAndLiveOnlyLast(t *testing.T) {
+func TestStatsHandsInPlayOrder(t *testing.T) {
 	hands := statsHands(t)
 	start := time.Date(2026, 11, 1, 20, 0, 0, 0, time.UTC)
 	for i := range hands {
@@ -248,26 +250,17 @@ func TestStatsSessionsInPlayOrderAndLiveOnlyLast(t *testing.T) {
 		}
 	}
 	c := newTestCache(nil)
-	for _, i := range []int{3, 1, 4, 0} { // saved out of play order, as spill replays can be
+	for _, i := range []int{3, 1, 4, 0, 2} { // saved out of play order, as spill replays can be
 		c.add(hands[i])
 	}
+	for i, h := range c.hands {
+		if h.HandID != hands[i].HandID {
+			t.Fatalf("hand %d is %s, want %s", i, h.HandID, hands[i].HandID)
+		}
+	}
 	c.recompute()
-
-	_, all := c.get("/api/stats")
-	if len(all.Sessions) != 2 || all.Sessions[0].ID != "tbl_old" || all.Sessions[1].ID != "tbl_test" {
-		t.Fatalf("all-time sessions: %+v", all.Sessions)
-	}
-	if old := all.Sessions[0]; old.EndedAt == nil || !old.StartedAt.Equal(hands[0].StartedAt) || !old.EndedAt.Equal(hands[1].EndedAt) {
-		t.Errorf("finished session: %+v", old)
-	}
-	if cur := all.Sessions[1]; cur.EndedAt != nil || !cur.StartedAt.Equal(hands[3].StartedAt) {
-		t.Errorf("live session: %+v", cur)
-	}
-
-	c.add(hands[2])
-	c.recompute()
-	if _, all := c.get("/api/stats"); all.Scope.Hands != 5 || all.Sessions[1].Hands != 3 {
-		t.Errorf("all-time hands %d, live session %+v", all.Scope.Hands, all.Sessions[1])
+	if _, all := c.get("/api/stats"); all.Scope.Hands != 5 || all.Scope.Sessions != 2 {
+		t.Errorf("scope %+v", all.Scope)
 	}
 }
 
@@ -340,44 +333,6 @@ func TestStatsTimelineByScopeAndGzip(t *testing.T) {
 	}
 }
 
-// After a restart the log ends with the previous run's table; the live session is the new table,
-// with no hands until its first one is saved.
-func TestStatsLiveSessionIsTheRunningTableAfterRestart(t *testing.T) {
-	hands := statsHands(t) // all from tbl_test: the previous run
-	c := newTestCache(func() ([]history.HandRecord, error) { return hands, nil })
-	c.tableID, c.tableFrom = "tbl_new", time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
-	go c.run()
-	waitFor(t, "the load", func() bool { code, _ := c.get("/api/stats"); return code == 200 })
-
-	_, all := c.get("/api/stats")
-	var live []stats.Session
-	for _, s := range all.Sessions {
-		if s.EndedAt == nil {
-			live = append(live, s)
-		}
-	}
-	if len(live) != 1 || live[0].ID != "tbl_new" || live[0].Hands != 0 || !live[0].StartedAt.Equal(c.tableFrom) {
-		t.Fatalf("live sessions: %+v", live)
-	}
-	if len(all.Sessions) != 2 || all.Sessions[0].ID != "tbl_test" || all.Sessions[0].EndedAt == nil {
-		t.Errorf("previous run should be ended: %+v", all.Sessions)
-	}
-
-	// The first hand of the new table fills the live session.
-	h := hands[0]
-	h.HandID, h.TableID, h.StartedAt = "tbl_new-000001", "tbl_new", c.tableFrom.Add(time.Minute)
-	c.Add(h)
-	waitFor(t, "the first new hand", func() bool {
-		_, s := c.get("/api/stats")
-		for _, x := range s.Sessions {
-			if x.ID == "tbl_new" {
-				return x.Hands == 1 && x.EndedAt == nil
-			}
-		}
-		return false
-	})
-}
-
 func TestLoadSupabaseHandsWithSmallRowCap(t *testing.T) {
 	const total, cap = 1201, 500 // the server returns at most 500 rows whatever is asked
 	var ranges []string
@@ -448,4 +403,37 @@ func TestSupabaseHandsSince(t *testing.T) {
 	if len(queries) != 1 || !strings.Contains(queries[0], "started_at=gte.2026-11-10T01%3A56%3A46.280093Z") {
 		t.Errorf("queries %v", queries)
 	}
+}
+
+// TestStatsEventSize logs the bytes of one per-hand stats event, for the Numbers in
+// docs/system-design.md: 2,000 hands (the dataset fixture's 40 nine-handed hands, cycled),
+// then one more. Run it with go test -run TestStatsEventSize -v ./api/.
+func TestStatsEventSize(t *testing.T) {
+	f, err := os.Open("../../dataset/tests/fixtures/generated/hands.jsonl")
+	if err != nil {
+		t.Skip(err)
+	}
+	fixture, err := history.ReadHands(f)
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Hands that end all-in before the river are left out: each copy would be worked out again.
+	fixture = slices.DeleteFunc(fixture, func(h history.HandRecord) bool {
+		return len(h.Result.Showdown) > 1 && h.Actions[len(h.Actions)-1].Street != "river"
+	})
+	c := newTestCache(nil)
+	c.hub = newHub()
+	start := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 2001 {
+		h := fixture[i%len(fixture)]
+		h.HandID, h.StartedAt = fmt.Sprintf("size-%06d", i), start.Add(time.Duration(i)*time.Minute)
+		c.add(h)
+		if i == 1999 {
+			c.recompute()
+		}
+	}
+	c.recompute()
+	frames := c.hub.since(0, false).frames
+	t.Logf("full stats frame %d bytes; per-hand stats event %d bytes", len(frames[0]), len(frames[len(frames)-1]))
 }

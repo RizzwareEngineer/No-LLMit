@@ -65,7 +65,8 @@ sized move is `BET` when nobody has bet on the street yet and `RAISE` otherwise
 `amount` is the chips added on a `CALL`, the street total on a `BET`, `RAISE` or `ALL_IN`
 (a call or raise that takes the whole stack is an `ALL_IN`), and 0 on `FOLD` and `CHECK`. A
 move the engine did not take from the model (a fallback) shows `CHECK` or `FOLD` with
-`amount` 0. A player's `lastAction` and `lastAmount` in `game_state` are the same move:
+`amount` 0 and an empty `reason`, since the model's text argued for its own move (the saved
+hand keeps it in `parsed.reason`). A player's `lastAction` and `lastAmount` in `game_state` are the same move:
 `FOLD`, `CHECK`, `CALL`, `BET`, `RAISE` or `ALL-IN` (with a hyphen), with the same amount.
 
 In `game_state`, each player's `position` is the name the model in that seat is told and the
@@ -143,14 +144,14 @@ has `table`.
 The payload is exactly the `GET /api/stats` body, `models` as the list of row objects.
 
 ```json
-{"seq":1042,"type":"stats","payload":{"generated_at":"...","scope":{},"sessions":[],"models":[{"name":"Phi-4","hands":128}],"seated":["Phi-4"],"partial":false}}
+{"seq":1042,"type":"stats","payload":{"generated_at":"...","scope":{},"models":[{"name":"Phi-4","hands":128}],"seated":["Phi-4"],"partial":false}}
 ```
 
 The first `stats` event after the engine starts is also the full form, so a stream that
 opened before any stats were loaded gets them whole.
 
 **Changed rows.** Sent once per recompute that added a hand and once when the all-in
-warm-up reaches zero left, never per warm-up pass, after that first full event. It has the same envelope keys except `models` and `sessions`, plus `model_names` (every model in the
+warm-up reaches zero left, never per warm-up pass, after that first full event. It has the same envelope keys except `models`, plus `model_names` (every model in the
 order `models` must have) and `changed` (each row whose encoded bytes differ from the last
 one published, whole and absolute).
 
@@ -159,7 +160,7 @@ one published, whole and absolute).
 ```
 
 The client tells them apart by `"changed" in payload`. For the full form it replaces its
-stats. For the changed form it copies the envelope keys (keeping the `sessions` it holds) and sets
+stats. For the changed form it copies the envelope keys and sets
 `models = model_names.map(name => changed row with that name, else the held row)`, dropping a
 name with neither. Rows are matched by `name` only, never by position.
 

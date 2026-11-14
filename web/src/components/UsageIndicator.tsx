@@ -27,13 +27,14 @@ export interface UsageData {
 
 const USAGE_POLL_MS = 30_000;
 
-// Polls /api/usage every 30 s from when the page opened, so viewers' requests are spread out, never sent together on an
-// event every page sees at once.
-export function useUsage() {
+// Polls /api/usage every 30 s from when the page's stream first opened (or failed), so viewers' requests are spread out,
+// never sent together on an event every page sees at once, and the first answer already counts this page as watching.
+export function useUsage(ready: boolean) {
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
+    if (!ready) return;
     const fetchUsage = async () => {
       try {
         const res = await fetch(`${API_URL}/api/usage`);
@@ -47,7 +48,7 @@ export function useUsage() {
     fetchUsage();
     const interval = setInterval(fetchUsage, USAGE_POLL_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [ready]);
 
   return { usage, error };
 }
@@ -117,8 +118,8 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
         )}
 
         {isMock && (
-          <div className="mt-1 text-[11px]" style={{ color: WARN_TEXT }}>
-            Test mode: random actions, no models called
+          <div className="mt-1 text-[11px] whitespace-nowrap" style={{ color: WARN_TEXT }}>
+            Test mode: random moves, no LLM calls
           </div>
         )}
 

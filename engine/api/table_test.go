@@ -5,9 +5,7 @@ import (
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
-	"os"
 	"reflect"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -31,46 +29,21 @@ func TestNextOpen(t *testing.T) {
 	}
 }
 
-func TestSeatedPlayersFallsBackWhenServiceIsDown(t *testing.T) {
-	down := func() ([]string, error) { return nil, errors.New("LLM service not reachable") }
-	if got := seatedPlayers(down, 3, 0); !reflect.DeepEqual(got, defaultPlayers) {
-		t.Errorf("down: got %v", got)
-	}
-	empty := func() ([]string, error) { return nil, nil }
-	if got := seatedPlayers(empty, 3, 0); !reflect.DeepEqual(got, defaultPlayers) {
-		t.Errorf("empty: got %v", got)
-	}
-}
-
+// The table waits for the LLM service however long it takes to start, so the lineup and the
+// shot clock's budget are always the service's own.
 func TestSeatedPlayersWaitsForAStartingService(t *testing.T) {
 	want, calls := []string{"A", "B", "C"}, 0
 	late := func() ([]string, error) {
-		if calls++; calls < 3 {
+		switch calls++; {
+		case calls <= 10:
 			return nil, errors.New("LLM service not reachable")
+		case calls <= 20:
+			return nil, nil
 		}
 		return want, nil
 	}
-	if got := seatedPlayers(late, 12, 0); !reflect.DeepEqual(got, want) || calls != 3 {
+	if got := seatedPlayers(late, 0); !reflect.DeepEqual(got, want) || calls != 21 {
 		t.Errorf("got %v after %d calls", got, calls)
-	}
-}
-
-// defaultPlayers must equal DEFAULT_LINEUP in llm/registry.py: the first SEATS (9) keys of MODELS.
-func TestDefaultPlayersMatchRegistry(t *testing.T) {
-	src, err := os.ReadFile("../../llm/registry.py")
-	if err != nil {
-		t.Fatal(err)
-	}
-	block := strings.SplitN(strings.SplitN(string(src), "MODELS = {", 2)[1], "}", 2)[0]
-	var names []string
-	for _, m := range regexp.MustCompile(`(?m)^\s*"([^"]+)":`).FindAllStringSubmatch(block, -1) {
-		names = append(names, m[1])
-	}
-	if !strings.Contains(string(src), "DEFAULT_LINEUP = list(MODELS)[:SEATS]") || !strings.Contains(string(src), "SEATS = 9") {
-		t.Fatal("registry.py no longer derives DEFAULT_LINEUP as the first 9 of MODELS; update this test")
-	}
-	if len(names) < 9 || !reflect.DeepEqual(names[:9], defaultPlayers) {
-		t.Errorf("registry default lineup %v, engine defaultPlayers %v", names, defaultPlayers)
 	}
 }
 
@@ -141,6 +114,19 @@ func TestVoidedHandRestoresStacksAndButton(t *testing.T) {
 	if gs.ButtonIdx != 0 {
 		t.Errorf("button %d, want 0 back", gs.ButtonIdx)
 	}
+	if len(gs.Winners) != 0 {
+		t.Errorf("winners %+v kept, so seats would show chips the hand no longer gave", gs.Winners)
+	}
+	// Viewers see the table as if the hand was never dealt: no pot, cards, bets or moves.
+	shown := ConvertGameState(gs)
+	if shown.Pot != 0 || len(shown.CommunityCards) != 0 || shown.Street != "complete" {
+		t.Errorf("pot %d, board %v, street %s after the void", shown.Pot, shown.CommunityCards, shown.Street)
+	}
+	for _, p := range shown.Players {
+		if len(p.HoleCards) != 0 || p.CurrentBet != 0 || p.LastAction != "" || p.Status != "active" {
+			t.Errorf("%s shows %v, bet %d, %q, %s after the void", p.Name, p.HoleCards, p.CurrentBet, p.LastAction, p.Status)
+		}
+	}
 }
 
 // A rebuy made for a hand that is then voided is flagged on the next hand that is saved.
@@ -161,6 +147,17 @@ func TestRebuyInAVoidedHandIsFlaggedOnTheNextHand(t *testing.T) {
 	tbl.playHand() // every call fails: voided
 	if len(saved) != 0 || tbl.gs.Players[1].Stack != tableStartingStack {
 		t.Fatalf("voided hand: %d saved, B has %d", len(saved), tbl.gs.Players[1].Stack)
+	}
+	var last string
+	for _, f := range tbl.hub.since(0, false).frames {
+		for _, m := range parseFrames(t, f) {
+			if m.Type == MsgGameState {
+				last = string(m.Payload)
+			}
+		}
+	}
+	if strings.Contains(last, `"winners"`) {
+		t.Errorf("the voided hand's last game_state still names winners: %s", last)
 	}
 	status = "ok"
 	tbl.playHand()

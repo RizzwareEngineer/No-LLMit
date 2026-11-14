@@ -13,7 +13,6 @@ import (
 type Stats struct {
 	GeneratedAt time.Time `json:"generated_at"`
 	Scope       Scope     `json:"scope"`
-	Sessions    []Session `json:"sessions"`
 	Models      []Model   `json:"models"`
 	// Seated is the table's current lineup, set by the engine; absent until it knows it.
 	Seated []string `json:"seated,omitempty"`
@@ -28,13 +27,6 @@ type Scope struct {
 	BigBlind      int    `json:"big_blind"`
 	Hands         int    `json:"hands"`
 	Sessions      int    `json:"sessions"`
-}
-
-type Session struct {
-	ID        string     `json:"id"`
-	StartedAt time.Time  `json:"started_at"`
-	EndedAt   *time.Time `json:"ended_at"` // the caller sets null for the session still being played
-	Hands     int        `json:"hands"`
 }
 
 // Rates are null when nothing qualified for them (for example c-bet with no c-bet chance).
@@ -54,13 +46,13 @@ type Model struct {
 	FoldToCBet     *float64            `json:"fold_to_cbet"`
 	WTSD           *float64            `json:"wtsd"`
 	WSD            *float64            `json:"wsd"`
-	AvgBetPctPot   *float64            `json:"avg_bet_pct_pot"`
+	AvgBetPctPot   *float64            `json:"-"` // this and the other "-" fields: only cmd/stats prints them
 	FoldCheckFree  *float64            `json:"fold_when_check_free"`
-	ErrorRate      *float64            `json:"error_rate"`
-	RetryRate      *float64            `json:"retry_rate"`
+	ErrorRate      *float64            `json:"-"`
+	RetryRate      *float64            `json:"-"`
 	MissRate       *float64            `json:"miss_rate"`
-	AvgLatencyMs   int                 `json:"avg_latency_ms"`
-	CostUSD        float64             `json:"cost_usd"`
+	AvgLatencyMs   int                 `json:"-"`
+	CostUSD        float64             `json:"-"`
 	BiggestPotWon  int                 `json:"biggest_pot_won"`
 	BiggestPotLost int                 `json:"biggest_pot_lost"`
 	ByPosition     map[string]Position `json:"by_position"`
@@ -151,7 +143,7 @@ func ComputeWithTimeline(hands []history.HandRecord) (Stats, Timeline) {
 }
 
 func compute(hands []history.HandRecord, tl *timelineBuilder) (Stats, Timeline) {
-	out := Stats{Sessions: []Session{}, Models: []Model{}}
+	out := Stats{Models: []Model{}}
 	accs := map[string]*acc{}
 	get := func(name string) *acc {
 		if accs[name] == nil {
@@ -160,18 +152,9 @@ func compute(hands []history.HandRecord, tl *timelineBuilder) (Stats, Timeline) 
 		return accs[name]
 	}
 
-	sessionIdx := map[string]int{}
+	sessions := map[string]bool{}
 	for hi, h := range hands {
-		id := SessionID(h)
-		i, ok := sessionIdx[id]
-		if !ok {
-			i = len(out.Sessions)
-			sessionIdx[id] = i
-			out.Sessions = append(out.Sessions, Session{ID: id, StartedAt: h.StartedAt})
-		}
-		ended := h.EndedAt
-		out.Sessions[i].EndedAt = &ended
-		out.Sessions[i].Hands++
+		sessions[SessionID(h)] = true
 		out.Scope = Scope{TableID: h.TableID, PromptVersion: h.Config.PromptVersion, BigBlind: h.Config.BigBlind}
 		if !addHand(h, get) {
 			out.Partial = true
@@ -181,7 +164,7 @@ func compute(hands []history.HandRecord, tl *timelineBuilder) (Stats, Timeline) 
 		}
 	}
 	out.Scope.Hands = len(hands)
-	out.Scope.Sessions = len(out.Sessions)
+	out.Scope.Sessions = len(sessions)
 
 	for _, a := range accs {
 		out.Models = append(out.Models, a.result())

@@ -3,7 +3,10 @@
 // and executes it. Called by api/table.go for each model's move.
 package game
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 type ValidAction struct {
 	Type      ActionType
@@ -109,16 +112,16 @@ func (gs *GameState) raiseCanBeAnswered() bool {
 
 var errNoRaise = fmt.Errorf("no opponent can answer a raise; call or fold")
 
-// CheckAction reports whether ProcessAction would accept the action, and the move it would
-// apply (its LastAction), without changing the game.
-func (gs *GameState) CheckAction(action Action) (Action, error) {
-	trial := *gs
-	trial.Players = append([]Player(nil), gs.Players...)
-	trial.LLMActionsThisHand = nil
-	if err := trial.ProcessAction(action); err != nil {
-		return Action{}, err
+// TryAction plays the action on a copy of the game and returns the copy, or ProcessAction's
+// error; gs is not changed. ProcessAction changes only the players and plain fields.
+func (gs *GameState) TryAction(action Action) (*GameState, error) {
+	next := *gs
+	next.Players = slices.Clone(gs.Players)
+	next.LLMActionsThisHand = slices.Clone(gs.LLMActionsThisHand)
+	if err := next.ProcessAction(action); err != nil {
+		return nil, err
 	}
-	return *trial.Players[action.PlayerIdx].LastAction, nil
+	return &next, nil
 }
 
 func (gs *GameState) processFold(player *Player, action Action) error {

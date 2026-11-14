@@ -27,12 +27,11 @@ func (s *Server) Start(port int) error {
 	stats := newStatsCache()
 	stats.hub = h
 	s.table = NewTable(h, stats.Add)
-	// The lineup can take up to a minute while the LLM service starts; /api/stats answers
-	// 503 and /stream sends no tables until then, so neither reports a lineup the table will not play.
+	// The lineup waits for the LLM service to start; until then /api/stats answers 503 and
+	// /stream sends no tables, so neither reports a lineup the table will not play.
 	go func() {
 		s.table.seated = s.table.lineup()
 		stats.seated = s.table.seated
-		stats.tableID, stats.tableFrom = s.table.id, time.Now().UTC()
 		go stats.run()
 		s.table.Run()
 	}()

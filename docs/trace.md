@@ -45,8 +45,8 @@ The engine and the llm service run on Railway. Railway's edge proxy sits in fron
 **3. Ask the llm service who is seated.**
 - **Where / trigger:** engine, table loop goroutine. It is the goroutine step 1 started.
 - **Code:** `engine/api/table.go` → `lineup`; `engine/api/table.go` → `seatedPlayers`; `engine/client/llm.go` → `GetSeated`; `llm/app.py` → `get_models`.
-- **Does:** Sends `GET {LLM_SERVICE_URL}/models?session=N` up to `lineupTries` (12) times, `lineupWait` (5 s) apart. The service answers `seated`: its `LINEUP`, by default the first 9 names of `MODELS` in `llm/registry.py`, or a rotation over the roster with the mock provider. The same reply carries `turn_budget_s`, which `GetSeated` stores in `client.TurnBudget` when it is above 0. Each try has a 5 s HTTP timeout, and a reply with fewer than 2 names counts as a failed try. If every try fails, the table seats `defaultPlayers`: 55 s of waits after a service that refuses at once, up to about 115 s (12 tries of 5 s plus 11 waits of 5 s) after one that hangs.
-- **Next:** The goroutine gives the stats cache the lineup and the table id, starts the stats goroutine (step 4) and runs the table (step 5).
+- **Does:** Sends `GET {LLM_SERVICE_URL}/models?session=N`, `lineupWait` (5 s) apart, until the service answers. The service answers `seated`: its `LINEUP`, by default the first 9 names of `MODELS` in `llm/registry.py`, or a rotation over the roster with the mock provider. The same reply carries `turn_budget_s`, which `GetSeated` stores in `client.TurnBudget` when it is above 0. Each try has a 5 s HTTP timeout, and a reply with fewer than 2 names counts as a failed try. There is no fallback lineup: the table waits however long the service takes, logging about once a minute, since the lineup and the shot clock's budget are the service's and no hand could be played without it.
+- **Next:** The goroutine gives the stats cache the lineup, starts the stats goroutine (step 4) and runs the table (step 5).
 
 **4. Load the saved hands and compute the first stats.**
 - **Where / trigger:** engine, stats goroutine. Step 3 starts it.
@@ -170,8 +170,8 @@ These steps repeat for every turn, with or without viewers.
 
 **22. Check the move against the rules.**
 - **Where / trigger:** engine, table loop goroutine. The HTTP call of step 19 returns.
-- **Code:** `engine/api/table.go` → `decideLLMTurn`; `engine/api/table.go` → `checkLLMDecision`; `engine/api/table.go` → `fallbackAction`; `engine/api/record.go` → `appliedAction`; `engine/game/action.go` → `CheckAction`.
-- **Does:** A transport error or a non-200 answer becomes a decision with status `service_error`. Otherwise the action name and the amount are checked against the game state. If the status is not `ok` or that check fails, the move to play is the fallback: `CHECK` when legal, else `FOLD`. `appliedAction` (in `engine/api/record.go`) then runs the move on a copy of the game (`CheckAction` returns the move it would apply) and names it: the action, as `BET`, `RAISE`, `ALL_IN` and so on, with the chips added on a `CALL`, the street total on a `BET`, `RAISE` or `ALL_IN`, and 0 on `FOLD` and `CHECK`. The `llm_action` of step 23 and the saved hand's `applied` of step 24 both read that one value.
+- **Code:** `engine/api/table.go` → `decideLLMTurn`; `engine/api/table.go` → `checkLLMDecision`; `engine/api/table.go` → `fallbackAction`; `engine/api/record.go` → `appliedAction`; `engine/game/action.go` → `TryAction`.
+- **Does:** A transport error or a non-200 answer becomes a decision with status `service_error`. Otherwise the action and the amount are played on a copy of the game (`TryAction` runs `ProcessAction` on the copy). If the status is not `ok` or the game refuses the move, the fallback is played on a fresh copy instead: `CHECK` when legal, else `FOLD`. That copy is the table after the move. `appliedAction` (in `engine/api/record.go`) names the seat's move in it: the action, as `BET`, `RAISE`, `ALL_IN` and so on, with the chips added on a `CALL`, the street total on a `BET`, `RAISE` or `ALL_IN`, and 0 on `FOLD` and `CHECK`. The `llm_action` of step 23 and the saved hand's `applied` of step 24 both read that one value.
 - **Next:** Step 23.
 
 **23. Publish `llm_action`.**
@@ -182,8 +182,8 @@ These steps repeat for every turn, with or without viewers.
 
 **24. Apply the action and publish `game_state`.**
 - **Where / trigger:** engine, table loop goroutine. The reasoning sleep ends.
-- **Code:** `engine/api/table.go` → `playTurn`; `engine/game/action.go` → `ProcessAction`; `engine/api/record.go` → `endDecision`; `engine/api/table.go` → `advanceStreet`; `engine/api/table.go` → `stateMessage`.
-- **Does:** Under `t.mu` it applies the move to the game, records the reply and the applied action in the hand's record, and advances the street if the betting round is over. It sets `turnApplied` true and publishes `game_state`, which carries the new street, the board and, when the hand ended, `winners`. Then it sleeps `postActionDelay` (5 s). If the game rejects the checked move (not expected), it logs it, marks the turn as a fallback and applies `FOLD` for that seat before recording, although the `llm_action` already published showed another move.
+- **Code:** `engine/api/table.go` → `playTurn`; `engine/api/record.go` → `endDecision`; `engine/api/table.go` → `advanceStreet`; `engine/api/table.go` → `stateMessage`.
+- **Does:** Under `t.mu` it makes the copy of step 22 the game, so the table gets exactly the move the `llm_action` showed, records the reply and the applied action in the hand's record, and advances the street if the betting round is over. It sets `turnApplied` true and publishes `game_state`, which carries the new street, the board and, when the hand ended, `winners`. Then it sleeps `postActionDelay` (5 s).
 - **Next:** Back to step 17.
 
 ## The event reaches every viewer
@@ -251,7 +251,7 @@ Every frame takes this path: the snapshot first, then the full stats, then live 
 **32. Apply stats.**
 - **Where / trigger:** browser. The message type is `stats`.
 - **Code:** `web/src/lib/stream.ts` → `applyStats`.
-- **Does:** A payload without `changed` is the full body and replaces the held stats. A payload with `changed` replaces those rows by `name`, orders `models` by `model_names` and keeps the held `sessions` (it carries none). It is ignored while no full body is held.
+- **Does:** A payload without `changed` is the full body and replaces the held stats. A payload with `changed` replaces those rows by `name`, orders `models` by `model_names`. It is ignored while no full body is held.
 - **Next:** The stats screens (step 37).
 
 **33. Derive what the page shows.**
@@ -307,13 +307,13 @@ Every frame takes this path: the snapshot first, then the full stats, then live 
 **41. Count the hand and publish the stats.**
 - **Where / trigger:** engine. The table loop goroutine calls `onSaved`, which step 1 set to the stats cache's `Add` method; the stats goroutine wakes on its `dirty` channel.
 - **Code:** `engine/api/stats.go` → `Add`; `engine/api/stats.go` → `run`; `engine/api/stats.go` → `recompute`; `engine/api/stats.go` → `changedRows`; `engine/stats/stats.go` → `ComputeWithTimeline`.
-- **Does:** `onSaved` runs inside `engine/api/store.go` → `saveWithRetry` only after a save succeeds, so the hands step 39 skips never reach the cache. The table loop goroutine inserts the hand into the cache in play order and signals `dirty` without blocking; `dirty` holds one signal, so several adds can collapse into one recompute and one event. The stats goroutine recomputes the stats and re-encodes the bodies of `/api/stats` and `/api/stats/timeline`. It publishes one `stats` event through step 26 with no table id: the payload is the all-time envelope without its session list (`generated_at`, `scope`, `seated`, `partial`, defined in step 4) plus `model_names` and the `changed` rows, without `models` (the full body the first time), and the hub's stored `stats` frame becomes the new full body.
+- **Does:** `onSaved` runs inside `engine/api/store.go` → `saveWithRetry` only after a save succeeds, so the hands step 39 skips never reach the cache. The table loop goroutine inserts the hand into the cache in play order and signals `dirty` without blocking; `dirty` holds one signal, so several adds can collapse into one recompute and one event. The stats goroutine recomputes the stats and re-encodes the bodies of `/api/stats` and `/api/stats/timeline`. It publishes one `stats` event through step 26 with no table id: the payload is the all-time envelope (`generated_at`, `scope`, `seated`, `partial`, defined in step 4) plus `model_names` and the `changed` rows, without `models` (the full body the first time), and the hub's stored `stats` frame becomes the new full body.
 - **Next:** Steps 27, 29 and 32 deliver it. The stats screens re-render, the changed Matchups cells flash (`web/src/lib/stats.ts` → `useChanges`) and, once every 25 hands, the timeline is refetched.
 
 **42. A voided hand.**
 - **Where / trigger:** engine, table loop goroutine. Step 39 found an outage: no decision with status `ok` and at least one `timeout`, `api_error` or `service_error`.
 - **Code:** `engine/api/table.go` → `outage`; `engine/api/table.go` → `playHand`; `engine/api/table.go` → `restore`.
-- **Does:** Puts every stack, the winnings and the button back to what step 6 remembered. Sets a notice of kind `outage` and `nextHandAt` to now plus `outagePause` (5 min), and sends in one publish: `table_notice`, then `game_state`. Nothing is saved and the stats do not change.
+- **Does:** Puts every stack, the winnings and the button back to what step 6 remembered, and `game.ClearHand` takes the hand off the table: board, winners, pot, bets, hole cards and last moves; seats with chips are active again. The street stays `complete`, so the countdown shows. Viewers then see the table as if the hand was never dealt. Sets a notice of kind `outage` and `nextHandAt` to now plus `outagePause` (5 min), and sends in one publish: `table_notice`, then `game_state`. Nothing is saved and the stats do not change.
 - **Next:** It sleeps, then step 6 deals the probe hand and clears the notice with a `table_notice` of kind `""` right before `hand_start`.
 
 ## The connection drops or the server ends it

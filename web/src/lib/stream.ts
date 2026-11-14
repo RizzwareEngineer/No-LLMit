@@ -178,10 +178,9 @@ export function applyMessage(tables: Tables, m: ServerMessage, now: number): Tab
   return { ...tables, [m.table]: applyTableMessage(tables[m.table] ?? EMPTY_TABLE, m, now) };
 }
 
-type ChangedStats = Omit<StatsResponse, 'models' | 'sessions'> & { model_names: string[]; changed: ModelStats[] };
+type ChangedStats = Omit<StatsResponse, 'models'> & { model_names: string[]; changed: ModelStats[] };
 
-// A stats message: the full all-time body replaces the held one; the changed form replaces rows by model name and
-// keeps the sessions held (it carries none).
+// A stats message: the full all-time body replaces the held one; the changed form replaces rows by model name.
 // A changed form with nothing held is ignored: every stream starts with the full body.
 export function applyStats(held: StatsResponse | null, payload: StatsResponse | ChangedStats): StatsResponse | null {
   if (!('changed' in payload)) return payload;
@@ -189,5 +188,5 @@ export function applyStats(held: StatsResponse | null, payload: StatsResponse | 
   const { model_names, changed, ...envelope } = payload;
   const byName = new Map(held.models.map(m => [m.name, m]));
   for (const row of changed) byName.set(row.name, row);
-  return { ...envelope, sessions: held.sessions, models: model_names.flatMap(name => byName.get(name) ?? []) };
+  return { ...envelope, models: model_names.flatMap(name => byName.get(name) ?? []) };
 }

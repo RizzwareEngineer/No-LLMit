@@ -98,10 +98,9 @@ test('a snapshot keeps the turn on screen and replaces everything else', () => {
 });
 
 test('changed stats rows replace held rows by name, in model_names order', () => {
-  const full = { generated_at: 'a', sessions: [{ id: 's1', hands: 2 }], seated: [], partial: true, models: [{ name: 'A', hands: 1 }, { name: 'B', hands: 1 }] };
+  const full = { generated_at: 'a', seated: [], partial: true, models: [{ name: 'A', hands: 1 }, { name: 'B', hands: 1 }] };
   assert.equal(applyStats(null, full), full);
   const next = applyStats(full, { generated_at: 'b', seated: [], partial: false, model_names: ['C', 'B', 'A'], changed: [{ name: 'C', hands: 1 }, { name: 'A', hands: 2 }] });
-  assert.equal(next.sessions, full.sessions, 'the changed form carries no sessions: the held ones stay');
   assert.deepEqual(next.models, [{ name: 'C', hands: 1 }, { name: 'B', hands: 1 }, { name: 'A', hands: 2 }]);
   assert.equal(next.partial, false);
   assert.equal('changed' in next, false);

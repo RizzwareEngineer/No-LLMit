@@ -32,13 +32,6 @@ const (
 	nextHandDelay     = 7 * time.Second
 )
 
-// Seats the table when the LLM service cannot say who is seated (llm/registry.py
-// DEFAULT_LINEUP). The real lineup comes from GET /models at startup; see lineup.
-var defaultPlayers = []string{
-	"GPT-OSS 20B", "Claude Haiku 5.5", "Gemma 3 12B", "Llama 3.1 8B", "Mistral Nemo",
-	"DeepSeek V4 Flash", "Phi-4", "Qwen 3.7 Flash", "Cohere Command R7B",
-}
-
 const (
 	tableStartingStack = 2000
 	tableSmallBlind    = 5
@@ -100,7 +93,6 @@ func NewTable(h *hub, onSaved func(history.HandRecord)) *Table {
 		pace:         envFloat("TABLE_PACE", 1),
 		openHour:     envInt("TABLE_OPEN_HOUR", 0),
 		closeHour:    envInt("TABLE_CLOSE_HOUR", 24),
-		seated:       defaultPlayers,
 		now:          time.Now,
 		pause:        time.Sleep,
 	}
@@ -336,35 +328,29 @@ func (t *Table) lineup() []string {
 		}
 		session = len(ids)
 	}
-	return seatedPlayers(func() ([]string, error) { return client.GetSeated(session) }, lineupTries, lineupWait)
+	return seatedPlayers(func() ([]string, error) { return client.GetSeated(session) }, lineupWait)
 }
 
-// About a minute: long enough for the LLM service to boot after the engine, so a custom
-// LINEUP is not silently replaced by the default nine.
-const (
-	lineupTries = 12
-	lineupWait  = 5 * time.Second
-)
+const lineupWait = 5 * time.Second
 
-// seatedPlayers returns what fetch reports, asking up to tries times wait apart, or
-// defaultPlayers when every attempt fails.
-func seatedPlayers(fetch func() ([]string, error), tries int, wait time.Duration) []string {
-	var err error
-	for i := 0; i < tries; i++ {
-		if i > 0 {
-			time.Sleep(wait)
-		}
-		var names []string
-		if names, err = fetch(); err == nil && len(names) < 2 {
+// seatedPlayers returns what fetch reports, asking wait apart until it answers with two or
+// more names: the lineup and every shot clock's budget come from the LLM service, and while
+// it is down no hand could be played anyway.
+func seatedPlayers(fetch func() ([]string, error), wait time.Duration) []string {
+	for i := 1; ; i++ {
+		names, err := fetch()
+		if err == nil && len(names) < 2 {
 			err = fmt.Errorf("only %d seated", len(names))
 		}
 		if err == nil {
 			log.Printf("Lineup: %v", names)
 			return names
 		}
+		if i%12 == 0 { // about once a minute
+			log.Printf("!!! Lineup unavailable after %d tries (%v); waiting for the LLM service", i, err)
+		}
+		time.Sleep(wait)
 	}
-	log.Printf("!!! Lineup unavailable after %d tries (%v); seating the default nine, LINEUP is ignored until restart", tries, err)
-	return defaultPlayers
 }
 
 // dealHand deals the next hand and publishes hand_start with it; the last hand's turn ends here.
@@ -439,7 +425,8 @@ func (t *Table) playHand() {
 const outagePause = 5 * time.Minute
 
 // handStart is what a voided hand puts back: every stack, winnings and the button, as they
-// were before the blinds, so the next hand is dealt as if the voided one never was.
+// were before the blinds, with the hand's cards, pot, moves and winners cleared, so viewers and
+// the next deal see the table as if the voided hand never was.
 type handStart struct {
 	stacks, winnings []int
 	button           int
@@ -460,6 +447,7 @@ func (s handStart) restore(gs *game.GameState) {
 		gs.Players[i].Winnings = s.winnings[i]
 	}
 	gs.ButtonIdx = s.button
+	gs.ClearHand() // the street stays complete, so the countdown to the next hand still shows
 }
 
 // outage reports whether a hand had no model decision at all because the calls failed: not
@@ -573,28 +561,27 @@ func (t *Table) playTurn() {
 	if decision.Retried {
 		t.calls++ // the service asked the model a second time
 	}
+	reason := decision.Reason
+	if turn.fallback {
+		reason = "" // it argued for the model's own move, not the one played; the saved hand keeps it
+	}
 	acted := ServerMessage{Type: MsgLLMAction, Payload: LLMActionPayload{
 		Turn:       turnNum,
 		PlayerIdx:  playerIdx,
 		PlayerName: playerName,
 		Action:     turn.applied.Type, // the engine's move, never the model's own wording or number
 		Amount:     turn.applied.Amount,
-		Reason:     decision.Reason,
+		Reason:     reason,
 	}}
 	t.turn = &acted
 	t.publish(acted)
 	t.mu.Unlock()
 
-	reasoning := time.Duration(len(decision.Reason))*25*time.Millisecond + 200*time.Millisecond
+	reasoning := time.Duration(len(reason))*25*time.Millisecond + 200*time.Millisecond
 	t.sleep(min(max(reasoning, minReasoning), maxReasoning))
 
 	t.mu.Lock()
-	if err := t.gs.ProcessAction(turn.action); err != nil {
-		// Not expected: decideLLMTurn already checked the action against this state.
-		log.Printf("Error processing LLM action: %v", err)
-		turn.fallback, turn.applied = true, history.AppliedAction{Type: "FOLD"}
-		t.gs.ProcessAction(game.Action{Type: game.ActionFold, PlayerIdx: playerIdx})
-	}
+	*t.gs = *turn.next // the table the shown move came from; nothing else changed t.gs meanwhile
 	t.recorder.endDecision(turn)
 	if t.gs.NeedToAdvanceStreet() {
 		t.advanceStreet()
@@ -609,10 +596,10 @@ func (t *Table) playTurn() {
 // llmTurn is one model decision and the move the engine will apply for it.
 type llmTurn struct {
 	decision   *client.LLMDecisionResponse // the service's reply, as the model gave it
-	action     game.Action
-	applied    history.AppliedAction // what the engine makes of action: the stream and the saved hand show this
-	serviceErr bool                  // the LLM service could not be reached
-	fallback   bool                  // action is not the model's own choice: CHECK when legal, otherwise FOLD
+	next       *game.GameState             // the table after the move: playTurn makes it the table
+	applied    history.AppliedAction       // the move next shows: the stream and the saved hand show this
+	serviceErr bool                        // the LLM service could not be reached
+	fallback   bool                        // action is not the model's own choice: CHECK when legal, otherwise FOLD
 }
 
 // decideLLMTurn asks the LLM service for the current player's move. The service owns the
@@ -624,17 +611,17 @@ func decideLLMTurn(gs *game.GameState, ask func() (*client.LLMDecisionResponse, 
 	d, err := ask()
 	if err != nil {
 		log.Printf("❌ LLM ERROR for %s: %v", name, err)
-		action := fallbackAction(gs, idx)
+		next := fallbackAction(gs, idx)
 		return llmTurn{
 			decision:   &client.LLMDecisionResponse{Action: "FOLD", Status: "service_error"},
-			action:     action,
-			applied:    appliedAction(gs, action),
+			next:       next,
+			applied:    appliedAction(next, idx),
 			serviceErr: true,
 			fallback:   true,
 		}
 	}
 	turn := llmTurn{decision: d}
-	action, reason := checkLLMDecision(gs, idx, d)
+	next, reason := checkLLMDecision(gs, idx, d)
 	switch {
 	case d.Status != "ok":
 		log.Printf("%s: %s (%s), falling back", name, d.Status, d.Error)
@@ -643,32 +630,32 @@ func decideLLMTurn(gs *game.GameState, ask func() (*client.LLMDecisionResponse, 
 		log.Printf("%s: service returned an unplayable move (%s), falling back", name, reason)
 	}
 	if d.Status != "ok" || reason != "" {
-		action, turn.fallback = fallbackAction(gs, idx), true
+		next, turn.fallback = fallbackAction(gs, idx), true
 	}
-	turn.action, turn.applied = action, appliedAction(gs, action)
+	turn.next, turn.applied = next, appliedAction(next, idx)
 	return turn
 }
 
-// checkLLMDecision turns a reply into an action, or says why the engine cannot apply it.
-func checkLLMDecision(gs *game.GameState, idx int, d *client.LLMDecisionResponse) (game.Action, string) {
+// checkLLMDecision plays a reply on a copy of the table, or says why the engine cannot apply it.
+func checkLLMDecision(gs *game.GameState, idx int, d *client.LLMDecisionResponse) (*game.GameState, string) {
 	actionType, ok := ParseActionType(d.Action)
 	if !ok {
-		return game.Action{}, fmt.Sprintf("%q is not a legal action", d.Action)
+		return nil, fmt.Sprintf("%q is not a legal action", d.Action)
 	}
-	action := game.Action{Type: actionType, Amount: d.Amount, PlayerIdx: idx}
-	if _, err := gs.CheckAction(action); err != nil {
-		return action, err.Error()
+	next, err := gs.TryAction(game.Action{Type: actionType, Amount: d.Amount, PlayerIdx: idx})
+	if err != nil {
+		return nil, err.Error()
 	}
-	return action, ""
+	return next, ""
 }
 
-// fallbackAction is CHECK when checking is legal, otherwise FOLD.
-func fallbackAction(gs *game.GameState, idx int) game.Action {
-	check := game.Action{Type: game.ActionCheck, PlayerIdx: idx}
-	if _, err := gs.CheckAction(check); err == nil {
-		return check
+// fallbackAction plays CHECK when checking is legal, otherwise FOLD, on a copy of the table.
+func fallbackAction(gs *game.GameState, idx int) *game.GameState {
+	if next, err := gs.TryAction(game.Action{Type: game.ActionCheck, PlayerIdx: idx}); err == nil {
+		return next
 	}
-	return game.Action{Type: game.ActionFold, PlayerIdx: idx}
+	next, _ := gs.TryAction(game.Action{Type: game.ActionFold, PlayerIdx: idx}) // the seat to act can always fold
+	return next
 }
 
 // buildLLMValidActions converts game valid actions to LLM-friendly format

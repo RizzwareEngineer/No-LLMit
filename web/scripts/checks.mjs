@@ -66,7 +66,7 @@ const COVERS = [
 ];
 function changedChecks() { // a Set of ids, or null for every check
   const git = c => execSync(c, { cwd: new URL('../..', import.meta.url), encoding: 'utf8' }).split('\n').filter(Boolean);
-  const ref = process.env.BASE_REF || 'preview/ui', me = 'web/scripts/checks.mjs';
+  const ref = process.env.BASE_REF || 'origin/main', me = 'web/scripts/checks.mjs';
   const files = new Set(git(`git diff --name-only ${ref}...HEAD; git diff --name-only HEAD; git ls-files --others --exclude-standard --full-name`).filter(f => f.startsWith('web/')));
   const src = SRC, all = IDS, ids = new Set();
   for (const f of files) {
@@ -320,6 +320,22 @@ group(async () => {
   });
 });
 
+// The felt's edge bets line up with the desktop ring of seats. On a phone the seats sit in a grid below the felt and
+// each shows its own bet, so the felt draws none (they lined up with no seat and could cover the board).
+group(() => check('phone-felt-no-bets', 'With bets out, the felt draws them at 1440x900 and draws none at 390x844', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, want] of [[1440, 900, true], [390, 844, false]]) {
+    const p = await scriptedTable(w, h);
+    await p.evaluate(() => window.__stream.bets()); await sleep(1000);
+    const r = await p.evaluate(() => { const all = [...document.querySelectorAll('[data-bet]')]; return { all: all.length, shown: all.filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 || b.height > 0; }).length }; });
+    seen.push(`${w}x${h}: ${r.shown} of ${r.all} bets drawn`);
+    if (!r.all) bad.push(`${w}x${h}: no bets in the page`);
+    else if (want ? r.shown < 3 : r.shown) bad.push(`${w}x${h}: ${r.shown} of ${r.all} bets drawn on the felt`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+
 // The table's amounts in chips or in big blinds (owner 2026-11-08: "a toggle view if someone cares about looking at the
 // game by big blinds versus just the absolute size of the stack"). One switch in the header's status row, kept across a
 // reload. Every amount on the table screen follows it in one format: seat stacks and actions, bets, the pot, Profits &
@@ -443,7 +459,7 @@ group(() => check('history-splash-survives-hand', 'A hand saved while Trends rep
     // A splash on screen, then the next hand's stats (its count one up), as the engine sends them.
     const flying = await p.waitForFunction(() => document.querySelector('[data-burst]'), { timeout: 20000 }).then(() => true, () => false);
     if (!flying) return { pass: false, detail: 'no splash in 20 s of replay' };
-    const { models, sessions, ...envelope } = e.stats;
+    const { models, ...envelope } = e.stats;
     await p.evaluate(m => { window.__splash.armed = true; window.__stream.scripted = true; window.__stream.feed(m); },
       { type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: envelope.scope.hands + 1 }, model_names: models.map(m => m.name), changed: [] } });
     await sleep(1500);
@@ -473,7 +489,7 @@ group(() => check('history-timeline-fetches', 'Thirty hands of stats events fetc
     if (!e) return { pass: false, detail: 'no engine stream seen' };
     await sleep(1500);
     p.on('request', r => { if (/\/api\/stats\/timeline/.test(r.url())) urls.push(r.url()); });
-    const base = e.stats.scope.hands, { models, sessions, ...envelope } = e.stats;
+    const base = e.stats.scope.hands, { models, ...envelope } = e.stats;
     for (let h = base + 1; h <= base + 30; h++) {
       await p.evaluate(m => { window.__stream.scripted = true; window.__stream.feed(m); },
         { type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: h }, model_names: models.map(m => m.name), changed: [] } });
@@ -482,7 +498,7 @@ group(() => check('history-timeline-fetches', 'Thirty hands of stats events fetc
     await sleep(2500);
     const ends = await p.evaluate(() => [...new Set([...document.querySelectorAll('[data-sync-hand]')].map(e => +e.dataset.syncHand))]);
     const ok = urls.length <= 2 && ends.length > 0 && ends.every(h => h === base + 30);
-    return { pass: ok, detail: `hands ${base + 1}-${base + 30}: ${urls.length} timeline fetches (sessions held: ${sessions.length}); synced cards end at ${ends.join(', ') || 'none'}` };
+    return { pass: ok, detail: `hands ${base + 1}-${base + 30}: ${urls.length} timeline fetches; synced cards end at ${ends.join(', ') || 'none'}` };
   } finally { await p.close(); }
 }));
 
@@ -3853,6 +3869,46 @@ group(() => check('about-dial-touch-motion', 'At 390x844 with touch, one vertica
   if (frame.at !== 1 || frame.o !== 1 || frame.f !== 'none' || frame.back > 0.5 || frame.anims) bad.push(`reduced motion: the frame after ArrowDown shows row ${frame.at} at opacity ${frame.o} (${frame.f}), the row behind at ${frame.back}, ${frame.anims} animations running`);
   await q.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+// Every line of the API usage card fits on one line (owner's rule: UI text fits one line); the mock provider's test-mode
+// line wrapped "called" onto a second line at 1440x900.
+group(() => check('usage-card-one-line', 'At 1440x900, 1728x1117 and 390x844 every text line in the API usage card sits on one line', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) {
+    const p = await newPage(); await p.setViewport({ width: w, height: h });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].some(e => e.getBoundingClientRect().width > 0 && e.closest('.rounded')?.textContent.includes('/')), { timeout: 60000, polling: 250 }).catch(() => {});
+    await sleep(1500);
+    const r = await p.evaluate(() => {
+      const a = [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].find(e => e.getBoundingClientRect().width > 0);
+      if (!a) return null;
+      const lines = [...a.closest('.rounded').querySelectorAll('*')].filter(e => [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()));
+      return lines.map(e => {
+        const rg = document.createRange(); rg.selectNodeContents(e);
+        return { text: e.textContent.trim(), n: new Set([...rg.getClientRects()].filter(q => q.width > 0).map(q => Math.round(q.top))).size };
+      });
+    });
+    const at = `${w}x${h}`;
+    if (!r) { bad.push(`${at}: no usage card`); await p.close(); continue; }
+    const wrapped = r.filter(l => l.n > 1);
+    seen.push(`${at}: ${r.length} lines`);
+    for (const l of wrapped) bad.push(`${at}: "${l.text}" on ${l.n} lines`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// The watching count's first answer already counts the page asking: the usage poll starts once the page's own stream
+// is open, as the hub counts a stream only when its request arrives (a fetch at mount read "0 watching" for 30 s).
+group(() => check('watching-counts-me', 'A fresh table page\'s status label, when it first reads "· N watching", has N of at least 1, since the page itself is watching', async () => {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  const first = await p.waitForFunction(() => {
+    const m = [...document.querySelectorAll('span')].map(e => e.textContent.match(/· ([\d,]+) watching/)).find(Boolean);
+    return m ? m[1] : false;
+  }, { timeout: 20000, polling: 50 }).then(h => h.jsonValue()).catch(() => null);
+  await p.close();
+  const n = first === null ? null : +first.replace(/,/g, '');
+  return { pass: n !== null && n >= 1, detail: n === null ? 'no "· N watching" within 20 s' : `first read "· ${first} watching"` };
 }));
 // Owner, 2026-11-12: "the donation part is not like... apparent". The ask sits on the table screen, in the API usage card
 // beside the calls it pays for: a filled "Sponsor on GitHub" link, its sentence on one line, and Profits & Losses above

@@ -52,9 +52,7 @@ type statsCache struct {
 	rows    map[string][]byte // each model's row as last published; only run touches it
 	hub     *hub              // nil: publish nothing (tests)
 
-	seated    []string  // the table's lineup; set before run starts, never changed after
-	tableID   string    // the table this engine is playing: the live session, even before its first hand
-	tableFrom time.Time // when that table started; the live session's start until it has a hand
+	seated []string // the table's lineup; set before run starts, never changed after
 }
 
 // payload is a response body, and its gzip for clients that accept it.
@@ -219,17 +217,6 @@ func (c *statsCache) recompute() (more bool) {
 	allStats, tl := stats.ComputeWithTimeline(hands)
 	allStats.GeneratedAt, tl.GeneratedAt = now, now
 	allStats.Seated = c.seated
-	// The live session is the table being played, never the last one in the log: right after a
-	// restart that is the previous run's table.
-	live, found := c.tableID, false
-	for i := range allStats.Sessions {
-		if allStats.Sessions[i].ID == live {
-			allStats.Sessions[i].EndedAt, found = nil, true
-		}
-	}
-	if live != "" && !found { // no hand saved yet this run
-		allStats.Sessions = append(allStats.Sessions, stats.Session{ID: live, StartedAt: c.tableFrom})
-	}
 	all := [2]payload{newPayload(allStats), newPayload(tl)}
 
 	c.mu.Lock()
@@ -249,13 +236,11 @@ func (c *statsCache) recompute() (more bool) {
 	return remaining > 0
 }
 
-// statsChange is the stream's stats event: the all-time envelope without the session list,
-// every model name in order, and the rows that differ from the ones last published.
+// statsChange is the stream's stats event: the all-time envelope, every model name in order,
+// and the rows that differ from the ones last published.
 type statsChange struct {
 	stats.Stats
-	// These two shadow the envelope's sessions and models; left nil, omitempty drops them.
-	Sessions   []stats.Session   `json:"sessions,omitempty"`
-	Models     []stats.Model     `json:"models,omitempty"`
+	Models     []stats.Model     `json:"models,omitempty"` // shadows the envelope's models; left nil, omitempty drops it
 	ModelNames []string          `json:"model_names"`
 	Changed    []json.RawMessage `json:"changed"`
 }

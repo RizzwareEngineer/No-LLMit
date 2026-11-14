@@ -364,16 +364,18 @@ func TestOpeningBetIsShownAsBet(t *testing.T) {
 
 // The llm_action, the seat and the saved hand show the move the engine applied, never the
 // model's own number: chips added on a call, 0 on a fallback fold, the street total all-in.
+// A fallback carries no reason: the model's text argued for a move that was not played.
 func TestShownMoveIsTheAppliedMove(t *testing.T) {
 	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
 	for _, c := range []struct {
-		reply        client.LLMDecisionResponse
-		action, seat string
-		amount       int
+		reply                client.LLMDecisionResponse
+		action, seat, reason string
+		amount               int
 	}{
-		{reply("CALL", 999), "CALL", "CALL", 30},
-		{client.LLMDecisionResponse{Action: "RAISE", Amount: 80, Status: "timeout"}, "FOLD", "FOLD", 0},
-		{reply("ALL_IN", 0), "ALL_IN", "ALL-IN", 1000},
+		{reply("CALL", 999), "CALL", "CALL", "because", 30},
+		{client.LLMDecisionResponse{Action: "RAISE", Amount: 80, Status: "timeout"}, "FOLD", "FOLD", "", 0},
+		{client.LLMDecisionResponse{Action: "RAISE", Amount: 5, Reason: "min-raise", Status: "illegal"}, "FOLD", "FOLD", "", 0},
+		{reply("ALL_IN", 0), "ALL_IN", "ALL-IN", "because", 1000},
 	} {
 		askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := c.reply; return &r, nil }
 		tbl := testTable(t)
@@ -386,8 +388,8 @@ func TestShownMoveIsTheAppliedMove(t *testing.T) {
 		seat := tbl.gs.CurrentPlayerIdx
 		tbl.playTurn()
 		snap := tbl.hub.since(0, true).tables[tbl.id]
-		if p := snap.Turn.Payload.(LLMActionPayload); p.Action != c.action || p.Amount != c.amount {
-			t.Errorf("%s: llm_action %s %d, want %s %d", c.reply.Action, p.Action, p.Amount, c.action, c.amount)
+		if p := snap.Turn.Payload.(LLMActionPayload); p.Action != c.action || p.Amount != c.amount || p.Reason != c.reason {
+			t.Errorf("%s: llm_action %s %d %q, want %s %d %q", c.reply.Action, p.Action, p.Amount, p.Reason, c.action, c.amount, c.reason)
 		}
 		if p := snap.State.Players[seat]; p.LastAction != c.seat || p.LastAmount != c.amount {
 			t.Errorf("%s: seat %s %d, want %s %d", c.reply.Action, p.LastAction, p.LastAmount, c.seat, c.amount)
