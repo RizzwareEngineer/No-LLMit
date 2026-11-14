@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { animate, motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { RIFFLE, playSound } from "@/lib/sound";
+import { CARD_SIZES, cardSizeNow, deckSize, useCardSize } from "@/lib/tableSwitches";
 
 // Seconds. A dealer pitching cards (owner 2026-11-09: the old 0.04 s deal "sounds like smacks"): a card leaves the deck
 // every DEAL_STAGGER and slides for CARD_FLIGHT, so two rounds to nine seats land in about 2.7 s. Chips fly for FLIGHT.
@@ -80,7 +81,10 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: Box | null, to: Bo
   const [x1, y1] = [to.left + to.width / 2, to.top + to.height / 2];
   if (kind === 'card') {
     // Slides flat across the felt; the seat's own card shows as it lands (Player's dealDelays).
-    animate(el, { x: [x0, x1], y: [y0, y1], scale: [(44 / 28) * z, z], opacity: [1, 1] }, { duration: CARD_FLIGHT, delay, ease: 'easeOut' }).then(() => el.remove());
+    // At the hole cards' size (?cards=), from the deck's size: the board's for the default, the hole cards' for a picked size.
+    const card = CARD_SIZES[cardSizeNow()];
+    Object.assign(el.style, { width: `${card.w}px`, height: `${card.h}px`, marginLeft: `${-card.w / 2}px`, marginTop: `${-card.h / 2}px` });
+    animate(el, { x: [x0, x1], y: [y0, y1], scale: [(deckSize().w / card.w) * z, z], opacity: [1, 1] }, { duration: CARD_FLIGHT, delay, ease: 'easeOut' }).then(() => el.remove());
     return;
   }
   // Chips are tossed in a low arc and fade in the last fifth, once they have reached the pot or seat.
@@ -96,23 +100,25 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: Box | null, to: Bo
 // The deck between hands, in the board's place: split in two, riffled together card by card and squared (2D, card
 // backs only, on RIFFLE's beat, which its sound shares), then squared until the deal flies from it. data-deck: its phase.
 export function Deck({ phase }: { phase: DeckPhase }) {
+  const size = useCardSize(), box = deckSize(size);
   return (
     <motion.div
       data-deck={phase}
-      className="relative w-11 h-16"
+      className={size ? 'relative' : 'relative w-11 h-16'}
+      style={size ? { width: box.w, height: box.h } : undefined}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
     >
-      {Array.from({ length: RIFFLE.cards }, (_, k) => <RiffleCard key={k} k={k} />)}
+      {Array.from({ length: RIFFLE.cards }, (_, k) => <RiffleCard key={k} k={k} spread={Math.round((34 * box.w) / 44)} />)}
     </motion.div>
   );
 }
 
 // The deck's k-th card to fall: even ones from the left half, odd ones from the right, each landing on the pile.
 // Memoized: it animates once, on mount, whatever the deck's phase.
-const RiffleCard = memo(function RiffleCard({ k }: { k: number }) {
+const RiffleCard = memo(function RiffleCard({ k, spread }: { k: number; spread: number }) {
   const side = k % 2 ? 1 : -1;
   const at = (s: number) => s / RIFFLE.length;
   const fall = RIFFLE.start + k * RIFFLE.gap;
@@ -121,7 +127,7 @@ const RiffleCard = memo(function RiffleCard({ k }: { k: number }) {
     <motion.div
       className={`absolute inset-0 ${BACK}`}
       style={{ zIndex: k, y: -k * 0.5 }}
-      animate={{ x: [0, side * 34, side * 34, 0, 0, 0], rotate: [0, side * 8, side * 8, lean, lean, 0] }}
+      animate={{ x: [0, side * spread, side * spread, 0, 0, 0], rotate: [0, side * 8, side * 8, lean, lean, 0] }}
       transition={{ duration: RIFFLE.length, times: [0, at(RIFFLE.start - 0.04), at(fall), at(fall + 0.08), at(RIFFLE.square), 1], ease: 'easeInOut' }}
     />
   );

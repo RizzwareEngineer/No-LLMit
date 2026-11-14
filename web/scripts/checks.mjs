@@ -533,6 +533,211 @@ group(async () => {
   });
 });
 
+// Owner, 2026-11-11: bigger hole cards, two or three sizes on the real page for him to pick (?cards=1|2|3, nothing
+// different without it); the deck the same size as the hole cards; seats 200x128 and the table 1000px at every size.
+// For the default and each size, at 1440x900 and 390x844 (scripted): the cells, the deck squared between hands against a
+// hole card, a dealt card's last painted box against the card it lands on, and, painted, no hole card pixel on a seat's
+// name, stack, badge or action text, nor (1440, a hovered seat) on its stats band: each box is shot with the cards and
+// with them hidden, and the two must be the same pixels.
+group(() => check('table-card-sizes', 'Hole card sizes (?cards=1|2|3; none: as today): the deck and the dealt cards are the hole cards\' size, seats stay 200x128 and the table 1000px, and no hole card covers a seat\'s name, stack, badge, action text or hovered stats band', async () => {
+  const bad = [], seen = []; let phoneToday = [];
+  for (const [w, h] of [[1440, 900], [390, 844]]) {
+    for (const n of [0, 1, 2, 3]) {
+      const p = await newPage(); await p.setViewport({ width: w, height: h });
+      try {
+        await scriptSocket(p);
+        await p.goto(`${BASE}/${n ? `?cards=${n}` : ''}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await p.waitForFunction(() => window.__sock?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+        await sleep(1500);
+        const tag = `${n || 'default'} ${w}x${h}`;
+        const box = s => { const e = [...document.querySelectorAll(s)].find(x => x.getBoundingClientRect().width > 0); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, w: b.width, h: b.height }; };
+        const cells = await p.evaluate(() => { const c = document.querySelector('td.w-\\[200px\\]'); return [c.offsetWidth, c.offsetHeight, document.querySelector('table').offsetWidth]; });
+        // The 200x128 cells and the 1000px table are the desktop layout's (phones show a grid of their own).
+        if (w === 1440 && (Math.abs(cells[0] - 200) > 1 || Math.abs(cells[1] - 128) > 2)) bad.push(`${tag}: seat cell ${cells[0]}x${cells[1]}`);
+        if (w === 1440 && Math.abs(cells[2] - 1000) > 1) bad.push(`${tag}: table ${cells[2]}px`);
+        // Each frame, every flying card's box: the last one painted before it is removed is the box it lands at.
+        await p.evaluate(() => { const last = window.__fl = new Map(); const tick = () => { for (const e of document.querySelectorAll('[data-flight=card]')) { const b = e.getBoundingClientRect(); last.set(e, { w: b.width, h: b.height, o: +getComputedStyle(e).opacity }); } requestAnimationFrame(tick); }; requestAnimationFrame(tick); });
+        await p.evaluate(() => window.__sock.end(4000)); await sleep(3300);
+        const deck = await p.evaluate(box, '[data-deck]'), hole = await p.evaluate(box, '[data-seat] [data-hole] > *');
+        // The default is today's: hole cards 28x40 under a deck of the board's 44x64 (both times the stage's zoom). Phones
+        // keep today's size whatever the switch says (their seats are about 116px wide).
+        const want = n && w >= 768 ? hole : hole && { w: (hole.w * 44) / 28, h: (hole.h * 64) / 40 };
+        if (!deck || !hole || Math.abs(deck.w - want.w) > 1 || Math.abs(deck.h - want.h) > 1) bad.push(`${tag}: deck ${deck ? `${deck.w.toFixed(1)}x${deck.h.toFixed(1)}` : 'none'}, hole card ${hole ? `${hole.w.toFixed(1)}x${hole.h.toFixed(1)}` : 'none'}`);
+        await sleep(700); await p.evaluate(() => window.__sock.deal()); await sleep(3500);
+        const flown = await p.evaluate(() => [...window.__fl.values()]), hole2 = await p.evaluate(box, '[data-seat] [data-hole] > *');
+        const off = flown.filter(f => Math.abs(f.w - hole2.w) > 1.5 || Math.abs(f.h - hole2.h) > 1.5);
+        if (!flown.length || off.length) bad.push(`${tag}: ${flown.length} flights, ${off.length} landing off the hole card's ${hole2.w.toFixed(1)}x${hole2.h.toFixed(1)} (e.g. ${off[0] ? `${off[0].w.toFixed(1)}x${off[0].h.toFixed(1)}` : '-'})`);
+        // The longest action texts: a raise with a 4-digit amount on seat 3, the blinds on theirs; the band on seat 3, hovered.
+        await p.evaluate(() => { const s = window.__sock; s.last = { ...s.last, players: s.last.players.map((q, i) => i === 3 ? { ...q, lastAction: 'RAISE', lastAmount: 1234, currentBet: 1234 } : q) }; s.feed({ type: 'game_state', payload: s.last }); });
+        await sleep(600);
+        if (w >= 768) { const b = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).getBoundingClientRect(); return [e.left + 20, e.top + 20]; }); await p.mouse.move(b[0], b[1]); await sleep(400); }
+        // Text boxes per seat: the name, the stack, the badge, the action text (each text's own painted extent), the band's lines.
+        const boxes = await p.evaluate(() => [...document.querySelectorAll('[data-seat]')].filter(s => s.getBoundingClientRect().width > 0).flatMap(seat => {
+          const texts = [...seat.querySelectorAll('[title], [data-chips], .font-mono, .absolute.top-\\[46px\\] > div')].filter(e => !e.closest('[data-hole]'));
+          return texts.map(e => {
+            // The text's own extent, cut to its box (a truncated text runs on, unpainted, under the cards).
+            const r = document.createRange(); r.selectNodeContents(e); const b = r.getBoundingClientRect();
+            let l = b.left, t = b.top, rr = b.right, bb = b.bottom;
+            for (let a = e; a && a !== seat; a = a.parentElement) if (a === e || getComputedStyle(a).overflow !== 'visible') { const c = a.getBoundingClientRect(); l = Math.max(l, c.left); t = Math.max(t, c.top); rr = Math.min(rr, c.right); bb = Math.min(bb, c.bottom); }
+            return { seat: seat.dataset.seat, what: e.textContent.trim().slice(0, 16), l: Math.floor(l), t: Math.floor(t), w: Math.ceil(rr - l), h: Math.ceil(bb - t) };
+          }).filter(b => b.w > 1 && b.h > 1);
+        }));
+        const shoot = () => Promise.all(boxes.map(b => p.screenshot({ clip: { x: b.l, y: b.t, width: b.w, height: b.h }, encoding: 'base64' })));
+        const shown = await shoot();
+        await p.evaluate(() => document.querySelectorAll('[data-hole]').forEach(e => { e.style.visibility = 'hidden'; }));
+        const hidden = await shoot();
+        await p.evaluate(() => document.querySelectorAll('[data-hole]').forEach(e => { e.style.visibility = ''; }));
+        const covered = boxes.filter((_, i) => shown[i] !== hidden[i]).map(b => `seat ${b.seat} "${b.what}"`);
+        // Phones keep today's card size, and today's cards already sit over a long action there (seat 3's RAISE 1,234 in a
+        // 116px seat): a size may cover nothing the default does not.
+        if (w < 768 && !n) phoneToday = covered;
+        else if (w < 768) { const extra = covered.filter(c => !phoneToday.includes(c)); if (extra.length) bad.push(`${tag}: hole cards paint over ${extra.slice(0, 4).join(', ')} (today's size does not)`); }
+        else if (covered.length) bad.push(`${tag}: hole cards paint over ${covered.slice(0, 4).join(', ')}${covered.length > 4 ? ` and ${covered.length - 4} more` : ''}`);
+        seen.push(`${tag}: card ${hole2.w.toFixed(0)}x${hole2.h.toFixed(0)}, deck ${deck?.w.toFixed(0)}x${deck?.h.toFixed(0)}, ${flown.length} flights, ${boxes.length} text boxes clear`);
+      } finally { await p.close(); }
+    }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+
+// Filming (every frame Chrome presented, via the CDP screencast, each acked) and pixel stats of boxes in those frames,
+// computed in a page of their own: per box, the share of pixels near the card back's #37352f and near white, and a
+// sample of its pixels (two frames with the same sample paint the box the same).
+const filmFrames = async (p, run) => {
+  const cdp = await p.createCDPSession(), frames = [];
+  cdp.on('Page.screencastFrame', f => { frames.push({ data: f.data, ts: f.metadata.timestamp * 1000 }); cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {}); });
+  await cdp.send('Page.startScreencast', { format: 'png', everyNthFrame: 1 });
+  try { await run(); } finally { await cdp.send('Page.stopScreencast').catch(() => {}); await cdp.detach().catch(() => {}); }
+  return frames;
+};
+const boxStats = async (frames, boxes) => {
+  const a = await newPage(), out = [];
+  try {
+    for (const fr of frames) out.push(await a.evaluate(async (data, boxes) => {
+      const img = new Image(); img.src = `data:image/png;base64,${data}`; await img.decode();
+      const c = new OffscreenCanvas(img.width, img.height), g = c.getContext('2d'); g.drawImage(img, 0, 0);
+      return boxes.map(b => {
+        const d = g.getImageData(Math.round(b.l), Math.round(b.t), Math.max(1, Math.round(b.w)), Math.max(1, Math.round(b.h))).data;
+        let dark = 0, white = 0, sig = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          if (Math.abs(d[i] - 55) < 24 && Math.abs(d[i + 1] - 53) < 24 && Math.abs(d[i + 2] - 47) < 24) dark++;
+          else if (d[i] > 235 && d[i + 1] > 235 && d[i + 2] > 235) white++;
+          sig = (sig * 31 + d[i] + 7 * d[i + 1] + 13 * d[i + 2]) % 1000000007;
+        }
+        const n = d.length / 4;
+        return { dark: dark / n, white: white / n, sig, face: dark / n > 0.6 ? 'down' : white / n > 0.6 ? 'up' : 'mid' };
+      });
+    }, fr.data, boxes));
+  } finally { await a.close(); }
+  return out;
+};
+// Each seat's two hole card boxes in the viewport, inset 2px (the card's own pixels), in seat order.
+const holeBoxes = p => p.evaluate(() => [...document.querySelectorAll('[data-seat]')].filter(s => s.getBoundingClientRect().width > 0 && s.querySelector('[data-hole]'))
+  .map(s => ({ seat: +s.dataset.seat, cards: [...s.querySelectorAll('[data-hole] > *')].map(e => { const b = e.getBoundingClientRect(); return { l: b.left + 2, t: b.top + 2, w: b.width - 4, h: b.height - 4 }; }) })));
+
+// Owner, 2026-11-11: "Hole cards are dealt face down. A seat's cards peel up from the side (like a pro checking them) when
+// its turn first comes, then stay face up for the rest of the hand. A seat that never acts flips at the end of the hand."
+// Scripted at 1440x900, filmed: a deal with peeked [] (every card face down once landed), a seat's llm_thinking (its two
+// cards change over 3 or more painted frames and end face up; every other seat stays down), its game_state with peeked
+// (no change), a second seat's turn, then the hand complete (the rest turn up). Reduced motion: the faces switch with
+// no frame in between. Live engine: a reload mid-hand, once a seat has had its turn and one has not: the first painted
+// frame with cards shows the snapshot's peeked seats up and the rest down, and nothing turns over after it.
+group(() => check('table-hole-peel', 'Hole cards are dealt face down; a seat\'s two cards peel up when its turn first comes (either motion, ?peel=1|2) and stay up; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no peel; reduced motion switches faces with no motion', async () => {
+  const bad = [], seen = [];
+  const face = s => s.map(c => c.face).join('');
+  // scriptedTable's page, at a query (?peel=2 for the second motion).
+  const run = async (reduced, query = '') => {
+    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+    if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await scriptSocket(p);
+    await p.goto(`${BASE}/${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => window.__sock?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+    await sleep(2000);
+    try {
+      const feed = msgs => p.evaluate(msgs => { const s = window.__sock; s.scripted = true; for (const m of msgs) { if (m.type === 'game_state') s.last = m.payload; s.feed(m); } }, msgs);
+      await p.evaluate(() => window.__sock.end(4000)); await sleep(4200);
+      // The deal, as scriptSocket's deal() but with peeked [] (its own copies the last state's).
+      const st = await p.evaluate(() => { const l = window.__sock.last, n = l.players.length, btn = (l.players.findIndex(q => q.isButton) + 1) % n;
+        const deck = [...'23456789TJQKA'].flatMap(r => [...'hdcs'].map(x => r + x));
+        return { ...l, handNumber: l.handNumber + 1, street: 'preflop', pot: 15, currentBet: 10, communityCards: [], winners: undefined, nextHandInMs: undefined, currentPlayerIdx: (btn + 3) % n, peeked: [],
+          players: l.players.map((q, i) => ({ ...q, isButton: i === btn, holeCards: [deck[2 * i], deck[2 * i + 1]], status: 'active', lastAction: '', lastAmount: 0, currentBet: 0 })) }; });
+      await feed([{ type: 'hand_start', payload: { handNumber: st.handNumber } }, { type: 'game_state', payload: st }]);
+      await sleep(3600);
+      const seats = await holeBoxes(p), boxes = seats.flatMap(s => s.cards), idx = seats.map(s => s.seat);
+      const a = st.currentPlayerIdx, b = (a + 1) % st.players.length, at = i => idx.indexOf(i);
+      const steps = [
+        ['thinking A', [{ type: 'llm_thinking', payload: { turn: 1, playerIdx: a, playerName: st.players[a].name } }], [a]],
+        ['game_state A', [{ type: 'game_state', payload: { ...st, currentPlayerIdx: b, peeked: [a] } }], []],
+        ['thinking B', [{ type: 'llm_thinking', payload: { turn: 2, playerIdx: b, playerName: st.players[b].name } }], [b]],
+        // No winner: its chips would fly across the seats being watched.
+        ['complete', [{ type: 'game_state', payload: { ...st, street: 'complete', currentPlayerIdx: -1, peeked: [a, b], nextHandInMs: 60000, winners: [] } }], idx.filter(i => i !== a && i !== b)],
+      ];
+      const tag = `${query}${query && reduced ? ' ' : ''}${reduced ? 'reduced motion' : ''}${query || reduced ? ': ' : ''}`;
+      let up = new Set();
+      const first = await boxStats(await filmFrames(p, () => sleep(200)), boxes);
+      const down = seats.filter((s, k) => face(first.at(-1).slice(2 * k, 2 * k + 2)) !== 'downdown').map(s => s.seat);
+      if (down.length) bad.push(`${tag}after the deal, seats ${down.join(',')} not face down`);
+      for (const [name, msgs, turning] of steps) {
+        const frames = await filmFrames(p, async () => { await sleep(100); await feed(msgs); await sleep(1100); });
+        const stats = await boxStats(frames, boxes);
+        turning.forEach(i => up.add(i));
+        for (const [k, s] of seats.entries()) {
+          // A frame changes the cards when 2% or more of a card's pixels change class (dark, white); finer raster
+          // noise of the 3D-composited cards is not a change anyone sees.
+          const of = f => stats[f].slice(2 * k, 2 * k + 2), moved = f => of(f).some((c, j) => Math.abs(c.dark - of(f - 1)[j].dark) + Math.abs(c.white - of(f - 1)[j].white) >= 0.02);
+          const changes = stats.filter((_, f) => f > 0 && moved(f)).length;
+          const end = face(of(stats.length - 1)), want = up.has(s.seat) ? 'upup' : 'downdown';
+          if (end !== want) bad.push(`${tag}${name}: seat ${s.seat} ends ${end}, want ${want}`);
+          if (turning.includes(s.seat)) {
+            const mid = stats.filter((_, f) => of(f).some(c => c.face === 'mid') || face(of(f)) === 'downup' || face(of(f)) === 'updown').length;
+            if (!reduced && changes < 3) bad.push(`${tag}${name}: seat ${s.seat}'s cards change over ${changes} frames`);
+            if (reduced && mid) bad.push(`${tag}${name}: seat ${s.seat} has ${mid} frames between the faces`);
+            if (s.seat === a && name === 'thinking A') seen.push(`${tag}seat ${a} turned over ${changes} frames (${mid} between faces)`);
+          } else if (changes) bad.push(`${tag}${name}: seat ${s.seat}'s cards changed in ${changes} frames`);
+        }
+        if (at(a) < 0 || at(b) < 0) bad.push('seats not found');
+      }
+    } finally { await p.close(); }
+  };
+  await run(false); await run(false, '?peel=2'); await run(true); await run(true, '?peel=2');
+  // Live: reload until the snapshot has a seat that has had its turn and one that has not.
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  try {
+    await p.evaluateOnNewDocument(() => { const look = () => { if (document.querySelector('[data-seat] [data-hole] [data-back]')) window.__cardsAt = performance.timeOrigin + performance.now(); else requestAnimationFrame(look); }; requestAnimationFrame(look); });
+    await p.evaluateOnNewDocument(() => { const Real = window.EventSource; window.EventSource = class extends Real { set onmessage(fn) { super.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'snapshot' && !window.__snap) { const t = Object.values(m.payload.tables)[0]; window.__snap = t && { peeked: t.state.peeked, street: t.state.street, players: t.state.players.length, at: performance.now() }; } } catch {} fn(e); }; } get onmessage() { return super.onmessage; } }; });
+    let ok = null, lastSnap = null;
+    for (let tries = 0; tries < 12 && !ok; tries++) {
+      let none = false;
+      const frames = await filmFrames(p, async () => {
+        await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await p.waitForFunction(() => window.__snap && document.querySelector('[data-seat] [data-hole] [data-back]'), { timeout: 60000 }).catch(() => { none = true; });
+        await sleep(1500);
+      });
+      if (none) { bad.push('live: no hole card with a face-down side within 60 s of the reload'); break; }
+      const snap = await p.evaluate(() => window.__snap);
+      if (!snap?.peeked || snap.street === 'complete' || !snap.peeked.length || snap.peeked.length >= snap.players) { lastSnap = snap; await sleep(1500); continue; }
+      const seats = await holeBoxes(p), cardsAt = await p.evaluate(() => window.__cardsAt);
+      const from = frames.findIndex(f => f.ts >= cardsAt);
+      ok = { snap, seats, stats: from < 0 ? [] : await boxStats(frames.slice(from), seats.flatMap(s => s.cards)), from };
+    }
+    if (!ok && !bad.some(x => x.startsWith('live:'))) bad.push(`live: no reload landed mid-hand with a seat peeked and one not (12 tries; the last snapshot: ${JSON.stringify(lastSnap)})`);
+    else {
+      const { snap, seats, stats, from } = ok, wrong = [], turned = [];
+      seats.forEach((s, k) => {
+        const want = snap.peeked.includes(s.seat) ? 'upup' : 'downdown', faces = stats.map(f => face(f.slice(2 * k, 2 * k + 2)));
+        if (faces[0] !== want) wrong.push(`seat ${s.seat} ${faces[0]}`);
+        if (faces.some(x => x !== want)) turned.push(s.seat);
+      });
+      if (!stats.length) bad.push('live: no frame with cards');
+      else if (wrong.length) bad.push(`live: the first frame with cards (#${from}) shows ${wrong.join(', ')}, snapshot peeked [${snap.peeked}]`);
+      // The seat whose turn comes while filming may peel; no other.
+      if (turned.length > 1) bad.push(`live: seats ${turned.join(',')} turned over after the reload`);
+      seen.push(`live: snapshot peeked [${snap.peeked}] of ${snap.players} seats, the first frame with cards (#${from}) matches it${turned.length ? `, seat ${turned[0]} then had its turn` : ', nothing turned after it'}`);
+    }
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 8).join('; ') + (bad.length > 8 ? ` and ${bad.length - 8} more` : '') : seen.join('; ') };
+}));
+
 // Owner, 2026-11-09: "Any time I refresh the site, the loading skeleton is so much different compared to the shapes that
 // actually load in. When stuff is loading, there should just be blank squares that are the same size as all the squares
 // that are currently on the site." While the table's state and the stats load, every box (the table, its seats and felt,

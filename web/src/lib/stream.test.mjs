@@ -144,3 +144,11 @@ test('a snapshot shows thinking, reasoning or revealed, and keeps the very displ
   assert.notEqual(replaced.display, revealed.display, 'a different turn replaces it');
   assert.equal(replaced.display.turn, 7);
 });
+
+test("a snapshot's peeked seats survive into the table view, and the next game_state replaces them", () => {
+  const thinking = { type: 'llm_thinking', payload: { turn: 2, playerIdx: 5, playerName: 'E' } };
+  let t = applyMessage({}, snap({ state: { ...state(4), peeked: [3, 5] }, turn: thinking }), 1000);
+  assert.deepEqual(t[T].gameState.peeked, [3, 5]);
+  t = applyMessage(t, { seq: 10, table: T, type: 'game_state', payload: { ...state(4), peeked: [3, 5, 6] } }, 2000);
+  assert.deepEqual(t[T].gameState.peeked, [3, 5, 6]);
+});

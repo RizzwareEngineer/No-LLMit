@@ -1,12 +1,14 @@
 "use client";
 
 import Card from "@/components/Card";
+import HoleCard from "@/components/HoleCard";
 import LLMLogo from "@/components/LLMLogo";
 import { useState } from "react";
 import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { DASH, ModelStats, ciHalf, pct, signed } from "@/lib/stats";
+import { CARD_CLASS, Peel, useCardSize } from "@/lib/tableSwitches";
 
 interface PlayerProps {
   player: PlayerState;
@@ -21,6 +23,8 @@ interface PlayerProps {
   seatIdx?: number; // where TableMotion's chips and cards fly to and from
   handNumber?: number;
   dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
+  faceUp?: boolean; // the hole cards show their faces: the seat's turn has come this hand, or the hand is over
+  peel?: Peel; // how they turn up (HoleCard): the picked peel for a seat's turn, motion 1 for the hand's end
 }
 
 // Position badge colors
@@ -52,20 +56,25 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays }: PlayerProps) {
+export default function Player({ player, active, position, folded = false, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peel = 1 }: PlayerProps) {
   const [hovered, setHovered] = useState(false);
   const bb = useBigBlind();
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const isWinner = winAmount !== undefined && winAmount > 0;
-  
+  const size = useCardSize();
+  const cardClass = CARD_CLASS[size];
+  const seatBg = isWinner ? 'rgb(237, 253, 244)' : '#ffffff';
+  // A picked bigger size reaches up into the hover band: its lines then sit on the hovered seat's colour, above the cards.
+  const bandLine = size ? { background: `linear-gradient(rgba(55, 53, 47, 0.03), rgba(55, 53, 47, 0.03)), ${seatBg}` } : undefined;
+
   return (
     <div 
       data-seat={seatIdx}
       className={`overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`}
       style={{ 
         boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px',
-        background: isWinner ? 'rgb(237, 253, 244)' : '#ffffff'
+        background: seatBg
       }}
     >
       <div 
@@ -97,11 +106,11 @@ export default function Player({ player, active, position, folded = false, winAm
 
         {/* Hover stats in the empty band between the name block and the bottom row; absolute, so the seat never changes size. */}
         {hovered && (
-          <div className="absolute left-3 right-3 top-[46px] text-[11px] leading-[14px] tabular-nums whitespace-nowrap overflow-hidden" style={{ color: 'rgba(55, 53, 47, 0.65)' }} aria-hidden>
+          <div className={`absolute left-3 right-3 top-[46px] ${size ? 'z-10 [&>*]:w-fit' : ''} text-[11px] leading-[14px] tabular-nums whitespace-nowrap overflow-hidden`} style={{ color: 'rgba(55, 53, 47, 0.65)' }} aria-hidden>
             {stats ? (
               <>
-                <div><b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.vpip).replace('%', '')}</b> VPIP · <b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.pfr).replace('%', '')}</b> PFR · <b style={{ color: 'rgb(55, 53, 47)' }}>{stats.af === null ? DASH : stats.af.toFixed(1)}</b> AF</div>
-                <div><b style={{ color: 'rgb(55, 53, 47)' }}>{signed(stats.bb100, 0)}</b> bb/100{ciHalf(stats) !== null && ` ±${ciHalf(stats)!.toFixed(0)}`} · {stats.hands.toLocaleString()} hands</div>
+                <div style={bandLine}><b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.vpip).replace('%', '')}</b> VPIP · <b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.pfr).replace('%', '')}</b> PFR · <b style={{ color: 'rgb(55, 53, 47)' }}>{stats.af === null ? DASH : stats.af.toFixed(1)}</b> AF</div>
+                <div style={bandLine}><b style={{ color: 'rgb(55, 53, 47)' }}>{signed(stats.bb100, 0)}</b> bb/100{ciHalf(stats) !== null && ` ±${ciHalf(stats)!.toFixed(0)}`} · {stats.hands.toLocaleString()} hands</div>
               </>
             ) : 'No stats yet'}
           </div>
@@ -148,13 +157,13 @@ export default function Player({ player, active, position, folded = false, winAm
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
                 >
-                  <Card value={card} className="w-7 h-10" />
+                  <HoleCard value={card} faceUp={faceUp} motion={peel} className={cardClass} />
                 </motion.div>
               ))
             ) : (
               <>
-                <Card value="" className="w-7 h-10" />
-                <Card value="" className="w-7 h-10" />
+                <Card value="" className={cardClass} />
+                <Card value="" className={cardClass} />
               </>
             )}
           </div>

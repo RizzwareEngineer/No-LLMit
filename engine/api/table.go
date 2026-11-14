@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -53,6 +54,7 @@ type Table struct {
 	turn         *ServerMessage // the last llm_thinking or llm_action this hand
 	turns        int            // turns started this hand; the "turn" number of llm_thinking and llm_action
 	turnApplied  bool           // turn is an llm_action already applied to the table
+	peeked       []int          // seats whose turn has come this hand, in turn order: their hole cards are shown face up
 	nextHandAt   time.Time
 	notice       TableNoticePayload // shown to everyone while the table is stopped; Kind "" when running
 
@@ -216,6 +218,7 @@ func (t *Table) publish(msgs ...ServerMessage) {
 		ButtonCards:  append([]ButtonCardPayload{}, t.buttonCards...),
 		ButtonWinner: t.buttonWinner,
 	}
+	snap.State.Peeked = append([]int{}, t.peeked...)
 	if t.notice.Kind != "" {
 		n := t.notice
 		snap.Notice = &n
@@ -370,7 +373,7 @@ func (t *Table) dealHand() (handStart, error) {
 	t.recorder = newHandRecorder(t.gs, t.id, t.rebought)
 	t.buttonCards = nil
 	t.buttonWinner = nil
-	t.turn, t.turnApplied, t.turns = nil, false, 0
+	t.turn, t.turnApplied, t.turns, t.peeked = nil, false, 0, nil
 	if t.notice.Kind == "outage" {
 		t.setNotice(TableNoticePayload{}) // the probe hand plays live; if it fails too, the notice is set again
 	}
@@ -537,6 +540,9 @@ func (t *Table) playTurn() {
 	t.recorder.beginDecision(t.gs, validActions)
 	t.turns++
 	turnNum := t.turns
+	if !slices.Contains(t.peeked, playerIdx) {
+		t.peeked = append(t.peeked, playerIdx)
+	}
 	thinking := ServerMessage{Type: MsgLLMThinking, Payload: LLMThinkingPayload{
 		Turn: turnNum, PlayerIdx: playerIdx, PlayerName: playerName,
 		BudgetMs: int(client.TurnBudget.Milliseconds()), startedAt: time.Now(),
