@@ -22,6 +22,8 @@ import { useGameState } from "@/hooks/useGameState";
 import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
+import { PHONE, isPhone } from "@/lib/layout";
+import { useLayout } from "@/lib/tableSwitches";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -58,14 +60,14 @@ const closeModel = () => {
 // Fit-to-screen: the stage (table, sidebar, reasoning) takes one uniform zoom so the whole
 // table screen fits the window, up to 125% (the size the owner chose) and down to 75%; below
 // that the screen scrolls instead of shrinking further. Browser zoom shrinks the CSS viewport,
-// so it lowers this scale and is never fought. Phones (< 768px) reflow to the list layout at 1.
+// so it lowers this scale and is never fought. The phone layout (lib/layout's PHONE, passed in) is at 1.
 // The stage's width as drawn (at most the screen's, where it scrolls at the floor) is --stage-w on the root: the
 // stats overview, its cards, About and the sticky bar take that column (StatsSections), so every screen has its margins.
 // Self-contained (nothing from outside its body): BEFORE_PAINT runs its source inline too.
-function fitStage() {
+function fitStage(phone: string) {
   const stage = document.querySelector<HTMLElement>('.stage-zoom'), screen = stage?.closest('section');
   if (!stage || !screen) return;
-  if (window.innerWidth < 768) stage.style.zoom = '';
+  if (window.matchMedia(phone).matches) stage.style.zoom = '';
   else {
     const cs = getComputedStyle(screen);
     const kids = [...screen.children];
@@ -85,7 +87,8 @@ function fitStage() {
 // The prerendered page, as parsed, before its first paint: the stage fitted and the blank boxes at their remembered sizes
 // (lib/boxes), as the effects set them once React has hydrated, so nothing changes size when it does. Run where the
 // parser has just passed the table screen, and again after the stats.
-const BEFORE_PAINT = `(${fitStage})();(${holdBoxes})(true)`;
+const BEFORE_PAINT = `(${fitStage})(${JSON.stringify(PHONE)});(${holdBoxes})(true)`;
+const fit = () => fitStage(PHONE);
 
 const PAGE_KEYS: Record<string, 1 | -1> = { ArrowDown: 1, ArrowRight: 1, PageDown: 1, ArrowUp: -1, ArrowLeft: -1, PageUp: -1 };
 
@@ -216,6 +219,8 @@ function Table() {
   // the top of that part: the table, Profits & Losses over the stats (#phone-stats), About. On an opened stats card,
   // Stats goes back to the overview.
   const screen = useScreen();
+  // The layout shown (lib/layout): only its own parts are mounted once hydrated (null until then: both, CSS shows one).
+  const mounted = useLayout(), desk = mounted !== 'phone', phone = mounted !== 'desk';
 
   const tableRef = useRef<HTMLDivElement>(null);
   // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
@@ -236,19 +241,19 @@ function Table() {
     const row = tableRef.current;
     if (row) [row, ...row.querySelectorAll('[data-oval]')].forEach(e => io.observe(e));
     return () => io.disconnect();
-  }, []);
+  }, [mounted]); // the phone table mounts and unmounts with the layout
 
   // The stage's fit (fitStage), kept as the window, the stage or the screen change size.
   const stageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const stage = stageRef.current, screen = stage?.closest('section');
     if (!stage || !screen) return;
-    fitStage();
-    const ro = new ResizeObserver(fitStage);
+    fit();
+    const ro = new ResizeObserver(fit);
     ro.observe(stage);
     ro.observe(screen);
-    window.addEventListener('resize', fitStage);
-    return () => { ro.disconnect(); window.removeEventListener('resize', fitStage); };
+    window.addEventListener('resize', fit);
+    return () => { ro.disconnect(); window.removeEventListener('resize', fit); };
   }, []);
 
   // ↑ ↓ ← →, PageUp/PageDown and Space page between screens, unless a field, the drawer or a panel
@@ -361,10 +366,10 @@ function Table() {
       const min = stats && t.closest('[data-stage]') ? stats.getBoundingClientRect().top + window.scrollY : 0;
       requestAnimationFrame(() => !isPaging() && resnap(min)); // a click-to-jump focuses its destination as it pages
     };
-    const onResize = () => window.innerWidth >= 768 && resnap();
+    const onResize = () => !isPhone() && resnap();
     // A scrollbar drag, Home/End or autoscroll can stop between screens; put the page back on one
     // (desktop only, like onResize). A paged scroll ends on an edge by itself.
-    const onScrollEnd = () => window.innerWidth >= 768 && !isPaging() && resnap();
+    const onScrollEnd = () => !isPhone() && !isPaging() && resnap();
     window.addEventListener('keydown', onKey);
     window.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('focusin', onFocus);
@@ -418,10 +423,10 @@ function Table() {
     // A Stats or About scroll still underway must not land the page back on its screen (its scrollend resnaps there).
     if (t === 'table') { stopPaging(); window.scrollTo({ top: 0 }); }
     else if (t === 'about') pageTo('about');
-    else if (window.innerWidth >= 768 && (screen === 'race' || screen === 'stats-table' || screen === 'pairwise')) backToOverview();
+    else if (!isPhone() && (screen === 'race' || screen === 'stats-table' || screen === 'pairwise')) backToOverview();
     // Phones: on a Stats window already (Profits & Losses, Trends, Profiles, Matchups) the Stats tab does nothing, so a
     // tap just above the bar that touch adjustment hands to it never throws the viewer back to Profits & Losses.
-    else if (window.innerWidth < 768 && tab === 'stats') return;
+    else if (isPhone() && tab === 'stats') return;
     else pageTo('phone-stats');
   };
 
@@ -438,7 +443,7 @@ function Table() {
           scroll container there (clip, not auto: a snap point counts only in its nearest one). */}
       <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always max-md:snap-normal overflow-x-auto max-md:overflow-x-clip flex flex-col items-center-safe justify-center-safe max-md:justify-start pt-3 max-md:pt-[calc(48px+env(safe-area-inset-top))] pb-[calc(1rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
-        <div className="mb-1 text-center max-md:hidden">
+        {desk && <><div className="mb-1 text-center max-md:hidden">
           <h1 className="text-[28px] font-bold text-balance" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
           <p className="text-[14px]" style={{ color: MUTED }}>
             Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
@@ -490,7 +495,7 @@ function Table() {
           <SoundToggle />
         </div>
 
-        <div className="max-md:hidden"><SessionProgress table={usageError ? undefined : usage?.table} /></div>
+        <div className="max-md:hidden"><SessionProgress table={usageError ? undefined : usage?.table} /></div></>}
 
         {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
         <div className="mt-6 max-md:mt-0 flex items-center-safe justify-center-safe w-full md:w-auto">
@@ -525,30 +530,30 @@ function Table() {
                 <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />
                 </div>
-                <div className="mt-4 max-md:hidden">
+                {desk && <div className="mt-4 max-md:hidden">
                   <UsageIndicator usage={usage} error={usageError} />
-                </div>
+                </div>}
               </div>
             </div>
 
             {/* Reasoning Panel - LLM thinking + reasoning; phones: the caption under the table (its shot clock is the ring
                 round the seat), the first screen's slack split above the table and under the caption. */}
-            <div className="mt-4 w-full max-md:hidden">
+            {desk && <div className="mt-4 w-full max-md:hidden">
               <ReasoningPanel
                 displayState={displayState}
                 shotClockRemaining={shotClockRemaining}
                 blank={players.length === 0}
               />
-            </div>
-            <div className="md:hidden mt-1.5 w-full" style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
+            </div>}
+            {phone && <div className="md:hidden mt-1.5 w-full" style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
               <Caption displayState={displayState} blank={players.length === 0} />
-            </div>
+            </div>}
           </div>
         </div>
 
-        <button onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={NEXT_STYLE}>
+        {desk && <button onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={NEXT_STYLE}>
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
-        </button>
+        </button>}
       </section>
       <script dangerouslySetInnerHTML={{ __html: BEFORE_PAINT }} />
 
@@ -557,13 +562,13 @@ function Table() {
       <script dangerouslySetInnerHTML={{ __html: BEFORE_PAINT }} />
       </main>
 
-      <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />
-      <PhoneBar blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />
-      <TabBar tab={tab} onTab={onTab} />
+      {desk && <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />}
+      {phone && <PhoneBar blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />}
+      {phone && <TabBar tab={tab} onTab={onTab} />}
       {/* Phones: back to the table's top from anywhere below it (the Table tab does the same), 44px, over the tab bar's
           right end. Hidden (and out of the tab order) while the table shows, and on Trends, Profiles and Matchups, whose
           cards reach down to the tab bar (its Table tab is right there). */}
-      <button
+      {phone && <button
         type="button"
         onClick={() => onTab('table')}
         aria-label="Back to the table"
@@ -573,7 +578,7 @@ function Table() {
         style={{ color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.16)' }}
       >
         <ArrowUp size={20} weight="bold" aria-hidden />
-      </button>
+      </button>}
       <ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status */}

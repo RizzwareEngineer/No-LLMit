@@ -14,6 +14,12 @@ const SKIP = new Set((arg('--skip', '') || '').split(',').filter(Boolean));
 const ONLY = new Set((arg('--only', '') || '').split(',').filter(Boolean));
 const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// The phone/desktop switch, read from the one place it is defined (src/lib/layout.ts): a W x H CSS window gets the phone
+// layout under DESK_MIN_W across or at SHORT_H tall or less; PHONE_Q is the same as a media query, for page code.
+const LAYOUT = readFileSync(new URL('../src/lib/layout.ts', import.meta.url), 'utf8');
+const DESK_MIN_W = +LAYOUT.match(/DESK_MIN_W = (\d+)/)[1], SHORT_H = +LAYOUT.match(/SHORT_H = (\d+)/)[1];
+const PHONE_Q = `not all and (min-width: ${DESK_MIN_W}px) and (min-height: ${SHORT_H + 1}px)`;
+const phoneAt = (w, h) => w < DESK_MIN_W || h <= SHORT_H;
 const results = [];
 // The checks that watch a whole replay play it this many times faster (test-only: window.__replaySpeed, read by
 // playReplay). Every replay-timed effect on the chart scales with it, and their samples are timed in replay time.
@@ -218,7 +224,7 @@ const scriptedTable = async (w, h, reduced = false, query = '') => {
   if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await scriptStream(p);
   await p.goto(`${BASE}/${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+  await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat]'), { timeout: 120000 });
   await sleep(2000);
   return p;
 };
@@ -256,7 +262,10 @@ main(() => check('no-currency', 'No ¤ sign anywhere on the table screen', async
 // or scroll, never clip; a fixed-proportion canvas fits the window between a floor and a cap) ---
 const FIT_FLOOR = 0.75, FIT_CAP = 1.25;
 // [width, height, devicePixelRatio]: browser zoom N% of W x H is a W/N x H/N viewport at ratio N.
-const FIT_SIZES = [[1280, 720, 1], [1440, 900, 1], [1728, 1117, 1], [2560, 1440, 1], [720, 450, 2], [864, 558, 2]];
+// The zooms between the desktop's floor and the phone layout (1440x900 at 125%, 150% and 175%; 1280x720 at 125%) and a
+// phone held sideways (844x390) are here too: the audit found 175% cutting off Profits & Losses and 844x390 drawing the
+// desktop page shrunk to unreadable; each now has to fit with no sideways scroll, or be the phone layout at 1.
+const FIT_SIZES = [[1280, 720, 1], [1440, 900, 1], [1728, 1117, 1], [2560, 1440, 1], [720, 450, 2], [864, 558, 2], [1152, 720, 1.25], [960, 600, 1.5], [823, 514, 1.75], [1024, 576, 1.25], [992, 700, 1], [844, 390, 1]];
 group(async () => {
   const fits = [];
   for (const [w, h, d] of FIT_SIZES) {
@@ -265,9 +274,9 @@ group(async () => {
     await p2.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     // Wait for the live, hydrated table: the grid with its fitted zoom, or on phones the seat list
     // (its Hand # in the status row). A dev server on a loaded machine can take a minute or more.
-    const loaded = await p2.waitForFunction(() => (document.querySelector('table') && document.querySelector('.stage-zoom')?.style.zoom) || (innerWidth < 768 && /Hand #\d/.test(document.body.innerText)), { timeout: 150000 }).then(() => true, () => false);
+    const loaded = await p2.waitForFunction(q => (document.querySelector('table') && document.querySelector('.stage-zoom')?.style.zoom) || (matchMedia(q).matches && /Hand #\d/.test(document.body.innerText)), { timeout: 150000 }, PHONE_Q).then(() => true, () => false);
     await sleep(2500);
-    const m = await p2.evaluate(() => {
+    const m = await p2.evaluate(q => {
       const sec = document.querySelector('section[data-screen]'), stage = document.querySelector('.stage-zoom');
       const sr = sec.getBoundingClientRect(), sy = scrollY;
       const docH = document.documentElement.scrollHeight;
@@ -284,10 +293,10 @@ group(async () => {
         if (r.top + sy < -1 || r.bottom + sy > docH + 1) bad.push(`${name} y ${Math.round(r.top + sy)}..${Math.round(r.bottom + sy)}`);
       }
       const zoom = parseFloat(getComputedStyle(stage).zoom) || 1;
-      return { zoom, phone: innerWidth < 768, bad, pageScroll: document.documentElement.scrollWidth - innerWidth, screenScroll: sec.scrollWidth - sec.clientWidth,
+      return { zoom, phone: matchMedia(q).matches, bad, pageScroll: document.documentElement.scrollWidth - innerWidth, screenScroll: sec.scrollWidth - sec.clientWidth,
         tallBy: Math.round(sec.getBoundingClientRect().height - document.documentElement.clientHeight), slackW: (sec.clientWidth - stage.getBoundingClientRect().width) / sec.clientWidth,
         slackH: (document.documentElement.clientHeight - (sec.lastElementChild.getBoundingClientRect().bottom + parseFloat(getComputedStyle(sec).paddingBottom))) / document.documentElement.clientHeight };
-    });
+    }, PHONE_Q);
     await p2.close();
     fits.push({ size: `${w}x${h}${d > 1 ? `@${d}x` : ''}`, ...m, loaded });
   }
@@ -699,7 +708,7 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
       unit: !!sec.querySelector('[data-unit]'),
       words: [...sec.querySelectorAll('p')].map(e => e.textContent).find(t => t.includes('Raising to')) ?? '',
       seats: [...new Set([...sec.querySelectorAll('td.w-\\[200px\\]')].map(td => `${td.offsetWidth}x${td.offsetHeight}`))],
-      cell: box(sec.querySelector('td.w-\\[200px\\]')),
+      cell: sec.querySelector('td.w-\\[200px\\]') && box(sec.querySelector('td.w-\\[200px\\]')), // desktop only: a phone mounts no grid
       table: sec.querySelector('table')?.offsetWidth,
       boxes: [...sec.querySelectorAll('[data-seat], table, ol, h2')].filter(vis).map(box).concat([...sec.children].map(box)),
       // Text cut short with an ellipsis (kept on the page to tell which only BB cuts).
@@ -707,7 +716,7 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
     };
   };
   for (const [w, h] of [[1440, 790], [1870, 1200], [390, 844]]) {
-    const size = `${w}x${h}`, p = await scriptedTable(w, h), phone = w < 768;
+    const size = `${w}x${h}`, p = await scriptedTable(w, h), phone = phoneAt(w, h);
     try {
       await p.evaluate(() => window.__stream.bets());
       await sleep(2000); // the reasoning panel types the model's words
@@ -750,7 +759,7 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
       if (newlyCut.length) bad.push(`${size}: cut short only in BB: ${newlyCut.join(', ')}`);
       // Kept: a reload opens in big blinds.
       await p.reload({ waitUntil: 'domcontentloaded', timeout: 120000 });
-      await p.waitForFunction(() => document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+      await p.waitForFunction(() => document.querySelector('[data-seat]'), { timeout: 120000 });
       await sleep(1500);
       const kept = await p.evaluate(read);
       const stacks = kept.amounts.filter(a => a.where === 'seat');
@@ -907,11 +916,11 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
       try {
         await scriptStream(p);
         await p.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-        await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+        await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat]'), { timeout: 120000 });
         await sleep(1500);
         const tag = `${w}x${h}`;
         const box = s => { const e = [...document.querySelectorAll(s)].find(x => x.getBoundingClientRect().width > 0); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, w: b.width, h: b.height }; };
-        const cells = await p.evaluate(() => { const c = document.querySelector('td.w-\\[200px\\]'); return [c.offsetWidth, c.offsetHeight, document.querySelector('table').offsetWidth]; });
+        const cells = await p.evaluate(() => { const c = document.querySelector('td.w-\\[200px\\]'); return [c?.offsetWidth, c?.offsetHeight, document.querySelector('table')?.offsetWidth]; });
         // The 200x128 cells and the 1000px table are the desktop layout's (phones show a grid of their own).
         if (w === 1440 && (Math.abs(cells[0] - 200) > 1 || Math.abs(cells[1] - 128) > 2)) bad.push(`${tag}: seat cell ${cells[0]}x${cells[1]}`);
         if (w === 1440 && Math.abs(cells[2] - 1000) > 1) bad.push(`${tag}: table ${cells[2]}px`);
@@ -921,7 +930,7 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
         const deck = await p.evaluate(box, '[data-deck]'), hole = await p.evaluate(box, '[data-seat] [data-hole] > *'), board = await p.evaluate(box, '[data-felt-cards] > *');
         // Desktop: the deck is the hole cards' 40x56; phones: 28x40 hole cards and the deck the board's cards as drawn (the
         // phone oval's board is 30x42 since the phone table round 2), the hand's five board cards showing at its end.
-        const want = w >= 768 ? hole : board;
+        const want = !phoneAt(w, h) ? hole : board;
         if (!deck || !hole || !want || Math.abs(deck.w - want.w) > 1 || Math.abs(deck.h - want.h) > 1) bad.push(`${tag}: deck ${deck ? `${deck.w.toFixed(1)}x${deck.h.toFixed(1)}` : 'none'}, hole card ${hole ? `${hole.w.toFixed(1)}x${hole.h.toFixed(1)}` : 'none'}${w < 768 ? `, board card ${board ? `${board.w.toFixed(1)}x${board.h.toFixed(1)}` : 'none'}` : ''}`);
         await sleep(700); await p.evaluate(() => window.__stream.deal()); await sleep(3500);
         const flown = await p.evaluate(() => [...window.__fl.values()]), hole2 = await p.evaluate(box, '[data-seat] [data-hole] > *');
@@ -930,7 +939,7 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
         // The longest action texts: a raise with a 4-digit amount on seat 3, the blinds on theirs; seat 3 hovered.
         await p.evaluate(() => { const s = window.__stream; s.last = { ...s.last, players: s.last.players.map((q, i) => i === 3 ? { ...q, lastAction: 'RAISE', lastAmount: 1234, currentBet: 1234 } : q) }; s.feed({ type: 'game_state', payload: s.last }); });
         await sleep(600);
-        if (w >= 768) { const b = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).getBoundingClientRect(); return [e.left + 20, e.top + 20]; }); await p.mouse.move(b[0], b[1]); await sleep(400);
+        if (!phoneAt(w, h)) { const b = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).getBoundingClientRect(); return [e.left + 20, e.top + 20]; }); await p.mouse.move(b[0], b[1]); await sleep(400);
           const band = await p.evaluate(() => /VPIP|bb\/100|No stats yet/.test([...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).textContent));
           if (band) bad.push(`${tag}: a hovered seat shows a stats band`); }
         // Text boxes per seat: the name, the stack, the badge, the action text (each text's own painted extent).
@@ -1057,7 +1066,7 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
   const run = async (w, h, reduced, query = '') => {
     const tag = `${w}x${h}${query}${reduced ? ' reduced motion' : ''}: `, settle = reduced ? 1100 : 2600; // the peek takes 1.7 s
     // The route a seat takes this hand: forced by ?peel=a or ?peel=b, else its own (routeOf), which its cards say (data-route).
-    const forced = query.match(/peel=([ab])/)?.[1], kindOf = (hand, i) => (w < 768 ? 'phone' : forced ?? routeOf(hand, +i));
+    const forced = query.match(/peel=([ab])/)?.[1], kindOf = (hand, i) => (phoneAt(w, h) ? 'phone' : forced ?? routeOf(hand, +i));
     const routes = { a: 0, b: 0 }, misroute = [], kind0 = kindOf(0, 0);
     const routed = (rec, hand) => { for (const [i, s] of Object.entries(rec.at(-1)?.seats ?? {})) { const want = forced ?? routeOf(hand, +i); routes[want]++; if (s.cards.some(c => c.route !== want)) misroute.push(`hand ${hand} seat ${i}: ${s.cards.map(c => c.route)} (want ${want})`); } };
     const p = await scriptedTable(w, h, reduced, query);
@@ -1185,15 +1194,15 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
       if (!reduced && early.some(s => s.cards.some(x => x.shown < 0.99) && (lift(s) || s.cards.some(x => holeFace(x) !== 'down')))) bad.push(`${tag}turn with the deal: seat ${c} peeked before both its cards landed`);
       if (!reduced && kindOf(third.handNumber, c) === 'a' && held < 400) bad.push(`${tag}turn with the deal: seat ${c} held ${held} ms`);
       if (misroute.length) bad.push(`${tag}cards on the wrong route: ${misroute.slice(0, 3).join(', ')}`);
-      if (!forced && w >= 768 && (!routes.a || !routes.b)) bad.push(`${tag}every seat on one route over two hands (${JSON.stringify(routes)})`);
-      if (!forced && w >= 768) seen.push(`${tag}routes per seat over two hands: ${routes.a} A, ${routes.b} B, each as routeOf`);
+      if (!forced && !phoneAt(w, h) && (!routes.a || !routes.b)) bad.push(`${tag}every seat on one route over two hands (${JSON.stringify(routes)})`);
+      if (!forced && !phoneAt(w, h)) seen.push(`${tag}routes per seat over two hands: ${routes.a} A, ${routes.b} B, each as routeOf`);
     } finally { await p.close(); }
   };
   for (const [w, h, reduced, query] of [[1440, 900, false, ''], [1440, 900, false, '?peel=a'], [1440, 900, false, '?peel=b'], [390, 844, false], [1440, 900, true], [390, 844, true]]) await run(w, h, reduced, query);
   // Live: reload until the snapshot has a seat that has had its turn and one that has not.
   for (const [lw, lh] of [[1440, 900], [390, 844]]) {
   const p = await newPage(); await p.setViewport({ width: lw, height: lh });
-  const live = lw < 768 ? 'live 390x844:' : 'live:';
+  const live = phoneAt(lw, lh) ? 'live 390x844:' : 'live:';
   try {
     // The recorder from the first frame; the cards are drawn once their fade-in is done: a hole card (a folded seat's are
     // at 40%) at full opacity.
@@ -1308,7 +1317,7 @@ group(() => check('table-refresh-fades', 'On a refresh, mid-hand or between hand
         requestAnimationFrame(f);
       }, FADE_WATCH.toString());
       // Last, a reload below the table: the sticky bar shows at once, and fades in where it sits.
-      for (const phase of reduced ? ['mid-hand'] : w > 768 ? ['mid-hand', 'between', 'below the table'] : ['mid-hand', 'between']) {
+      for (const phase of reduced ? ['mid-hand'] : !phoneAt(w, h) ? ['mid-hand', 'between', 'below the table'] : ['mid-hand', 'between']) {
         await p.evaluate(ph => sessionStorage.setItem('__phase', ph), phase);
         if (phase === 'below the table') await goto(p, 'stats');
         await p.reload({ waitUntil: 'domcontentloaded', timeout: 120000 }); await sleep(2500);
@@ -1424,7 +1433,7 @@ group(() => check('table-shuffle-sound', 'The shuffle sound is in time with the 
     });
     await scriptStream(p);
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('td.w-\\[200px\\]'), { timeout: 120000 });
+    await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat]'), { timeout: 120000 });
     await sleep(2000);
     const early = await p.evaluate(() => window.__snd.length);
     await p.mouse.click(4, 4); await sleep(300); // the first trusted click unlocks audio
@@ -2706,7 +2715,7 @@ const judge = (fr, name, how, state) => {
   const still = (a, b) => S.slice(a, b + 1).every(x => x && Math.abs(x.y - S[a].y) <= 2 && x.box.every((v, n) => Math.abs(v - S[a].box[n]) <= 0.5));
   const seen = (a, b) => still(a, b) || Array.from({ length: b - a + 1 }, (_, n) => a + n).every(k => caught.has(k));
   if (i < 0 || j < 0 || !seen(post[i].k, kSwap - 1) || !seen(kSwap, post[j].k)) out.missed = true;
-  else if (name.startsWith('Trends') && post[j].w < 768) out.cal.swap = 0; // Trends' phone legend steps 4px at its jump (its own, out of this work)
+  else if (name.startsWith('Trends') && post[j].w < DESK_MIN_W) out.cal.swap = 0; // Trends' phone legend steps 4px at its jump (its own, out of this work)
   else {
     const a = post[i], b = post[j], box = (how === 'open' ? b : a).s.box;
     const moved = Math.max(...a.s.box.map((v, n) => Math.abs(v - b.s.box[n])));
@@ -2774,7 +2783,7 @@ const judge = (fr, name, how, state) => {
   return out;
 };
 let filmed;
-// Desktop sizes only: under 768px there are no tiles and no hand-over (owner, 2026-11-15: each part is one full window
+// Desktop sizes only: in the phone layout (DESK_MIN_W) there are no tiles and no hand-over (owner, 2026-11-15: each part is one full window
 // on a phone, PhoneStats), which phone-stats-windows checks instead.
 const films = () => (filmed ??= alone(async () => {
   const out = [];
@@ -4773,7 +4782,7 @@ group(() => check('leader-bb100', 'The Leader line is the best bb/100 among the 
   await p.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-// Phones and 200% browser zoom (CSS width under 768px). Owner's report: the opened Trends card collapsed to a
+// Phones and 200% browser zoom (the phone layout, phoneAt). Owner's report: the opened Trends card collapsed to a
 // strip, Matchups rows to 2-17px and overlapping, Profiles showed logos only with overlapping rows, the Matchups
 // card cut off names and its last column, the overview cut off its last row. The Trends plot is at least 200px
 // tall where the chart's 2.6:1 shape allows it at the card's full width (a 390px phone: about 129px; a taller
@@ -4813,7 +4822,7 @@ group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'
     const size = `${w}x${h}${d > 1 ? `@${d}x` : ''}`;
     const p = await newPage(); await p.setViewport({ width: w, height: h, deviceScaleFactor: d });
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p); await sleep(3000);
-    // Under 768px there are no tiles (owner, 2026-11-15: each part is a full window of its own, PhoneStats): the windows'
+    // In the phone layout there are no tiles (owner, 2026-11-15: each part is a full window of its own, PhoneStats): the windows'
     // cards are checked, Profiles' as #stats-panel.
     const phone = await p.evaluate(() => !document.getElementById('stats-card'));
     const prof = phone ? '#stats-panel' : '#stats-card';
@@ -4865,7 +4874,7 @@ group(() => check('zoom-tolerable', `At 1440x900, 1512x982 and 1728x1117 zoomed 
       await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
       await p.waitForFunction(() => document.querySelector('[data-seat]') && document.querySelector('#stats-panel tbody tr'), { timeout: 60000 }).catch(() => {});
       await sleep(1500);
-      const narrow = await p.evaluate(() => innerWidth < 768);
+      const narrow = await p.evaluate(q => matchMedia(q).matches, PHONE_Q);
       const skip = narrow ? '' : '.stage-zoom';
       const look = async where => {
         const m = await p.evaluate(measure, skip);

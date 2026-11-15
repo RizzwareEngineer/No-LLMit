@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* The one switch between the desktop table and the phone layout (lib/layout.ts, whose DESK and PHONE these are, word for
+   word: layout.test.mjs checks it). Tailwind's md is redefined to it, so every md: and max-md: in the site follows it. */
+@custom-variant md (@media (min-width: 992px) and (min-height: 501px));
+@custom-variant max-md (@media not all and (min-width: 992px) and (min-height: 501px));
+
 /* The site's two families, defined once: Tailwind's `font-sans` is the page default and `font-mono` is for code and
    model ids only. No web font is loaded. */
 @theme {
@@ -79,7 +84,7 @@ dialog.drawer::backdrop {
   background: rgba(15, 15, 15, 0.3);
   animation: fade-in 200ms ease-out;
 }
-@media (max-width: 767px) {
+@media not all and (min-width: 992px) and (min-height: 501px) {
   dialog.drawer {
     margin: auto 0 0 0;
     width: 100vw;
@@ -211,7 +216,7 @@ input:focus-visible {
 html:has([data-screen]) {
   scroll-snap-type: y mandatory;
 }
-@media (min-width: 768px) {
+@media (min-width: 992px) and (min-height: 501px) {
   html:has([data-screen]) { scroll-snap-type: y proximity; }
 }
 
@@ -316,7 +321,7 @@ html:has([data-screen]) {
 /* Phones (StatsSections' PHONE): the opened Matchups card's matrix keeps 14px figures readable (about 46px cells
    for nine models), its card scrolling sideways under the sticky names; the desktop size (--card-m, set inline on
    the stats block) follows the window. */
-@media (max-width: 767px) {
+@media not all and (min-width: 992px) and (min-height: 501px) {
   .stats-room { --card-m-phone: 420px; }
 }
 
@@ -328,7 +333,7 @@ html:has([data-screen]) {
    one length (0px with no bars). */
 @property --tab-h { syntax: '<length>'; inherits: true; initial-value: 0px; }
 @property --bar-h { syntax: '<length>'; inherits: true; initial-value: 0px; }
-@media (max-width: 767px) {
+@media not all and (min-width: 992px) and (min-height: 501px) {
   [data-page] {
     --top-h: calc(44px + env(safe-area-inset-top));
     --tab-h: calc(52px + env(safe-area-inset-bottom));
@@ -367,7 +372,8 @@ html:has([data-screen]) {
    rides at the page's top, --top-h 0: the windows below no longer leave room for it) and the tab bar compacts to at most
    40px and under 15% of the height (its icons beside the labels, gone under 34px), so the table, the cards and About
    get the window. The floating back-to-the-table button goes too: the tab bar's Table is right there. */
-@media (max-width: 767px) and (max-height: 649px) {
+@media not all and (min-width: 992px) and (min-height: 501px) {
+@media (max-height: 649px) {
   [data-page] {
     --top-h: 0px;
     --tab-h: calc(min(40px, 15svh - 4px) + env(safe-area-inset-bottom));
@@ -380,6 +386,7 @@ html:has([data-screen]) {
   [data-tab-bar] svg { width: 18px; height: 18px; }
   [data-back-top] { display: none !important; }
 }
-@media (max-width: 767px) and (max-height: 226px) {
+@media (max-height: 226px) {
   [data-tab-bar] svg { display: none; }
+}
 }

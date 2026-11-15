@@ -64,7 +64,7 @@ export default function HoleCard({ value, faceUp, peek = false, fade = false, sl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [faceUp, at, variant]);
 
-  // The layout changed under a card at rest (a phone turned to landscape crosses 768px mid-hand): it takes the new
+  // The layout changed under a card at rest (a phone turned to landscape crosses lib/layout's switch mid-hand): it takes the new
   // layout's pose for its face, as if it had been dealt there.
   const sized = useRef({ fade, w });
   useEffect(() => {

@@ -6,6 +6,8 @@ import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
+const LAYOUT = readFileSync(new URL('../src/lib/layout.ts', import.meta.url), 'utf8');
+const DESK_MIN_W = +LAYOUT.match(/DESK_MIN_W = (\d+)/)[1], SHORT_H = +LAYOUT.match(/SHORT_H = (\d+)/)[1];
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const BASE = arg('--base', 'http://localhost:3300'), OUT = arg('--out', '../.cloud-out/audit');
@@ -102,7 +104,7 @@ async function newBrowser() { return puppeteer.launch({ executablePath: CHROME, 
 // One page at a viewport/zoom, walked through its states. `steps` is [{group, state, desc, run}].
 async function walk(browser, { family, vp, zoom }) {
   const [W, H] = vp.split('x').map(Number), z = zoom / 100;
-  const phone = Math.round(W / z) < 768, key = `${vp}@${zoom}`; // the phone layout is by CSS width, as the page does it
+  const phone = Math.round(W / z) < DESK_MIN_W || Math.round(H / z) <= SHORT_H, key = `${vp}@${zoom}`; // the phone layout, as lib/layout.ts has it
   const ctx = await browser.createBrowserContext(), p = await ctx.newPage();
   let n = 0;
   const snap = async (group, state, desc) => {

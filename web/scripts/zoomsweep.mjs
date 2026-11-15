@@ -4,6 +4,9 @@
 import puppeteer from 'puppeteer-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { measure } from './zoom-measure.mjs';
+import { readFileSync } from 'node:fs';
+const LAYOUT = readFileSync(new URL('../src/lib/layout.ts', import.meta.url), 'utf8');
+const DESK_MIN_W = +LAYOUT.match(/DESK_MIN_W = (\d+)/)[1], SHORT_H = +LAYOUT.match(/SHORT_H = (\d+)/)[1];
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const BASE = arg('--base', 'http://localhost:3300'), OUT = arg('--out', '../.cloud-out/zoom'), TAG = arg('--tag', 'before');
@@ -40,7 +43,7 @@ async function run({ win, z, phone }) {
     rows.table.tableBox = await p.evaluate(() => { const t = document.querySelector('.stage-zoom') || document.querySelector('[data-felt]') || document.getElementById('table'); if (!t) return null; const r = t.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top + scrollY) }; });
     shots.table = await shot(p, `${key}-table`);
     // Stats: the overview (desktop) or the first stats window (phone layout).
-    const narrow = vw < 768;
+    const narrow = vw < DESK_MIN_W || vh <= SHORT_H; // lib/layout.ts's switch
     await scrollTo(p, narrow ? 'phone-stats' : 'stats'); await sleep(1200);
     rows.stats = await p.evaluate(measure, '');
     shots.stats = await shot(p, `${key}-stats`);
