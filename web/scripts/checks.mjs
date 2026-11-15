@@ -4028,9 +4028,26 @@ group(() => check('about-dial-touch-motion', 'At 390x844 with touch, one vertica
 }));
 // Every line of the API usage card fits on one line (owner's rule: UI text fits one line); the mock provider's test-mode
 // line wrapped "called" onto a second line at 1440x900.
-group(() => check('usage-card-one-line', 'At 1440x900, 1728x1117 and 390x844 every text line in the API usage card sits on one line', async () => {
+// Owner, 2026-11-15: "For the mobile view, we don't actually need to show the API usage, just the profits and losses."
+group(() => check('usage-card-one-line', 'At 1440x900 and 1728x1117 every text line in the API usage card sits on one line; at 390x844 there is no API usage card and Profits & Losses is shown', async () => {
   const bad = [], seen = [];
-  for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) {
+  {
+    const p = await newPage(); await p.setViewport({ width: 390, height: 844 });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => document.querySelectorAll('#table ol li').length >= 2, { timeout: 60000, polling: 250 }).catch(() => {});
+    await sleep(2500);
+    const r = await p.evaluate(() => {
+      const vis = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+      const usage = [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].some(vis) || [...document.querySelectorAll('#table h2, #table h3, #table span')].some(e => /^API usage/i.test(e.textContent.trim()) && vis(e));
+      const pnl = [...document.querySelectorAll('#table h2')].some(e => /Profits/.test(e.textContent) && vis(e));
+      return { usage, pnl };
+    });
+    if (r.usage) bad.push('390x844: the API usage card is shown');
+    if (!r.pnl) bad.push('390x844: no Profits & Losses');
+    seen.push(`390x844: ${r.usage ? 'usage card' : 'no usage card'}, ${r.pnl ? 'P&L shown' : 'no P&L'}`);
+    await p.close();
+  }
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await newPage(); await p.setViewport({ width: w, height: h });
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await p.waitForFunction(() => [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].some(e => e.getBoundingClientRect().width > 0 && e.closest('.rounded')?.textContent.includes('/')), { timeout: 60000, polling: 250 }).catch(() => {});
@@ -4071,9 +4088,10 @@ group(() => check('watching-counts-me', 'A fresh table page\'s status label, whe
 // Owner, 2026-11-12: "the donation part is not like... apparent". The ask sits on the table screen, in the API usage card
 // beside the calls it pays for: a filled "Sponsor on GitHub" link, its sentence on one line, and Profits & Losses above
 // still shows every seat.
-group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117 and 390x844, the API usage card has, at its bottom below everything else in it and inside it, a filled "Sponsor on GitHub" link to GitHub Sponsors (new tab), the card\'s only filled control, inside the window; Profits & Losses shows every seat\'s row unclipped and unscrolled', async () => {
+// Phones show no API usage card (owner, 2026-11-15; usage-card-one-line checks that): the ask is checked on the desktop sizes, About's donate button carries it on a phone.
+group(() => check('donate-apparent', 'On the table screen at 1440x900 and 1728x1117, the API usage card has, at its bottom below everything else in it and inside it, a filled "Sponsor on GitHub" link to GitHub Sponsors (new tab), the card\'s only filled control, inside the window; Profits & Losses shows every seat\'s row unclipped and unscrolled', async () => {
   const bad = [], seen = [];
-  for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) {
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await newPage(); await p.setViewport({ width: w, height: h });
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await p.waitForFunction(() => document.querySelectorAll('#table ol li').length >= 2 && document.querySelector('#table a[href*="sponsors"]'), { timeout: 60000, polling: 250 }).catch(() => {});
