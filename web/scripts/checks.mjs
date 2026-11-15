@@ -414,7 +414,7 @@ group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its 
 // scroll a little bit down, I see profiles ... matchups", then About; and "when I click into trends, it actually kicks me
 // out a few times". On a phone (touch) every stats part is a window of its own, reached by a swipe, and no tap or small
 // swipe on a window (its card, the gutters beside it, the page under it) moves the page off it.
-group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, from the Stats tab one swipe up at a time shows Trends, Profiles, Matchups, then About, each window\'s card filling the space between the top bar and the tab bar (85% at least); on each card window, taps on the gutters beside the card, on the page above and under it and inside it, and a 20px drag, leave the page on that window (no kick-out to an overview)', async () => {
+group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, from the Stats tab one swipe up at a time shows Trends, Profiles, Matchups, then About, each window\'s card filling the space between the top bar and the tab bar (85% at least); on each card window, taps on the gutters beside the card, on the page above and under it and inside it, and a 20px drag, leave the page on that window (no kick-out to an overview); on About a back-to-the-table control (44px at least) takes the page to the table\'s top', async () => {
   const bad = [], seen = [];
   const PARTS = ['Trends', 'Profiles', 'Matchups'];
   for (const [w, h] of [[390, 844], [375, 667]]) {
@@ -464,6 +464,15 @@ group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, fro
         await swipe(h / 2, h / 2 - 20, 300); await sleep(300);
         const after = await where();
         if (after.at !== want) bad.push(`${size}: a 20px drag on ${want} moved the page to ${after.at}`);
+      }
+      // On About, the back-to-the-table control: shown, 44px at least, and a tap brings the table's top back.
+      const up = await p.evaluate(() => { const e = document.querySelector('button[aria-label="Back to the table"]'), b = e?.getBoundingClientRect(); return b && { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, shown: +getComputedStyle(e).opacity > 0.9 && b.bottom <= document.querySelector('nav[aria-label=Sections]').getBoundingClientRect().top }; });
+      if (!up || !up.shown || up.w < 44 || up.h < 44) bad.push(`${size}: no back-to-the-table control on About${up ? ` (${Math.round(up.w)}x${Math.round(up.h)}${up.shown ? '' : ', hidden'})` : ''}`);
+      else {
+        await p.touchscreen.tap(up.x, up.y); await sleep(2000);
+        const back = await p.evaluate(() => ({ y: Math.round(scrollY), current: document.querySelector('nav[aria-label=Sections] [aria-current=page]')?.textContent.trim(), hidden: +getComputedStyle(document.querySelector('button[aria-label="Back to the table"]')).opacity < 0.1 }));
+        if (back.y > 1 || back.current !== 'Table' || !back.hidden) bad.push(`${size}: back to the table left the page at ${back.y}px, tab ${back.current}${back.hidden ? '' : ', the control still shown'}`);
+        else order.push('Table (back to top)');
       }
       seen.push(`${size}: ${order.join(' → ')}`);
     } finally { await p.close(); }
