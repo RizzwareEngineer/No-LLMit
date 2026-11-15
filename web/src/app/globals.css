@@ -334,3 +334,8 @@ html:has([data-screen]) {
     border-radius: 2px;
   }
 }
+/* The phone seat's stats popup (SeatStats) opens with a small scale-in; under reduced motion it just shows. */
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 import Player, { LOGO_RIM } from "@/components/Player";
 import TableFelt, { BetStack, FeltBet, GRID } from "@/components/TableFelt";
@@ -113,7 +113,14 @@ export default function PokerTable({
   const ring = clockLeft !== null && clockBudgetMs ? { left: clockShare(clockLeft, clockBudgetMs), urgent: clockLeft <= 5 } : null;
 
   const shape = usePhoneShape();
-  const [open, setOpen] = useState<number | null>(null); // the phone seat whose stats are open (SeatStats)
+  // The phone seat whose stats are open (SeatStats), and the table's middle in the window then, where they show.
+  const [open, setOpen] = useState<{ seat: number; at: { x: number; y: number } } | null>(null);
+  const oval = useRef<HTMLDivElement>(null);
+  const openStats = (seat: number) => {
+    const b = oval.current?.getBoundingClientRect();
+    if (b) setOpen({ seat, at: { x: b.left + b.width / 2, y: b.top + b.height / 2 } });
+  };
+  const closeStats = useCallback(() => setOpen(null), []);
 
   const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
   // Until the first state arrives (`players` empty) the table stands in blank: the same grid, a blank seat box in every
@@ -137,7 +144,7 @@ export default function PokerTable({
       compact={!!spot}
       spot={spot}
       ring={spot && idx === currentPlayerIdx ? ring : undefined}
-      onOpen={spot ? () => setOpen(idx) : undefined}
+      onOpen={spot ? () => openStats(idx) : undefined}
       bubble={spot && turn.bubble?.seat === idx ? turn.bubble.text : undefined}
     />
   );
@@ -195,7 +202,7 @@ export default function PokerTable({
           with its position, stack, label and cards (Player's compact seat; phoneTable's geometry), each bet between its seat
           and the pot, the pot and the board in the middle, the deck over the pot between hands. A logo taps open its model's
           basic stats (SeatStats). data-oval: what the page watches for the bar. */}
-      <div data-oval data-shape={shape} className="md:hidden relative w-full" style={{ height: 'var(--oval-h)', marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
+      <div ref={oval} data-oval data-shape={shape} className="md:hidden relative w-full" style={{ height: 'var(--oval-h)', marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
         <div data-felt-oval aria-hidden className="absolute bg-white" style={{ left: FELT.side, right: FELT.side, top: FELT.top, bottom: FELT.bottom, borderRadius: RADIUS[shape], ...GRID, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 6px 24px' }} />
         <div className="absolute left-1/2 -translate-x-1/2 w-[180px] h-[116px]" style={{ top: css([MIDDLE[0], MIDDLE[1] + POT_TOP]) }}>{felt(true)}</div>
         {!blank && seatSpots(players.length, shape).map((spot, idx) => (
@@ -208,7 +215,7 @@ export default function PokerTable({
             <div className="absolute rounded-full bg-white" style={{ left: seatPlace(spot).logo[0] - LOGO / 2, top: seatPlace(spot).logo[1] - LOGO / 2, width: LOGO, height: LOGO, ...LOGO_RIM }} />
           </div>
         ) : <span key={players[idx]?.id ?? idx} className="contents">{seat(idx, spot)}</span>)}
-        {open !== null && players[open] && <SeatStats name={players[open].name} stats={stats?.[players[open].name]} onClose={() => setOpen(null)} />}
+        {open && players[open.seat] && <SeatStats name={players[open.seat].name} stats={stats?.[players[open.seat].name]} at={open.at} onClose={closeStats} />}
       </div>
 
       {/* md and up: seats around the felt. The table is only for layout. */}
