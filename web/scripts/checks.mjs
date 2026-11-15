@@ -831,9 +831,10 @@ group(async () => {
 // Owner, 2026-11-11: bigger hole cards; the deck the same size as the hole cards; seats 200x128 and the table 1000px.
 // He picked 40x56 on desktop (2026-11-14); phones keep 28x40 under a deck of the board's 44x64. At 1440x900 and 390x844
 // (scripted): the cells, the deck squared between hands against a hole card, a dealt card's last painted box against the
-// card it lands on, and, painted, no hole card pixel on a seat's name, stack, badge or action text, nor (1440, a hovered
-// seat) on its stats band: each box is shot with the cards and with them hidden, and the two must be the same pixels.
-group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on phones: on desktop the deck and the dealt cards are the hole cards\' size (on phones the deck is the board\'s), seats stay 200x128 and the table 1000px, and no hole card covers a seat\'s name, stack, badge, action text or hovered stats band', async () => {
+// card it lands on, and, painted, no hole card pixel on a seat's name, stack, badge or action text: each box is shot with
+// the cards and with them hidden, and the two must be the same pixels. A hovered desktop seat shows no stats band (owner,
+// 2026-11-15: "you can get rid of the stats that pop up when we hover over a given player").
+group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on phones: on desktop the deck and the dealt cards are the hole cards\' size (on phones the deck is the board\'s), seats stay 200x128 and the table 1000px, and no hole card covers a seat\'s name, stack, badge or action text, and a hovered seat shows no stats band', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1440, 900], [390, 844]]) {
     {
@@ -860,13 +861,15 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
         const flown = await p.evaluate(() => [...window.__fl.values()]), hole2 = await p.evaluate(box, '[data-seat] [data-hole] > *');
         const off = flown.filter(f => Math.abs(f.w - hole2.w) > 1.5 || Math.abs(f.h - hole2.h) > 1.5);
         if (!flown.length || off.length) bad.push(`${tag}: ${flown.length} flights, ${off.length} landing off the hole card's ${hole2.w.toFixed(1)}x${hole2.h.toFixed(1)} (e.g. ${off[0] ? `${off[0].w.toFixed(1)}x${off[0].h.toFixed(1)}` : '-'})`);
-        // The longest action texts: a raise with a 4-digit amount on seat 3, the blinds on theirs; the band on seat 3, hovered.
+        // The longest action texts: a raise with a 4-digit amount on seat 3, the blinds on theirs; seat 3 hovered.
         await p.evaluate(() => { const s = window.__stream; s.last = { ...s.last, players: s.last.players.map((q, i) => i === 3 ? { ...q, lastAction: 'RAISE', lastAmount: 1234, currentBet: 1234 } : q) }; s.feed({ type: 'game_state', payload: s.last }); });
         await sleep(600);
-        if (w >= 768) { const b = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).getBoundingClientRect(); return [e.left + 20, e.top + 20]; }); await p.mouse.move(b[0], b[1]); await sleep(400); }
-        // Text boxes per seat: the name, the stack, the badge, the action text (each text's own painted extent), the band's lines.
+        if (w >= 768) { const b = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).getBoundingClientRect(); return [e.left + 20, e.top + 20]; }); await p.mouse.move(b[0], b[1]); await sleep(400);
+          const band = await p.evaluate(() => /VPIP|bb\/100|No stats yet/.test([...document.querySelectorAll('[data-seat="3"]')].find(x => x.getBoundingClientRect().width > 0).textContent));
+          if (band) bad.push(`${tag}: a hovered seat shows a stats band`); }
+        // Text boxes per seat: the name, the stack, the badge, the action text (each text's own painted extent).
         const boxes = await p.evaluate(() => [...document.querySelectorAll('[data-seat]')].filter(s => s.getBoundingClientRect().width > 0).flatMap(seat => {
-          const texts = [...seat.querySelectorAll('[title], [data-chips], [data-action], .absolute.top-\\[46px\\] > div')].filter(e => !e.closest('[data-hole]'));
+          const texts = [...seat.querySelectorAll('[title], [data-chips], [data-action]')].filter(e => !e.closest('[data-hole]'));
           return texts.map(e => {
             // The text's own extent, cut to its box (a truncated text runs on, unpainted, under the cards).
             const r = document.createRange(); r.selectNodeContents(e); const b = r.getBoundingClientRect();
@@ -3113,8 +3116,10 @@ main(() => check('matchups-card-hugs', 'The opened Matchups card spans the table
 }));
 // Owner, 2026-11-08: "we need to do an audit on the fonts and sizes and all". One family (the body's sans),
 // tabular figures, and one small scale by role on every stats tile and card (Trends's chart internals are
-// checked by history-type and history-number-style): titles 20px bold; model names and data figures 14px; controls 14px
-// medium; column headers and secondary text 13px (muted); the Matchups tile's figures one size (11px).
+// checked by history-type and history-number-style): titles 20px bold; controls 14px medium; column headers and secondary
+// text 13px (muted); the Matchups tile's figures one size (11px). Model names and data figures were 14px (names bold);
+// owner, 2026-11-15, preferring the stats at 67-80% zoom to the "bigger, bolder font" at 100%: from md, 12px on the
+// tiles and 13px in the cards, names and totals 500 (phones keep 14px and bold).
 main(() => check('stats-type-scale', 'Every text role on the stats tiles and cards uses the agreed family, size, weight and colour', async () => {
   const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.72)', BLUE = 'rgb(31, 111, 196)';
   // [role, selector, size px, weights, colours (null: any), figures must be tabular]
@@ -3124,9 +3129,9 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
       ['Open ↓', '#race-panel h2 ~ div > span[aria-hidden], #stats-panel h2 ~ div > span[aria-hidden], #pairwise-panel h2 ~ div > span[aria-hidden]', 14, [500], [BLUE]],
       ['Leader line', '#race-panel h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
       ['Profiles headers', '#stats-panel thead th', 13, [500], [MUTED]],
-      ['Profiles names', '#stats-panel tbody th [translate=no]', 14, [700], [TEXT]],
-      ['Profiles figures', '#stats-panel tbody td', 14, [400], null, true],
-      ['Matchups names', '#pairwise-panel a [translate=no]', 14, [700], [TEXT]],
+      ['Profiles names', '#stats-panel tbody th [translate=no]', 12, [500], [TEXT]],
+      ['Profiles figures', '#stats-panel tbody td', 12, [400], null, true],
+      ['Matchups names', '#pairwise-panel a [translate=no]', 12, [500], [TEXT]],
       ['Matchups tile figures', '#pairwise-panel td[data-cell] [aria-hidden]', 11, [400], null, true],
     ],
     'stats-table': [
@@ -3134,17 +3139,17 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
       ['Leader line', '#stats-card h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
       ['definition', '#stats-card p', 13, [400], [MUTED]],
       ['Profiles headers', '#stats-card thead th', 13, [500], [MUTED, TEXT]],
-      ['Profiles names', '#stats-card tbody th [translate=no]', 14, [700], [TEXT]],
-      ['Profiles figures', '#stats-card tbody td > span', 14, [400], null, true],
+      ['Profiles names', '#stats-card tbody th [translate=no]', 13, [500], [TEXT]],
+      ['Profiles figures', '#stats-card tbody td > span', 13, [400], null, true],
       ['toggles', '#stats-card div.add-in > button', 14, [500], [BLUE]],
     ],
     pairwise: [
       ['card title', '#pairwise-card h2', 20, [700], [TEXT]],
       ['Leader line', '#pairwise-card h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
-      ['Matchups names', '#pairwise-card a [translate=no]', 14, [700], [TEXT]],
+      ['Matchups names', '#pairwise-card a [translate=no]', 13, [500], [TEXT]],
       ['Matchups Total header', '#pairwise-card [title^="Big blinds won from the models shown"]', 13, [500], [MUTED]],
-      ['Matchups figures', '#pairwise-card td[data-cell] [aria-hidden]', 14, [400], null, true],
-      ['Matchups totals', '#pairwise-card div[data-cell] [aria-hidden]', 14, [700], null, true],
+      ['Matchups figures', '#pairwise-card td[data-cell] [aria-hidden]', 13, [400], null, true],
+      ['Matchups totals', '#pairwise-card div[data-cell] [aria-hidden]', 13, [500], null, true],
     ],
     '': [
       ['Profits & Losses', '#table ol li', 13, [700], null, true],

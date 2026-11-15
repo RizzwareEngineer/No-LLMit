@@ -9,7 +9,7 @@ import { useRef, useState } from "react";
 import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
-import { BLUE, DASH, MUTED, ModelStats, ciHalf, modelHref, pct, signed } from "@/lib/stats";
+import { BLUE, MUTED, modelHref } from "@/lib/stats";
 import { CARD_CLASS, CARD_SIZES, useCardSize } from "@/lib/tableSwitches";
 import { useFillIn } from "@/lib/boxes";
 
@@ -20,7 +20,6 @@ interface PlayerProps {
   winAmount?: number;
   winDesc?: string;
   isThinking?: boolean;
-  stats?: ModelStats; // all-time stats, shown while the seat is hovered
   showAction?: boolean; // false until the seat has acted on this street: its last action is from an earlier one
   seatIdx?: number; // where TableMotion's chips and cards fly to and from
   handNumber?: number;
@@ -69,8 +68,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peek = false, compact = false, spot, ring, bubble, onOpen }: PlayerProps) {
-  const [hovered, setHovered] = useState(false);
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peek = false, compact = false, spot, ring, bubble, onOpen }: PlayerProps) {
   const bb = useBigBlind();
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
@@ -83,8 +81,6 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const [landed, setLanded] = useState(0);
   const up = faceUp && (!dealDelays || landed === handNumber);
   const seatBg = isWinner ? 'rgb(237, 253, 244)' : '#ffffff';
-  // Desktop's 40x56 cards reach up into the hover band: its lines then sit on the hovered seat's colour, above the cards.
-  const bandLine = size ? { background: `linear-gradient(rgba(55, 53, 47, 0.03), rgba(55, 53, 47, 0.03)), ${seatBg}` } : undefined;
   // A seat mounts where the blank one stood (PokerTable) when the table fills: its content fades in.
   const ref = useRef<HTMLDivElement>(null);
   useFillIn(ref, true);
@@ -178,8 +174,8 @@ export default function Player({ player, active, position, winAmount, winDesc, i
       <div 
         className="relative flex-1 flex flex-col overflow-hidden transition-colors"
         style={{ background: 'inherit' }}
-        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(55, 53, 47, 0.03)'; setHovered(true); }}
-        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'inherit'; setHovered(false); }}
+        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(55, 53, 47, 0.03)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'inherit'; }}
       >
         {/* Top-left, as in the original seat: logo, then the name over the stack. The name has the
             whole row because the hole cards sit bottom-right, so it fits on one line. */}
@@ -194,18 +190,6 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           {/* Position badge, top-right */}
           {badge}
         </div>
-
-        {/* Hover stats in the empty band between the name block and the bottom row; absolute, so the seat never changes size. */}
-        {hovered && (
-          <div className={`absolute left-3 right-3 top-[46px] ${size ? 'z-10 [&>*]:w-fit' : ''} text-[11px] leading-[14px] tabular-nums whitespace-nowrap overflow-hidden`} style={{ color: MUTED }} aria-hidden>
-            {stats ? (
-              <>
-                <div style={bandLine}><b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.vpip).replace('%', '')}</b> VPIP · <b style={{ color: 'rgb(55, 53, 47)' }}>{pct(stats.pfr).replace('%', '')}</b> PFR · <b style={{ color: 'rgb(55, 53, 47)' }}>{stats.af === null ? DASH : stats.af.toFixed(1)}</b> AF</div>
-                <div style={bandLine}><b style={{ color: 'rgb(55, 53, 47)' }}>{signed(stats.bb100, 0)}</b> bb/100{ciHalf(stats) !== null && ` ±${ciHalf(stats)!.toFixed(0)}`} · {stats.hands.toLocaleString()} hands</div>
-              </>
-            ) : 'No stats yet'}
-          </div>
-        )}
 
         {/* Bottom row: the action at the left, the hole cards at the right. */}
         <div className="mt-auto flex items-end justify-between gap-2 p-3 pt-0 min-w-0">

@@ -169,7 +169,7 @@ function Table() {
   // All-time stats feed the leaderboard, the drawer and the stats sections; the stream sends them on connect and as each hand is saved.
   // No stats event yet means loading; once the stream has given up with none, that is the error.
   const statsError = !stats && gaveUp ? "can't reach the game server" : null;
-  // Hover stats on the seats: all-time.
+  // The phone seat popup's stats: all-time, by model name.
   const seatStats = useMemo(() => (stats ? Object.fromEntries(stats.models.map(m => [m.name, m])) : undefined), [stats]);
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
