@@ -875,9 +875,10 @@ const filmFrames = async (p, run, cast = { format: 'png' }) => {
 // lie and turn. Per card, from the one element that carries its pose ([data-lay], HoleCard): its turn (the face's normal
 // towards the viewer, m33: -1 face down, 1 face up, between while lifted or turning), its angle on the felt, its 3D
 // rotation (the matrix's linear part), its painted box, its untransformed boxes' width-to-height ratios (the pose and both
-// sides), its opacity with its wrapper's, and while the peek draws a corner index, that index's box and whether it is
-// what is painted at its centre (the first card side the page hits there is its card's face: on top, not a hidden backface). Per seat: any card outside the seat or over
-// its name, stack, badge or action text.
+// sides), its opacity with its wrapper's, a phone's back fading over the face (cover), and while the face shows, the boxes
+// of its middle's rank and suit and whether each is what is painted at its centre (the first card side the page hits there
+// is its card's face: on top, not a hidden backface). Per seat: any card outside the seat or over its name, stack, badge or
+// action text.
 const HOLE_REC = () => {
   const rec = window.__rec = [];
   const rect = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
@@ -889,7 +890,7 @@ const HOLE_REC = () => {
       const box = s.getBoundingClientRect(), off = [];
       const texts = [...s.querySelectorAll('[title], [data-chips], [data-position], [data-action]')].filter(e => !e.closest('[data-hole]')).map(e => [rect(e), e.textContent.trim().slice(0, 12)]);
       const cards = [...s.querySelectorAll('[data-hole] > *')].map(c => {
-        const lay = c.querySelector('[data-lay]'), m = new DOMMatrix(getComputedStyle(lay).transform), index = c.querySelector('[data-index]');
+        const lay = c.querySelector('[data-lay]'), m = new DOMMatrix(getComputedStyle(lay).transform);
         const [a, b, r, d] = rect(lay);
         // The card's own four corners as painted (zero-size points the check pins to them), not its box: a turned card's
         // box reaches past its corners.
@@ -902,11 +903,14 @@ const HOLE_REC = () => {
             const pr = ps => ps.map(([x, y]) => x * ax + y * ay); const A = pr(quad), B = pr(R);
             return Math.min(Math.max(...A), Math.max(...B)) > Math.max(Math.min(...A), Math.min(...B)); }); };
         for (const [t, say] of texts) if (over(t)) off.push(`a card over "${say}"`);
-        const at = index && rect(index), shown = index && +getComputedStyle(index.closest('[aria-hidden]')).opacity > 0.99 && m.m33 > 0.05;
+        // The face's middle (rank and suit), while it shows: each mark's box, and whether every mark's centre hits this face first.
+        const marks = m.m33 > 0.05 ? [...c.querySelectorAll('[data-face] [role="img"] > [aria-hidden] > *')] : [], face = c.querySelector('[data-face]');
+        const mid = marks.length ? marks.map(rect) : null, cover = c.querySelector('[data-cover]');
         const ratio = [lay, c.querySelector('[data-face]'), c.querySelector('[data-back]')].map(e => e.offsetWidth / e.offsetHeight);
         // Its angle on the felt from its upright axis (face down, the turn over flips the other).
         return { deg: Math.atan2(-m.m21, m.m22) * 180 / Math.PI, turn: m.m33, lin: [m.m11, m.m12, m.m13, m.m21, m.m22, m.m23, m.m31, m.m32, m.m33], box: [a, b, r, d], ratio,
-          shown: +getComputedStyle(c).opacity, index: shown ? at : null, seen: !!shown && document.elementsFromPoint((at[0] + at[2]) / 2, (at[1] + at[3]) / 2).find(e => e.closest('[data-face], [data-back]'))?.closest('[data-face]') === index.closest('[data-face]') };
+          shown: +getComputedStyle(c).opacity, cover: cover ? +getComputedStyle(cover).opacity : 0, mid,
+          seen: !!mid && mid.every(r => document.elementsFromPoint((r[0] + r[2]) / 2, (r[1] + r[3]) / 2).find(e => e.closest('[data-face], [data-back]'))?.closest('[data-face]') === face) };
       });
       seats[s.dataset.seat] = { cards, off };
     }
@@ -915,7 +919,8 @@ const HOLE_REC = () => {
   };
   requestAnimationFrame(tick);
 };
-const holeFace = c => (c.turn < -0.99 ? 'down' : c.turn > 0.99 ? 'up' : 'mid');
+// A phone's card turning up shows its back over the face (data-cover), fading out: down until it starts, up once gone.
+const holeFace = c => (c.turn < -0.99 || (c.turn > 0.99 && c.cover > 0.99) ? 'down' : c.turn > 0.99 && c.cover < 0.01 ? 'up' : 'mid');
 const lifted = c => Math.abs(c.turn) < 0.999;
 
 // Owner, 2026-11-11: "Hole cards are dealt face down ... then stay face up for the rest of the hand. A seat that never acts
@@ -923,21 +928,26 @@ const lifted = c => Math.abs(c.turn) < 0.999;
 // peel BOTH from the side so they can see the suit and the value", "the orientation in which cards land in front of
 // players should be random", "stack the cards on top of each other so they line up", "they then turn the cards
 // horizontally, and then, from the side that's closest to the player, they'll peel the cards up", "stop distorting the
-// cards". Scripted (at 1440x900, the 40x56 card, and 390x844, the phone oval; and with reduced motion), every painted
-// frame: a deal with peeked [] (every card face down, each seat's two at two different angles, no two seats alike, inside
-// the seat and off its text); a seat's llm_thinking (face down until it starts; its two cards line up in one stack, face
-// down and upright, then turn a quarter counterclockwise, still one stack, before anything lifts; while lifted the two
-// share one 3D rotation; at the hold both corner indexes are painted and hit, for 0.7 s or more; no card's untransformed
-// box ever changes its width-to-height ratio; it ends face up, upright, side by side, never outside the seat or over its
-// text; every other seat stays down); its game_state with peeked (no change); a second seat's turn; the hand complete
-// (the rest turn up); the next deal (every seat at new angles). Reduced motion: the faces switch with no frame between
-// and nothing lifts. Live engine: a reload mid-hand, once a seat has had its turn and one has not: the first frame with
-// the cards drawn (faded in) shows the snapshot's peeked seats up and upright and the rest down, and after it nothing
-// moves but the one seat whose turn may come.
-group(() => check('table-hole-peel', 'Hole cards land face down at random angles (two per seat, per seat, per hand); on a seat\'s first turn its two cards line up in one stack, turn a quarter counterclockwise, lift as one piece from the near side so both ranks and suits show, hold, and turn on over to lie face up, upright and side by side, rigid and inside the seat and off its text throughout (1440x900 at 40x56, 390x844); the rest turn up when the hand completes; a reload mid-hand shows the same faces with no motion; reduced motion switches faces with no motion', async () => {
+// cards". Owner, 2026-11-15: "peel from the bottom-right corners and then we peel all the way up. Pause the moment we can
+// see what's in the middle", the text not distorted; or "stack them on top of each other vertically, and then we flip them
+// over"; "for mobile view, we don't need to have the [peel] animation". Scripted (at 1440x900, the 40x56 card, with ?peel=a
+// and ?peel=b, and 390x844, the phone oval; and with reduced motion), every painted frame: a deal with peeked [] (every
+// card face down, each seat's two at two different angles, no two seats alike, inside the seat and off its text); a seat's
+// llm_thinking (face down until it starts; its two cards line up in one stack, face down and upright, A: then turn a
+// quarter clockwise, still one stack, before anything lifts; while lifted the two share one 3D rotation; A: at the hold
+// both faces lie flat towards the viewer, sideways (over 20° off upright), every mark of both middles painted and hit, for
+// 0.7 s or more; B: upright from the stack on; no card's untransformed box ever changes its width-to-height ratio; it ends
+// face up, upright, side by side, never outside the seat or over its text; on the phone the faces fade in over 3 or more
+// frames where the cards landed, nothing lifting or turning; every other seat stays down); its game_state with peeked (no
+// change); a second seat's turn; the hand complete (the rest turn up); the next deal (every seat at new angles). Reduced
+// motion: the faces switch with no frame between and nothing lifts. Live engine: a reload mid-hand, once a seat has had its
+// turn and one has not: the first frame with the cards drawn (faded in) shows the snapshot's peeked seats up and upright and
+// the rest down, and after it nothing moves but the one seat whose turn may come.
+group(() => check('table-hole-peel', 'Hole cards land face down at random angles (two per seat, per seat, per hand); on a seat\'s first turn, at 1440x900 (40x56): route A (?peel=a) lines its two cards up in one stack, turns it a quarter clockwise, lifts it as one piece from the near-right corner all the way over, holds both faces flat, sideways and slanted with both middles (rank and suit) showing, then rights them face up, upright and side by side; route B (?peel=b) stacks them upright, turns the stack over as one, and slides them side by side; on a phone (390x844) the faces fade in where the cards landed, with no lift and no turn; rigid and inside the seat and off its text throughout; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no motion; reduced motion switches faces with no motion', async () => {
   const bad = [], seen = [], degs = a => a.map(d => `${d.toFixed(1)}°`).join(' and ');
   const run = async (w, h, reduced, query = '') => {
-    const tag = `${w}x${h}${query}${reduced ? ' reduced motion' : ''}: `, settle = reduced ? 1100 : 3100; // the peek takes 2.6 s
+    const tag = `${w}x${h}${query}${reduced ? ' reduced motion' : ''}: `, settle = reduced ? 1100 : 3400; // the peek takes 2.9 s
+    const kind = w < 768 ? 'phone' : query.includes('peel=b') ? 'b' : 'a';
     const p = await scriptedTable(w, h, reduced, query);
     try {
       const feed = msgs => p.evaluate(msgs => { const s = window.__stream; s.scripted = true; for (const m of msgs) { if (m.type === 'game_state') s.last = m.payload; s.feed(m); } }, msgs);
@@ -979,8 +989,17 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
           if (faces.at(-1) !== want) { bad.push(`${tag}${name}: seat ${i} ends ${faces.at(-1)}, want ${want}`); continue; }
           if (!turning.includes(+i)) { if (new Set(faces).size > 1) bad.push(`${tag}${name}: seat ${i}'s cards turned`); continue; }
           const between = faces.filter(f => f !== 'downdown' && f !== 'upup').length, lift = frames.filter(s => s.cards.some(lifted));
-          // Afterwards: upright, side by side (the second starts where the first ends, or after it), level.
+          // Afterwards: upright, side by side (the second starts where the first ends, or after it), level; on a phone, where
+          // they landed, never turned or lifted.
           const [c0, c1] = last.cards;
+          if (kind === 'phone') {
+            const turned = frames.find(s => s.cards.some((c, k) => lifted(c) || Math.abs(c.deg - dealt[i][k]) > 0.5));
+            if (turned) bad.push(`${tag}${name}: seat ${i}'s cards moved (at ${degs(turned.cards.map(c => c.deg))}, turn ${turned.cards.map(c => c.turn.toFixed(2))}; landed at ${degs(dealt[i])})`);
+            if (reduced && between) bad.push(`${tag}${name}: seat ${i} has ${between} frames between the faces`);
+            if (!reduced && between < 3) bad.push(`${tag}${name}: seat ${i}'s faces fade in over ${between} frames`);
+            if (!reduced && name === 'thinking A' && !turned) seen.push(`${tag}seat ${i} faded up over ${between} frames, still at ${degs(last.cards.map(c => c.deg))}`);
+            continue;
+          }
           if (Math.abs(c0.deg) > 0.5 || Math.abs(c1.deg) > 0.5 || c0.box[2] > c1.box[0] + 0.5 || Math.abs(c0.box[1] - c1.box[1]) > 0.5) bad.push(`${tag}${name}: seat ${i}'s cards end at ${degs([c0.deg, c1.deg])}, ${c0.box[0].toFixed(1)}-${c0.box[2].toFixed(1)} and ${c1.box[0].toFixed(1)}-${c1.box[2].toFixed(1)} (want 0°, side by side)`);
           // Reduced motion, or the hand's end: they turn over in place (reduced: no frame between the faces).
           if (reduced || !peeking) {
@@ -988,26 +1007,30 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
             if (!reduced && between < 3) bad.push(`${tag}${name}: seat ${i}'s cards turn over ${between} frames`);
             continue;
           }
-          // The peek. Before anything lifts: face down, lined up in one stack upright, then that stack turned a quarter
-          // counterclockwise. While lifted: one 3D rotation for both. At the hold (both faces shown, both indexes painted
-          // and hit): 0.7 s or more. Every frame: each card's untransformed boxes keep their width-to-height ratio.
+          // The peek. Before anything lifts: face down, lined up in one stack upright (A: then that stack turned a quarter
+          // clockwise). While lifted: one 3D rotation for both. A's hold (both faces flat towards the viewer, still sideways,
+          // both middles' rank and suit painted and hit): 0.7 s or more. B: upright from the stack on. Every frame: each
+          // card's untransformed boxes keep their width-to-height ratio.
           const ch = c0.box[3] - c0.box[1], wrong = new Set(), first = frames.findIndex(s => s.cards.some(lifted)), before = frames.slice(0, first < 0 ? 0 : first);
           const one = s => s.cards[0].box.every((v, k) => Math.abs(v - s.cards[1].box[k]) < 0.5) && Math.abs(s.cards[0].deg - s.cards[1].deg) < 0.5;
           const stacked = before.find(s => one(s) && s.cards.every(c => holeFace(c) === 'down' && Math.abs(c.deg) < 1.5));
-          const turned = before.find(s => one(s) && s.cards.every(c => holeFace(c) === 'down' && Math.abs(c.deg + 90) < 1.5));
+          const turned = before.find(s => one(s) && s.cards.every(c => holeFace(c) === 'down' && Math.abs(c.deg - 90) < 1.5));
           if (first < 0) wrong.add('nothing lifted');
           if (before.some(s => s.cards.some(c => holeFace(c) !== 'down'))) wrong.add('a face showed before the lift');
           if (!stacked) wrong.add('never lined up in one upright stack before the lift');
-          if (!turned) wrong.add('never turned a quarter counterclockwise as one stack before the lift');
-          else if (stacked && before.indexOf(turned) < before.indexOf(stacked)) wrong.add('turned before it was stacked');
+          if (kind === 'a') {
+            if (!turned) wrong.add('never turned a quarter clockwise as one stack before the lift');
+            else if (stacked && before.indexOf(turned) < before.indexOf(stacked)) wrong.add('turned before it was stacked');
+          } else if (frames.slice(frames.indexOf(stacked)).some(s => s.cards.some(c => Math.abs(c.deg) > 1.5))) wrong.add('turned off upright after the stack');
           for (const s of lift) if (!s.cards[0].lin.every((v, k) => Math.abs(v - s.cards[1].lin[k]) < 1e-3)) { wrong.add('lifted at two rotations'); break; }
           const ratios = frames[0].cards.map(c => c.ratio);
           if (frames.some(s => s.cards.some((c, k) => c.ratio.some((r, j) => Math.abs(r - ratios[k][j]) > 1e-3)))) wrong.add('a card\'s box changed its width-to-height ratio');
-          const hold = lift.filter(s => s.cards.every(c => c.index && c.seen && c.turn > 0.05));
+          const flatSide = c => c.turn > 0.999 && Math.abs(c.deg) > 20 && c.seen;
+          const hold = frames.filter(s => s.cards.every(flatSide));
           const ms = hold.length ? rec[rec.findIndex(f => f.seats[i] === hold.at(-1))].t - rec[rec.findIndex(f => f.seats[i] === hold[0])].t : 0;
-          if (ms < 700) wrong.add(`both ranks and suits painted for ${Math.round(ms)} ms`);
+          if (kind === 'a' && ms < 700) wrong.add(`both middles flat and painted, sideways, for ${Math.round(ms)} ms`);
           if (wrong.size) bad.push(`${tag}${name}: seat ${i}: ${[...wrong].slice(0, 3).join(', ')}`);
-          else if (name === 'thinking A') seen.push(`${tag}seat ${i} peeked: stacked, turned to ${turned.cards[0].deg.toFixed(0)}°, both ranks and suits painted ${Math.round(ms)} ms (card ${(c0.box[2] - c0.box[0]).toFixed(0)}x${ch.toFixed(0)})`);
+          else if (name === 'thinking A') seen.push(kind === 'a' ? `${tag}seat ${i} peeked: stacked, turned to ${turned.cards[0].deg.toFixed(0)}°, both middles flat and painted ${Math.round(ms)} ms at ${degs(hold[0].cards.map(c => c.deg))} (card ${(c0.box[2] - c0.box[0]).toFixed(0)}x${ch.toFixed(0)})` : `${tag}seat ${i} stacked upright and flipped over ${lift.length} frames`);
         }
       }
       // The next hand: every seat at new angles.
@@ -1018,13 +1041,13 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
       // The first seat to act gets its turn with the deal, its cards still in flight: it peeks once both have landed, in full.
       const third = await deal(), c = third.currentPlayerIdx;
       const rec3 = (await film([{ type: 'hand_start', payload: { handNumber: third.handNumber } }, { type: 'game_state', payload: third }, { type: 'llm_thinking', payload: { turn: 1, playerIdx: c, playerName: third.players[c].name } }], 3600 + settle)).filter(f => f.seats[c]);
-      const early = rec3.map(f => f.seats[c]), lift = s => s.cards.some(lifted), hold = rec3.filter(f => f.seats[c].cards.every(x => x.index && x.seen)), held = hold.length ? Math.round(hold.at(-1).t - hold[0].t) : 0;
+      const early = rec3.map(f => f.seats[c]), lift = s => s.cards.some(lifted), hold = rec3.filter(f => f.seats[c].cards.every(x => x.turn > 0.999 && Math.abs(x.deg) > 20 && x.seen)), held = hold.length ? Math.round(hold.at(-1).t - hold[0].t) : 0;
       if (early.at(-1)?.cards.map(holeFace).join('') !== 'upup') bad.push(`${tag}turn with the deal: seat ${c} ends ${early.at(-1)?.cards.map(holeFace).join('')}, want upup`);
       if (!reduced && early.some(s => s.cards.some(x => x.shown < 0.99) && (lift(s) || s.cards.some(x => holeFace(x) !== 'down')))) bad.push(`${tag}turn with the deal: seat ${c} peeked before both its cards landed`);
-      if (!reduced && held < 700) bad.push(`${tag}turn with the deal: seat ${c} held ${held} ms`);
+      if (!reduced && kind === 'a' && held < 700) bad.push(`${tag}turn with the deal: seat ${c} held ${held} ms`);
     } finally { await p.close(); }
   };
-  for (const [w, h, reduced, query] of [[1440, 900, false], [390, 844, false], [1440, 900, true], [390, 844, true]]) await run(w, h, reduced, query);
+  for (const [w, h, reduced, query] of [[1440, 900, false, '?peel=a'], [1440, 900, false, '?peel=b'], [390, 844, false], [1440, 900, true], [390, 844, true]]) await run(w, h, reduced, query);
   // Live: reload until the snapshot has a seat that has had its turn and one that has not.
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   try {
