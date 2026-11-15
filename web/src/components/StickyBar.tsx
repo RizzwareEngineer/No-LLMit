@@ -107,7 +107,7 @@ export function PhoneBar({ blank = false, live, watching, handNumber, bigBlind }
   const row = useRef<HTMLDivElement>(null);
   useFillIn(row, !blank);
   return (
-    <div className="md:hidden fixed top-0 inset-x-0 z-40 border-b border-notion bg-white/85 backdrop-blur-md pt-[env(safe-area-inset-top)]">
+    <div data-phone-bar className="md:hidden fixed top-0 inset-x-0 z-40 border-b border-notion bg-white/85 backdrop-blur-md pt-[env(safe-area-inset-top)]">
       <div ref={row} className={`h-11 px-3 flex items-center gap-3 text-[13px] whitespace-nowrap ${blank ? '[&>*]:invisible' : ''}`} style={{ color: TEXT }}>
         <span className="flex items-center gap-1.5 tabular-nums" title={watching === undefined ? undefined : `${watching.toLocaleString()} watching`}>
           <span aria-hidden className="inline-block w-2 h-2 rounded-full" style={{ background: live ? 'rgb(220, 38, 38)' : MUTED }} />

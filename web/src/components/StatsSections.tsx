@@ -554,7 +554,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
 // scrolls inside it only where it is taller or wider than the window (Profiles' columns, Matchups' matrix).
 // The DOM ids are the wide layout's screens and cards, so links and checks find the same parts; the screen it reports
 // (setScreen) is phone-*, which the sticky bars read as no card of the loop (no "Back to overview").
-const WINDOW = 'relative h-svh snap-start snap-always flex flex-col px-0 pt-[calc(52px+env(safe-area-inset-top))] pb-[calc(var(--bar-h,0px)+8px)]';
+const WINDOW = 'relative h-svh snap-start snap-always flex flex-col px-0 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+8px)]';
 function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
   const ready = !!data;
   const blank = !ready && !error;
@@ -606,7 +606,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     // Matchups' matrix (seated lineup) square, 40px cells at most, and no taller than its window leaves it (the top bar,
     // the card's padding, its two-line header and the column logos), so a swipe on it pages instead of scrolling it; never
     // under 26px cells (a short window scrolls it instead).
-    <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `clamp(${26 * Math.max(1, field.length)}px, 100svh - 52px - env(safe-area-inset-top) - var(--bar-h, 0px) - 8px - 32px - 96px - 28px, ${40 * Math.max(1, field.length)}px)` } as React.CSSProperties}>
+    <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `clamp(${26 * Math.max(1, field.length)}px, 100svh - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 96px - 28px, ${40 * Math.max(1, field.length)}px)` } as React.CSSProperties}>
       <section id="race" data-screen aria-label="Trends" className={WINDOW}>
         <div id="stats" aria-hidden className="absolute top-0" />
         {card('race-panel', 'Trends', ready && <Leader tl={tl} models={field} />, ready ? (
@@ -647,7 +647,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
       {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
       <section id="about" data-screen data-end aria-label="About" className="relative h-svh snap-start snap-always -mx-3 bg-(--page)">
         <div className="panel-scroll h-full overflow-auto">
-          <div className="px-3 pt-[calc(52px+env(safe-area-inset-top))] pb-[calc(var(--bar-h,0px)+16px)]">
+          <div className="px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+16px)]">
             <PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider>
           </div>
         </div>

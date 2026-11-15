@@ -475,7 +475,7 @@ function Table() {
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
                   here, its top under the bar), Profits & Losses only (owner, 2026-11-15: no API usage on a phone). */}
-              <div id="phone-stats" className="flex flex-col w-full md:w-[240px] shrink-0 max-md:order-1 max-md:snap-start max-md:snap-always max-md:pt-[calc(56px+env(safe-area-inset-top))]">
+              <div id="phone-stats" className="flex flex-col w-full md:w-[240px] shrink-0 max-md:order-1 max-md:snap-start max-md:snap-always max-md:pt-[calc(var(--top-h)+12px)]">
                 <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />
                 </div>
@@ -521,6 +521,7 @@ function Table() {
         type="button"
         onClick={() => onTab('table')}
         aria-label="Back to the table"
+        data-back-top
         inert={backHidden}
         className={`md:hidden fixed z-40 right-[calc(12px+env(safe-area-inset-right))] bottom-[calc(var(--bar-h)+12px)] size-11 rounded-full border bg-white/95 backdrop-blur-md shadow-md flex items-center justify-center motion-safe:transition-[opacity,translate] motion-safe:duration-200 ${backHidden ? 'opacity-0 translate-y-2 pointer-events-none' : 'opacity-100'}`}
         style={{ color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.16)' }}
