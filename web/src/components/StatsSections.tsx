@@ -584,23 +584,26 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
   }, [data, muLineup]);
 
   const card = (id: string, title: string, aside: React.ReactNode, body: React.ReactNode, cls = '') => (
-    <div id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className={`${CARD} flex-1 outline-none ${blank ? '[&>*]:invisible' : ''} ${cls}`} style={{ boxShadow: CARD_SHADOW }}>
+    <div id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className="flex-1 min-h-0 flex flex-col outline-none">
+    <div className={`${CARD} flex-1 ${blank ? '[&>*]:invisible' : ''} ${cls}`} style={{ boxShadow: CARD_SHADOW }}>
       <div className={HEADER}>
         <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
         {aside && <div className={ASIDE}>{aside}</div>}
       </div>
       <div className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{body}</div>
     </div>
+    </div>
   );
   return (
-    // Matchups' matrix (seated lineup) square, 40px cells at most, and never taller than its window leaves it (the top bar,
-    // the card's padding, its two-line header and the column logos), so a swipe on it pages instead of scrolling it.
-    <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `min(${40 * Math.max(1, field.length)}px, 100svh - 52px - env(safe-area-inset-top) - var(--bar-h, 0px) - 8px - 32px - 96px - 28px)` } as React.CSSProperties}>
+    // Matchups' matrix (seated lineup) square, 40px cells at most, and no taller than its window leaves it (the top bar,
+    // the card's padding, its two-line header and the column logos), so a swipe on it pages instead of scrolling it; never
+    // under 26px cells (a short window scrolls it instead).
+    <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `clamp(${26 * Math.max(1, field.length)}px, 100svh - 52px - env(safe-area-inset-top) - var(--bar-h, 0px) - 8px - 32px - 96px - 28px, ${40 * Math.max(1, field.length)}px)` } as React.CSSProperties}>
       <section id="race" data-screen aria-label="Trends" className={WINDOW}>
         <div id="stats" aria-hidden className="absolute top-0" />
         {card('race-panel', 'Trends', ready && <Leader tl={tl} models={field} />, ready ? (
           <CumulativeChart race compact bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
-        ) : message, '[&_.panel-scroll]:overflow-hidden')}
+        ) : message)}
       </section>
       <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW}>
         {card('stats-panel', 'Profiles', ready && <Leader tl={tl} models={field} />, !ready ? message : (

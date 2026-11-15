@@ -414,7 +414,7 @@ group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its 
 // scroll a little bit down, I see profiles ... matchups", then About; and "when I click into trends, it actually kicks me
 // out a few times". On a phone (touch) every stats part is a window of its own, reached by a swipe, and no tap or small
 // swipe on a window (its card, the gutters beside it, the page under it) moves the page off it.
-group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, from the Stats tab one swipe up at a time shows Trends, Profiles, Matchups, then About, each window\'s card filling the space between the top bar and the tab bar (85% at least); on each card window, taps on the gutters beside the card, on the page above and under it and inside it, and a 20px swipe, leave the page on that window (no kick-out to an overview)', async () => {
+group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, from the Stats tab one swipe up at a time shows Trends, Profiles, Matchups, then About, each window\'s card filling the space between the top bar and the tab bar (85% at least); on each card window, taps on the gutters beside the card, on the page above and under it and inside it, and a 20px drag, leave the page on that window (no kick-out to an overview)', async () => {
   const bad = [], seen = [];
   const PARTS = ['Trends', 'Profiles', 'Matchups'];
   for (const [w, h] of [[390, 844], [375, 667]]) {
@@ -437,7 +437,8 @@ group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, fro
         const b = cards[0]?.b;
         return { at: cards.length === 1 ? cards[0].t : about && Math.abs(about.top) < 2 ? 'About' : cards.length ? cards.map(c => c.t).join('+') : 'none', card: b && { l: b.left, r: b.right, t: b.top, b: b.bottom }, top, nav, y: Math.round(scrollY) };
       }, PARTS);
-      const swipe = async (y0, y1, x = w / 2) => { await p.touchscreen.touchStart(x, y0); for (let i = 1; i <= 12; i++) { await p.touchscreen.touchMove(x, y0 + ((y1 - y0) * i) / 12); await sleep(16); } await p.touchscreen.touchEnd(); await sleep(1400); };
+      // `rest`: the finger stays still before it lifts (a drag, not a flick: a flick's speed pages on its own).
+      const swipe = async (y0, y1, rest = 0, x = w / 2) => { await p.touchscreen.touchStart(x, y0); for (let i = 1; i <= 12; i++) { await p.touchscreen.touchMove(x, y0 + ((y1 - y0) * i) / 12); await sleep(16); } await sleep(rest); await p.touchscreen.touchEnd(); await sleep(1400); };
       await p.evaluate(() => [...document.querySelectorAll('nav[aria-label=Sections] button')].find(b => b.textContent.trim() === 'Stats').click());
       await sleep(2000);
       const order = [];
@@ -460,9 +461,9 @@ group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, fro
           const now = await where();
           if (now.at !== want) { bad.push(`${size}: a tap ${what} the ${want} card moved the page to ${now.at}`); break; }
         }
-        await swipe(h / 2, h / 2 - 20); await sleep(300);
+        await swipe(h / 2, h / 2 - 20, 300); await sleep(300);
         const after = await where();
-        if (after.at !== want) bad.push(`${size}: a 20px swipe on ${want} moved the page to ${after.at}`);
+        if (after.at !== want) bad.push(`${size}: a 20px drag on ${want} moved the page to ${after.at}`);
       }
       seen.push(`${size}: ${order.join(' → ')}`);
     } finally { await p.close(); }
@@ -2037,8 +2038,9 @@ group(() => check('trends-zoom-touch', 'On a phone (390x844, touch) a two-finger
     // One finger swiping up 300px from the plot's centre scrolls the page.
     await touch('touchStart', [{ x: cx, y: s1.y, id: 0 }]);
     for (let i = 1; i <= 15; i++) { await touch('touchMove', [{ x: cx, y: s1.y - i * 20, id: 0 }]); await sleep(16); }
-    await touch('touchEnd', []); await sleep(1500);
+    // Read with the finger still down: on a phone's snapping windows a 300px swipe may settle back on the window it left.
     const s2 = await zoomState(p);
+    await touch('touchEnd', []); await sleep(1500);
     if (Math.abs(s2.scrolled - s1.scrolled) < 30) bad.push('a one-finger swipe on the plot did not scroll the page');
     return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `pinch: ${all.toFixed(0)} → ${w.toFixed(0)} hands, page at 1x; swipe scrolled ${(s2.scrolled - s1.scrolled).toFixed(0)}px` };
   } finally { await p.close(); }
@@ -2633,9 +2635,11 @@ const judge = (fr, name, how, state) => {
   return out;
 };
 let filmed;
+// Desktop sizes only: under 768px there are no tiles and no hand-over (owner, 2026-11-15: each part is one full window
+// on a phone, PhoneStats), which phone-stats-windows checks instead.
 const films = () => (filmed ??= alone(async () => {
   const out = [];
-  for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117], [390, 844]]) {
+  for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117]]) {
     const p = await pageAt(w, h, 'race');
     // Puppeteer launches Chrome with --hide-scrollbars; the films show them, as a mouse user's browser does.
     await (p.__cdp ??= await p.createCDPSession()).send('Emulation.setScrollbarsHidden', { hidden: false });
@@ -2691,7 +2695,7 @@ const report = (key, ok) => async () => {
   const by = ['Trends', 'Profiles', 'Matchups'].map(x => `${x} ${bad.filter(b => b.startsWith(x)).length}`).join(', ');
   return { pass: !bad.length, detail: bad.length ? `${bad.length} (${by}): ${bad.slice(0, 12).join('; ')}${bad.length > 12 ? '; …' : ''}` : ok(fs, n) };
 };
-main(() => check('handover-no-blank', 'Opening and closing Trends, Profiles and Matchups (Back to overview and Escape, 1440x900, 1512x982, 1728x1117, 390x844) never paints a frame with neither the card nor the tile in the card\'s box', report('blank',
+main(() => check('handover-no-blank', 'Opening and closing Trends, Profiles and Matchups (Back to overview and Escape, 1440x900, 1512x982, 1728x1117; phones have no hand-over) never paints a frame with neither the card nor the tile in the card\'s box', report('blank',
   (fs, n) => `${n} opens and closes filmed, at least ${(100 * Math.min(...fs.map(f => f.cal.ink ?? 1))).toFixed(0)}% of the card's box painted in every frame`)));
 main(() => check('handover-same-picture', 'At each hand-over between tile and card (opening and closing, as opened and after the viewer changed the lineup, the sort, All models, picked rows or the scroll), the last frame before the swap and the first after it show the same picture in the card\'s box, the box itself within 2px', report('same',
   (fs, n) => `${n} hand-overs, changed pixels at the swap ≤ ${Math.max(...fs.map(f => f.cal.swap ?? 0))}, at rest ≤ ${Math.max(...fs.map(f => f.cal.still ?? 0))}`)));
@@ -4659,12 +4663,20 @@ group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'
     const size = `${w}x${h}${d > 1 ? `@${d}x` : ''}`;
     const p = await newPage(); await p.setViewport({ width: w, height: h, deviceScaleFactor: d });
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p); await sleep(3000);
+    // Under 768px there are no tiles (owner, 2026-11-15: each part is a full window of its own, PhoneStats): the windows'
+    // cards are checked, Profiles' as #stats-panel.
+    const phone = await p.evaluate(() => !document.getElementById('stats-card'));
+    const prof = phone ? '#stats-panel' : '#stats-card';
+    if (phone) { await goto(p, 'race'); await sleep(1500); await clickText(p, 'Skip'); } // its lines drawn, as the tile's replay had them
+    else {
     await goto(p, 'stats'); await sleep(1500);
     judge(`${size} Profiles tile`, await inspect(p, '#stats-panel tbody tr', '#stats-panel tbody th [translate=no]', '#stats-panel tbody th, #stats-panel tbody td, #stats-panel h2'));
     judge(`${size} Matchups tile`, await inspect(p, '#pairwise-panel tbody tr', '#pairwise-panel a [translate=no]', '#pairwise-panel td[data-cell], #pairwise-panel a, #pairwise-panel h2'));
     const tileH = await rect(p, '#race-panel');
     if (!tileH || tileH.h < 150) bad.push(`${size}: Trends tile ${tileH ? tileH.h.toFixed(0) : 'missing'}px tall`);
-    await clickCenter(p, '#race-panel'); await sleep(2000);
+    await clickCenter(p, '#race-panel');
+    }
+    await sleep(2000);
     const c = await chartBox(p);
     const shape = c ? Math.min(200, (c.w * 470) / 1220) : 200; // the chart's height at its width, at most the 200px floor
     seen.push(`${size} Trends plot ${c ? `${c.w.toFixed(0)}x${c.h.toFixed(0)}` : 'missing'}`);
@@ -4675,7 +4687,7 @@ group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'
     const legend = await inspect(p, '#race-panel h2', '#none', '#race-panel h2, #race-panel [role=group]');
     if (legend.cut.length) bad.push(`${size} Trends card: ${legend.cut.slice(0, 4).join(', ')}`);
     await goto(p, 'stats-table'); await sleep(1500);
-    judge(`${size} Profiles card`, await inspect(p, '#stats-card tbody tr', '#stats-card tbody th [translate=no]', '#stats-card tbody th, #stats-card tbody td'));
+    judge(`${size} Profiles card`, await inspect(p, `${prof} tbody tr`, `${prof} tbody th [translate=no]`, `${prof} tbody th, ${prof} tbody td`));
     await goto(p, 'pairwise'); await sleep(1500);
     judge(`${size} Matchups card`, await inspect(p, '#pairwise-card tbody tr', '#pairwise-card a [translate=no]', '#pairwise-card td[data-cell], #pairwise-card a, #pairwise-card div[data-cell]'));
     await p.close();

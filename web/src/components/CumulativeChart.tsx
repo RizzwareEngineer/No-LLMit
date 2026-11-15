@@ -359,7 +359,7 @@ export default function CumulativeChart({
   bigBlind?: number; // the Race's chips metric plots bb × big blind
   timeline?: Timeline | null; // the Race: replays hand by hand, each line at its model's hands then
   // A phone's Trends window (StatsSections' PhoneStats): laid out at screen size (text at its real size, the plot as tall as
-  // its box leaves after the legend), its filters one row (what is on, and a Filters button) that opens them in a sheet.
+  // its box leaves after the legend, 200px or its W x H shape at least: a short window scrolls the legend into view), its filters one row (what is on, and a Filters button) that opens them in a sheet.
   compact?: boolean;
 }) {
   const area = useRef<HTMLDivElement>(null);
@@ -616,7 +616,7 @@ export default function CumulativeChart({
   // Outside the Race (the model drawer) it simply fills its box.
   // The legend's rows are set aside, so a filter that changes its length never rescales the plot.
   const s = compact ? 1 : race ? Math.min(box.w / W, (box.h - (interactive ? LEGEND_H : 0)) / H) : 1;
-  const [lw, lh] = compact ? [Math.max(box.w, 200), Math.max(160, box.h - (interactive ? legendH : 0))] : race ? [s > 0 ? Math.max(W, box.w / s) : W, H] : [Math.max(box.w, 200), box.h];
+  const [lw, lh] = compact ? [Math.max(box.w, 200), Math.max(Math.min(200, (box.w * H) / W), box.h - (interactive ? legendH : 0))] : race ? [s > 0 ? Math.max(W, box.w / s) : W, H] : [Math.max(box.w, 200), box.h];
   // Text keeps the site's on-screen sizes (numbers at 14px, as the Profiles cells) however the chart
   // is scaled: design units are screen px times u.
   const u = race && !compact ? Math.min(1.5, 1 / s) : 1;
