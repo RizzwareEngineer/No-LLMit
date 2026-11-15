@@ -410,6 +410,66 @@ group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its 
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
 }));
 
+// Owner, 2026-11-15: "for the stats page, we just had one window taking up the screen. For example, trends, and then if I
+// scroll a little bit down, I see profiles ... matchups", then About; and "when I click into trends, it actually kicks me
+// out a few times". On a phone (touch) every stats part is a window of its own, reached by a swipe, and no tap or small
+// swipe on a window (its card, the gutters beside it, the page under it) moves the page off it.
+group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, from the Stats tab one swipe up at a time shows Trends, Profiles, Matchups, then About, each window\'s card filling the space between the top bar and the tab bar (85% at least); on each card window, taps on the gutters beside the card, on the page above and under it and inside it, and a 20px swipe, leave the page on that window (no kick-out to an overview)', async () => {
+  const bad = [], seen = [];
+  const PARTS = ['Trends', 'Profiles', 'Matchups'];
+  for (const [w, h] of [[390, 844], [375, 667]]) {
+    const size = `${w}x${h}`, p = await newPage();
+    await p.emulate({ viewport: { width: w, height: h, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: (await browser.userAgent()) });
+    try {
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => [...document.querySelectorAll('h2')].some(e => e.textContent.trim() === 'Matchups') && document.querySelector('td[data-cell]') && document.querySelector('tbody tr'), { timeout: 90000 }).catch(() => {});
+      await sleep(2500);
+      // The window on screen: a stats card titled Trends, Profiles or Matchups, shown (no opacity 0 on the way up), fully
+      // inside the window and at least 85% of the room between the bars; or About, at the window's top.
+      const where = () => p.evaluate(PARTS => {
+        const shown = e => { for (let a = e; a; a = a.parentElement) if (+getComputedStyle(a).opacity === 0 || getComputedStyle(a).visibility === 'hidden') return false; return true; };
+        const top = [...document.querySelectorAll('div.fixed.top-0')].map(e => e.getBoundingClientRect()).find(b => b.height > 0)?.bottom ?? 0;
+        const nav = document.querySelector('nav[aria-label=Sections]').getBoundingClientRect().top;
+        const room = nav - top;
+        const cards = [...document.querySelectorAll('h2')].filter(e => PARTS.includes(e.textContent.trim())).map(e => ({ t: e.textContent.trim(), c: e.closest('.card-chrome') })).filter(x => x.c && shown(x.c))
+          .map(x => ({ t: x.t, b: x.c.getBoundingClientRect() })).filter(x => x.b.width > 0 && x.b.top >= top - 1 && x.b.bottom <= nav + 1 && x.b.height >= 0.85 * room);
+        const about = document.querySelector('section[aria-label=About]')?.getBoundingClientRect();
+        const b = cards[0]?.b;
+        return { at: cards.length === 1 ? cards[0].t : about && Math.abs(about.top) < 2 ? 'About' : cards.length ? cards.map(c => c.t).join('+') : 'none', card: b && { l: b.left, r: b.right, t: b.top, b: b.bottom }, top, nav, y: Math.round(scrollY) };
+      }, PARTS);
+      const swipe = async (y0, y1, x = w / 2) => { await p.touchscreen.touchStart(x, y0); for (let i = 1; i <= 12; i++) { await p.touchscreen.touchMove(x, y0 + ((y1 - y0) * i) / 12); await sleep(16); } await p.touchscreen.touchEnd(); await sleep(1400); };
+      await p.evaluate(() => [...document.querySelectorAll('nav[aria-label=Sections] button')].find(b => b.textContent.trim() === 'Stats').click());
+      await sleep(2000);
+      const order = [];
+      for (const want of [...PARTS, 'About']) {
+        await swipe(h * 0.85, h * 0.12);
+        let r = await where();
+        // A layout with an overview of tiles: open the part's tile (the way a viewer gets to it there).
+        if (r.at !== want && want !== 'About') {
+          const tile = await p.evaluate(t => { const e = [...document.querySelectorAll('h2')].find(e => e.textContent.trim() === t && e.getBoundingClientRect().height > 0)?.closest('section'); if (!e) return null; e.scrollIntoView({ block: 'nearest' }); const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + Math.min(20, b.height / 2)]; }, want);
+          if (tile) { await p.touchscreen.tap(tile[0], tile[1]); await sleep(1800); r = await where(); }
+        }
+        order.push(r.at);
+        if (r.at !== want) { bad.push(`${size}: swiped to ${r.at}, want ${want}`); continue; }
+        if (want === 'About') break;
+        // Taps around and on the card, then a short swipe: still on this window.
+        const c = r.card, taps = [[4, (c.t + c.b) / 2, 'left gutter'], [w - 4, (c.t + c.b) / 2, 'right gutter'], [w / 2, (c.t + r.top) / 2, 'above'], [w / 2, (c.b + r.nav) / 2, 'under'], [w / 2, (c.t + c.b) / 2, 'inside'], [w / 2, c.t + 16, 'header']];
+        for (const [x, y, what] of taps) {
+          if (y <= r.top + 1 || y >= r.nav - 1) continue; // no page there to tap
+          await p.touchscreen.tap(x, y); await sleep(1300);
+          const now = await where();
+          if (now.at !== want) { bad.push(`${size}: a tap ${what} the ${want} card moved the page to ${now.at}`); break; }
+        }
+        await swipe(h / 2, h / 2 - 20); await sleep(300);
+        const after = await where();
+        if (after.at !== want) bad.push(`${size}: a 20px swipe on ${want} moved the page to ${after.at}`);
+      }
+      seen.push(`${size}: ${order.join(' → ')}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+}));
+
 // The table's amounts in chips or in big blinds (owner 2026-11-08: "a toggle view if someone cares about looking at the
 // game by big blinds versus just the absolute size of the stack"). One switch in the header's status row, kept across a
 // reload. Every amount on the table screen follows it in one format: seat stacks and actions, bets, the pot, Profits &

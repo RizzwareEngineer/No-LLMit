@@ -366,7 +366,7 @@ function Table() {
   const onTab = (t: Tab) => {
     if (t === 'table') window.scrollTo({ top: 0 });
     else if (t === 'about') pageTo('about');
-    else if (screen === 'race' || screen === 'stats-table' || screen === 'pairwise') backToOverview();
+    else if (window.innerWidth >= 768 && (screen === 'race' || screen === 'stats-table' || screen === 'pairwise')) backToOverview();
     else pageTo('phone-stats');
   };
 
