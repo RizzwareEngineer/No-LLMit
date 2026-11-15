@@ -2,7 +2,7 @@
 // Run from web/: node --experimental-strip-types --test src/lib/peel.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-const { peekPose, css, REST, SHOWS, STEPS, flatOf } = await import('./peel.ts');
+const { peekPose, css, REST, SHOWS, STEPS, flatOf, routeOf } = await import('./peel.ts');
 const { landing } = await import('./landing.ts');
 
 // 4x4 matrices, column vectors, as CSS: the transform list applies right to left to a point.
@@ -80,4 +80,14 @@ test('peel a: turned a quarter, then the near-right corner rises first and the s
 
 test('peel b: stacked upright, turned over about the upright middle line, never sideways', () => {
   for (const [l0] of lays) for (let t = STEPS.b[0]; t <= SHOWS.b; t += 0.01) assert.ok(Math.abs(pose('b', t, 0, l0).r) < 1e-9 && pose('b', t, 0, l0).lift === 0, `${t}`);
+});
+
+test('each seat takes A or B per hand from a hash of the hand and the seat: the same every time, both routes, about half each, mixed within a hand', () => {
+  const all = Array.from({ length: 2000 }, (_, hand) => Array.from({ length: 9 }, (_, seat) => routeOf(hand, seat)));
+  all.forEach((row, hand) => row.forEach((v, seat) => assert.equal(routeOf(hand, seat), v)));
+  const a = all.flat().filter(v => v === 'a').length / all.flat().length;
+  assert.ok(a > 0.45 && a < 0.55, `share of A ${a}`);
+  // Most hands mix the two at their table; a seat's route changes from hand to hand.
+  assert.ok(all.filter(row => new Set(row).size === 2).length > 0.95 * all.length);
+  for (let seat = 0; seat < 9; seat++) assert.ok(new Set(all.slice(0, 20).map(row => row[seat])).size === 2, `seat ${seat}`);
 });

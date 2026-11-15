@@ -4,11 +4,11 @@ import Card from "@/components/Card";
 import { useEffect, useRef } from "react";
 import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
 import { landing } from "@/lib/landing";
-import { FADE, GAP, REST, SHOWS, TURN, between, css, down, peekPose, variantNow, type Pose, type Variant } from "@/lib/peel";
+import { FADE, GAP, REST, SHOWS, TURN, between, css, down, peekPose, variantNow, routeOf, type Pose, type Variant } from "@/lib/peel";
 
 // A hole card with both sides mounted: the face (Card, its role="img" and name: rank and suit in the middle) and the plain
 // ink back. Dealt face down, at its own angle and offset (landing: the same for every viewer and after a reload). It turns
-// face up and stays so, upright: on the seat's turn by the peek (`peek`, lib/peel: route A or B, ?peel=), otherwise (the
+// face up and stays so, upright: on the seat's turn by the peek (`peek`, lib/peel: the seat's route for the hand, A or B at random, routeOf; ?peel= forces one for the lab and the checks), otherwise (the
 // hand's end) it just turns over in place. A card mounted face up (a reload mid-hand) shows its face at once; with reduced
 // motion the faces switch with no motion. On phones (`fade`) nothing moves: the card stays where it landed and its face
 // fades in over the back.
@@ -23,7 +23,8 @@ export default function HoleCard({ value, faceUp, peek = false, fade = false, sl
   const k = w / 28, dealt = landing(hand, seat, slot), lay = { x: dealt.x * k, y: dealt.y * k, rotate: dealt.rotate };
   // Face up: upright in its slot; on a phone, where it landed.
   const up: Pose = fade ? { ...down(lay), flip: 0 } : REST;
-  const first: Pose = at !== undefined ? peekPose(at, slot, w, lay, h, variant) : faceUp ? up : settle !== undefined ? down({ x: 0, y: 0, rotate: 0 }) : down(lay);
+  const first: Pose = at !== undefined ? peekPose(at, slot, w, lay, h, variant ?? 'a') : faceUp ? up : settle !== undefined ? down({ x: 0, y: 0, rotate: 0 }) : down(lay);
+  const route: Variant = variant ?? variantNow() ?? routeOf(hand, seat);
   const pose = useRef(first);
   const transform = useMotionValue(css(first, w, h)), z = useMotionValue<number | 'auto'>(above(first)), cover = useMotionValue(0);
   const was = useRef<boolean | null>(null);
@@ -33,7 +34,7 @@ export default function HoleCard({ value, faceUp, peek = false, fade = false, sl
   const show = (p: Pose) => { pose.current = p; transform.set(css(p, w, h)); z.set(above(p)); };
 
   useEffect(() => {
-    if (at !== undefined) { show(peekPose(at, slot, w, lay, h, variant)); return; }
+    if (at !== undefined) { show(peekPose(at, slot, w, lay, h, route)); return; }
     const before = was.current;
     was.current = faceUp;
     let move: ReturnType<typeof animate> | undefined;
@@ -45,7 +46,7 @@ export default function HoleCard({ value, faceUp, peek = false, fade = false, sl
         move.then(() => onLanded?.());
       }
     } else if (faceUp && !before) {
-      const from = pose.current, v = variant ?? variantNow(), long = SHOWS[v];
+      const from = pose.current, v = route, long = SHOWS[v];
       if (reduce) show(up);
       else if (fade) { show(up); cover.set(1); move = animate(cover, 0, { duration: FADE, ease: 'easeOut' }); }
       else if (peek) move = animate(0, long * slow, { duration: long * slow, ease: 'linear', onUpdate: t => show(peekPose(t / slow, slot, w, lay, h, v)) });
@@ -69,7 +70,7 @@ export default function HoleCard({ value, faceUp, peek = false, fade = false, sl
   }, [fade, w]);
 
   return (
-    <motion.div className={`relative ${className}`} style={{ zIndex: z, perspective: 1000, perspectiveOrigin: `${slot ? -GAP / 2 : w + GAP / 2}px 50%` }}>
+    <motion.div data-route={route} className={`relative ${className}`} style={{ zIndex: z, perspective: 1000, perspectiveOrigin: `${slot ? -GAP / 2 : w + GAP / 2}px 50%` }}>
       <motion.div data-lay className="absolute inset-0" style={{ transform, transformStyle: 'preserve-3d' }}>
         <div data-face className="absolute inset-0" style={{ backfaceVisibility: 'hidden' }}>
           <Card value={value} className="w-full h-full" />

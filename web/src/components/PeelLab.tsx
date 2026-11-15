@@ -6,7 +6,7 @@ import { SHOWS, STEPS, variantNow, type Variant } from "@/lib/peel";
 
 // The peek lab, on /?peellab only: one seat's two hole cards at four times desktop's 40x56, the real HoleCard, playing the
 // peek on a loop; or its stills side by side. Both routes (lib/peel): A, peeled from the corner all the way over; B,
-// stacked and flipped. For the owner and for whoever tunes lib/peel.
+// stacked and flipped (on the table each seat takes one at random per hand; here the buttons or ?peel= pick). For the owner and for whoever tunes lib/peel.
 const CARDS = ['Ac', 'Kd'];
 const POSES: Record<Variant, [string, number][]> = {
   a: [['landed', 0], ['stacked', STEPS.a[0]], ['sideways', STEPS.a[1]], ['peeling', STEPS.a[1] + 0.4 * (STEPS.a[2] - STEPS.a[1])], ['held', (STEPS.a[2] + STEPS.a[3]) / 2], ['face up', SHOWS.a]],
@@ -21,7 +21,7 @@ const Pair = ({ hand, faceUp, at, slow, variant }: { hand: number; faceUp: boole
 );
 
 export default function PeelLab() {
-  const [variant, setVariant] = useState<Variant>(variantNow);
+  const [variant, setVariant] = useState<Variant>(() => variantNow() ?? 'a');
   const [slow, setSlow] = useState(1);
   const [poses, setPoses] = useState(false);
   const [hand, setHand] = useState(1);

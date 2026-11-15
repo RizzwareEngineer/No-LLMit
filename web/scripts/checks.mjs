@@ -1010,7 +1010,7 @@ const HOLE_REC = () => {
         const mid = marks.length ? marks.map(rect) : null, cover = c.querySelector('[data-cover]');
         const ratio = [lay, c.querySelector('[data-face]'), c.querySelector('[data-back]')].map(e => e.offsetWidth / e.offsetHeight);
         // Its angle on the felt from its upright axis (face down, the turn over flips the other).
-        return { deg: Math.atan2(-m.m21, m.m22) * 180 / Math.PI, turn: m.m33, lin: [m.m11, m.m12, m.m13, m.m21, m.m22, m.m23, m.m31, m.m32, m.m33], box: [a, b, r, d], ratio,
+        return { route: (c.dataset.route ? c : c.querySelector("[data-route]"))?.dataset.route, deg: Math.atan2(-m.m21, m.m22) * 180 / Math.PI, turn: m.m33, lin: [m.m11, m.m12, m.m13, m.m21, m.m22, m.m23, m.m31, m.m32, m.m33], box: [a, b, r, d], ratio,
           shown: +getComputedStyle(c).opacity, cover: cover ? +getComputedStyle(cover).opacity : 0, mid,
           seen: !!mid && mid.every(r => document.elementsFromPoint((r[0] + r[2]) / 2, (r[1] + r[3]) / 2).find(e => e.closest('[data-face], [data-back]'))?.closest('[data-face]') === face) };
       });
@@ -1024,6 +1024,13 @@ const HOLE_REC = () => {
 // A phone's card turning up shows its back over the face (data-cover), fading out: down until it starts, up once gone.
 const holeFace = c => (c.turn < -0.99 || (c.turn > 0.99 && c.cover > 0.99) ? 'down' : c.turn > 0.99 && c.cover < 0.01 ? 'up' : 'mid');
 const lifted = c => Math.abs(c.turn) < 0.999;
+// A seat's peel route for a hand, as lib/peel's routeOf (owner 2026-11-15: "randomize which players do what"): the plain
+// URL gives each seat A or B from a hash of the hand and the seat.
+const routeOf = (hand, seat) => {
+  let h = Math.imul(hand | 0, 0x27d4eb2f) ^ Math.imul(seat + 1, 0x165667b1) ^ 0x5bd1e995;
+  for (let k = 0; k < 2; k++) { h = Math.imul(h ^ (h >>> 16), 0x7feb352d); h = Math.imul(h ^ (h >>> 15), 0x846ca68b); h ^= h >>> 16; }
+  return (h >>> 0) / 2 ** 32 < 0.5 ? 'a' : 'b';
+};
 
 // Owner, 2026-11-11: "Hole cards are dealt face down ... then stay face up for the rest of the hand. A seat that never acts
 // flips at the end of the hand." Owner, 2026-11-14, on how players peek: "they put both cards on top of each other, then
@@ -1045,11 +1052,14 @@ const lifted = c => Math.abs(c.turn) < 0.999;
 // motion: the faces switch with no frame between and nothing lifts. Live engine: a reload mid-hand, once a seat has had its
 // turn and one has not: the first frame with the cards drawn (faded in) shows the snapshot's peeked seats up and upright and
 // the rest down, and after it nothing moves but the one seat whose turn may come.
-group(() => check('table-hole-peel', 'Hole cards land face down at random angles (two per seat, per seat, per hand); on a seat\'s first turn, at 1440x900 (40x56): route A (the plain URL viewers load, the default) lines its two cards up in one stack, turns it a quarter clockwise, lifts it as one piece from the near-right corner all the way over, holds both faces flat, sideways and slanted with both middles (rank and suit) showing, then rights them face up, upright and side by side; route B (?peel=b) stacks them upright, turns the stack over as one, and slides them side by side; on a phone (390x844) the faces fade in where the cards landed, with no lift and no turn; rigid and inside the seat and off its text throughout; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no motion; reduced motion switches faces with no motion', async () => {
+group(() => check('table-hole-peel', 'Hole cards land face down at random angles (two per seat, per seat, per hand); on a seat\'s first turn, at 1440x900 (40x56): each seat takes route A or B at random per hand (from a hash of the hand and the seat, so every viewer and reload agrees; ?peel=a or ?peel=b forces one for the checks): route A lines its two cards up in one stack, turns it a quarter clockwise, lifts it as one piece from the near-right corner all the way over, holds both faces flat, sideways and slanted with both middles (rank and suit) showing, then rights them face up, upright and side by side; route B stacks them upright, turns the stack over as one, and slides them side by side; on a phone (390x844) the faces fade in where the cards landed, with no lift and no turn; rigid and inside the seat and off its text throughout; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no motion; reduced motion switches faces with no motion', async () => {
   const bad = [], seen = [], degs = a => a.map(d => `${d.toFixed(1)}°`).join(' and ');
   const run = async (w, h, reduced, query = '') => {
     const tag = `${w}x${h}${query}${reduced ? ' reduced motion' : ''}: `, settle = reduced ? 1100 : 3400; // the peek takes 2.9 s
-    const kind = w < 768 ? 'phone' : query.includes('peel=b') ? 'b' : 'a';
+    // The route a seat takes this hand: forced by ?peel=a or ?peel=b, else its own (routeOf), which its cards say (data-route).
+    const forced = query.match(/peel=([ab])/)?.[1], kindOf = (hand, i) => (w < 768 ? 'phone' : forced ?? routeOf(hand, +i));
+    const routes = { a: 0, b: 0 }, misroute = [];
+    const routed = (rec, hand) => { for (const [i, s] of Object.entries(rec.at(-1)?.seats ?? {})) { const want = forced ?? routeOf(hand, +i); routes[want]++; if (s.cards.some(c => c.route !== want)) misroute.push(`hand ${hand} seat ${i}: ${s.cards.map(c => c.route)} (want ${want})`); } };
     const p = await scriptedTable(w, h, reduced, query);
     try {
       const feed = msgs => p.evaluate(msgs => { const s = window.__stream; s.scripted = true; for (const m of msgs) { if (m.type === 'game_state') s.last = m.payload; s.feed(m); } }, msgs);
@@ -1065,6 +1075,7 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
       const dealing = await film([{ type: 'hand_start', payload: { handNumber: st.handNumber } }, { type: 'game_state', payload: st }], 3600);
       const all = Object.keys(dealing.at(-1).seats), angles = r => Object.fromEntries(Object.entries(r.at(-1).seats).map(([i, s]) => [i, s.cards.map(c => c.deg)]));
       const dealt = angles(dealing);
+      routed(dealing, st.handNumber);
       for (const [i, s] of Object.entries(dealing.at(-1).seats)) {
         if (s.cards.map(holeFace).join('') !== 'downdown') bad.push(`${tag}after the deal, seat ${i} not face down`);
         if (Math.abs(dealt[i][0] - dealt[i][1]) < 0.1) bad.push(`${tag}after the deal, seat ${i}'s cards both lie at ${degs(dealt[i])}`);
@@ -1086,6 +1097,7 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
         turning.forEach(i => up.add(i));
         for (const o of offIn(rec, turning.map(String))) bad.push(`${tag}${name}: ${o}`);
         for (const i of all) {
+          const kind = kindOf(st.handNumber, i);
           const frames = rec.map(f => f.seats[i]).filter(Boolean), faces = frames.map(s => s.cards.map(holeFace).join(''));
           const want = up.has(+i) ? 'upup' : 'downdown', last = frames.at(-1);
           if (faces.at(-1) !== want) { bad.push(`${tag}${name}: seat ${i} ends ${faces.at(-1)}, want ${want}`); continue; }
@@ -1137,7 +1149,8 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
       }
       // The next hand: every seat at new angles.
       const next = await deal();
-      const again = angles(await film([{ type: 'hand_start', payload: { handNumber: next.handNumber } }, { type: 'game_state', payload: next }], 3600));
+      const nextRec = await film([{ type: 'hand_start', payload: { handNumber: next.handNumber } }, { type: 'game_state', payload: next }], 3600), again = angles(nextRec);
+      routed(nextRec, next.handNumber);
       const same = Object.keys(again).filter(i => dealt[i] && again[i].every((d, k) => Math.abs(d - dealt[i][k]) < 0.1));
       if (same.length) bad.push(`${tag}the next hand, seats ${same.join(',')} landed as in the last`);
       // The first seat to act gets its turn with the deal, its cards still in flight: it peeks once both have landed, in full.
@@ -1146,10 +1159,13 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
       const early = rec3.map(f => f.seats[c]), lift = s => s.cards.some(lifted), hold = rec3.filter(f => f.seats[c].cards.every(x => x.turn > 0.999 && Math.abs(x.deg) > 20 && x.seen)), held = hold.length ? Math.round(hold.at(-1).t - hold[0].t) : 0;
       if (early.at(-1)?.cards.map(holeFace).join('') !== 'upup') bad.push(`${tag}turn with the deal: seat ${c} ends ${early.at(-1)?.cards.map(holeFace).join('')}, want upup`);
       if (!reduced && early.some(s => s.cards.some(x => x.shown < 0.99) && (lift(s) || s.cards.some(x => holeFace(x) !== 'down')))) bad.push(`${tag}turn with the deal: seat ${c} peeked before both its cards landed`);
-      if (!reduced && kind === 'a' && held < 700) bad.push(`${tag}turn with the deal: seat ${c} held ${held} ms`);
+      if (!reduced && kindOf(third.handNumber, c) === 'a' && held < 700) bad.push(`${tag}turn with the deal: seat ${c} held ${held} ms`);
+      if (misroute.length) bad.push(`${tag}cards on the wrong route: ${misroute.slice(0, 3).join(', ')}`);
+      if (!forced && w >= 768 && (!routes.a || !routes.b)) bad.push(`${tag}every seat on one route over two hands (${JSON.stringify(routes)})`);
+      if (!forced && w >= 768) seen.push(`${tag}routes per seat over two hands: ${routes.a} A, ${routes.b} B, each as routeOf`);
     } finally { await p.close(); }
   };
-  for (const [w, h, reduced, query] of [[1440, 900, false, ''], [1440, 900, false, '?peel=b'], [390, 844, false], [1440, 900, true], [390, 844, true]]) await run(w, h, reduced, query);
+  for (const [w, h, reduced, query] of [[1440, 900, false, ''], [1440, 900, false, '?peel=a'], [1440, 900, false, '?peel=b'], [390, 844, false], [1440, 900, true], [390, 844, true]]) await run(w, h, reduced, query);
   // Live: reload until the snapshot has a seat that has had its turn and one that has not.
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   try {

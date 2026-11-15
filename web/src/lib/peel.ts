@@ -3,7 +3,9 @@
 // 2026-11-15, on the peel lab: "we peel from the bottom-right corners and then we peel all the way up. Pause the moment we
 // can see what's in the middle"; "the cards are still sideways, and they're still a bit slanted, but the text itself
 // shouldn't be able to distort anymore"; and a second route: "we just get the cards, then we stack them on top of each
-// other vertically, and then we flip them over". Both are here, picked by ?peel=a (the default) or ?peel=b:
+// other vertically, and then we flip them over". Owner, 2026-11-15, on both: "I like both A and B. Let's randomize which players do what, and let's speed it up too".
+// So each seat takes A or B at random for each hand (routeOf: a hash of the hand and the seat, the same for every viewer and
+// after a reload); ?peel=a or ?peel=b forces one route at every seat, for the peel lab and the checks only:
 // A: stacked, turned a quarter counterclockwise, lifted as a whole about a hinge through the far-left corner (leaning so
 // the near-right corner rises first) and turned on all the way over, the second card sliding out from under the first so
 // both middles show, held flat towards the viewer (sideways, a little slanted), then righted into their slots.
@@ -36,8 +38,20 @@ export const SHOWS = { a: STEPS.a[4], b: STEPS.b[3] } as const;
 export const TURN = 0.5; // seconds: a card turning over at the hand's end
 export const FADE = 0.25; // seconds: a phone's cards fading face up
 
-// The variant the page asked for (?peel=b), else A.
-export const variantNow = (): Variant => (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('peel') === 'b' ? 'b' : 'a');
+// The route the page forces (?peel=a or ?peel=b: an override for the peel lab and the checks only), else null: the plain
+// URL viewers load takes each seat's own route (routeOf).
+export const variantNow = (): Variant | null => {
+  if (typeof window === 'undefined') return null;
+  const v = new URLSearchParams(window.location.search).get('peel');
+  return v === 'a' || v === 'b' ? v : null;
+};
+// The seat's route for the hand, A or B at random: a hash of the hand and the seat (as landing's angles), so every viewer
+// and every reload sees the same route at that seat.
+export function routeOf(hand: number, seat: number): Variant {
+  let h = Math.imul(hand | 0, 0x27d4eb2f) ^ Math.imul(seat + 1, 0x165667b1) ^ 0x5bd1e995;
+  for (let k = 0; k < 2; k++) { h = Math.imul(h ^ (h >>> 16), 0x7feb352d); h = Math.imul(h ^ (h >>> 15), 0x846ca68b); h ^= h >>> 16; }
+  return (h >>> 0) / 2 ** 32 < 0.5 ? 'a' : 'b';
+}
 
 const rad = (d: number) => (d * Math.PI) / 180;
 const ease = (u: number) => (u < 0.5 ? 4 * u ** 3 : 1 - (2 - 2 * u) ** 3 / 2);
