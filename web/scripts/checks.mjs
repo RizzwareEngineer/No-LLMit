@@ -1979,7 +1979,10 @@ group(() => check('history-filters-spacing', 'The Trends card\'s filter bar: 24p
         const bar = [...document.querySelectorAll('.flex-wrap')].find(e => e.textContent.startsWith('Metric') && e.getBoundingClientRect().width > 0);
         if (!bar) return null;
         const groups = [...bar.children].map(e => e.getBoundingClientRect());
-        const gaps = groups.slice(1).flatMap((g, i) => (Math.abs(g.top - groups[i].top) < 2 ? [g.left - groups[i].right] : []));
+        // Gaps in layout px, as history-type: from md the stats draw at one zoom (StatsSections' WIDE), so the bar's 24px
+        // is drawn 24 x the zoom (owner, 2026-11-15: one scale for the whole stats layout).
+        const z = bar.currentCSSZoom ?? 1;
+        const gaps = groups.slice(1).flatMap((g, i) => (Math.abs(g.top - groups[i].top) < 2 ? [(g.left - groups[i].right) / z] : []));
         // The controls: boxes with a background of their own (trays and chips), not the buttons inside a tray.
         const all = [...bar.querySelectorAll('*')], bg = e => !/^(rgba\(0, 0, 0, 0\)|transparent)$/.test(getComputedStyle(e).backgroundColor);
         const ctrls = all.filter(e => bg(e) && !all.some(a => a !== e && a.contains(e) && bg(a)) && e.getBoundingClientRect().width > 0);
@@ -1992,7 +1995,7 @@ group(() => check('history-filters-spacing', 'The Trends card\'s filter bar: 24p
           const a = name.getBoundingClientRect(), b = c.getBoundingClientRect();
           return [{ name: name.textContent, off: (a.top + a.bottom) / 2 - (b.top + b.bottom) / 2 }];
         });
-        return { gaps, heights, rows, level, n: ctrls.length };
+        return { gaps, heights, rows, level, n: ctrls.length, z };
       });
       if (!r) { bad.push(`${w}x${h}: no filter bar`); continue; }
       const offGap = r.gaps.filter(g => Math.abs(g - 24) > 1), offLevel = r.level.filter(l => Math.abs(l.off) > 1);
@@ -2000,7 +2003,7 @@ group(() => check('history-filters-spacing', 'The Trends card\'s filter bar: 24p
       if (r.heights.length !== 1) bad.push(`${w}x${h}: control heights ${r.heights.join(', ')}px`);
       if (r.rows > most) bad.push(`${w}x${h}: ${r.rows} rows (at most ${most})`);
       if (offLevel.length) bad.push(`${w}x${h}: ${offLevel.map(l => `${l.name} ${l.off.toFixed(1)}px off its control`).join(', ')}`);
-      seen.push(`${w}x${h}: ${r.rows} rows, gaps ${[...new Set(r.gaps.map(g => g.toFixed(0)))].join('/')}px, ${r.n} controls all ${r.heights.join('/')}px`);
+      seen.push(`${w}x${h}: ${r.rows} rows, gaps ${[...new Set(r.gaps.map(g => g.toFixed(0)))].join('/')}px at zoom ${r.z.toFixed(3)}, ${r.n} controls all ${r.heights.join('/')}px`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
