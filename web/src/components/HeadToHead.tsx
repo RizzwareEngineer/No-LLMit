@@ -37,7 +37,7 @@ export const NAMES = 140; // row names on a phone's tile, at most (from md: --na
 export const TOTALS = 72; // the card's Total column (14px figures; 13px from md)
 export const STRIP = 18; // the column logos' row (28 in the card: 24px logos)
 // The tile's figures: one size for every cell and total, whatever the window (the card's are 14px).
-const TILE_PX = 11;
+const TILE_PX = 13; // one figure size, tile and card (the wide stats scale as one unit: StatsSections' WIDE)
 // A figure keeps this much of its cell clear on each side: never edge to edge.
 const PAD = 2.5;
 // The Total column's definition, on its header.
@@ -114,13 +114,14 @@ export default memo(function HeadToHead({
   useLayoutEffect(() => {
     const el = tipEl.current;
     if (!tip || !el) return;
-    const h = tip.host.getBoundingClientRect(), r = tip.at, w = el.offsetWidth, ht = el.offsetHeight;
+    // k: drawn px per layout px (the wide stats' zoom): the readout is placed in its own layout px.
+    const h = tip.host.getBoundingClientRect(), k = h.width / (tip.host.offsetWidth || h.width) || 1, r = tip.at, w = el.offsetWidth * k, ht = el.offsetHeight * k;
     const L = Math.max(h.left, 0) + TIP_M, R = Math.min(h.right, innerWidth) - TIP_M, T = Math.max(h.top, 0) + TIP_M, B = Math.min(h.bottom, innerHeight) - TIP_M;
     const x = Math.max(L, Math.min(r.left + r.width / 2 - w / 2, R - w)), y = Math.max(T, Math.min(r.top + r.height / 2 - ht / 2, B - ht));
     const spots = [[x, r.top - TIP_GAP - ht], [x, r.bottom + TIP_GAP], [r.right + TIP_GAP, y], [r.left - TIP_GAP - w, y]];
     const [left, top] = spots.find(([sx, sy]) => sx >= L && sx + w <= R && sy >= T && sy + ht <= B) ?? [x, Math.max(T, Math.min(spots[0][1], B - ht))];
-    el.style.left = `${left - h.left - tip.host.clientLeft}px`;
-    el.style.top = `${top - h.top - tip.host.clientTop}px`;
+    el.style.left = `${(left - h.left) / k - tip.host.clientLeft}px`;
+    el.style.top = `${(top - h.top) / k - tip.host.clientTop}px`;
   }, [tip]);
   // A scroll (the grid sideways, or the page) moves the cell from under the readout: it closes until the pointer moves.
   useEffect(() => {
@@ -189,7 +190,7 @@ export default memo(function HeadToHead({
           {/* Model names as in Profiles (14px bold; from md 500, 12px on the tile and 13px in the card: owner 2026-11-15, not
               bigger or bolder than at 67% zoom); the Leader on the highlight. */}
           {sorted.map(row => (
-            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[12px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
+            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[13px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
               <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{row.name}</motion.span>
             </a>
           ))}

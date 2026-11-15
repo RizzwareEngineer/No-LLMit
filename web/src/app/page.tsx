@@ -76,7 +76,11 @@ function fitStage() {
     const s = Math.min(screen.clientWidth / stage.offsetWidth, (document.documentElement.clientHeight - chrome) / stage.offsetHeight);
     stage.style.zoom = String(Math.floor(Math.min(1.25, Math.max(0.75, s)) * 1000) / 1000);
   }
-  document.documentElement.style.setProperty('--stage-w', `${Math.min(stage.getBoundingClientRect().width, screen.clientWidth)}px`);
+  const w = Math.min(stage.getBoundingClientRect().width, screen.clientWidth);
+  document.documentElement.style.setProperty('--stage-w', `${w}px`);
+  // The wide stats' one scale (StatsSections' WIDE): laid out at 1480px across and zoomed as one unit to the stage's
+  // column, so browser zoom changes only their size, never their layout; at least 0.85, where 13px text draws 11px.
+  document.documentElement.style.setProperty('--sz', String(Math.floor(Math.max(0.85, w / 1480) * 10000) / 10000));
 }
 // The prerendered page, as parsed, before its first paint: the stage fitted and the blank boxes at their remembered sizes
 // (lib/boxes), as the effects set them once React has hydrated, so nothing changes size when it does. Run where the

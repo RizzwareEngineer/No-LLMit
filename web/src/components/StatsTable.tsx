@@ -97,7 +97,8 @@ function HeaderCell({ col, sort, onSort, className, mini, move }: { col: { key: 
     while (box && getComputedStyle(box).overflowX === 'visible') box = box.parentElement;
     if (!box) return;
     const b = box.getBoundingClientRect(), r = t.getBoundingClientRect();
-    t.style.translate = `${Math.max(0, b.left + 8 - r.left) || -Math.max(0, r.right - b.right + 8)}px`;
+    const k = r.width / (t.offsetWidth || r.width) || 1; // drawn px per layout px (the wide stats' zoom)
+    t.style.translate = `${(Math.max(0, b.left + 8 - r.left) || -Math.max(0, r.right - b.right + 8)) / k}px`;
   }, [open]);
   const active = sort.key === col.key;
   const mark = { size: 12, className: 'inline ml-0.5 align-[-1px]', 'aria-hidden': true } as const;
@@ -300,13 +301,13 @@ function Grid({
     return <span className="mr-1 text-[13px] @max-md:hidden" style={{ color: MUTED }} title={hi ? 'Highest' : 'Lowest'} aria-label={hi ? 'highest' : 'lowest'}>{hi ? '▲' : '▼'}</span>;
   };
   // Sticky: the header stays put while the card scrolls the rows under it.
-  const head = `sticky top-0 z-10 bg-white text-[13px] ${mini ? 'px-1 @sm:px-2 py-0' : 'px-2 py-1.5'}`; // column headers: 13px muted, tile and card
+  const head = `sticky top-0 z-10 bg-white text-[13px] ${mini ? 'px-1 @sm:px-2 py-0' : 'px-2 md:px-1.5 py-1.5'}`; // column headers: 13px muted, tile and card (from md 6px a side: every header on one line at the wide stats' reference width)
   // The card's rows breathe; the tile's split its height evenly from md (a phone's tile is as tall as its rows).
-  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px] md:text-[12px]' : 'h-10';
+  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px] md:text-[13px]' : 'h-10';
   // Columns the card adds to the tile's fade in as it opens.
   const added = (c: Column) => (!mini && !MINI[0].columns.includes(c) ? 'add-in' : '');
   // The tile pads by its own width (a narrow tile keeps every header whole).
-  const cell = mini ? 'px-1 @sm:px-2' : 'px-2';
+  const cell = mini ? 'px-1 @sm:px-2' : 'px-2 md:px-1.5';
   // Under md the card scrolls sideways (a phone, or a laptop at 200% zoom): the names stay, in a sticky Model column.
   const pin = mini ? '' : 'max-md:sticky max-md:left-0 max-md:bg-white';
   const nameCell = `${cell} ${pin} ${pin && 'max-md:z-[1]'} w-px whitespace-nowrap text-left font-bold md:font-medium`;

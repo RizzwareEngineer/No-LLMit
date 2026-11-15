@@ -7,7 +7,7 @@ import LLMLogo from '@/components/LLMLogo';
 import About from '@/components/About';
 import { PageStats } from '@/components/about/content';
 import { ArrowDown, Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OUT, Segmented, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OUT, Segmented, StatsZoom, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
 import CumulativeChart, { H, LEGEND_H, W, sampleAt } from '@/components/CumulativeChart';
 import StatsTable, { MINI_CHROME, SLIDE, TABLE_VIEW, type TableView } from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
@@ -457,7 +457,8 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
         <Recede by={statsScreen} timeline="--card-stats" ref={stage} scrolls className="sticky data-pin:top-0 z-0 h-svh overflow-clip [overflow-clip-margin:12px] lg:[overflow-clip-margin:16px] max-md:overflow-x-hidden max-md:overflow-y-auto">
           {/* A phone's opened Profiles or Matchups tile takes its card's box: the block no taller than its content (with the
               About band under it, exactly the window), so it is neither centred lower nor narrowed by a scrollbar. */}
-          <div className={`@container ${BLOCK} ${PAD} max-md:h-auto ${on && on !== 'race' ? '' : 'max-md:min-h-full'} max-md:pb-[var(--bar-h,0px)]`} style={BLOCK_VARS}>
+          <div className={`@container ${BLOCK} ${WIDE} max-md:h-auto ${on && on !== 'race' ? '' : 'max-md:min-h-full'} max-md:pb-[var(--bar-h,0px)]`} style={WIDE_VARS}>
+            <StatsZoom>
             {/* Overview: three tiles, each a miniature of its screen, Trends on top (stacked on phones). Profiles
                 at its content's width, Matchups across the rest; the rows share the height (BLOCK_VARS). On a phone, a
                 focused tile's card takes the window's box (Trends: its own height), as the cards do. */}
@@ -503,6 +504,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
                 {pairwiseBody(on === 'pairwise', field, snap)}
               </Panel>
             </div>
+            </StatsZoom>
           </div>
           {/* "About ↓", centred in the band under the block, on the overview only (it pages like a gesture). */}
           <motion.div
@@ -758,6 +760,15 @@ const BLOCK_VARS = {
   '--card-m': `calc(var(--block-w) - 32px - var(--names) - ${TOTALS}px)`,
   '--card-mh': `calc(var(--card-m) * tan(atan2(var(--row2) - ${MU_V}px, var(--mw))))`,
 } as React.CSSProperties;
+// The wide stats (from md) at one scale: the overview's block and every card are laid out at the reference width (1480px,
+// page.tsx's fitStage) and zoomed (CSS zoom, --sz) as one unit to the table stage's column, as the stage itself is, so
+// browser zoom and the window change only their size: every font, gap and cell keeps its share of the block (owner,
+// 2026-11-15: "standardize this so that it doesn't change this drastically"). In the zoom a length is in layout px, so
+// the block's width and the window's room divide by --sz, and so does the page above and below it; the measured widths
+// (--prof-w, --mu-names) are layout px already. Phones keep BLOCK_VARS and PAD, unzoomed.
+const WIDE_ROOM = `((100svh - 44px - var(--bar-h, 0px) - ${MARGIN} - ${BELOW}) / var(--sz, 1))`;
+const WIDE_VARS = { ...BLOCK_VARS, '--block-w': 'calc(var(--stage-w, 1264px) / var(--sz, 1))', '--rows': `calc(${WIDE_ROOM} - 12px)` } as React.CSSProperties;
+const WIDE = `pt-[calc(44px+var(--top))] pb-[calc(var(--below)+var(--bar-h,0px))] md:[zoom:var(--sz,1)] md:pt-[calc((44px+var(--top))/var(--sz,1))] md:pb-[calc((var(--below)+var(--bar-h,0px))/var(--sz,1))]`;
 // Phones (under md, 768px: a phone, or a laptop at 200% zoom) stack the tiles at their content's size: Trends
 // at its chart's shape (raceTile), Profiles at its rows, Matchups at a square that leaves its names 140px; the
 // overview scrolls inside its stage. An opened card takes the window's box under the sticky bar (PHONE_BOX), as
@@ -836,7 +847,8 @@ function Card({
   return (
     <section ref={ref} id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className={`sticky top-0 h-svh outline-none ${z}`}>
       <Recede by={by} timeline={timeline} className="h-full">
-        <div className={`@container ${BLOCK} ${PAD}`} style={BLOCK_VARS}>
+        <div className={`@container ${BLOCK} ${WIDE}`} style={WIDE_VARS}>
+          <StatsZoom>
           {/* The overview's box, where its tile stands in for this card. */}
           <div className="relative h-full md:h-(--block-h)">
           <div ref={chrome} {...attrs} className={`${CARD} absolute ${fit === 'hug' ? HUG : `inset-x-0 inset-y-0 my-auto max-h-full ${fit ? 'h-fit' : ''}`} ${blank ? '[&>*]:invisible' : ''}`} style={{ boxShadow: CARD_SHADOW, ...size }}>
@@ -848,6 +860,7 @@ function Card({
             <motion.div layoutScroll className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{children}</motion.div>
           </div>
           </div>
+          </StatsZoom>
         </div>
       </Recede>
     </section>

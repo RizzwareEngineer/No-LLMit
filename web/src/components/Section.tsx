@@ -1,7 +1,7 @@
 'use client';
 
 import { useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AnimatePresence, PresenceContext, motion, usePresence } from 'motion/react';
+import { AnimatePresence, MotionConfig, PresenceContext, motion, usePresence } from 'motion/react';
 import { BLUE, MUTED, TEXT } from '@/lib/stats';
 import { useRememberedBox } from '@/lib/boxes';
 
@@ -124,6 +124,15 @@ export function scrollsInside(el: Element | null, dir: number) {
   return false;
 }
 
+// The wide stats' one scale (--sz, page.tsx's fitStage): they are laid out at one reference size and zoomed (CSS zoom)
+// to the stage's column. Under it a length is in layout px, one drawn px being 1/zoom of them; motion measures drawn
+// boxes, so inside the zoom it is given them in layout px (StatsZoom), or its glides would travel zoom times too far.
+export const statsZoom = () => (typeof window === 'undefined' || innerWidth < 768 ? 1 : parseFloat(document.documentElement.style.getPropertyValue('--sz')) || 1);
+const toLayout = (p: { x: number; y: number }) => { const z = statsZoom(); return z === 1 ? p : { x: p.x / z, y: p.y / z }; };
+export function StatsZoom({ children }: { children: React.ReactNode }) {
+  return <MotionConfig transformPagePoint={toLayout}>{children}</MotionConfig>;
+}
+
 // The glide between a tile and its screen's card: ease-out, half a second.
 export const GLIDE_MS = 500;
 export const GLIDE = { duration: GLIDE_MS / 1000, ease: [0.22, 1, 0.36, 1] } as const;
@@ -218,7 +227,7 @@ export default function Panel({
       layoutDependency={place}
       initial={false}
       // In px (motion's projection can only factor numbers out of its measurements); only read when covered.
-      animate={covered ? { x: (away.x ?? 0) * innerWidth, y: (away.y ?? 0) * innerHeight } : { x: 0, y: 0 }}
+      animate={covered ? { x: (away.x ?? 0) * innerWidth / statsZoom(), y: (away.y ?? 0) * innerHeight / statsZoom() } : { x: 0, y: 0 }}
       transition={move}
       className={`flex flex-col min-h-0 min-w-0 ${className}`}
     >
