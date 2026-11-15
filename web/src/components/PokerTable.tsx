@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useReducedMotion } from "motion/react";
 import Player, { LOGO_RIM } from "@/components/Player";
-import TableFelt, { BetStack, FeltBet } from "@/components/TableFelt";
+import TableFelt, { BetStack, FeltBet, GRID } from "@/components/TableFelt";
 import TableMotion, { CARD_FLIGHT, DeckPhase, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import { ModelStats } from "@/lib/stats";
@@ -184,11 +184,12 @@ export default function PokerTable({
         onDeck={setDeck}
       />}
       {/* Phones: one oval and nothing else (owner 2026-11-14: "just do logos with positions and stack sizes and cards then pot
-          in the middle"): the felt a tall ellipse on the page, each seat a round logo on its rim with its position, stack, label
+          in the middle"): the felt a tall ellipse on the page drawn as the desktop's grid (owner 2026-11-15: "the felt, I
+          think, should still be a grid"), each seat a round logo on its rim with its position, stack, label
           and cards (Player's compact seat; phoneTable's geometry), each bet between its seat and the pot, the pot and the board
           in the middle. A logo taps through to its model's stats (the drawer). data-oval: what the page watches for the bar. */}
       <div data-oval className="md:hidden relative w-full" style={{ height: 'var(--oval-h)', marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
-        <div data-felt-oval aria-hidden className="absolute rounded-[50%] bg-white" style={{ left: FELT.side, right: FELT.side, top: FELT.top, bottom: FELT.bottom, boxShadow: 'rgba(15, 15, 15, 0.06) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 6px 24px' }} />
+        <div data-felt-oval aria-hidden className="absolute rounded-[50%] bg-white" style={{ left: FELT.side, right: FELT.side, top: FELT.top, bottom: FELT.bottom, ...GRID, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 6px 24px' }} />
         <div className="absolute left-1/2 -translate-x-1/2 w-[180px] h-[116px]" style={{ top: css([MIDDLE[0], MIDDLE[1] + POT_TOP]) }}>{felt(true)}</div>
         {!blank && seatSpots(players.length).map((spot, idx) => (
           <BetStack key={idx} seat={idx} amount={players[idx]?.currentBet ?? 0} compact

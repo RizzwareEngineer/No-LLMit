@@ -92,6 +92,12 @@ export function BetStack({ seat, amount, style, compact }: { seat: number; amoun
   );
 }
 
+// The felt's grid: the desktop's, and the phone table's felt (PokerTable).
+export const GRID: CSSProperties = {
+  backgroundImage: 'linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.03) 1px, transparent 1px)',
+  backgroundSize: '20px 20px',
+};
+
 const EDGE: Record<FeltBet['side'], (at: number) => CSSProperties> = {
   top: at => ({ top: 8, left: `${at * 100}%`, transform: 'translateX(-50%)' }),
   bottom: at => ({ bottom: 8, left: `${at * 100}%`, transform: 'translateX(-50%)' }),
@@ -130,13 +136,7 @@ export default function TableFelt({
       ref={ref}
       data-felt
       className={`relative flex flex-col items-center w-full h-full ${compact ? 'justify-start' : `justify-center gap-3 ${bets ? 'pt-[44px] pb-3' : 'py-2'}`} ${blank ? '[&>*]:invisible' : ''}`}
-      style={compact ? undefined : {
-        backgroundImage: `
-          linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(0,0,0,0.03) 1px, transparent 1px)
-        `,
-        backgroundSize: '20px 20px',
-      }}
+      style={compact ? undefined : GRID}
     >
       {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} />)}
 
