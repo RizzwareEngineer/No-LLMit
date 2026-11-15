@@ -275,13 +275,14 @@ function PromptLinks() {
         onClose={close}
         onClick={e => e.target === e.currentTarget && close()} // the backdrop
         // The user prompt and its reply side by side on a wide screen, so both show without a scroll (owner, 2026-11-14).
-        className={`m-auto p-0 border-0 overscroll-contain w-[min(760px,calc(100vw-32px))] ${view === 'user' ? 'lg:w-[min(1200px,calc(100vw-32px))]' : ''} max-w-none max-h-[min(86dvh,960px)] rounded-lg bg-white backdrop:bg-[rgba(15,15,15,0.3)] max-md:mb-0 max-md:w-screen max-md:rounded-b-none`}
+        className={`m-auto p-0 border-0 overscroll-contain w-[min(760px,calc(100vw-32px))] ${view === 'user' ? 'lg:w-[min(1200px,calc(100vw-32px))]' : ''} max-w-none max-h-[min(86dvh,960px)] rounded-lg bg-white backdrop:bg-[rgba(15,15,15,0.3)] max-md:mb-0 max-md:w-screen max-md:rounded-b-none max-md:rounded-t-xl`}
         style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0 0 0 1px, rgba(15, 15, 15, 0.2) 0 8px 24px' }}
       >
         <div className="flex flex-col max-h-[inherit] text-[16px] leading-normal">
           {/* The title row: the title, and the close at the inner right edge (as the model drawer's); the switch on a row of
               its own under it, so a narrow or zoomed window never wraps the close into the middle. */}
-          <div className="flex flex-col gap-3 px-5 pt-4 pb-3 border-b" style={{ borderColor: RULE }}>
+          <div className="flex flex-col gap-3 px-5 pt-4 max-md:pt-3 pb-3 border-b" style={{ borderColor: RULE }}>
+            <div aria-hidden data-grab className="md:hidden mx-auto -mb-1 h-1 w-10 rounded-full" style={{ background: 'rgba(55, 53, 47, 0.2)' }} />
             <div className="flex items-start gap-3">
               {/* Focused on open (tabIndex -1), so no switch segment starts out ringed as if chosen. */}
               <h2 ref={title} tabIndex={-1} id="about-prompt-title" className={`flex-1 min-w-0 outline-none ${TITLE}`}>{view === 'user' ? 'The user prompt' : 'The system prompt'}</h2>
@@ -490,8 +491,9 @@ export function Race({ art, className = '' }: { art: string; className?: string 
           {leader ? (
             <>
               <LLMLogo model={leader.name} size={18} />
-              <b translate="no" className="truncate">{leader.name}</b>
-              <span className="shrink-0">leads with <b style={{ color: netColor(leader.bb100) }}>{signed(leader.bb100, 0)}</b> bb/100<span className="hidden @md:inline"> over {leader.hands.toLocaleString()} hands</span>.</span>
+              {/* The name never shortens (a "G…" says nothing): the clause after it gives way first. */}
+              <b translate="no" className="shrink-0">{leader.name}</b>
+              <span className="min-w-0 truncate">leads with <b style={{ color: netColor(leader.bb100) }}>{signed(leader.bb100, 0)}</b> bb/100<span className="hidden @md:inline"> over {leader.hands.toLocaleString()} hands</span>.</span>
             </>
           ) : field.length > 0 && <span>No LLM has played {MIN_HANDS} hands yet.</span>}
         </div>

@@ -254,7 +254,7 @@ export default function Panel({
         if (!(e.target as Element).closest('a, button, select, input, label')) open(e);
       } : undefined}
       onKeyDown={overview ? e => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && open(e) : undefined}
-      className={`${CARD} overflow-hidden ${!focused ? 'relative flex-1' : fit === undefined ? 'absolute inset-0' : fit === 'hug' ? `absolute ${HUG}` : `absolute inset-x-0 inset-y-0 my-auto max-h-full ${fit === 'content' ? 'h-fit' : ''}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''} ${blank ? '[&>*]:invisible' : ''}`}
+      className={`${CARD} overflow-hidden ${!focused ? 'relative flex-1' : fit === undefined ? 'absolute inset-0' : fit === 'hug' ? `absolute ${HUG}` : `absolute inset-x-0 inset-y-0 mb-auto max-h-full ${fit === 'content' ? 'h-fit' : ''}`} ${lifted ? 'z-20' : 'z-0'} ${overview ? 'cursor-pointer' : ''} ${blank ? '[&>*]:invisible' : ''}`}
       style={{ boxShadow: CARD_SHADOW, height: focused && typeof fit === 'number' ? fit : undefined }}
     >
       <motion.div layout="position" layoutDependency={place} transition={move} className={HEADER}>
@@ -322,6 +322,7 @@ export function Added({ still = false, className, style, children }: { still?: b
 export const NEXT_BUTTON = 'flex items-center gap-2 rounded-full border px-5 py-2 text-[15px] font-semibold bg-white hover:bg-[rgba(55,53,47,0.04)] shadow-sm';
 export const NEXT_STYLE = { color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.2)' };
 
-// A card as big as its content, centred in the overview's box (the opened Matchups card).
-export const HUG = 'inset-0 m-auto w-fit h-fit max-w-full max-h-full';
+// A card as big as its content, centred across the overview's box and at its top (the opened Matchups card): every opened
+// card starts the same gap under the top bar, never floating mid-screen.
+export const HUG = 'inset-0 mx-auto mb-auto w-fit h-fit max-w-full max-h-full';
 

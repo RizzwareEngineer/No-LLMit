@@ -527,7 +527,8 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
             dragged on towards Trends never shows the stage pinning under it. */}
         <section aria-label="About" className="relative z-10 h-svh -mx-3 lg:-mx-4 bg-(--page)">
           <div className="panel-scroll h-full overflow-auto">
-            <div className={`min-h-full flex flex-col justify-center-safe px-3 lg:px-4 ${PAD}`}>
+            {/* At the top, the gap under the top bar the opened cards keep (not centred: no empty band above it). */}
+            <div className={`min-h-full flex flex-col justify-start px-3 lg:px-4 ${PAD}`}>
               <div className="w-full md:max-w-(--block-w) mx-auto" style={BLOCK_VARS}><PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider></div>
             </div>
           </div>
@@ -554,7 +555,10 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
 // scrolls inside it only where it is taller or wider than the window (Profiles' columns, Matchups' matrix).
 // The DOM ids are the wide layout's screens and cards, so links and checks find the same parts; the screen it reports
 // (setScreen) is phone-*, which the sticky bars read as no card of the loop (no "Back to overview").
-const WINDOW = 'relative h-[max(100svh,var(--win-min,0px))] snap-start snap-always flex flex-col px-0 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+8px)]';
+// content-visibility: auto: a window off screen is neither laid out nor painted until it nears the window (its box keeps
+// its fixed height, so the snap points never move), which keeps a phone's first load to the table's work.
+const LAZY = '[content-visibility:auto] [contain-intrinsic-size:auto_100svh]';
+const WINDOW = `relative h-[max(100svh,var(--win-min,0px))] snap-start snap-always flex flex-col px-0 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+8px)] ${LAZY}`;
 function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
   const ready = !!data;
   const blank = !ready && !error;
@@ -645,7 +649,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
         ), '[&_a_[translate=no]]:max-w-[96px]')}
       </section>
       {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
-      <section id="about" data-screen data-end aria-label="About" className="relative h-svh snap-start snap-always -mx-3 bg-(--page)">
+      <section id="about" data-screen data-end aria-label="About" className={`relative h-svh snap-start snap-always -mx-3 bg-(--page) ${LAZY}`}>
         <div className="panel-scroll h-full overflow-auto">
           <div className="px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+16px)]">
             <PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider>
@@ -851,13 +855,14 @@ function Card({
 }) {
   const [chrome, size, attrs] = useRememberedBox<HTMLDivElement>(id, !blank && record, fit === 'hug' ? 'wh' : 'h');
   return (
-    <section ref={ref} id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className={`sticky top-0 h-svh outline-none ${z}`}>
+    // Its own landmark name ("Profiles card"): the overview's tile is a region named by the same title.
+    <section ref={ref} id={id} tabIndex={-1} aria-label={typeof title === 'string' ? `${title} card` : undefined} aria-labelledby={typeof title === 'string' ? undefined : `${id}-title`} className={`sticky top-0 h-svh outline-none ${z}`}>
       <Recede by={by} timeline={timeline} className="h-full">
         <div className={`@container ${BLOCK} ${WIDE}`} style={WIDE_VARS}>
           <StatsZoom>
           {/* The overview's box, where its tile stands in for this card. */}
           <div className="relative h-full md:h-(--block-h)">
-          <div ref={chrome} {...attrs} className={`${CARD} absolute ${fit === 'hug' ? HUG : `inset-x-0 inset-y-0 my-auto max-h-full ${fit ? 'h-fit' : ''}`} ${blank ? '[&>*]:invisible' : ''}`} style={{ boxShadow: CARD_SHADOW, ...size }}>
+          <div ref={chrome} {...attrs} className={`${CARD} absolute ${fit === 'hug' ? HUG : `inset-x-0 inset-y-0 mb-auto max-h-full ${fit ? 'h-fit' : ''}`} ${blank ? '[&>*]:invisible' : ''}`} style={{ boxShadow: CARD_SHADOW, ...size }}>
             <div className={HEADER}>
               <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
               {/* `added`: the header extras fade out first when the card closes (data-leaving), as what it adds does. */}

@@ -125,8 +125,8 @@ function Dial({ as, rest = false, className = '' }: { as: 'h2' | 'h3'; rest?: bo
   // Whether the row under a press was in focus before it: a click on a blurred row only brings it forward.
   const wasAt = useRef<boolean | null>(null);
   return (
-    // The focus ring is on this outer box, drawn inside its edge: the inner box is masked and clipped (it would fade the
-    // ring), and About's screen clips what is outside the dial.
+    // The focus ring is on this outer box, 6px outside its edge so no row's text touches it (the inner box is masked and
+    // clipped, it would fade the ring); keyboard focus only (focus-visible), never after a tap or a swipe.
     <div
       ref={box}
       data-dial
@@ -134,7 +134,7 @@ function Dial({ as, rest = false, className = '' }: { as: 'h2' | 'h3'; rest?: bo
       aria-label="About, one topic at a time (↑ ↓ to turn)"
       tabIndex={0}
       onKeyDown={onKey}
-      className={`order-3 @4xl:order-none ${className} border-b outline-none focus-visible:[outline:2px_solid_rgb(35,131,226)] focus-visible:[outline-offset:-2px] rounded-sm`}
+      className={`order-3 @4xl:order-none ${className} border-b outline-none focus-visible:[outline:2px_solid_rgb(35,131,226)] focus-visible:[outline-offset:6px] rounded-sm`}
       style={{ borderColor: RULE }}
     >
       <div className="overflow-clip" style={{ paddingBottom: 3 * PEEK, maskImage: mask, WebkitMaskImage: mask }}>
@@ -156,6 +156,8 @@ function Dial({ as, rest = false, className = '' }: { as: 'h2' | 'h3'; rest?: bo
                 onFocusCapture={() => { if (i !== atRef.current) { setReady(false); turn(i); requestAnimationFrame(() => requestAnimationFrame(() => setReady(true))); } }}
                 className={`${ready ? 'motion-safe:transition-[transform,opacity]' : 'motion-safe:transition-opacity'} motion-safe:duration-[400ms] ${d ? 'cursor-pointer select-none' : ''}`}
                 style={{
+                  // Scaled from the left edge, so every row's label and words keep About's one left edge.
+                  transformOrigin: 'left center',
                   transform: `translateY(${shift}px)${back.transform === 'none' ? '' : ` ${back.transform}`}`,
                   opacity: tops || !i ? back.opacity : 0,
                   transitionTimingFunction: EASE,

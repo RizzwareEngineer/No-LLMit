@@ -13,7 +13,8 @@ export const CARD_SHADOW = 'rgba(15, 15, 15, 0.08) 0px 0px 0px 1px, rgba(15, 15,
 export const HEADER = 'mb-2 min-h-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-1';
 export const TITLE = 'text-[20px] leading-8 font-bold';
 
-// A row of mutually exclusive buttons (the Race range, the Pairwise view).
+// A row of mutually exclusive buttons (the Race range, the Pairwise view). One rule everywhere: the track hugs its options
+// (fit-content), never a grey band beside them.
 export function Segmented<T extends string | number>({ label, options, value, onChange }: {
   label: string;
   options: { label: string; value: T; disabled?: boolean }[];
@@ -21,7 +22,7 @@ export function Segmented<T extends string | number>({ label, options, value, on
   onChange: (v: T) => void;
 }) {
   return (
-    <div role="group" aria-label={label} data-seg className="flex shrink-0 rounded p-0.5 text-[14px]" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
+    <div role="group" aria-label={label} data-seg className="flex shrink-0 w-fit max-w-full rounded p-0.5 text-[14px]" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
       {options.map(o => (
         <button
           key={o.label}

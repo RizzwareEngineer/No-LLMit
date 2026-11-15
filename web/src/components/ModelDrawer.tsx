@@ -118,6 +118,8 @@ export default function ModelDrawer({
           window.location.replace(a.getAttribute('href')!);
         }}
       >
+        {/* Phones: the bottom sheets' one shell (the grab handle, 12px top corners), as the Trends filters'. */}
+        <div className="-mt-2"><div aria-hidden data-grab className="md:hidden mx-auto mb-2 h-1 w-10 rounded-full" style={{ background: 'rgba(55, 53, 47, 0.2)' }} /></div>
         <div className="flex items-start gap-3">
           {m && <LLMLogo model={m.name} size={36} />}
           <div className="flex-1 min-w-0">

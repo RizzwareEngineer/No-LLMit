@@ -84,7 +84,7 @@ function trace(pts: Pts, x0: number, x1: number, end = Infinity, to?: Pts, k = 1
 }
 
 // The Race window choices: the last 100 or 1,000 hands, or all of them.
-const RANGES = [{ label: 'Last 100', n: 100 }, { label: 'Last 1k', n: 1000 }, { label: 'All', n: 0 }] as const;
+const RANGES = [{ label: 'Last 100', n: 100 }, { label: 'Last 1,000', n: 1000 }, { label: 'All', n: 0 }] as const;
 
 type License = 'all' | 'open' | 'closed';
 
@@ -935,7 +935,7 @@ export default function CumulativeChart({
               const b = e.currentTarget.getBoundingClientRect();
               if (e.target === e.currentTarget && (e.clientX < b.left || e.clientX > b.right || e.clientY < b.top || e.clientY > b.bottom)) sheet.current?.close();
             }}
-            className="phone-sheet outline-none fixed inset-x-0 bottom-0 top-auto m-0 w-full max-w-none max-h-[85svh] overflow-auto rounded-t-2xl bg-white px-4 pt-3 pb-[calc(16px+env(safe-area-inset-bottom))] text-[14px] backdrop:bg-[rgba(15,15,15,0.35)]"
+            className="phone-sheet outline-none fixed inset-x-0 bottom-0 top-auto m-0 w-full max-w-none max-h-[85svh] overflow-auto rounded-t-xl bg-white px-4 pt-3 pb-[calc(16px+env(safe-area-inset-bottom))] text-[14px] backdrop:bg-[rgba(15,15,15,0.35)]"
             style={{ color: MUTED }}
           >
             <div aria-hidden className="mx-auto mb-2 h-1 w-10 rounded-full" style={{ background: 'rgba(55, 53, 47, 0.2)' }} />
@@ -947,8 +947,7 @@ export default function CumulativeChart({
               </div>
             </div>
             {/* One control per row, label above, every target at least 40px tall. */}
-            {/* A switch's segments share its track evenly (native style), so no track is an empty grey band. */}
-            <div className="flex flex-col gap-3 [&_[role=group]_button]:min-h-10 [&_[role=group]_button]:px-3 [&_[role=group]]:flex-wrap [&_[data-seg]_button]:flex-1">
+            <div className="flex flex-col gap-3 [&_[role=group]_button]:min-h-10 [&_[role=group]_button]:px-3 [&_[role=group]]:flex-wrap">
               <SheetRow label="Metric"><Segmented label="Metric" options={[{ label: 'bb/100', value: 'bb100' as const }, { label: 'Chips', value: 'chips' as const }]} value={metricPick} onChange={setMetric} /></SheetRow>
               <SheetRow label="Hands">
                 <Segmented label="Hands shown" options={RANGES.map(r => ({ label: r.label, value: r.n, disabled: r.n > 0 && r.n >= lastHand }))} value={range && range < lastHand ? range : 0} onChange={n => { setRange(n); setZoom(null); }} />
@@ -1046,7 +1045,7 @@ export default function CumulativeChart({
               <defs><clipPath id={clipId}><rect x={left} y={padTop - 2} width={leadW} height={plotH + 4} /></clipPath></defs>
               {/* Axis titles: the unit above the y labels, the hands under the x labels. */}
               {/* One type for the chart's furniture: x and y ticks alike, both titles alike (13px, muted). */}
-              <text x={4} y={ts} fontSize={ts} fontWeight={500} fill={MUTED} className="tabular-nums" data-axis-title="y">{yTitle}</text>
+              <text x={0} y={ts} fontSize={ts} fontWeight={500} fill={MUTED} className="tabular-nums" data-axis-title="y">{yTitle}</text>
               <text x={left + leadW / 2} y={lh - 4} textAnchor="middle" fontSize={ts} fontWeight={500} fill={MUTED} className="tabular-nums" data-axis-title="x">Hands played</text>
               {[...yTicks, ...yGone].map(t => (
                 <g key={t} opacity={edge(t)}>
@@ -1140,7 +1139,8 @@ export default function CumulativeChart({
                 <span className="flex min-w-0 items-center gap-1">
                   <span data-pill-rank className="font-medium" style={{ color: MUTED }}>{i + 1}</span>
                   <LLMLogo model={e.m.name} size={Math.round(15 * u)} />
-                  <span data-pill-name className={`min-w-0 truncate py-0.5 font-medium ${selected === e.m.name ? 'underline underline-offset-2' : ''}`}>{e.m.name}</span>
+                  {/* The name only where 4 letters or more of it fit (rank, logo and value keep theirs); else the legend names the line. */}
+                  <span data-pill-name className={`min-w-0 truncate py-0.5 font-medium ${selected === e.m.name ? 'underline underline-offset-2' : ''} ${pillRoom - 27 * u - (String(i + 1).length + e.val.length) * 0.62 * ts - 16 < 2.6 * ts ? 'sr-only' : ''}`}>{e.m.name}</span>
                   <span data-pill-value className="ml-1 shrink-0 font-medium" style={{ color: netColor(e.v) }}>{e.val}</span>
                 </span>
               </button>

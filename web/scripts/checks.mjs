@@ -5,6 +5,7 @@
 import puppeteer from 'puppeteer-core';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { inflateSync } from 'node:zlib';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -679,7 +680,7 @@ group(() => check('desktop-table-text', 'At 1440x900, 1512x982 and 1728x1117: no
 // scroll a little bit down, I see profiles ... matchups", then About; and "when I click into trends, it actually kicks me
 // out a few times". On a phone (touch) every stats part is a window of its own, reached by a swipe, and no tap or small
 // swipe on a window (its card, the gutters beside it, the page under it) moves the page off it.
-group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, from the Stats tab one swipe up at a time shows Trends, Profiles, Matchups, then About, each window\'s card filling the space between the top bar and the tab bar (85% at least); on each card window, taps on the gutters beside the card, on the page above and under it and inside it, and a 20px drag, leave the page on that window (no kick-out to an overview); on About a back-to-the-table control (44px at least) takes the page to the table\'s top', async () => {
+group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, from the Stats tab one swipe up at a time shows Trends, Profiles, Matchups, then About, each window\'s card filling the space between the top bar and the tab bar (85% at least); on each card window, taps on the gutters beside the card, on the page above and under it and inside it, and a 20px drag, leave the page on that window (no kick-out to an overview); on About the tab bar\'s Table tab (44px at least, no floating button) takes the page to the table\'s top', async () => {
   const bad = [], seen = [];
   const PARTS = ['Trends', 'Profiles', 'Matchups'];
   for (const [w, h] of [[390, 844], [375, 667]]) {
@@ -725,13 +726,14 @@ group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, fro
         const after = await where();
         if (after.at !== want) bad.push(`${size}: a 20px drag on ${want} moved the page to ${after.at}`);
       }
-      // On About, the back-to-the-table control: shown, 44px at least, and a tap brings the table's top back.
-      const up = await p.evaluate(() => { const e = document.querySelector('button[aria-label="Back to the table"]'), b = e?.getBoundingClientRect(); return b && { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, shown: +getComputedStyle(e).opacity > 0.9 && b.bottom <= document.querySelector('nav[aria-label=Sections]').getBoundingClientRect().top }; });
+      // On About, the back-to-the-table control: the tab bar's Table tab (no floating button over the content: fix-polish),
+      // shown, 44px at least, and a tap brings the table's top back.
+      const up = await p.evaluate(() => { const e = [...document.querySelectorAll('nav[aria-label=Sections] button')].find(b => b.textContent.trim() === 'Table'), b = e?.getBoundingClientRect(); return b && { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, shown: +getComputedStyle(e).opacity > 0.9 && b.bottom <= innerHeight + 1 }; });
       if (!up || !up.shown || up.w < 44 || up.h < 44) bad.push(`${size}: no back-to-the-table control on About${up ? ` (${Math.round(up.w)}x${Math.round(up.h)}${up.shown ? '' : ', hidden'})` : ''}`);
       else {
         await p.touchscreen.tap(up.x, up.y); await sleep(2000);
-        const back = await p.evaluate(() => ({ y: Math.round(scrollY), current: document.querySelector('nav[aria-label=Sections] [aria-current=page]')?.textContent.trim(), hidden: +getComputedStyle(document.querySelector('button[aria-label="Back to the table"]')).opacity < 0.1 }));
-        if (back.y > 1 || back.current !== 'Table' || !back.hidden) bad.push(`${size}: back to the table left the page at ${back.y}px, tab ${back.current}${back.hidden ? '' : ', the control still shown'}`);
+        const back = await p.evaluate(() => ({ y: Math.round(scrollY), current: document.querySelector('nav[aria-label=Sections] [aria-current=page]')?.textContent.trim() }));
+        if (back.y > 1 || back.current !== 'Table') bad.push(`${size}: back to the table left the page at ${back.y}px, tab ${back.current}`);
         else order.push('Table (back to top)');
       }
       seen.push(`${size}: ${order.join(' → ')}`);
@@ -4243,9 +4245,10 @@ group(() => check('about-dial', 'About\'s four topics are a dial at 1440x900, 17
     else {
       await sleep(700);
       const b = await p.evaluate(() => { const r = document.querySelector('[data-dial]').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
-      // The ring's four sides: strips 4px either side of each edge (a ring may sit just inside or just outside), in the window.
+      // The ring's four sides: strips 10px either side of each edge (the ring sits 6px outside it, clear of the rows' text:
+      // fix-polish), in the window.
       const strip = (x, y, cw, ch) => ({ x: Math.max(0, x), y: Math.max(0, y), width: Math.max(1, Math.min(cw, w - Math.max(0, x))), height: Math.max(1, Math.min(ch, h - Math.max(0, y))) });
-      const sides = [strip(b.x + 8, b.y - 4, b.w - 16, 8), strip(b.x + 8, b.y + b.h - 4, b.w - 16, 8), strip(b.x - 4, b.y + 8, 8, b.h - 16), strip(b.x + b.w - 4, b.y + 8, 8, b.h - 16)];
+      const sides = [strip(b.x + 8, b.y - 10, b.w - 16, 20), strip(b.x + 8, b.y + b.h - 10, b.w - 16, 20), strip(b.x - 10, b.y + 8, 20, b.h - 16), strip(b.x + b.w - 10, b.y + 8, 20, b.h - 16)];
       const inWindow = s => s.y + s.height <= h && s.x + s.width <= w && s.y < h - 1;
       const counts = await bluePixels(p, sides.filter(inWindow));
       const n = sides.map(s => (inWindow(s) ? counts.shift() : -1));
@@ -5157,6 +5160,298 @@ group(() => check('zoom-tolerable', `At 1440x900, 1512x982 and 1728x1117 zoomed 
     await p.close();
   }
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 12).join('; ') + (bad.length > 12 ? `; +${bad.length - 12} more` : '') : `${states.length} windows: ${seen.join(', ')}` };
+}));
+// --- fix-polish (the 2026-11-15 visual and accessibility audit, .cloud-out/AUDIT.json): one check per class of finding,
+// so none needs the owner's eyes again. ---
+// A phone page (touch) or a desktop one (browser zoom z: a W/z x H/z viewport at ratio z), loaded with its stats in.
+const polishPage = async (w, h, { phone = false, z = 1, path = '' } = {}) => {
+  const p = await newPage();
+  if (phone) await p.emulate({ viewport: { width: w, height: h, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: await browser.userAgent() });
+  else await p.setViewport({ width: Math.round(w / z), height: Math.round(h / z), deviceScaleFactor: z });
+  await p.goto(BASE + path, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  if (!path) await waitStats(p);
+  await sleep(2500);
+  return p;
+};
+// Scroll a screen (by id) to the window's top, instantly.
+const polishGo = async (p, id) => { await goto(p, id); await sleep(1500); };
+// The user or system prompt dialog, opened by a real (pointer) click on its link in About.
+const openPrompt = async (p, which) => {
+  await p.evaluate(() => document.getElementById('about')?.scrollIntoView({ behavior: 'instant' })); await sleep(800);
+  const pt = await p.evaluate(which => { const b = [...document.querySelectorAll('button')].find(e => e.textContent.trim() === `Read the ${which} prompt` && e.getBoundingClientRect().width > 0); if (!b) return null; b.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = b.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, which);
+  if (!pt) return false;
+  await sleep(400); await p.mouse.click(pt[0], pt[1]); await sleep(900);
+  return p.evaluate(() => !!document.querySelector('dialog[open]'));
+};
+
+// T7-T16: axe-core's rules for the items the audit found, on every phone and desktop state it found them in: no nested
+// interactive control under role=img, accessible names that match the visible text, links marked without colour,
+// crawlable anchors (no <a> without href), an h1, every bit of content in a landmark with unique names, scrolling regions
+// that take focus, 24px targets (the legend's and the race's). Colour contrast is reported, not asserted: the About dial's rows behind are faded by the
+// owner's rule (about-dial).
+const AXE_RULES = ['nested-interactive', 'label-content-name-mismatch', 'link-in-text-block', 'page-has-heading-one', 'region', 'landmark-unique', 'scrollable-region-focusable', 'target-size', 'button-name', 'aria-allowed-role', 'aria-prohibited-attr'];
+group(() => check('a11y-axe', `axe-core finds no ${AXE_RULES.join(', ')} violation at 390x844 (table, Stats windows, About, the user prompt dialog) and 1440x900 (table, the Trends, Profiles and Matchups cards, About) and on /about; no <a> without an href anywhere`, async () => {
+  let src; try { src = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8'); } catch { return { pass: false, detail: 'axe-core is not installed (it comes with eslint-config-next)' }; }
+  const bad = [], seen = [], contrast = new Set();
+  const run = async (p, at) => {
+    await p.evaluate(src); 
+    // target-size is asserted for the controls the audit found (the Trends legend's toggles, About's race markers); the
+    // chart's end labels sit at their lines' tips by design and are reported only.
+    const r = await p.evaluate(async rules => {
+      const res = await axe.run(document, { runOnly: { type: 'rule', values: [...rules, 'color-contrast'] }, resultTypes: ['violations'] });
+      const mine = n => { const e = document.querySelector(n.target[0]); return !!e?.closest('[aria-label="Lines shown"], [data-race-row]'); };
+      return res.violations.map(v => { const nodes = v.id === 'target-size' ? v.nodes.filter(mine) : v.nodes; return { id: v.id, n: nodes.length, t: nodes.slice(0, 2).map(n => n.target.join(' ')).join(' ; ') }; }).filter(v => v.n);
+    }, AXE_RULES);
+    const anchors = await p.evaluate(() => [...document.querySelectorAll('a:not([href])')].filter(e => e.getBoundingClientRect().width > 0).map(e => e.textContent.trim().slice(0, 20)));
+    for (const v of r) (v.id === 'color-contrast' ? contrast.add(`${at} ${v.n}`) : bad.push(`${at}: ${v.id} x${v.n} (${v.t.slice(0, 160)})`));
+    if (anchors.length) bad.push(`${at}: <a> without href: ${anchors.slice(0, 4).join(', ')}`);
+    seen.push(at);
+  };
+  for (const [w, h, phone, screens] of [[390, 844, true, ['table', 'race', 'stats-table', 'pairwise', 'about']], [1440, 900, false, ['table', 'race', 'stats-table', 'pairwise', 'about']]]) {
+    const p = await polishPage(w, h, { phone });
+    try {
+      for (const s of screens) { if (s === 'table') await p.evaluate(() => scrollTo({ top: 0, behavior: 'instant' })); else await polishGo(p, s); await sleep(500); await run(p, `${w}x${h} ${s}`); }
+      if (await openPrompt(p, 'user')) await run(p, `${w}x${h} user prompt`); else bad.push(`${w}x${h}: no user prompt dialog`);
+    } finally { await p.close(); }
+  }
+  for (const [w, h, phone] of [[390, 844, true], [1440, 900, false]]) { const p = await polishPage(w, h, { phone, path: '/about' }); try { await sleep(1500); await run(p, `/about ${w}x${h}`); } finally { await p.close(); } }
+  return { pass: !bad.length, detail: (bad.length ? bad.join(' | ') : `clean: ${seen.join(', ')}`) + (contrast.size ? ` (contrast, reported only: ${[...contrast].join(', ')})` : '') };
+}));
+
+// One number format (owner: thousands separators, as Profits & Losses): no figure of 1,000 or more without its separator in
+// the stats, About or a dialog; one ± form; a shortened figure (+1.3k) only inside a Matchups cell too narrow for the full one.
+const scanNumbers = p => p.evaluate(() => {
+  const out = [], walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const vis = e => { const r = e.getBoundingClientRect(); if (r.width === 0 || r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) return false; for (let a = e; a; a = a.parentElement) { const s = getComputedStyle(a); if (s.visibility === 'hidden' || +s.opacity === 0 || s.display === 'none') return false; } return true; };
+  for (let n; (n = walk.nextNode());) {
+    const e = n.parentElement, t = n.textContent; if (!e || !t.trim() || e.closest('script, style, pre, code, [data-table-screen], #table, .sr-only') || !vis(e)) continue;
+    for (const m of t.matchAll(/(?<![\d,.#$\w])[+\-−]?\d{4,}(?:\.\d+)?(?![\d\w])/g)) if (!/^(19|20)\d\d$/.test(m[0])) out.push(`ungrouped ${m[0]}`);
+    if (/\d(?:\.\d)?k\b/.test(t) && !e.closest('td[data-cell]')) out.push(`shortened ${t.trim().slice(0, 12)}`);
+    if (/±\s\d/.test(t)) out.push('± with a space');
+  }
+  return [...new Set(out)];
+});
+group(() => check('numbers-one-format', 'Every figure in the Stats windows and cards, About and the model drawer uses one format: 1,000 and up grouped with commas (no 1306 or 32000), ± written ±2,366.3 (no space), no shortened +1.3k outside a Matchups cell too narrow for the full figure; at 390x844 and 1440x900', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, phone] of [[390, 844, true], [1440, 900, false]]) {
+    const p = await polishPage(w, h, { phone });
+    try {
+      for (const s of ['race', 'stats-table', 'pairwise', 'about']) {
+        await polishGo(p, s);
+        const r = await scanNumbers(p); if (r.length) bad.push(`${w}x${h} ${s}: ${r.slice(0, 5).join(', ')}`); else seen.push(`${w}x${h} ${s}`);
+      }
+      // The model drawer (the leader's), its facts, axis and position table.
+      const slug = await p.evaluate(() => document.querySelector('a[href^="#model="]')?.getAttribute('href'));
+      if (slug) { await p.evaluate(s => { location.hash = s; }, slug); await sleep(2500); const r = await scanNumbers(p); if (r.length) bad.push(`${w}x${h} drawer: ${r.slice(0, 5).join(', ')}`); else seen.push(`${w}x${h} drawer`); }
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// Nothing floats over the content on a phone: no fixed control (other than the top bar, the tab bar and an open dialog)
+// over text, a logo or a chart mark, at any scroll step of the Stats windows and About (the old back-to-top button did).
+group(() => check('phone-no-floating-cover', 'At 390x844 and 375x667 (touch), scrolling Profits & Losses, the Stats windows and About in 150px steps, no fixed or sticky-to-window control outside the top bar and the tab bar sits over text, an image or an svg', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[390, 844], [375, 667]]) {
+    const p = await polishPage(w, h, { phone: true });
+    try {
+      let steps = 0;
+      for (const s of ['phone-stats', 'race', 'stats-table', 'pairwise', 'about']) {
+        await polishGo(p, s);
+        for (let i = 0; i < 6; i++) {
+          const hits = await p.evaluate(() => {
+            const bars = [document.querySelector('[data-tab-bar]'), document.querySelector('[data-phone-bar]')].filter(Boolean);
+            const floaters = [...document.querySelectorAll('body *')].filter(e => getComputedStyle(e).position === 'fixed' && !bars.some(b => b.contains(e) || e.contains(b)) && !e.closest('dialog') && e.matches('button, a, [role=button]') && +getComputedStyle(e).opacity > 0.1 && e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== 'hidden');
+            const out = [];
+            for (const f of floaters) { const r = f.getBoundingClientRect(); for (const [x, y] of [[r.left + 2, r.top + 2], [r.right - 2, r.top + 2], [r.left + 2, r.bottom - 2], [r.right - 2, r.bottom - 2], [(r.left + r.right) / 2, (r.top + r.bottom) / 2]]) { const under = document.elementsFromPoint(x, y).filter(e => !f.contains(e) && e !== f); const hit = under.find(e => e.matches('svg, svg *, img') || [...e.childNodes].some(c => c.nodeType === 3 && c.textContent.trim())); if (hit) { out.push(`${f.getAttribute('aria-label') || f.textContent.trim().slice(0, 12) || f.tagName} over ${hit.tagName.toLowerCase()} "${(hit.textContent || '').trim().slice(0, 12)}"`); break; } } }
+            return out;
+          });
+          if (hits.length) { bad.push(`${w}x${h} ${s}: ${hits[0]}`); break; }
+          steps++;
+          const sc = await p.evaluate(() => { const a = document.getElementById('about'); const box = a && a.getBoundingClientRect().top < 5 ? a.querySelector('.panel-scroll') : null; if (box) { box.scrollBy({ top: 150, behavior: 'instant' }); return true; } return false; });
+          if (!sc) break; await sleep(250);
+        }
+      }
+      seen.push(`${w}x${h}: ${steps} positions clear`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// A tap or a click never draws a focus ring: the About dial after a touch swipe, and a prompt dialog opened by a click
+// (its first control must not start out ringed or focused when it is not the selected one).
+group(() => check('focus-ring-keyboard-only', 'After a touch swipe on About\'s dial (390x844) the dial shows no outline; a prompt dialog opened by a click (390x844, 1440x900; system and user) focuses no unselected switch segment and rings nothing', async () => {
+  const bad = [], seen = [];
+  {
+    const p = await polishPage(390, 844, { phone: true });
+    try {
+      await polishGo(p, 'about');
+      const d = await p.evaluate(() => { const e = document.querySelector('[data-dial]'); e.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + Math.min(r.height / 2, 120) }; });
+      await sleep(500);
+      await p.touchscreen.touchStart(d.x, d.y); for (let i = 1; i <= 8; i++) { await p.touchscreen.touchMove(d.x, d.y - i * 8); await sleep(16); } await p.touchscreen.touchEnd(); await sleep(800);
+      const o = await p.evaluate(() => { const s = getComputedStyle(document.querySelector('[data-dial]')); return s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0 ? `${s.outlineWidth} ${s.outlineStyle}` : ''; });
+      if (o) bad.push(`390x844: the dial shows an outline (${o}) after a swipe`); else seen.push('dial after a swipe: no ring');
+    } finally { await p.close(); }
+  }
+  for (const [w, h, phone] of [[390, 844, true], [1440, 900, false]]) for (const which of ['system', 'user']) {
+    const p = await polishPage(w, h, { phone });
+    try {
+      if (!(await openPrompt(p, which))) { bad.push(`${w}x${h}: no ${which} prompt dialog`); continue; }
+      const r = await p.evaluate(() => {
+        const d = document.querySelector('dialog[open]'), a = document.activeElement;
+        const ringed = [...d.querySelectorAll('button, [tabindex]')].filter(e => { const s = getComputedStyle(e); return (s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0) || /rgb\(35, 131, 226\)|rgb\(59, 130, 246\)/.test(s.boxShadow); }).map(e => e.textContent.trim().slice(0, 16) || e.tagName);
+        return { active: a?.getAttribute('aria-pressed') === 'false' ? a.textContent.trim() : null, ringed };
+      });
+      if (r.active) bad.push(`${w}x${h} ${which}: focus starts on the unselected "${r.active}"`);
+      if (r.ringed.length) bad.push(`${w}x${h} ${which}: ringed ${r.ringed.join(', ')}`);
+      if (!r.active && !r.ringed.length) seen.push(`${w}x${h} ${which}: clean`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// Dialogs: the close at the title row's right inner edge in every one (one offset), inside the window at any zoom; the
+// one-sentence captions on one line on a 375px phone; both user-prompt columns' code blocks level on a wide screen.
+group(() => check('dialogs-close-and-captions', 'In the system and user prompt dialogs at 375x667, 390x844, 1440x900 and 1440x900 at 300%, and the model drawer at 390x844: the close button inside the dialog and the window, within 24px of the dialog\'s right edge and level with the title (its top above the title\'s bottom), every control inside the window; at 375x667 each dialog caption is one line; at 1440x900 the user prompt\'s two code blocks start at the same y (1px)', async () => {
+  const bad = [], seen = [];
+  const measure = p => p.evaluate(() => {
+    const d = [...document.querySelectorAll('dialog[open]')].pop(); if (!d) return null;
+    const db = d.getBoundingClientRect(), x = d.querySelector('button[aria-label=Close]')?.getBoundingClientRect(), t = d.querySelector('h2, h3')?.getBoundingClientRect();
+    const out = [...d.querySelectorAll('button, a[href], [tabindex="0"]')].map(e => ({ e, r: e.getBoundingClientRect() })).filter(({ r }) => r.width > 0 && (r.right > innerWidth + 1 || r.left < -1 || r.right > db.right + 1)).map(({ e }) => e.getAttribute('aria-label') || e.textContent.trim().slice(0, 14));
+    const caps = [...d.querySelectorAll('p')].filter(e => e.getBoundingClientRect().width > 0 && !e.closest('pre') && e.textContent.trim().split(/[.!?](\s|$)/).filter(s => s && s.trim()).length === 1 && !e.querySelector('br')).map(e => ({ t: e.textContent.trim().slice(0, 30), lines: Math.round(e.getBoundingClientRect().height / parseFloat(getComputedStyle(e).lineHeight)) }));
+    const pres = [...d.querySelectorAll('pre')].map(e => e.getBoundingClientRect()).filter(r => r.width > 0).map(r => r.top);
+    return { right: x ? db.right - x.right : null, level: x && t ? x.top < t.bottom : false, out, caps, pres };
+  });
+  for (const [w, h, phone, z] of [[375, 667, true, 1], [390, 844, true, 1], [1440, 900, false, 1], [1440, 900, false, 3]]) for (const which of ['system', 'user']) {
+    const at = `${w}x${h}${z > 1 ? `@${z * 100}%` : ''} ${which}`, p = await polishPage(w, h, { phone, z });
+    try {
+      if (!(await openPrompt(p, which))) { bad.push(`${at}: no dialog`); continue; }
+      const r = await measure(p);
+      if (r.right === null || r.right > 24 || r.right < 0) bad.push(`${at}: close ${r.right === null ? 'missing' : `${r.right.toFixed(0)}px from the right edge`}`);
+      if (!r.level) bad.push(`${at}: close not level with the title`);
+      if (r.out.length) bad.push(`${at}: outside the window or dialog: ${r.out.join(', ')}`);
+      if (w === 375) for (const c of r.caps.filter(c => c.lines > 1)) bad.push(`${at}: caption on ${c.lines} lines: "${c.t}"`);
+      if (w === 1440 && z === 1 && which === 'user' && r.pres.length === 2 && Math.abs(r.pres[0] - r.pres[1]) > 1) bad.push(`${at}: code blocks start ${Math.abs(r.pres[0] - r.pres[1]).toFixed(0)}px apart`);
+      seen.push(`${at}: close ${r.right?.toFixed(0)}px in`);
+    } finally { await p.close(); }
+  }
+  const p = await polishPage(390, 844, { phone: true });
+  try {
+    const slug = await p.evaluate(() => document.querySelector('a[href^="#model="]')?.getAttribute('href'));
+    if (slug) { await p.evaluate(s => { location.hash = s; }, slug); await sleep(2000); const r = await measure(p); if (!r || r.right > 24 || !r.level || r.out.length) bad.push(`390x844 drawer: close ${r?.right?.toFixed(0)}px in${r?.level ? '' : ', not level'}${r?.out.length ? `, outside: ${r.out.join(', ')}` : ''}`); else seen.push(`drawer: close ${r.right.toFixed(0)}px in`); }
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// Switches: every segmented switch fills its track or hugs it (no grey band beside its options), and has 2 options or more.
+group(() => check('segments-fill', 'At 390x844 in the Trends filter sheet and at 1440x900 under the Trends card, every segmented switch ([data-seg]) has 2 or more options and they take 90% or more of its track\'s inner width', async () => {
+  const bad = [], seen = [];
+  const read = p => p.evaluate(() => [...document.querySelectorAll('[data-seg]')].filter(e => e.getBoundingClientRect().width > 0).map(e => {
+    const s = getComputedStyle(e), inner = e.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
+    const kids = [...e.children].filter(c => c.getBoundingClientRect().width > 0);
+    const rows = new Set(kids.map(c => Math.round(c.getBoundingClientRect().top))).size; // a wrapped switch: judge its widest row
+    const sum = kids.reduce((a, c) => a + c.getBoundingClientRect().width, 0) / rows;
+    return { label: e.getAttribute('aria-label'), n: kids.length, ratio: sum / inner };
+  }));
+  {
+    const p = await polishPage(390, 844, { phone: true });
+    try {
+      await polishGo(p, 'race');
+      const opened = await p.evaluate(() => { const b = [...document.querySelectorAll('button')].find(e => /^Filters/.test(e.textContent.trim()) && e.getBoundingClientRect().width > 0); b?.click(); return !!b; });
+      await sleep(800);
+      if (!opened) bad.push('390x844: no Filters button');
+      for (const r of await read(p)) { if (r.n < 2) bad.push(`390x844 ${r.label}: ${r.n} option`); else if (r.ratio < 0.9) bad.push(`390x844 ${r.label}: options fill ${(r.ratio * 100).toFixed(0)}% of the track`); else seen.push(`${r.label} ${(r.ratio * 100).toFixed(0)}%`); }
+    } finally { await p.close(); }
+  }
+  {
+    const p = await polishPage(1440, 900);
+    try { await polishGo(p, 'race'); for (const r of await read(p)) { if (r.n < 2) bad.push(`1440x900 ${r.label}: ${r.n} option`); else if (r.ratio < 0.9) bad.push(`1440x900 ${r.label}: options fill ${(r.ratio * 100).toFixed(0)}% of the track`); } } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// Opened cards and About start under the top bar, never floating mid-screen: one gap for all (desktop and browser zoom).
+group(() => check('cards-top-aligned', 'At 1440x900, 1728x1117 and 1440x900 at 90% and 125%: the opened Trends, Profiles and Matchups cards and About each start at most 48px under the top bar, within 2px of one another (About 8px)', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, z] of [[1440, 900, 1], [1728, 1117, 1], [1440, 900, 0.9], [1440, 900, 1.25]]) {
+    const at = `${w}x${h}@${Math.round(z * 100)}%`, p = await polishPage(w, h, { z });
+    try {
+      const gaps = {};
+      for (const s of ['race', 'stats-table', 'pairwise', 'about']) {
+        await polishGo(p, s); await sleep(1200);
+        gaps[s] = await p.evaluate(s => {
+          const bar = [...document.querySelectorAll('div.fixed.top-0, [data-sticky-bar]')].map(e => e.getBoundingClientRect()).filter(b => b.height > 0 && b.top <= 1).reduce((m, b) => Math.max(m, b.bottom), 0);
+          if (s === 'about') { const a = [...document.querySelectorAll('[data-about]')].map(e => e.getBoundingClientRect()).find(b => b.width > 0 && b.top > -5 && b.top < innerHeight); return a ? a.top - bar : null; }
+          const cards = [...document.querySelectorAll('.card-chrome')].map(e => ({ e, b: e.getBoundingClientRect() })).filter(({ e, b }) => b.width > 400 && b.top >= -1 && b.top < innerHeight && +getComputedStyle(e).opacity > 0.5).sort((a, b) => b.b.width * b.b.height - a.b.width * a.b.height);
+          return cards[0] ? cards[0].b.top - bar : null;
+        }, s);
+      }
+      const card = ['race', 'stats-table', 'pairwise'].map(s => gaps[s]);
+      if (Object.values(gaps).some(g => g === null)) bad.push(`${at}: no card or About found (${JSON.stringify(gaps)})`);
+      else {
+        if (Object.values(gaps).some(g => g > 48)) bad.push(`${at}: gaps under the top bar ${Object.entries(gaps).map(([k, g]) => `${k} ${g.toFixed(0)}`).join(', ')}px (48 at most)`);
+        if (Math.max(...card) - Math.min(...card) > 2 || Math.abs(gaps.about - card[0]) > 8) bad.push(`${at}: uneven gaps ${Object.entries(gaps).map(([k, g]) => `${k} ${g.toFixed(0)}`).join(', ')}px`);
+        seen.push(`${at}: ${Object.values(gaps).map(g => g.toFixed(0)).join('/')}px`);
+      }
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// About's sections share one left edge (the dial's rows behind are scaled from it, not from their middle), at rest.
+group(() => check('about-one-left-edge', 'At 390x844 (touch), 1440x900 and 1728x1117, once every animation has finished, every About section label (How it works, Caveats, Hours, What’s next) starts at one x (1px), and so does each row\'s body', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, phone] of [[390, 844, true], [1440, 900, false], [1728, 1117, false]]) {
+    const p = await polishPage(w, h, { phone });
+    try {
+      await polishGo(p, 'about'); await sleep(1000);
+      // At rest: every finite animation finished (5 s at most: a replay or a pulse never ends).
+      await p.evaluate(() => Promise.race([Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))), new Promise(r => setTimeout(r, 5000))]));
+      const r = await p.evaluate(() => {
+        const rows = [...document.querySelectorAll('#about [data-dial-row]')].filter(e => e.getBoundingClientRect().width > 0);
+        const lab = rows.map(e => e.querySelector('h2, h3').getBoundingClientRect().left), body = rows.map(e => e.querySelector('[data-dial-body]').getBoundingClientRect().left);
+        return { lab, body };
+      });
+      const spread = a => Math.max(...a) - Math.min(...a);
+      if (!r.lab.length) bad.push(`${w}x${h}: no dial rows`);
+      else if (spread(r.lab) > 1 || spread(r.body) > 1) bad.push(`${w}x${h}: labels ${r.lab.map(x => x.toFixed(1)).join('/')}, bodies ${r.body.map(x => x.toFixed(1)).join('/')}`);
+      else seen.push(`${w}x${h}: one edge`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// No ellipsis that leaves a stub: a truncated label shows 4 characters or more (no "G…" or "C").
+group(() => check('no-stub-ellipsis', 'At 390x844, 430x932 (touch) and 1440x900 at 125% and 300%, on the Stats windows or cards and About: no element cut by overflow (scrollWidth over clientWidth with text-overflow or overflow hidden) shows fewer than about 4 characters (under 2.4em wide)', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, phone, z] of [[390, 844, true, 1], [430, 932, true, 1], [1440, 900, false, 1.25], [1440, 900, false, 3]]) {
+    const at = `${w}x${h}${z !== 1 ? `@${z * 100}%` : ''}`, p = await polishPage(w, h, { phone, z });
+    try {
+      const stubs = new Set();
+      for (const s of ['race', 'stats-table', 'pairwise', 'about']) {
+        await polishGo(p, s);
+        for (const t of await p.evaluate(() => [...document.querySelectorAll('span, div, a, td, th, p, button')].filter(e => {
+          const r = e.getBoundingClientRect(); if (r.width === 0 || r.bottom < 0 || r.top > innerHeight || !e.textContent.trim() || e.children.length > 2) return false;
+          const st = getComputedStyle(e); if (st.overflowX === 'visible' || e.scrollWidth <= e.clientWidth + 1) return false;
+          if (e.closest('.sr-only, [aria-hidden=true]')) return false;
+          return e.clientWidth < 2.4 * parseFloat(st.fontSize);
+        }).map(e => `"${e.textContent.trim().slice(0, 14)}" ${e.clientWidth}px`))) stubs.add(`${s} ${t}`);
+      }
+      if (stubs.size) bad.push(`${at}: ${[...stubs].slice(0, 4).join(', ')}`); else seen.push(`${at}: none`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// Phones: one title style for the four Stats windows (Profits & Losses was a small uppercase label).
+group(() => check('phone-window-titles', 'At 390x844 (touch) the Profits & Losses, Trends, Profiles and Matchups windows\' titles share one font size, weight and text-transform', async () => {
+  const p = await polishPage(390, 844, { phone: true });
+  try {
+    await polishGo(p, 'phone-stats');
+    const r = await p.evaluate(() => ['Profits & Losses', 'Trends', 'Profiles', 'Matchups'].map(t => { const e = [...document.querySelectorAll('h2')].find(e => e.textContent.trim() === t && e.getBoundingClientRect().width > 0); if (!e) return `${t}: none`; const s = getComputedStyle(e); return `${s.fontSize} ${s.fontWeight} ${s.textTransform}`; }));
+    const one = new Set(r).size === 1;
+    return { pass: one, detail: r.join(' | ') };
+  } finally { await p.close(); }
 }));
 
 // The server ends every stream after 10 to 14 minutes and the page reopens it; the viewer must not

@@ -137,7 +137,7 @@ function HeaderCell({ col, sort, onSort, className, mini, move }: { col: { key: 
     <th
       scope="col"
       aria-sort={active ? (sort.desc ? 'descending' : 'ascending') : onSort ? 'none' : undefined}
-      className={`${className} font-medium text-right align-bottom leading-tight`}
+      className={`${className} font-medium text-right align-bottom leading-tight max-md:whitespace-nowrap`} // phones: one line, no tall band of wrapped headers
       style={{ color: active ? TEXT : MUTED }}
       onMouseEnter={mini ? undefined : () => setOpen(true)}
       onMouseLeave={mini ? undefined : () => setOpen(false)}
