@@ -545,7 +545,7 @@ function Table() {
           {gaveUp && (
             <button
               onClick={retry}
-              className="text-xs bg-white/40 hover:bg-white/60 px-3 py-1 rounded font-bold"
+              className="text-xs bg-white/40 hover:bg-white/60 px-3 py-1 max-md:min-h-11 max-md:min-w-11 rounded font-bold"
             >
               Retry
             </button>
