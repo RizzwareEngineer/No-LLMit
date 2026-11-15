@@ -11,9 +11,11 @@ import { Caveats, Eyebrow, Footer, Hours, How, Intro, LABEL, Next, RULE, Race, S
 // `soft`: the topic's words when the row is behind (its blur and fade); the label beside them is never blurred.
 function Row({ as: H, title, soft, children }: { as: 'h2' | 'h3'; title: string; soft: React.CSSProperties; children: React.ReactNode }) {
   return (
-    <section className="grid gap-x-6 gap-y-2 @2xl:grid-cols-[112px_minmax(0,1fr)] py-3.5 [@media(min-height:960px)]:py-5 border-t" style={{ borderColor: RULE }}>
+    <section className="grid gap-x-6 gap-y-2 @2xl:grid-cols-[112px_minmax(0,1fr)] @2xl:[--body-x:136px] py-3.5 [@media(min-height:960px)]:py-5 border-t" style={{ borderColor: RULE }}>
       <H className={`${LABEL} @2xl:pt-px`} style={{ color: MUTED }}>{title}</H>
-      <div data-dial-body className="min-w-0 motion-safe:transition-[filter,opacity] motion-safe:duration-[400ms]" style={{ ...soft, transitionTimingFunction: EASE }}>{children}</div>
+      {/* --dial-shift: a row behind is scaled from its left edge; this moves its words back onto the column's edge (from 2xl,
+          where they sit right of the label), so every row's label and words share About's two left edges. */}
+      <div data-dial-body className="min-w-0 motion-safe:transition-[filter,opacity,translate] motion-safe:duration-[400ms]" style={{ ...soft, translate: 'var(--dial-shift, 0px)', transitionTimingFunction: EASE }}>{children}</div>
     </section>
   );
 }
@@ -25,9 +27,9 @@ const PEEK = 40;
 // only fades), the topic's words a little blurred and fainter still (`soft`: 0.45 and 0.25 in all), so the row next to
 // the focused one can still be read and every label stays sharp.
 const BACK = [
-  { transform: 'none', opacity: 1, soft: { filter: 'none', opacity: 1 } },
-  { transform: 'scale(0.96)', opacity: 0.7, soft: { filter: 'blur(1px)', opacity: 0.65 } },
-  { transform: 'scale(0.92)', opacity: 0.5, soft: { filter: 'blur(1.5px)', opacity: 0.5 } },
+  { transform: 'none', opacity: 1, soft: { filter: 'none', opacity: 1, ['--dial-shift' as string]: '0px' } },
+  { transform: 'scale(0.96)', opacity: 0.7, soft: { filter: 'blur(1px)', opacity: 0.65, ['--dial-shift' as string]: 'calc((1 / 0.96 - 1) * var(--body-x, 0px))' } },
+  { transform: 'scale(0.92)', opacity: 0.5, soft: { filter: 'blur(1.5px)', opacity: 0.5, ['--dial-shift' as string]: 'calc((1 / 0.92 - 1) * var(--body-x, 0px))' } },
 ];
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 

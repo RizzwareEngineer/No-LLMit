@@ -622,7 +622,8 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
           <>
             <Definition>
               Tap rows to compare them.
-              {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
+              {/* One sentence per line: no sentence's end sharing a line with the next one's start, no orphan word. */}
+              {models.some(m => m.hands < MIN_HANDS) && <span className="block"><Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</span>}
               {data.partial && ' All-in EV still computing…'}
             </Definition>
             <SyncedProfiles tl={tl} models={models} seated={seated} view={profView} />
@@ -632,7 +633,8 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
       <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW}>
         {card('pairwise-card', 'Matchups', ready && (
           <>
-            <div className="flex min-w-0 items-center gap-2 text-[14px]" style={{ color: MUTED }}>
+            {/* Wraps (the switch under its label) where the row does not fit: never past the card's edge. */}
+            <div className="flex flex-wrap min-w-0 items-center gap-x-2 gap-y-1 text-[14px]" style={{ color: MUTED }}>
               <span className="shrink-0">Lineup</span>
               <Segmented label="Lineup" options={[{ label: 'Seated now', value: 'seated' as const }, { label: 'All models', value: 'all' as const, disabled: models.length <= field.length }]} value={muLineup} onChange={setMuLineup} />
             </div>

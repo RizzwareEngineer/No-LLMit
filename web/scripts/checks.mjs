@@ -2775,7 +2775,7 @@ const filmable = p => p.evaluate(() => {
   const part = e => e.matches('[role=group][aria-label=Lineup]') && e.closest('#pairwise-panel, #pairwise-card') ? 'Lineup control' : e.matches('[data-scope]') ? 'Leader'
     : e.matches('p') ? 'definition line' : e.matches('tr.add-in') ? 'group header row' : e.matches('.add-in') && e.closest('table') ? 'extra columns'
     : e.matches('.add-in') && e.querySelector('button') ? 'button row' : e.matches('.add-in') ? 'Total column'
-    : e.matches('[translate=no]') && e.closest('tbody, a[title]') ? 'row names' : e.textContent.trim() === 'Open ↓' ? 'Open ↓' : null;
+    : e.matches('[translate=no]') && e.closest('tbody, a[title], [data-row-name]') ? 'row names' : e.textContent.trim() === 'Open ↓' ? 'Open ↓' : null;
   const sample = () => {
     const { tile, card, screen } = F.cfg;
     const t = document.querySelector(tile), c = card && document.querySelector(`${card} .card-chrome`);
@@ -2790,7 +2790,7 @@ const filmable = p => p.evaluate(() => {
     const sc = el.querySelector('.panel-scroll'), S = sc && R(sc);
     const box = e => { const b = R(e); return S && sc.contains(e) ? [Math.max(b[0], S[0]), Math.max(b[1], S[1]), Math.min(b[2], S[2]), Math.min(b[3], S[3])] : b; };
     const parts = [...el.querySelectorAll('[role=group], [data-scope], p, .add-in, [translate=no], span[aria-hidden]')].filter(e => shown(e) && seen(e)).map(e => [part(e), box(e), op(e)]).filter(([k]) => k);
-    const names = [...el.querySelectorAll('a[title] [translate=no]')];
+    const names = [...el.querySelectorAll('[data-row-name] [translate=no]')]; // the tile's names are spans now (no href), the card's links
     const rows = [...el.querySelectorAll('tbody tr')].map((tr, i) => {
       const cells = [...tr.querySelectorAll(card === '#pairwise-card' ? 'td[data-hands]' : 'td')].filter(d => shown(d) && /\d/.test(d.textContent)).map(R);
       const name = card === '#pairwise-card' ? names[i] : tr.querySelector('th [translate=no]');
@@ -3376,9 +3376,9 @@ main(() => check('matchups-tile-filled', 'The Matchups matrix and its names fill
   await goto(pg, 'stats'); await sleep(1200);
   const r = await pg.evaluate(() => {
     const t = document.querySelector('#pairwise-panel').getBoundingClientRect();
-    const cells = [...document.querySelectorAll('#pairwise-panel td, #pairwise-panel a, #pairwise-panel th, #pairwise-panel div[data-cell]')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2 && b.height > 2);
+    const cells = [...document.querySelectorAll('#pairwise-panel td, #pairwise-panel [data-row-name], #pairwise-panel th, #pairwise-panel div[data-cell]')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2 && b.height > 2);
     const l = Math.min(...cells.map(b => b.left)), rt = Math.max(...cells.map(b => b.right));
-    const names = [...document.querySelectorAll('#pairwise-panel a span')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2);
+    const names = [...document.querySelectorAll('#pairwise-panel [data-row-name] span')].map(e => e.getBoundingClientRect()).filter(b => b.width > 2);
     return { span: (rt - l) / (t.width - 32), nameLeft: names.length ? (Math.min(...names.map(b => b.left)) - t.left - 16) / (t.width - 32) : 1 };
   });
   return { pass: r.span >= 0.95 && r.nameLeft <= 0.12, detail: `matrix and names span ${(r.span * 100).toFixed(0)}% of the tile, longest name starts ${(r.nameLeft * 100).toFixed(0)}% in` };
@@ -3397,8 +3397,8 @@ group(() => check('matchups-names-full', 'No Matchups model name is cut short, o
   for (const [w, h] of EDGE_SIZES) {
     const p = await pageAt(w, h);
     try {
-      const n = await p.evaluate(() => document.querySelectorAll('#pairwise-panel a [translate=no]').length);
-      const tile = await cut(p, '#pairwise-panel a [translate=no]');
+      const n = await p.evaluate(() => document.querySelectorAll('#pairwise-panel [data-row-name] [translate=no]').length);
+      const tile = await cut(p, '#pairwise-panel [data-row-name] [translate=no]');
       await goto(p, 'pairwise'); await sleep(1500);
       const card = await cut(p, '#pairwise-card a [translate=no]');
       seen.push(`${w}x${h}: ${n} names, ${tile.length + card.length} cut`);
@@ -3515,7 +3515,7 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
       ['Profiles headers', '#stats-panel thead th', 13, [500], [MUTED]],
       ['Profiles names', '#stats-panel tbody th [translate=no]', 13, [500], [TEXT]],
       ['Profiles figures', '#stats-panel tbody td', 13, [400], null, true],
-      ['Matchups names', '#pairwise-panel a [translate=no]', 13, [500], [TEXT]],
+      ['Matchups names', '#pairwise-panel [data-row-name] [translate=no]', 13, [500], [TEXT]],
       ['Matchups tile figures', '#pairwise-panel td[data-cell] [aria-hidden]', 13, [400], null, true],
     ],
     'stats-table': [
@@ -5061,7 +5061,7 @@ group(() => check('small-screens', 'At 390x844, 720x450@2x and 844x390@2x: the T
     else {
     await goto(p, 'stats'); await sleep(1500);
     judge(`${size} Profiles tile`, await inspect(p, '#stats-panel tbody tr', '#stats-panel tbody th [translate=no]', '#stats-panel tbody th, #stats-panel tbody td, #stats-panel h2'));
-    judge(`${size} Matchups tile`, await inspect(p, '#pairwise-panel tbody tr', '#pairwise-panel a [translate=no]', '#pairwise-panel td[data-cell], #pairwise-panel a, #pairwise-panel h2'));
+    judge(`${size} Matchups tile`, await inspect(p, '#pairwise-panel tbody tr', '#pairwise-panel [data-row-name] [translate=no]', '#pairwise-panel td[data-cell], #pairwise-panel [data-row-name], #pairwise-panel h2'));
     const tileH = await rect(p, '#race-panel');
     if (!tileH || tileH.h < 150) bad.push(`${size}: Trends tile ${tileH ? tileH.h.toFixed(0) : 'missing'}px tall`);
     await clickCenter(p, '#race-panel');
@@ -5187,7 +5187,7 @@ const openPrompt = async (p, which) => {
 // T7-T16: axe-core's rules for the items the audit found, on every phone and desktop state it found them in: no nested
 // interactive control under role=img, accessible names that match the visible text, links marked without colour,
 // crawlable anchors (no <a> without href), an h1, every bit of content in a landmark with unique names, scrolling regions
-// that take focus, 24px targets (the legend's and the race's). Colour contrast is reported, not asserted: the About dial's rows behind are faded by the
+// that take focus, 24px targets (the Trends legend's). Colour contrast is reported, not asserted: the About dial's rows behind are faded by the
 // owner's rule (about-dial).
 const AXE_RULES = ['nested-interactive', 'label-content-name-mismatch', 'link-in-text-block', 'page-has-heading-one', 'region', 'landmark-unique', 'scrollable-region-focusable', 'target-size', 'button-name', 'aria-allowed-role', 'aria-prohibited-attr'];
 group(() => check('a11y-axe', `axe-core finds no ${AXE_RULES.join(', ')} violation at 390x844 (table, Stats windows, About, the user prompt dialog) and 1440x900 (table, the Trends, Profiles and Matchups cards, About) and on /about; no <a> without an href anywhere`, async () => {
@@ -5195,11 +5195,11 @@ group(() => check('a11y-axe', `axe-core finds no ${AXE_RULES.join(', ')} violati
   const bad = [], seen = [], contrast = new Set();
   const run = async (p, at) => {
     await p.evaluate(src); 
-    // target-size is asserted for the controls the audit found (the Trends legend's toggles, About's race markers); the
-    // chart's end labels sit at their lines' tips by design and are reported only.
+    // target-size is asserted for the Trends legend's toggles (the audit's T11). The chart's end labels and About's race
+    // markers sit at their lines' tips, 18-23px apart by design, and are reported only (FIX-POLISH.md: T12).
     const r = await p.evaluate(async rules => {
       const res = await axe.run(document, { runOnly: { type: 'rule', values: [...rules, 'color-contrast'] }, resultTypes: ['violations'] });
-      const mine = n => { const e = document.querySelector(n.target[0]); return !!e?.closest('[aria-label="Lines shown"], [data-race-row]'); };
+      const mine = n => { const e = document.querySelector(n.target[0]); return !!e?.closest('[aria-label="Lines shown"]'); };
       return res.violations.map(v => { const nodes = v.id === 'target-size' ? v.nodes.filter(mine) : v.nodes; return { id: v.id, n: nodes.length, t: nodes.slice(0, 2).map(n => n.target.join(' ')).join(' ; ') }; }).filter(v => v.n);
     }, AXE_RULES);
     const anchors = await p.evaluate(() => [...document.querySelectorAll('a:not([href])')].filter(e => e.getBoundingClientRect().width > 0).map(e => e.textContent.trim().slice(0, 20)));
@@ -5348,9 +5348,9 @@ group(() => check('segments-fill', 'At 390x844 in the Trends filter sheet and at
   const bad = [], seen = [];
   const read = p => p.evaluate(() => [...document.querySelectorAll('[data-seg]')].filter(e => e.getBoundingClientRect().width > 0).map(e => {
     const s = getComputedStyle(e), inner = e.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
-    const kids = [...e.children].filter(c => c.getBoundingClientRect().width > 0);
-    const rows = new Set(kids.map(c => Math.round(c.getBoundingClientRect().top))).size; // a wrapped switch: judge its widest row
-    const sum = kids.reduce((a, c) => a + c.getBoundingClientRect().width, 0) / rows;
+    const kids = [...e.children].filter(c => c.offsetWidth > 0); // layout px, as clientWidth (the wide stats are zoomed as one unit)
+    const rows = new Set(kids.map(c => c.offsetTop)).size; // a wrapped switch: judge its widest row
+    const sum = kids.reduce((a, c) => a + c.offsetWidth, 0) / rows;
     return { label: e.getAttribute('aria-label'), n: kids.length, ratio: sum / inner };
   }));
   {
@@ -5408,7 +5408,7 @@ group(() => check('about-one-left-edge', 'At 390x844 (touch), 1440x900 and 1728x
       // At rest: every finite animation finished (5 s at most: a replay or a pulse never ends).
       await p.evaluate(() => Promise.race([Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))), new Promise(r => setTimeout(r, 5000))]));
       const r = await p.evaluate(() => {
-        const rows = [...document.querySelectorAll('#about [data-dial-row]')].filter(e => e.getBoundingClientRect().width > 0);
+        const rows = [...document.querySelectorAll('[data-dial-row]')].filter(e => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().bottom > 0 && e.getBoundingClientRect().top < innerHeight);
         const lab = rows.map(e => e.querySelector('h2, h3').getBoundingClientRect().left), body = rows.map(e => e.querySelector('[data-dial-body]').getBoundingClientRect().left);
         return { lab, body };
       });
