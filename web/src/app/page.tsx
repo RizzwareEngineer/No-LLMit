@@ -89,6 +89,30 @@ const BEFORE_PAINT = `(${fitStage})();(${holdBoxes})(true)`;
 
 const PAGE_KEYS: Record<string, 1 | -1> = { ArrowDown: 1, ArrowRight: 1, PageDown: 1, ArrowUp: -1, ArrowLeft: -1, PageUp: -1 };
 
+// How far the screen the window is inside (a [data-screen] taller than the window by more than a few px) can still
+// scroll in direction `dir` before its edge; 0 when the window shows a whole screen. A snap point inside it (a phone's
+// Profits & Losses) is an edge too: mandatory snapping never rests with one part-way in the window, so a free scroll
+// there would only spring back.
+// `ahead`: going down, the distance to such a snap point already in the window (null when none).
+function roomInside(dir: number) {
+  const h = window.innerHeight;
+  for (const s of document.querySelectorAll<HTMLElement>('[data-screen]')) {
+    const r = s.getBoundingClientRect();
+    if (r.top > 1 || r.bottom < h - 1) continue;
+    if (r.height <= h + 8) return { room: 0, ahead: null };
+    let room = dir > 0 ? r.bottom - h : -r.top, ahead: number | null = null;
+    for (const e of s.querySelectorAll<HTMLElement>('[class*="snap-start"]')) {
+      if (!/start/.test(getComputedStyle(e).scrollSnapAlign)) continue;
+      const t = e.getBoundingClientRect().top;
+      if (dir > 0 && t > -1) room = Math.min(room, t - h);
+      if (dir < 0 && t < h + 1) room = Math.min(room, -t);
+      if (dir > 0 && t > 1 && t <= h + 1) ahead = Math.min(ahead ?? t, t);
+    }
+    return { room: Math.max(0, room), ahead };
+  }
+  return { room: 0, ahead: null };
+}
+
 // /?peellab shows the peek lab (PeelLab) instead of the table.
 const noSubscribe = () => () => {};
 export default function Home() {
@@ -295,6 +319,28 @@ function Table() {
         insideUntil = now + 200;
         return;
       }
+      // A screen taller than the window (high browser zoom, a short window) scrolls freely, like a panel, to its edge:
+      // the wheel moves it as the browser would, stopped at the edge; the next gesture pages on, one screen.
+      // Moved here, event by event (the browser's own animated wheel scroll ran past the edge, where mandatory snapping
+      // pulled it back). A snap point inside the screen coming into the window (a phone's Profits & Losses) is where a
+      // new gesture down goes, as a page.
+      const { room, ahead } = roomInside(dir);
+      if (room > 1) {
+        if (now >= insideUntil) armedAt = now;
+        insideUntil = now + 200;
+        e.preventDefault();
+        const px = Math.abs(e.deltaY) * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? window.innerHeight : 1);
+        window.scrollBy({ top: dir * Math.min(px, room), behavior: 'instant' });
+        return;
+      }
+      if (ahead !== null && (now >= insideUntil || fresh) && Math.abs(e.deltaY) >= 4) {
+        e.preventDefault();
+        window.scrollBy({ top: ahead }); // smooth via scroll-behavior in globals.css
+        lockUntil = now + 700;
+        armedAt = now;
+        lockDir = dir;
+        return;
+      }
       e.preventDefault();
       if (now < insideUntil && !fresh) {
         insideUntil = now + 200;
@@ -475,7 +521,7 @@ function Table() {
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
                   here, its top under the bar), Profits & Losses only (owner, 2026-11-15: no API usage on a phone). */}
-              <div id="phone-stats" className="flex flex-col w-full md:w-[240px] shrink-0 max-md:order-1 max-md:snap-start max-md:snap-always max-md:pt-[calc(56px+env(safe-area-inset-top))]">
+              <div id="phone-stats" className="flex flex-col w-full md:w-[240px] shrink-0 max-md:order-1 max-md:snap-start max-md:snap-always max-md:pt-[calc(var(--top-h)+12px)]">
                 <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />
                 </div>
@@ -521,6 +567,7 @@ function Table() {
         type="button"
         onClick={() => onTab('table')}
         aria-label="Back to the table"
+        data-back-top
         inert={backHidden}
         className={`md:hidden fixed z-40 right-[calc(12px+env(safe-area-inset-right))] bottom-[calc(var(--bar-h)+12px)] size-11 rounded-full border bg-white/95 backdrop-blur-md shadow-md flex items-center justify-center motion-safe:transition-[opacity,translate] motion-safe:duration-200 ${backHidden ? 'opacity-0 translate-y-2 pointer-events-none' : 'opacity-100'}`}
         style={{ color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.16)' }}
