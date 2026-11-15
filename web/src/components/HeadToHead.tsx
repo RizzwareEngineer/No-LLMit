@@ -164,7 +164,9 @@ export default memo(function HeadToHead({
   const n = sorted.length;
   const grow = mini ? 1 : n / Math.max(1, Math.min(n, fitTo?.length ?? n));
   // A model outside the seated lineup (All models): its row and column are what the card adds, like Profiles' extra columns.
-  const adds = (name: string) => (!mini && fitTo?.includes(name) === false ? 'add-in' : '');
+  // Its parts move when a re-sort does: their fade runs once, on `outer` (globals.css' .adds), from when they first show.
+  const adds = (name: string) => (!mini && fitTo?.includes(name) === false ? 'add-in add-moves' : '');
+  const extras = sorted.some(m => adds(m.name));
   const px = mini ? TILE_PX : 14;
   const strip = mini ? STRIP : 28;
   const totals = mini ? 0 : TOTALS;
@@ -179,7 +181,8 @@ export default memo(function HeadToHead({
   // size (motion layout corrects them for the matrix's scale), like Profiles' cells; the Total column fades in.
   const move = snap ? NONE : GLIDE;
   return (
-    <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : 'w-max'}`}>{/* w-max: as wide as the grid, so the pinned names can follow a sideways scroll */}
+    // `adds`: All models' rows and columns fade in once, from here, as they first show (globals.css).
+    <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : 'w-max'} ${extras ? 'adds' : ''}`}>{/* w-max: as wide as the grid, so the pinned names can follow a sideways scroll */}
       {/* On the tile, a size container: the matrix takes what its names leave. No scroller of its own. */}
       {/* Centred, but never past the left edge: a card that scrolls (a phone, All models) keeps the names pinned. */}
       <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : 'text-[14px] md:text-[13px]'}`} style={{ containerType: mini ? 'size' : undefined, fontSize: mini ? px : undefined }} onMouseLeave={() => setTip(null)}>

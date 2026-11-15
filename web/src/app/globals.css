@@ -259,22 +259,23 @@ html:has([data-screen]) {
 @keyframes recede-hide { to { opacity: 0; } }
 /* What a card adds to its overview tile's content (Profiles' extra columns and controls) fades in once, on mount. */
 /* Their times are Section's IN and OUT. */
-@keyframes add-in { from { opacity: 0; } }
-@keyframes add-out { to { opacity: 0; } }
-/* Inside a host that stays put while the card is open (.adds: Profiles' and Matchups' content box), the fade runs once,
-   on the host, as --add, and each part takes it as its opacity: a row the live table re-sorts is moved in the DOM, which
-   restarts a CSS animation on the moved element (its extra columns faded in again at every re-sort, and a Matchups name
-   moved apart from its row faded in after the row's figures). */
+/* The fade in runs on --add (registered: it interpolates), which the part takes as its opacity: an opacity animation is
+   run by the compositor, which keeps the part in a layer of its own a while after it ends, and text drawn there came out
+   lighter than the same text in the card at the hand-over (Section's Swap and Added fade a variable for the same reason).
+   The parts a live re-sort moves in the DOM (.add-moves: Profiles' extra cells in each row, Matchups' All models rows,
+   names, logos and cells) take theirs from a host that stays put (.adds): a moved element restarts its own CSS
+   animation, and those parts faded in again at every re-sort. Parts never moved keep their own fade on mount. */
 @property --add {
   syntax: '<number>';
   inherits: true;
   initial-value: 1;
 }
-@keyframes adds { from { --add: 0; } }
+@keyframes add-in { from { --add: 0; } }
+@keyframes add-out { to { opacity: 0; } }
 @media (prefers-reduced-motion: no-preference) {
-  .add-in { animation: add-in 0.3s 0.08s ease-out both; }
-  .adds { animation: adds 0.3s 0.08s ease-out both; }
-  .adds .add-in { animation: none; opacity: var(--add); }
+  .add-in { animation: add-in 0.3s 0.08s ease-out both; opacity: var(--add); }
+  .adds { animation: add-in 0.3s 0.08s ease-out both; }
+  .adds .add-moves { animation: none; }
   /* Closing a card (StatsSections' back): what it adds fades out, in the card and in the tile standing in under it,
      before the tile glides back. An animation: a transition never starts on a property an animation holds. */
   .stats-room[data-leaving] :is(.add-in, .added) { animation: add-out 0.12s ease-out both; }

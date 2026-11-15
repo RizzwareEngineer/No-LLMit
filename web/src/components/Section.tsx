@@ -301,7 +301,8 @@ function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean;
     else if (at.current !== null) el.style.left = `${at.current - box.offsetLeft}px`;
   });
   return (
-    <motion.div ref={ref} initial={false} animate={shown ? { opacity: 1, transition: snap ? NONE : IN } : { opacity: 0, transition: OUT }} onAnimationComplete={() => !present && safeToRemove?.()} className={present ? '' : `absolute ${stay ? '' : 'right-0'} inset-y-0 flex items-center`}>
+    // A variable, not opacity, fades (globals.css' add-in): an opacity fade leaves its text in a layer of its own a while after.
+    <motion.div ref={ref} initial={false} animate={shown ? { '--fade': 1, transition: snap ? NONE : IN } : { '--fade': 0, transition: OUT }} onAnimationComplete={() => !present && safeToRemove?.()} className={present ? '' : `absolute ${stay ? '' : 'right-0'} inset-y-0 flex items-center`} style={{ opacity: 'var(--fade)' }}>
       {children}
     </motion.div>
   );
@@ -309,7 +310,7 @@ function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean;
 
 // Something the card adds around its tile's content: fades in as the tile glides open (nothing when `still`).
 export function Added({ still = false, className, style, children }: { still?: boolean; className?: string; style?: React.CSSProperties; children: React.ReactNode }) {
-  return <motion.div initial={still ? false : { opacity: 0 }} animate={{ opacity: 1, transition: IN }} className={`added ${className ?? ''}`} style={style}>{children}</motion.div>;
+  return <motion.div initial={still ? false : { '--fade': 0 }} animate={{ '--fade': 1, transition: IN }} className={`added ${className ?? ''}`} style={{ ...style, opacity: 'var(--fade)' }}>{children}</motion.div>;
 }
 
 export const SHADOW = 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px';
