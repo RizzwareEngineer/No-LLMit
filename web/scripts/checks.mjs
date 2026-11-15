@@ -443,6 +443,76 @@ group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its 
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
 }));
 
+// Owner, 2026-11-15: "for the stats page, we just had one window taking up the screen. For example, trends, and then if I
+// scroll a little bit down, I see profiles ... matchups", then About; and "when I click into trends, it actually kicks me
+// out a few times". On a phone (touch) every stats part is a window of its own, reached by a swipe, and no tap or small
+// swipe on a window (its card, the gutters beside it, the page under it) moves the page off it.
+group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, from the Stats tab one swipe up at a time shows Trends, Profiles, Matchups, then About, each window\'s card filling the space between the top bar and the tab bar (85% at least); on each card window, taps on the gutters beside the card, on the page above and under it and inside it, and a 20px drag, leave the page on that window (no kick-out to an overview); on About a back-to-the-table control (44px at least) takes the page to the table\'s top', async () => {
+  const bad = [], seen = [];
+  const PARTS = ['Trends', 'Profiles', 'Matchups'];
+  for (const [w, h] of [[390, 844], [375, 667]]) {
+    const size = `${w}x${h}`, p = await newPage();
+    await p.emulate({ viewport: { width: w, height: h, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: (await browser.userAgent()) });
+    try {
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => [...document.querySelectorAll('h2')].some(e => e.textContent.trim() === 'Matchups') && document.querySelector('td[data-cell]') && document.querySelector('tbody tr'), { timeout: 90000 }).catch(() => {});
+      await sleep(2500);
+      // The window on screen: a stats card titled Trends, Profiles or Matchups, shown (no opacity 0 on the way up), fully
+      // inside the window and at least 85% of the room between the bars; or About, at the window's top.
+      const where = () => p.evaluate(PARTS => {
+        const shown = e => { for (let a = e; a; a = a.parentElement) if (+getComputedStyle(a).opacity === 0 || getComputedStyle(a).visibility === 'hidden') return false; return true; };
+        const top = [...document.querySelectorAll('div.fixed.top-0')].map(e => e.getBoundingClientRect()).find(b => b.height > 0)?.bottom ?? 0;
+        const nav = document.querySelector('nav[aria-label=Sections]').getBoundingClientRect().top;
+        const room = nav - top;
+        const cards = [...document.querySelectorAll('h2')].filter(e => PARTS.includes(e.textContent.trim())).map(e => ({ t: e.textContent.trim(), c: e.closest('.card-chrome') })).filter(x => x.c && shown(x.c))
+          .map(x => ({ t: x.t, b: x.c.getBoundingClientRect() })).filter(x => x.b.width > 0 && x.b.top >= top - 1 && x.b.bottom <= nav + 1 && x.b.height >= 0.85 * room);
+        const about = document.querySelector('section[aria-label=About]')?.getBoundingClientRect();
+        const b = cards[0]?.b;
+        return { at: cards.length === 1 ? cards[0].t : about && Math.abs(about.top) < 2 ? 'About' : cards.length ? cards.map(c => c.t).join('+') : 'none', card: b && { l: b.left, r: b.right, t: b.top, b: b.bottom }, top, nav, y: Math.round(scrollY) };
+      }, PARTS);
+      // `rest`: the finger stays still before it lifts (a drag, not a flick: a flick's speed pages on its own).
+      const swipe = async (y0, y1, rest = 0, x = w / 2) => { await p.touchscreen.touchStart(x, y0); for (let i = 1; i <= 12; i++) { await p.touchscreen.touchMove(x, y0 + ((y1 - y0) * i) / 12); await sleep(16); } await sleep(rest); await p.touchscreen.touchEnd(); await sleep(1400); };
+      await p.evaluate(() => [...document.querySelectorAll('nav[aria-label=Sections] button')].find(b => b.textContent.trim() === 'Stats').click());
+      await sleep(2000);
+      const order = [];
+      for (const want of [...PARTS, 'About']) {
+        await swipe(h * 0.85, h * 0.12);
+        let r = await where();
+        // A layout with an overview of tiles: open the part's tile (the way a viewer gets to it there).
+        if (r.at !== want && want !== 'About') {
+          const tile = await p.evaluate(t => { const e = [...document.querySelectorAll('h2')].find(e => e.textContent.trim() === t && e.getBoundingClientRect().height > 0)?.closest('section'); if (!e) return null; e.scrollIntoView({ block: 'nearest' }); const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + Math.min(20, b.height / 2)]; }, want);
+          if (tile) { await p.touchscreen.tap(tile[0], tile[1]); await sleep(1800); r = await where(); }
+        }
+        order.push(r.at);
+        if (r.at !== want) { bad.push(`${size}: swiped to ${r.at}, want ${want}`); continue; }
+        if (want === 'About') break;
+        // Taps around and on the card, then a short swipe: still on this window.
+        const c = r.card, taps = [[4, (c.t + c.b) / 2, 'left gutter'], [w - 4, (c.t + c.b) / 2, 'right gutter'], [w / 2, (c.t + r.top) / 2, 'above'], [w / 2, (c.b + r.nav) / 2, 'under'], [w / 2, (c.t + c.b) / 2, 'inside'], [w / 2, c.t + 16, 'header']];
+        for (const [x, y, what] of taps) {
+          if (y <= r.top + 1 || y >= r.nav - 1) continue; // no page there to tap
+          await p.touchscreen.tap(x, y); await sleep(1300);
+          const now = await where();
+          if (now.at !== want) { bad.push(`${size}: a tap ${what} the ${want} card moved the page to ${now.at}`); break; }
+        }
+        await swipe(h / 2, h / 2 - 20, 300); await sleep(300);
+        const after = await where();
+        if (after.at !== want) bad.push(`${size}: a 20px drag on ${want} moved the page to ${after.at}`);
+      }
+      // On About, the back-to-the-table control: shown, 44px at least, and a tap brings the table's top back.
+      const up = await p.evaluate(() => { const e = document.querySelector('button[aria-label="Back to the table"]'), b = e?.getBoundingClientRect(); return b && { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width, h: b.height, shown: +getComputedStyle(e).opacity > 0.9 && b.bottom <= document.querySelector('nav[aria-label=Sections]').getBoundingClientRect().top }; });
+      if (!up || !up.shown || up.w < 44 || up.h < 44) bad.push(`${size}: no back-to-the-table control on About${up ? ` (${Math.round(up.w)}x${Math.round(up.h)}${up.shown ? '' : ', hidden'})` : ''}`);
+      else {
+        await p.touchscreen.tap(up.x, up.y); await sleep(2000);
+        const back = await p.evaluate(() => ({ y: Math.round(scrollY), current: document.querySelector('nav[aria-label=Sections] [aria-current=page]')?.textContent.trim(), hidden: +getComputedStyle(document.querySelector('button[aria-label="Back to the table"]')).opacity < 0.1 }));
+        if (back.y > 1 || back.current !== 'Table' || !back.hidden) bad.push(`${size}: back to the table left the page at ${back.y}px, tab ${back.current}${back.hidden ? '' : ', the control still shown'}`);
+        else order.push('Table (back to top)');
+      }
+      seen.push(`${size}: ${order.join(' → ')}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+}));
+
 // The table's amounts in chips or in big blinds (owner 2026-11-08: "a toggle view if someone cares about looking at the
 // game by big blinds versus just the absolute size of the stack"). One switch in the header's status row, kept across a
 // reload. Every amount on the table screen follows it in one format: seat stacks and actions, bets, the pot, Profits &
@@ -2036,8 +2106,9 @@ group(() => check('trends-zoom-touch', 'On a phone (390x844, touch) a two-finger
     // One finger swiping up 300px from the plot's centre scrolls the page.
     await touch('touchStart', [{ x: cx, y: s1.y, id: 0 }]);
     for (let i = 1; i <= 15; i++) { await touch('touchMove', [{ x: cx, y: s1.y - i * 20, id: 0 }]); await sleep(16); }
-    await touch('touchEnd', []); await sleep(1500);
+    // Read with the finger still down: on a phone's snapping windows a 300px swipe may settle back on the window it left.
     const s2 = await zoomState(p);
+    await touch('touchEnd', []); await sleep(1500);
     if (Math.abs(s2.scrolled - s1.scrolled) < 30) bad.push('a one-finger swipe on the plot did not scroll the page');
     return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `pinch: ${all.toFixed(0)} → ${w.toFixed(0)} hands, page at 1x; swipe scrolled ${(s2.scrolled - s1.scrolled).toFixed(0)}px` };
   } finally { await p.close(); }
@@ -2632,9 +2703,11 @@ const judge = (fr, name, how, state) => {
   return out;
 };
 let filmed;
+// Desktop sizes only: under 768px there are no tiles and no hand-over (owner, 2026-11-15: each part is one full window
+// on a phone, PhoneStats), which phone-stats-windows checks instead.
 const films = () => (filmed ??= alone(async () => {
   const out = [];
-  for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117], [390, 844]]) {
+  for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117]]) {
     const p = await pageAt(w, h, 'race');
     // Puppeteer launches Chrome with --hide-scrollbars; the films show them, as a mouse user's browser does.
     await (p.__cdp ??= await p.createCDPSession()).send('Emulation.setScrollbarsHidden', { hidden: false });
@@ -2690,7 +2763,7 @@ const report = (key, ok) => async () => {
   const by = ['Trends', 'Profiles', 'Matchups'].map(x => `${x} ${bad.filter(b => b.startsWith(x)).length}`).join(', ');
   return { pass: !bad.length, detail: bad.length ? `${bad.length} (${by}): ${bad.slice(0, 12).join('; ')}${bad.length > 12 ? '; …' : ''}` : ok(fs, n) };
 };
-main(() => check('handover-no-blank', 'Opening and closing Trends, Profiles and Matchups (Back to overview and Escape, 1440x900, 1512x982, 1728x1117, 390x844) never paints a frame with neither the card nor the tile in the card\'s box', report('blank',
+main(() => check('handover-no-blank', 'Opening and closing Trends, Profiles and Matchups (Back to overview and Escape, 1440x900, 1512x982, 1728x1117; phones have no hand-over) never paints a frame with neither the card nor the tile in the card\'s box', report('blank',
   (fs, n) => `${n} opens and closes filmed, at least ${(100 * Math.min(...fs.map(f => f.cal.ink ?? 1))).toFixed(0)}% of the card's box painted in every frame`)));
 main(() => check('handover-same-picture', 'At each hand-over between tile and card (opening and closing, as opened and after the viewer changed the lineup, the sort, All models, picked rows or the scroll), the last frame before the swap and the first after it show the same picture in the card\'s box, the box itself within 2px', report('same',
   (fs, n) => `${n} hand-overs, changed pixels at the swap ≤ ${Math.max(...fs.map(f => f.cal.swap ?? 0))}, at rest ≤ ${Math.max(...fs.map(f => f.cal.still ?? 0))}`)));
@@ -4089,9 +4162,26 @@ group(() => check('about-dial-touch-motion', 'At 390x844 with touch, one vertica
 }));
 // Every line of the API usage card fits on one line (owner's rule: UI text fits one line); the mock provider's test-mode
 // line wrapped "called" onto a second line at 1440x900.
-group(() => check('usage-card-one-line', 'At 1440x900, 1728x1117 and 390x844 every text line in the API usage card sits on one line', async () => {
+// Owner, 2026-11-15: "For the mobile view, we don't actually need to show the API usage, just the profits and losses."
+group(() => check('usage-card-one-line', 'At 1440x900 and 1728x1117 every text line in the API usage card sits on one line; at 390x844 there is no API usage card and Profits & Losses is shown', async () => {
   const bad = [], seen = [];
-  for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) {
+  {
+    const p = await newPage(); await p.setViewport({ width: 390, height: 844 });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => document.querySelectorAll('#table ol li').length >= 2, { timeout: 60000, polling: 250 }).catch(() => {});
+    await sleep(2500);
+    const r = await p.evaluate(() => {
+      const vis = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+      const usage = [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].some(vis) || [...document.querySelectorAll('#table h2, #table h3, #table span')].some(e => /^API usage/i.test(e.textContent.trim()) && vis(e));
+      const pnl = [...document.querySelectorAll('#table h2')].some(e => /Profits/.test(e.textContent) && vis(e));
+      return { usage, pnl };
+    });
+    if (r.usage) bad.push('390x844: the API usage card is shown');
+    if (!r.pnl) bad.push('390x844: no Profits & Losses');
+    seen.push(`390x844: ${r.usage ? 'usage card' : 'no usage card'}, ${r.pnl ? 'P&L shown' : 'no P&L'}`);
+    await p.close();
+  }
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await newPage(); await p.setViewport({ width: w, height: h });
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await p.waitForFunction(() => [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].some(e => e.getBoundingClientRect().width > 0 && e.closest('.rounded')?.textContent.includes('/')), { timeout: 60000, polling: 250 }).catch(() => {});
@@ -4132,9 +4222,10 @@ group(() => check('watching-counts-me', 'A fresh table page\'s status label, whe
 // Owner, 2026-11-12: "the donation part is not like... apparent". The ask sits on the table screen, in the API usage card
 // beside the calls it pays for: a filled "Sponsor on GitHub" link, its sentence on one line, and Profits & Losses above
 // still shows every seat.
-group(() => check('donate-apparent', 'On the table screen at 1440x900, 1728x1117 and 390x844, the API usage card has, at its bottom below everything else in it and inside it, a filled "Sponsor on GitHub" link to GitHub Sponsors (new tab), the card\'s only filled control, inside the window; Profits & Losses shows every seat\'s row unclipped and unscrolled', async () => {
+// Phones show no API usage card (owner, 2026-11-15; usage-card-one-line checks that): the ask is checked on the desktop sizes, About's donate button carries it on a phone.
+group(() => check('donate-apparent', 'On the table screen at 1440x900 and 1728x1117, the API usage card has, at its bottom below everything else in it and inside it, a filled "Sponsor on GitHub" link to GitHub Sponsors (new tab), the card\'s only filled control, inside the window; Profits & Losses shows every seat\'s row unclipped and unscrolled', async () => {
   const bad = [], seen = [];
-  for (const [w, h] of [[1440, 900], [1728, 1117], [390, 844]]) {
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) {
     const p = await newPage(); await p.setViewport({ width: w, height: h });
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await p.waitForFunction(() => document.querySelectorAll('#table ol li').length >= 2 && document.querySelector('#table a[href*="sponsors"]'), { timeout: 60000, polling: 250 }).catch(() => {});
@@ -4642,12 +4733,20 @@ group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'
     const size = `${w}x${h}${d > 1 ? `@${d}x` : ''}`;
     const p = await newPage(); await p.setViewport({ width: w, height: h, deviceScaleFactor: d });
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p); await sleep(3000);
+    // Under 768px there are no tiles (owner, 2026-11-15: each part is a full window of its own, PhoneStats): the windows'
+    // cards are checked, Profiles' as #stats-panel.
+    const phone = await p.evaluate(() => !document.getElementById('stats-card'));
+    const prof = phone ? '#stats-panel' : '#stats-card';
+    if (phone) { await goto(p, 'race'); await sleep(1500); await clickText(p, 'Skip'); } // its lines drawn, as the tile's replay had them
+    else {
     await goto(p, 'stats'); await sleep(1500);
     judge(`${size} Profiles tile`, await inspect(p, '#stats-panel tbody tr', '#stats-panel tbody th [translate=no]', '#stats-panel tbody th, #stats-panel tbody td, #stats-panel h2'));
     judge(`${size} Matchups tile`, await inspect(p, '#pairwise-panel tbody tr', '#pairwise-panel a [translate=no]', '#pairwise-panel td[data-cell], #pairwise-panel a, #pairwise-panel h2'));
     const tileH = await rect(p, '#race-panel');
     if (!tileH || tileH.h < 150) bad.push(`${size}: Trends tile ${tileH ? tileH.h.toFixed(0) : 'missing'}px tall`);
-    await clickCenter(p, '#race-panel'); await sleep(2000);
+    await clickCenter(p, '#race-panel');
+    }
+    await sleep(2000);
     const c = await chartBox(p);
     const shape = c ? Math.min(200, (c.w * 470) / 1220) : 200; // the chart's height at its width, at most the 200px floor
     seen.push(`${size} Trends plot ${c ? `${c.w.toFixed(0)}x${c.h.toFixed(0)}` : 'missing'}`);
@@ -4658,7 +4757,7 @@ group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'
     const legend = await inspect(p, '#race-panel h2', '#none', '#race-panel h2, #race-panel [role=group]');
     if (legend.cut.length) bad.push(`${size} Trends card: ${legend.cut.slice(0, 4).join(', ')}`);
     await goto(p, 'stats-table'); await sleep(1500);
-    judge(`${size} Profiles card`, await inspect(p, '#stats-card tbody tr', '#stats-card tbody th [translate=no]', '#stats-card tbody th, #stats-card tbody td'));
+    judge(`${size} Profiles card`, await inspect(p, `${prof} tbody tr`, `${prof} tbody th [translate=no]`, `${prof} tbody th, ${prof} tbody td`));
     await goto(p, 'pairwise'); await sleep(1500);
     judge(`${size} Matchups card`, await inspect(p, '#pairwise-card tbody tr', '#pairwise-card a [translate=no]', '#pairwise-card td[data-cell], #pairwise-card a, #pairwise-card div[data-cell]'));
     await p.close();

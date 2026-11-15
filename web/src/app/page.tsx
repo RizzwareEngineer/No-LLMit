@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
-import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
+import { ArrowDown, ArrowUp, CircleNotch } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
@@ -366,7 +366,7 @@ function Table() {
   const onTab = (t: Tab) => {
     if (t === 'table') window.scrollTo({ top: 0 });
     else if (t === 'about') pageTo('about');
-    else if (screen === 'race' || screen === 'stats-table' || screen === 'pairwise') backToOverview();
+    else if (window.innerWidth >= 768 && (screen === 'race' || screen === 'stats-table' || screen === 'pairwise')) backToOverview();
     else pageTo('phone-stats');
   };
 
@@ -378,7 +378,7 @@ function Table() {
       <main className="flex flex-col items-center-safe">
       {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
       {/* Phones: under the slim bar (PhoneBar) only the table and its caption fill the first screen (the header's rows are
-          the bar's), Profits & Losses and API usage under them start the stats (the tab bar's Stats): their own snap point,
+          the bar's), Profits & Losses under them starts the stats (the tab bar's Stats): their own snap point,
           which stops a swipe (the screen's own stop would hold a scroll at its end, short of them), so the screen is no
           scroll container there (clip, not auto: a snap point counts only in its nearest one). */}
       <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always max-md:snap-normal overflow-x-auto max-md:overflow-x-clip flex flex-col items-center-safe justify-center-safe max-md:justify-start pt-3 max-md:pt-[calc(48px+env(safe-area-inset-top))] pb-[calc(1rem+var(--bar-h))] lg:pt-4">
@@ -465,12 +465,12 @@ function Table() {
               />
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
-                  here, its top under the bar). */}
+                  here, its top under the bar), Profits & Losses only (owner, 2026-11-15: no API usage on a phone). */}
               <div id="phone-stats" className="flex flex-col w-full md:w-[240px] shrink-0 max-md:order-1 max-md:snap-start max-md:snap-always max-md:pt-[calc(56px+env(safe-area-inset-top))]">
                 <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />
                 </div>
-                <div className="mt-4">
+                <div className="mt-4 max-md:hidden">
                   <UsageIndicator usage={usage} error={usageError} />
                 </div>
               </div>
@@ -505,6 +505,18 @@ function Table() {
       <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />
       <PhoneBar blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />
       <TabBar tab={tab} onTab={onTab} />
+      {/* Phones: back to the table's top from anywhere below it (the Table tab does the same), 44px, over the tab bar's
+          right end. Hidden (and out of the tab order) while the table shows. */}
+      <button
+        type="button"
+        onClick={() => onTab('table')}
+        aria-label="Back to the table"
+        inert={tableInView}
+        className={`md:hidden fixed z-40 right-[calc(12px+env(safe-area-inset-right))] bottom-[calc(var(--bar-h)+12px)] size-11 rounded-full border bg-white/95 backdrop-blur-md shadow-md flex items-center justify-center motion-safe:transition-[opacity,transform] motion-safe:duration-200 ${tableInView ? 'opacity-0 translate-y-2 pointer-events-none' : 'opacity-100'}`}
+        style={{ color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.16)' }}
+      >
+        <ArrowUp size={20} weight="bold" aria-hidden />
+      </button>
       <ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status */}

@@ -45,9 +45,19 @@ const noop = () => () => {};
 const useNativeTimeline = () =>
   useSyncExternalStore(noop, () => CSS.supports('animation-timeline: view()') && CSS.supports('timeline-scope: --a'), () => true);
 
+// Phones (under 768px) get their own stats: one full-screen window per part (PhoneStats); wider windows the overview and
+// its cards' loop. The prerender is the wide one (stats sit below the table screen, out of sight when a phone swaps them).
+const PHONE = '(max-width: 767px)';
+const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
+const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
+
 // The three panels under the live table, all time. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
-export default memo(function StatsSections({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
+export default memo(function StatsSections(props: { stats: StatsResponse | null; error: string | null }) {
+  return usePhone() ? <PhoneStats {...props} /> : <WideStats {...props} />;
+});
+
+function WideStats({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
   // The tile filling the stage (null: the overview grid); `lift`, the one focused last, stays on top
   // while it glides back. Race fills it on every screen after the overview: the cards slide over it.
   const [tiles, setTiles] = useState<{ on: Tile | null; snap: boolean; lift: Tile | null }>({ on: null, snap: false, lift: null });
@@ -534,7 +544,109 @@ export default memo(function StatsSections({ stats: data, error }: { stats: Stat
       </div>
     </div>
   );
-});
+}
+
+// A phone's stats (owner, 2026-11-15: "one window taking up the screen ... trends, and then if I scroll a little bit down,
+// I see profiles ... matchups", then About): four snap windows in the page's own scroll, each its part's full card at
+// once (no overview of tiles, no tile-to-card hand-over, nothing a tap beside a card can undo). A card's own content
+// scrolls inside it only where it is taller or wider than the window (Profiles' columns, Matchups' matrix).
+// The DOM ids are the wide layout's screens and cards, so links and checks find the same parts; the screen it reports
+// (setScreen) is phone-*, which the sticky bars read as no card of the loop (no "Back to overview").
+const WINDOW = 'relative h-svh snap-start snap-always flex flex-col px-0 pt-[calc(52px+env(safe-area-inset-top))] pb-[calc(var(--bar-h,0px)+8px)]';
+function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
+  const ready = !!data;
+  const blank = !ready && !error;
+  const message = <StatsMessage error={error} />;
+  const models = ready ? data.models : [];
+  const seated = data?.seated;
+  const field = useMemo(() => seatedModels(data?.models ?? [], seated), [data, seated]);
+  const bigBlind = data?.scope.big_blind ?? 10;
+  const pageStats = useMemo(() => ({ data, error }), [data, error]);
+  const hands = data?.scope.hands;
+  const fetched = useTimeline(hands === undefined ? undefined : Math.floor(hands / 25));
+  const tl = useMemo(() => (fetched && hands !== undefined && hands > fetched.hands ? { ...fetched, hands } : fetched), [fetched, hands]);
+  const [muLineup, setMuLineup] = useState<'seated' | 'all'>('seated');
+  const muModels = muLineup === 'all' ? models : field;
+  const profView = useState<TableView>(TABLE_VIEW);
+  const room = useRef<HTMLDivElement>(null);
+
+  // The window crossing the middle of the screen is the page's screen (the tab bar's Stats or About).
+  useEffect(() => {
+    const els = room.current ? [...room.current.querySelectorAll<HTMLElement>(':scope > [data-screen]')] : [];
+    const io = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && setScreen(e.target.id === 'about' ? 'about' : `phone-${e.target.id}`)), { rootMargin: '-50% 0px -50% 0px' });
+    els.forEach(e => io.observe(e));
+    return () => { io.disconnect(); setScreen(''); };
+  }, []);
+  // Matchups' names column at its longest name, whole (as the wide layout measures it).
+  useLayoutEffect(() => {
+    const names = [...document.querySelectorAll<HTMLElement>('#pairwise-card a [translate=no]')];
+    if (names.length) room.current?.style.setProperty('--mu-names', `${Math.max(...names.map(e => e.scrollWidth)) + 5}px`);
+  }, [data, muLineup]);
+
+  const card = (id: string, title: string, aside: React.ReactNode, body: React.ReactNode, cls = '') => (
+    <div id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className="flex-1 min-h-0 flex flex-col outline-none">
+    <div className={`${CARD} flex-1 ${blank ? '[&>*]:invisible' : ''} ${cls}`} style={{ boxShadow: CARD_SHADOW }}>
+      <div className={HEADER}>
+        <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
+        {aside && <div className={ASIDE}>{aside}</div>}
+      </div>
+      <div className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{body}</div>
+    </div>
+    </div>
+  );
+  return (
+    // Matchups' matrix (seated lineup) square, 40px cells at most, and no taller than its window leaves it (the top bar,
+    // the card's padding, its two-line header and the column logos), so a swipe on it pages instead of scrolling it; never
+    // under 26px cells (a short window scrolls it instead).
+    <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `clamp(${26 * Math.max(1, field.length)}px, 100svh - 52px - env(safe-area-inset-top) - var(--bar-h, 0px) - 8px - 32px - 96px - 28px, ${40 * Math.max(1, field.length)}px)` } as React.CSSProperties}>
+      <section id="race" data-screen aria-label="Trends" className={WINDOW}>
+        <div id="stats" aria-hidden className="absolute top-0" />
+        {card('race-panel', 'Trends', ready && <Leader tl={tl} models={field} />, ready ? (
+          <CumulativeChart race compact bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
+        ) : message)}
+      </section>
+      <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW}>
+        {card('stats-panel', 'Profiles', ready && <Leader tl={tl} models={field} />, !ready ? message : (
+          <>
+            <Definition>
+              Tap rows to compare them.
+              {models.some(m => m.hands < MIN_HANDS) && <> <Warning size={14} weight="bold" className="inline -mt-0.5" style={{ color: 'rgb(140, 95, 20)' }} aria-hidden /> Under {MIN_HANDS} hands: mostly luck so far.</>}
+              {data.partial && ' All-in EV still computing…'}
+            </Definition>
+            <SyncedProfiles tl={tl} models={models} seated={seated} view={profView} />
+          </>
+        ))}
+      </section>
+      <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW}>
+        {card('pairwise-card', 'Matchups', ready && (
+          <>
+            <div className="flex min-w-0 items-center gap-2 text-[14px]" style={{ color: MUTED }}>
+              <span className="shrink-0">Lineup</span>
+              <Segmented label="Lineup" options={[{ label: 'Seated now', value: 'seated' as const }, { label: 'All models', value: 'all' as const, disabled: models.length <= field.length }]} value={muLineup} onChange={setMuLineup} />
+            </div>
+            <Leader tl={tl} models={muModels} />
+          </>
+        ), !ready ? message : (
+          <AtHand tl={tl} models={muModels}>
+            {(ms, hand) => (
+              <div {...syncAttrs(tl, hand)} className="contents">
+                <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} fitTo={field.map(m => m.name)} leader={leaderAt(tl, ms, hand)?.m.name} />
+              </div>
+            )}
+          </AtHand>
+        ), '[&_a_[translate=no]]:max-w-[96px]')}
+      </section>
+      {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
+      <section id="about" data-screen data-end aria-label="About" className="relative h-svh snap-start snap-always -mx-3 bg-(--page)">
+        <div className="panel-scroll h-full overflow-auto">
+          <div className="px-3 pt-[calc(52px+env(safe-area-inset-top))] pb-[calc(var(--bar-h,0px)+16px)]">
+            <PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 // The leader by bb/100 over the range shown among `models` with at least MIN_HANDS hands then, at the hand
 // Trends is replaying (its chart value then, over its hands then), else now; null when none qualifies.

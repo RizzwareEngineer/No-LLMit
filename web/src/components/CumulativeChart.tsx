@@ -349,6 +349,7 @@ export default function CumulativeChart({
   mini = false,
   bigBlind,
   timeline,
+  compact = false,
 }: {
   models: ModelStats[];
   everyone?: ModelStats[]; // the Race "All models" lineup; `models` is the seated one
@@ -357,6 +358,9 @@ export default function CumulativeChart({
   mini?: boolean; // the overview tile: the same chart scaled down, without controls or interaction
   bigBlind?: number; // the Race's chips metric plots bb × big blind
   timeline?: Timeline | null; // the Race: replays hand by hand, each line at its model's hands then
+  // A phone's Trends window (StatsSections' PhoneStats): laid out at screen size (text at its real size, the plot as tall as
+  // its box leaves after the legend, 200px or its W x H shape at least: a short window scrolls the legend into view), its filters one row (what is on, and a Filters button) that opens them in a sheet.
+  compact?: boolean;
 }) {
   const area = useRef<HTMLDivElement>(null);
   const plot = useRef<HTMLDivElement>(null);
@@ -452,6 +456,16 @@ export default function CumulativeChart({
   const [luck, setLuck] = useState(false); // all-in EV lines for every model (the highlighted one always shows its own)
   const [hidden, setHidden] = useState<string[]>([]); // lines switched off in the legend
   const [zoomTo, setZoom] = useState<[number, number] | null>(null); // the card's zoom: the hands it shows (see fit)
+  const sheet = useRef<HTMLDialogElement>(null); // compact: the filters' sheet
+  const legendRef = useRef<HTMLDivElement>(null);
+  const [legendH, setLegendH] = useState(LEGEND_H); // compact: the legend's height as drawn (it wraps to more rows on a phone)
+  useLayoutEffect(() => {
+    const el = legendRef.current;
+    if (!compact || !el) return;
+    const ro = new ResizeObserver(() => setLegendH(h => (Math.abs(h - el.offsetHeight - 4) < 1 ? h : el.offsetHeight + 4)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
 
   const metric: Metric = race ? metricPick : 'bb';
   const rate = metric === 'bb100';
@@ -601,16 +615,16 @@ export default function CumulativeChart({
   // W wide or, in a box wider than that shape, the box's width at that scale (the plot takes the extra width).
   // Outside the Race (the model drawer) it simply fills its box.
   // The legend's rows are set aside, so a filter that changes its length never rescales the plot.
-  const s = race ? Math.min(box.w / W, (box.h - (interactive ? LEGEND_H : 0)) / H) : 1;
-  const [lw, lh] = race ? [s > 0 ? Math.max(W, box.w / s) : W, H] : [Math.max(box.w, 200), box.h];
+  const s = compact ? 1 : race ? Math.min(box.w / W, (box.h - (interactive ? LEGEND_H : 0)) / H) : 1;
+  const [lw, lh] = compact ? [Math.max(box.w, 200), Math.max(Math.min(200, (box.w * H) / W), box.h - (interactive ? legendH : 0))] : race ? [s > 0 ? Math.max(W, box.w / s) : W, H] : [Math.max(box.w, 200), box.h];
   // Text keeps the site's on-screen sizes (numbers at 14px, as the Profiles cells) however the chart
   // is scaled: design units are screen px times u.
-  const u = race ? Math.min(1.5, 1 / s) : 1;
+  const u = race && !compact ? Math.min(1.5, 1 / s) : 1;
   const fs = 14 * u; // the hover readout, as the Profiles cells
   const ts = 13 * u; // everything else in the chart: ticks, axis titles, pills, the clock
-  const [pillH, pillRoom] = [PILL_H * u, PILL_ROOM * u];
+  const [pillH, pillRoom] = [PILL_H * u, compact ? Math.min(PILL_ROOM, Math.round(lw * 0.3)) : PILL_ROOM * u]; // a phone: a third of the plot at most
   const right = 12;
-  const left = 10 + ts * 0.62 * 8; // room for the widest y label ("−100,000"), so the plot never moves
+  const left = 10 + ts * 0.62 * (compact ? 7 : 8); // room for the widest y label ("−100,000"; a phone "−12,000"), so the plot never moves
   const padTop = ts + 14; // the y axis title sits above the plot
   const padBottom = ts + 10 + ts + 8; // tick labels, then the x axis title
   const plotW = lw - left - right;
@@ -643,7 +657,7 @@ export default function CumulativeChart({
       .map(t => ({ t, o: is.includes(t) ? (was.includes(t) ? 1 : kk) : 1 - kk }))
       .filter(d => d.o > 0 && d.t >= Math.min(a, b) - 1e-6 && d.t <= Math.max(a, b) + 1e-6);
   // x ticks never sit left of where the data starts.
-  const xTicksOf = (a: number, b: number) => niceTicks(a, b, 10, true).filter(t => t >= Math.max(a, from) && t <= b);
+  const xTicksOf = (a: number, b: number) => niceTicks(a, b, compact ? Math.max(3, Math.floor(leadW / 70)) : 10, true).filter(t => t >= Math.max(a, from) && t <= b);
   // Gridlines on the moving axis: their step holds while it gives 6–8 labels (so they slide with the
   // axis rather than relabel), then gridTicks picks again. A label joins with a fade in (CSS
   // @starting-style), leaves with a fade out (it stays, transparent, until the step changes or it
@@ -664,7 +678,7 @@ export default function CumulativeChart({
   // Under the camera (and while zoomed) the ticks slide with history, fading in at the leading edge and out at the left.
   // While the replay's window widens, the finer step's ticks fade out as the coarser step takes over: no label pops. A
   // zoom, which rests where the gesture leaves it, shows the round step alone.
-  const st = steps(X1 - X0, 10);
+  const st = steps(X1 - X0, compact ? Math.max(3, Math.floor(leadW / 70)) : 10); // a phone: a tick per 70px at most
   const fadeW = st.step * 0.35;
   const xTicks = race && (playing || zoom)
     ? Array.from({ length: Math.floor(X1 / st.finer) - Math.ceil(Math.max(X0, from) / st.finer) + 1 }, (_, i) => (Math.ceil(Math.max(X0, from) / st.finer) + i) * st.finer)
@@ -901,12 +915,63 @@ export default function CumulativeChart({
     top && `Top ${top}`,
     !whole && RANGES.find(r => r.n === win)?.label,
   ].filter(Boolean).join(' · ');
+  const filterCount = [metricPick !== 'bb100', lineup === 'all', license !== 'all', fams.length > 0, top > 0, !whole, luck].filter(Boolean).length;
   // The bar and legend appear with the card: corrected for the panel's glide (no stretch), faded in.
   const appear = { layout: 'position', transition: GLIDE, initial: { opacity: 0 }, animate: { opacity: 1, transition: { duration: 0.3, delay: 0.08 } } } as const;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col" {...syncAttrs(race ? timeline ?? null : null, handNow === null ? null : Math.floor(handNow))}>
-      {interactive && (
+      {interactive && compact && (
+        // A phone: one row, what the filters show now and a thumb-sized button that opens all of them in a sheet.
+        <div className="mb-2 flex items-center gap-3 text-[14px]" style={{ color: MUTED }}>
+          <span className="min-w-0 flex-1 truncate" data-filters-summary>{[rate ? 'bb/100' : 'Chips', filters || 'Seated now, every hand', luck && 'All-in EV'].filter(Boolean).join(' · ')}</span>
+          <button
+            type="button"
+            onClick={() => { sheet.current?.showModal(); sheet.current?.focus(); }}
+            aria-haspopup="dialog"
+            className="shrink-0 h-11 min-w-11 rounded-full border px-4 font-semibold bg-white"
+            style={{ color: TEXT, borderColor: 'rgba(55, 53, 47, 0.2)' }}
+          >
+            Filters{filterCount ? ` · ${filterCount}` : ''}
+          </button>
+          <dialog
+            ref={sheet}
+            tabIndex={-1} // the sheet itself takes focus as it opens, not its first button (Tab reaches every control)
+            aria-label="Trends filters"
+            onClick={e => e.target === e.currentTarget && sheet.current?.close()} // a tap on the backdrop
+            className="phone-sheet outline-none fixed inset-x-0 bottom-0 top-auto m-0 w-full max-w-none max-h-[85svh] overflow-auto rounded-t-2xl bg-white px-4 pt-3 pb-[calc(16px+env(safe-area-inset-bottom))] text-[14px] backdrop:bg-[rgba(15,15,15,0.35)]"
+            style={{ color: MUTED }}
+          >
+            <div aria-hidden className="mx-auto mb-2 h-1 w-10 rounded-full" style={{ background: 'rgba(55, 53, 47, 0.2)' }} />
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-[17px] font-bold" style={{ color: TEXT }}>Filters</h3>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => { setMetric('bb100'); setRange(0); setZoom(null); setLuck(false); setLineup('seated'); setLicense('all'); setTop(0); setFams([]); }} className="h-11 px-3 font-medium" style={{ color: MUTED }}>Reset</button>
+                <button type="button" onClick={() => sheet.current?.close()} className="h-11 px-3 font-semibold" style={{ color: 'rgb(35, 131, 226)' }}>Done</button>
+              </div>
+            </div>
+            {/* One control per row, label above, every target at least 40px tall. */}
+            <div className="flex flex-col gap-3 [&_[role=group]_button]:min-h-10 [&_[role=group]_button]:px-3 [&_[role=group]]:flex-wrap">
+              <SheetRow label="Metric"><Segmented label="Metric" options={[{ label: 'bb/100', value: 'bb100' as const }, { label: 'Chips', value: 'chips' as const }]} value={metricPick} onChange={setMetric} /></SheetRow>
+              <SheetRow label="Hands">
+                <Segmented label="Hands shown" options={RANGES.map(r => ({ label: r.label, value: r.n, disabled: r.n > 0 && r.n >= lastHand }))} value={range && range < lastHand ? range : 0} onChange={n => { setRange(n); setZoom(null); }} />
+              </SheetRow>
+              <SheetRow label="Lineup"><Segmented label="Lineup" options={[{ label: 'Seated now', value: 'seated' as const }, { label: 'All models', value: 'all' as const, disabled: !everyone?.length }]} value={lineup} onChange={setLineup} /></SheetRow>
+              <SheetRow label="License"><Segmented label="License" options={[{ label: 'All', value: 'all' as const }, { label: 'Open weights', value: 'open' as const }, { label: 'Proprietary', value: 'closed' as const }]} value={license} onChange={setLicense} /></SheetRow>
+              <SheetRow label="Show"><Segmented label="Top models" options={[{ label: 'All', value: 0 }, { label: 'Top 5', value: 5 }]} value={top} onChange={setTop} /></SheetRow>
+              <SheetRow label="All-in EV">
+                <Toggles label="All-in EV" title="Dashed lines: what each model would have won if every all-in were paid out by its odds at that moment. Solid above dashed means it ran lucky." items={[{ label: luck ? 'On' : 'Off', on: luck, toggle: () => setLuck(l => !l) }]} />
+              </SheetRow>
+              <SheetRow label="Family">
+                <Toggles label="Family" items={families.map(f => ({ label: f, on: fams.includes(f), disabled: !inPool.has(f) && !fams.includes(f), toggle: () => setFams(toggle(fams, f)) }))}>
+                  {fams.length > 0 && <button onClick={() => setFams([])} className="min-h-10 px-2 text-[14px] underline">Clear</button>}
+                </Toggles>
+              </SheetRow>
+            </div>
+          </dialog>
+        </div>
+      )}
+      {interactive && !compact && (
         // One bar for every control, 24px between groups (16px on a phone, where it is tall already), wrapping on narrow
         // widths: what is plotted first (metric, hands, all-in EV), then which models, Family on a row of its own. Every
         // control is 29px tall: one-of-a-kind choices sit in a tray, on/off toggles are chips, so a long row of chips
@@ -1159,7 +1224,7 @@ export default function CumulativeChart({
         {interactive && listed.length > 0 && (
           // It fills the room set aside under the plot (LEGEND_H, 4px of it the margin), its rows centred, so a short legend
           // leaves no band under it; never shorter than its rows (shrink-0: a flex item's set min-height would let it shrink).
-          <motion.div {...appear} role="group" aria-label="Lines shown" className="mt-1 flex shrink-0 flex-wrap content-center items-center gap-x-3 gap-y-0.5 text-[13px]" style={{ minHeight: LEGEND_H - 4 }}>
+          <motion.div {...appear} ref={legendRef} role="group" aria-label="Lines shown" className="mt-1 flex shrink-0 flex-wrap content-center items-center gap-x-3 gap-y-0.5 text-[13px]" style={{ minHeight: LEGEND_H - 4 }}>
             {listed.map(m => {
               const shownNow = !hidden.includes(m.name);
               const inView = shown.includes(m); // the legend follows the lines in view: one out of the camera's window dims
@@ -1215,6 +1280,11 @@ export default function CumulativeChart({
 // control's first row. `full`: a row of its own.
 function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
   return <div className={`flex min-w-0 items-start gap-2 ${full ? 'basis-full' : ''}`}><span className="shrink-0 py-1">{label}</span>{children}</div>;
+}
+
+// A row of the phone's filter sheet: its name above its control.
+function SheetRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div className="flex flex-col gap-1.5"><span className="text-[13px] font-medium uppercase tracking-wider">{label}</span>{children}</div>;
 }
 
 // On/off toggles as chips (Family, All-in EV), each pressed on its own: the tray's colours (grey off, white on), 29px
