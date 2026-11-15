@@ -3057,8 +3057,10 @@ main(() => check('matchups-card-hugs', 'The opened Matchups card spans the table
 }));
 // Owner, 2026-11-08: "we need to do an audit on the fonts and sizes and all". One family (the body's sans),
 // tabular figures, and one small scale by role on every stats tile and card (Trends's chart internals are
-// checked by history-type and history-number-style): titles 20px bold; model names and data figures 14px; controls 14px
-// medium; column headers and secondary text 13px (muted); the Matchups tile's figures one size (11px).
+// checked by history-type and history-number-style): titles 20px bold; controls 14px medium; column headers and secondary
+// text 13px (muted); the Matchups tile's figures one size (11px). Model names and data figures were 14px (names bold);
+// owner, 2026-11-15, preferring the stats at 67-80% zoom to the "bigger, bolder font" at 100%: from md, 12px on the
+// tiles and 13px in the cards, names and totals 500 (phones keep 14px and bold).
 main(() => check('stats-type-scale', 'Every text role on the stats tiles and cards uses the agreed family, size, weight and colour', async () => {
   const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.72)', BLUE = 'rgb(31, 111, 196)';
   // [role, selector, size px, weights, colours (null: any), figures must be tabular]
@@ -3068,9 +3070,9 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
       ['Open ↓', '#race-panel h2 ~ div > span[aria-hidden], #stats-panel h2 ~ div > span[aria-hidden], #pairwise-panel h2 ~ div > span[aria-hidden]', 14, [500], [BLUE]],
       ['Leader line', '#race-panel h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
       ['Profiles headers', '#stats-panel thead th', 13, [500], [MUTED]],
-      ['Profiles names', '#stats-panel tbody th [translate=no]', 14, [700], [TEXT]],
-      ['Profiles figures', '#stats-panel tbody td', 14, [400], null, true],
-      ['Matchups names', '#pairwise-panel a [translate=no]', 14, [700], [TEXT]],
+      ['Profiles names', '#stats-panel tbody th [translate=no]', 12, [500], [TEXT]],
+      ['Profiles figures', '#stats-panel tbody td', 12, [400], null, true],
+      ['Matchups names', '#pairwise-panel a [translate=no]', 12, [500], [TEXT]],
       ['Matchups tile figures', '#pairwise-panel td[data-cell] [aria-hidden]', 11, [400], null, true],
     ],
     'stats-table': [
@@ -3078,17 +3080,17 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
       ['Leader line', '#stats-card h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
       ['definition', '#stats-card p', 13, [400], [MUTED]],
       ['Profiles headers', '#stats-card thead th', 13, [500], [MUTED, TEXT]],
-      ['Profiles names', '#stats-card tbody th [translate=no]', 14, [700], [TEXT]],
-      ['Profiles figures', '#stats-card tbody td > span', 14, [400], null, true],
+      ['Profiles names', '#stats-card tbody th [translate=no]', 13, [500], [TEXT]],
+      ['Profiles figures', '#stats-card tbody td > span', 13, [400], null, true],
       ['toggles', '#stats-card div.add-in > button', 14, [500], [BLUE]],
     ],
     pairwise: [
       ['card title', '#pairwise-card h2', 20, [700], [TEXT]],
       ['Leader line', '#pairwise-card h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
-      ['Matchups names', '#pairwise-card a [translate=no]', 14, [700], [TEXT]],
+      ['Matchups names', '#pairwise-card a [translate=no]', 13, [500], [TEXT]],
       ['Matchups Total header', '#pairwise-card [title^="Big blinds won from the models shown"]', 13, [500], [MUTED]],
-      ['Matchups figures', '#pairwise-card td[data-cell] [aria-hidden]', 14, [400], null, true],
-      ['Matchups totals', '#pairwise-card div[data-cell] [aria-hidden]', 14, [700], null, true],
+      ['Matchups figures', '#pairwise-card td[data-cell] [aria-hidden]', 13, [400], null, true],
+      ['Matchups totals', '#pairwise-card div[data-cell] [aria-hidden]', 13, [500], null, true],
     ],
     '': [
       ['Profits & Losses', '#table ol li', 13, [700], null, true],

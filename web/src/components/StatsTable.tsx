@@ -73,8 +73,10 @@ const COLUMNS = GROUPS.flatMap(g => g.columns);
 const byKey = (k: string) => COLUMNS.find(c => c.key === k)!;
 const MINI = [{ label: 'Core', columns: [byKey('hands'), byKey('vpip'), byKey('pfr'), byKey('af')] }];
 // Profiles' tile around its longest name, at its widest: the logo and its gap (24), the name's padding (16),
-// the number columns (204) and the tile's padding (32). StatsSections sizes the tile with it.
-export const MINI_CHROME = 24 + 16 + 204 + 32;
+// the number columns (204 at their widest; 244 gives the 12px figures from md the room the 14px ones had, owner
+// 2026-11-15: the tile as at 67-80% zoom, and Matchups' cells keep their height) and the tile's padding (32).
+// StatsSections sizes the tile with it (from md only: a phone's tiles stack).
+export const MINI_CHROME = 24 + 16 + 244 + 32;
 
 // A column header with its definition on hover or focus. Without `onSort` (the tile) it is a plain label
 // and `sort` only marks the column the rows are ordered by.
@@ -300,14 +302,14 @@ function Grid({
   // Sticky: the header stays put while the card scrolls the rows under it.
   const head = `sticky top-0 z-10 bg-white text-[13px] ${mini ? 'px-1 @sm:px-2 py-0' : 'px-2 py-1.5'}`; // column headers: 13px muted, tile and card
   // The card's rows breathe; the tile's split its height evenly from md (a phone's tile is as tall as its rows).
-  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px]' : 'h-10';
+  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px] md:text-[12px]' : 'h-10';
   // Columns the card adds to the tile's fade in as it opens.
   const added = (c: Column) => (!mini && !MINI[0].columns.includes(c) ? 'add-in' : '');
   // The tile pads by its own width (a narrow tile keeps every header whole).
   const cell = mini ? 'px-1 @sm:px-2' : 'px-2';
   // Under md the card scrolls sideways (a phone, or a laptop at 200% zoom): the names stay, in a sticky Model column.
   const pin = mini ? '' : 'max-md:sticky max-md:left-0 max-md:bg-white';
-  const nameCell = `${cell} ${pin} ${pin && 'max-md:z-[1]'} w-px whitespace-nowrap text-left font-bold`;
+  const nameCell = `${cell} ${pin} ${pin && 'max-md:z-[1]'} w-px whitespace-nowrap text-left font-bold md:font-medium`;
   const row = (m: ModelStats, i: number | null) => {
     // What moves the row's content: the glide, a re-sort, or the row changing place.
     const at = `${mini}|${sort.key}|${sort.desc}|${i}`;
@@ -343,7 +345,7 @@ function Grid({
     // Auto layout: the Model column hugs the names (w-px) and the figures share the rest, each column at least as
     // wide as its figures and its header's longest word (headers wrap), so nothing is clipped. Where that is wider
     // than the card (a phone), the table scrolls sideways.
-    <table className="w-full table-auto tabular-nums text-[14px]">
+    <table className="w-full table-auto tabular-nums text-[14px] md:text-[13px]">
       <caption className="sr-only">Profiles per model. Column headers sort the table; the info buttons explain each stat.</caption>
       <thead>
         {!mini && (

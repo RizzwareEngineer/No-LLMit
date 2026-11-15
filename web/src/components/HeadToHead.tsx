@@ -34,7 +34,7 @@ function flash(el: HTMLElement) {
 // The grid's names column and its row of column logos, on the tile (StatsSections sizes the tile with them).
 // The tile has no Total column (owner, 2026-11-08: "no need for a [Total] column for preview of matchups"); the card does.
 export const NAMES = 140; // row names on a phone's tile, at most (from md: --names, the longest name in full)
-export const TOTALS = 72; // the card's Total column (14px figures)
+export const TOTALS = 72; // the card's Total column (14px figures; 13px from md)
 export const STRIP = 18; // the column logos' row (28 in the card: 24px logos)
 // The tile's figures: one size for every cell and total, whatever the window (the card's are 14px).
 const TILE_PX = 11;
@@ -158,7 +158,7 @@ export default memo(function HeadToHead({
   // what is left. In the card it is --card-m by --card-mh (StatsSections: the tile's shape across the block; a
   // phone's is square, globals.css) for `fitTo` models; more models keep that cell size, so the grid outgrows the
   // card's box and scrolls inside it, the names and the logos pinned (sticky) like a spreadsheet's headers. The
-  // card hugs it. One font size per place: 14px in the card, like Profiles' cells; TILE_PX on the tile. A figure
+  // card hugs it. One font size per place: 14px in the card (13px from md), like Profiles' cells; TILE_PX on the tile. A figure
   // keeps PAD clear each side and is shortened (+1.2k, +12) only when it does not fit that.
   const n = sorted.length;
   const grow = mini ? 1 : n / Math.max(1, Math.min(n, fitTo?.length ?? n));
@@ -181,14 +181,15 @@ export default memo(function HeadToHead({
     <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : 'w-max'}`}>{/* w-max: as wide as the grid, so the pinned names can follow a sideways scroll */}
       {/* On the tile, a size container: the matrix takes what its names leave. No scroller of its own. */}
       {/* Centred, but never past the left edge: a card that scrolls (a phone, All models) keeps the names pinned. */}
-      <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : ''}`} style={{ containerType: mini ? 'size' : undefined, fontSize: px }} onMouseLeave={() => setTip(null)}>
+      <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : 'text-[14px] md:text-[13px]'}`} style={{ containerType: mini ? 'size' : undefined, fontSize: mini ? px : undefined }} onMouseLeave={() => setTip(null)}>
         {/* No overflow-hidden: in the card it would make the column the sticky container of its own top spacer, and on the tile
             it cut the names gliding back from the card's wider column (a phone's: each name truncates itself). */}
         <div className={`shrink-0 flex flex-col ${mini ? '' : `${pin} left-0 z-[2]`}`} style={{ width: namesW }}>
           <span className={`block shrink-0 ${pin && `${pin} top-0 z-[1]`}`} style={{ height: strip }} />
-          {/* Model names as in Profiles (14px bold); the Leader on the highlight. */}
+          {/* Model names as in Profiles (14px bold; from md 500, 12px on the tile and 13px in the card: owner 2026-11-15, not
+              bigger or bolder than at 67% zoom); the Leader on the highlight. */}
           {sorted.map(row => (
-            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold ${mini ? '' : 'hover:underline'} ${adds(row.name)}`}>
+            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[12px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
               <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{row.name}</motion.span>
             </a>
           ))}
@@ -247,7 +248,7 @@ export default memo(function HeadToHead({
         </motion.div>
         {/* The row's bb/100 against the models shown, bold in its colour. The card only. */}
         {/* Pinned at the right from md; a phone's card is too narrow to give it a lane of its own (scroll to it, as before). */}
-        {!mini && <motion.div layout="position" layoutDependency={mini} transition={move} className="add-in shrink-0 flex flex-col font-bold md:sticky md:right-0 md:bg-white z-[2]" style={{ width: totals }}>
+        {!mini && <motion.div layout="position" layoutDependency={mini} transition={move} className="add-in shrink-0 flex flex-col font-bold md:font-medium md:sticky md:right-0 md:bg-white z-[2]" style={{ width: totals }}>
           {/* A column header: 13px muted, like Profiles'. */}
           <span style={{ height: strip, color: MUTED }} className={`shrink-0 flex items-end pl-2 text-[13px] leading-none font-medium ${pin} top-0`} title={TOTAL_TITLE}>Total</span>
           {sorted.map(row => {
