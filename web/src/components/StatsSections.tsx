@@ -592,7 +592,8 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
 
   const card = (id: string, title: string, aside: React.ReactNode, body: React.ReactNode, cls = '') => (
     <div id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className="flex-1 min-h-0 flex flex-col outline-none">
-    <div className={`${CARD} flex-1 ${blank ? '[&>*]:invisible' : ''} ${cls}`} style={{ boxShadow: CARD_SHADOW }}>
+    {/* relative: the card holds what is placed in its coordinates (Matchups' readout), as the wide cards do. */}
+    <div className={`${CARD} relative flex-1 ${blank ? '[&>*]:invisible' : ''} ${cls}`} style={{ boxShadow: CARD_SHADOW }}>
       <div className={HEADER}>
         <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
         {aside && <div className={ASIDE}>{aside}</div>}
