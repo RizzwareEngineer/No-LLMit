@@ -4,14 +4,15 @@ import Card from "@/components/Card";
 import { useEffect, useRef } from "react";
 import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
 import { landing } from "@/lib/landing";
-import { FADE, GAP, REST, SHOWS, TURN, between, css, down, peekPose, variantNow, routeOf, type Pose, type Variant } from "@/lib/peel";
+import { FADE, GAP, LINE, REST, SHOWS, TURN, between, css, down, peekPose, variantNow, routeOf, type Pose, type Variant } from "@/lib/peel";
 
 // A hole card with both sides mounted: the face (Card, its role="img" and name: rank and suit in the middle) and the plain
 // ink back. Dealt face down, at its own angle and offset (landing: the same for every viewer and after a reload). It turns
 // face up and stays so, upright: on the seat's turn by the peek (`peek`, lib/peel: the seat's route for the hand, A or B at random, routeOf; ?peel= forces one for the lab and the checks), otherwise (the
 // hand's end) it just turns over in place. A card mounted face up (a reload mid-hand) shows its face at once; with reduced
-// motion the faces switch with no motion. On phones (`fade`) nothing moves: the card stays where it landed and its face
-// fades in over the back.
+// motion the faces switch with no motion. On phones (`fade`) there is no peek: the face fades in over the back while the
+// card settles (LINE) from where it landed into its upright slot, so a seat's two revealed cards sit level side by side,
+// the same at every seat (owner, 2026-11-15: "after we peel them and then we reveal, they should be lined up perfectly").
 // One element carries the whole pose (lib/peel's css), so the card moves only as a rigid piece. Both cards of a seat are
 // seen through one perspective, from the middle of the two slots.
 // `slot` 0 is the first card dealt, under; 1 the second, on top; `w` and `h` the card's size in px; `settle` the seconds until
@@ -21,8 +22,8 @@ import { FADE, GAP, REST, SHOWS, TURN, between, css, down, peekPose, variantNow,
 export default function HoleCard({ value, faceUp, peek = false, fade = false, slot = 0, w = 28, h = w / 0.7, hand = 0, seat = 0, settle, onLanded, variant, at, slow = 1, className = "" }: { value: string; faceUp: boolean; peek?: boolean; fade?: boolean; slot?: 0 | 1; w?: number; h?: number; hand?: number; seat?: number; settle?: number; onLanded?: () => void; variant?: Variant; at?: number; slow?: number; className?: string }) {
   const reduce = useReducedMotion();
   const k = w / 28, dealt = landing(hand, seat, slot), lay = { x: dealt.x * k, y: dealt.y * k, rotate: dealt.rotate };
-  // Face up: upright in its slot; on a phone, where it landed.
-  const up: Pose = fade ? { ...down(lay), flip: 0 } : REST;
+  // Face up: upright in its slot, on desktop and phones alike (face down, a card keeps its landing angle).
+  const up: Pose = REST;
   const first: Pose = at !== undefined ? peekPose(at, slot, w, lay, h, variant ?? 'a') : faceUp ? up : settle !== undefined ? down({ x: 0, y: 0, rotate: 0 }) : down(lay);
   const route: Variant = variant ?? variantNow() ?? routeOf(hand, seat);
   const pose = useRef(first);
@@ -37,7 +38,7 @@ export default function HoleCard({ value, faceUp, peek = false, fade = false, sl
     if (at !== undefined) { show(peekPose(at, slot, w, lay, h, route)); return; }
     const before = was.current;
     was.current = faceUp;
-    let move: ReturnType<typeof animate> | undefined;
+    let move: ReturnType<typeof animate> | undefined, line: ReturnType<typeof animate> | undefined;
     if (before === null) {
       // Mounted: dealt while watching, it slides from where its flight landed to its pose.
       if (!faceUp && settle !== undefined) {
@@ -48,11 +49,17 @@ export default function HoleCard({ value, faceUp, peek = false, fade = false, sl
     } else if (faceUp && !before) {
       const from = pose.current, v = route, long = SHOWS[v];
       if (reduce) show(up);
-      else if (fade) { show(up); cover.set(1); move = animate(cover, 0, { duration: FADE, ease: 'easeOut' }); }
+      else if (fade) {
+        // The face, under the fading back, from where the card lies, settling into its slot.
+        const at = { ...from, flip: 0 };
+        show(at); cover.set(1);
+        line = animate(0, 1, { duration: LINE, ease: 'easeOut', onUpdate: u => show(between(at, up, u)) });
+        move = animate(cover, 0, { duration: FADE, ease: 'easeOut' });
+      }
       else if (peek) move = animate(0, long * slow, { duration: long * slow, ease: 'linear', onUpdate: t => show(peekPose(t / slow, slot, w, lay, h, v)) });
       else move = animate(0, 1, { duration: TURN, ease: 'easeInOut', onUpdate: u => show(between(from, REST, u)) });
     } else if (!faceUp && before) { cover.set(0); show(down(lay)); }
-    return () => move?.stop();
+    return () => { move?.stop(); line?.stop(); };
     // Moves start on a change of face (or the lab's still); the rest is fixed for the card's life (keyed by hand).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [faceUp, at, variant]);

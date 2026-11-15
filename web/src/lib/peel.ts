@@ -39,6 +39,7 @@ export const STEPS = { a: [0.2, 0.42, 0.85, 1.3, 1.7], b: [0.22, 0.58, 0.78, 1.1
 export const SHOWS = { a: STEPS.a[4], b: STEPS.b[3] } as const;
 export const TURN = 0.5; // seconds: a card turning over at the hand's end
 export const FADE = 0.25; // seconds: a phone's cards fading face up
+export const LINE = 0.2; // seconds: a phone's cards settling from where they landed into their upright slots as they fade up
 
 // The route the page forces (?peel=a or ?peel=b: an override for the peel lab and the checks only), else null: the plain
 // URL viewers load takes each seat's own route (routeOf).
