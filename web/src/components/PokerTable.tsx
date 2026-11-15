@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useReducedMotion } from "motion/react";
-import Player from "@/components/Player";
+import Player, { LOGO_RIM } from "@/components/Player";
 import TableFelt, { BetStack, FeltBet } from "@/components/TableFelt";
 import TableMotion, { CARD_FLIGHT, DeckPhase, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
@@ -197,7 +197,7 @@ export default function PokerTable({
         {seatSpots(players.length || 9).map((spot, idx) => blank ? (
           // Until the first state: each seat's logo, blank, where it will be.
           <div key={idx} data-seat={idx} className="absolute pointer-events-none" style={seatPlace(spot).style}>
-            <div className="absolute rounded-full bg-white" style={{ left: seatPlace(spot).logo[0] - LOGO / 2, top: seatPlace(spot).logo[1] - LOGO / 2, width: LOGO, height: LOGO, boxShadow: 'rgba(15, 15, 15, 0.12) 0px 0px 0px 1px' }} />
+            <div className="absolute rounded-full bg-white" style={{ left: seatPlace(spot).logo[0] - LOGO / 2, top: seatPlace(spot).logo[1] - LOGO / 2, width: LOGO, height: LOGO, ...LOGO_RIM }} />
           </div>
         ) : <span key={players[idx]?.id ?? idx} className="contents">{seat(idx, spot)}</span>)}
       </div>

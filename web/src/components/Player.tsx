@@ -46,6 +46,10 @@ const POSITION_COLORS: Record<string, string> = {
   'CO': 'bg-green-700 text-white',
 };
 
+// The phone seat's logo: a dark rim, the desktop seat's border drawn darker (owner 2026-11-15: "the same sort of dark
+// borders that we see on the rectangles"), and its shadow. PokerTable's blank logo has the same.
+export const LOGO_RIM = { border: '2px solid rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.1) 0px 2px 4px' } as const;
+
 // Full position names for tooltips
 function getPositionFullName(pos: string): string {
   const names: Record<string, string> = {
@@ -133,7 +137,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
               strokeDasharray={C} strokeDashoffset={C * (1 - (ring?.left ?? 1))} className="motion-safe:transition-[stroke-dashoffset] motion-safe:duration-1000 motion-safe:ease-linear" />
           </svg>
         )}
-        <a href={modelHref(player.name)} aria-label={player.name} className="absolute pointer-events-auto rounded-full bg-white flex items-center justify-center" style={{ left: ox - LOGO / 2, top: oy - LOGO / 2, width: LOGO, height: LOGO, boxShadow: 'rgba(15, 15, 15, 0.12) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}>
+        <a href={modelHref(player.name)} aria-label={player.name} className="absolute pointer-events-auto rounded-full bg-white flex items-center justify-center" style={{ left: ox - LOGO / 2, top: oy - LOGO / 2, width: LOGO, height: LOGO, ...LOGO_RIM }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {logo ? <img src={logo} alt="" width={28} height={28} /> : <span className="text-[13px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{player.name.slice(0, 2).toUpperCase()}</span>}
         </a>
