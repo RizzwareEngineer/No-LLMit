@@ -241,6 +241,34 @@ function Name({ href, name, mini = false, children }: { href?: string; name: str
     : <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>{inner}</span>;
 }
 
+// The wide stats are laid out at one reference width and zoomed to the window (Section's statsZoom), so the block's
+// height in layout px follows the window's shape: on a wide window (1512x982, 1728x1117, 1920x1080) the Profiles card's
+// 40px rows came out 18-46px taller than the block, and its panel scrolled, which a swipe then scrolled instead of paging.
+// The card sets --card-row on the page, so its rows and the tile gliding into it (also non-mini) share one height: 40px
+// where everything fits, else what fits down to 32px, else 40px again (it scrolls anyway: All models). Layout px
+// throughout, as the zoom has them.
+const CARD_ROW = 40, CARD_ROW_MIN = 32;
+let fitObserved: Element | null = null, refit = () => {};
+function fitCardRows(t: HTMLTableElement | null, mini: boolean) {
+  const sc = t?.closest<HTMLElement>('#stats-card .panel-scroll'), card = sc?.parentElement, box = card?.parentElement;
+  if (mini || !t || !sc || !card || !box) return;
+  const fit = () => {
+    const root = document.documentElement.style;
+    if (innerWidth < 768) return root.removeProperty('--card-row');
+    const rows = [...t.querySelectorAll<HTMLElement>('tr.card-row')], z = t.currentCSSZoom ?? 1;
+    if (!rows.length) return;
+    const now = rows.reduce((a, r) => a + r.getBoundingClientRect().height / z, 0);
+    const other = sc.scrollHeight - now, room = box.clientHeight - (card.offsetHeight - sc.clientHeight);
+    const per = Math.floor(((room - other) / rows.length) * 10) / 10;
+    const want = per >= CARD_ROW || per < CARD_ROW_MIN ? CARD_ROW : per;
+    if (root.getPropertyValue('--card-row') !== `${want}px`) root.setProperty('--card-row', `${want}px`);
+  };
+  (refit = fit)();
+  if (fitObserved === box) return;
+  fitObserved = box;
+  new ResizeObserver(() => refit()).observe(box);
+}
+
 function Grid({
   groups,
   rows,
@@ -302,8 +330,9 @@ function Grid({
   };
   // Sticky: the header stays put while the card scrolls the rows under it.
   const head = `sticky top-0 z-10 bg-white text-[13px] ${mini ? 'px-1 @sm:px-2 py-0' : 'px-2 md:px-1.5 py-1.5'}`; // column headers: 13px muted, tile and card (from md 6px a side: every header on one line at the wide stats' reference width)
-  // The card's rows breathe; the tile's split its height evenly from md (a phone's tile is as tall as its rows).
-  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px] md:text-[13px]' : 'h-10';
+  // The card's rows breathe; the tile's split its height evenly from md (a phone's tile is as tall as its rows). From md
+  // the card's rows give up to 8px each (--card-row, fitCardRows) so the card fits its block at every window shape.
+  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px] md:text-[13px]' : 'card-row h-10 md:h-[var(--card-row,40px)]';
   // Columns the card adds to the tile's fade in as it opens.
   const added = (c: Column) => (!mini && !MINI[0].columns.includes(c) ? 'add-in' : '');
   // The tile pads by its own width (a narrow tile keeps every header whole).
@@ -342,11 +371,13 @@ function Grid({
     </tr>
     );
   };
+  const table = useRef<HTMLTableElement>(null);
+  useLayoutEffect(() => fitCardRows(table.current, mini));
   return (
     // Auto layout: the Model column hugs the names (w-px) and the figures share the rest, each column at least as
     // wide as its figures and its header's longest word (headers wrap), so nothing is clipped. Where that is wider
     // than the card (a phone), the table scrolls sideways.
-    <table className="w-full table-auto tabular-nums text-[14px] md:text-[13px]">
+    <table ref={table} className="w-full table-auto tabular-nums text-[14px] md:text-[13px]">
       <caption className="sr-only">Profiles per model. Column headers sort the table; the info buttons explain each stat.</caption>
       <thead>
         {!mini && (
