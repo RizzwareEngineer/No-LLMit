@@ -899,7 +899,7 @@ group(async () => {
 });
 
 // Owner, 2026-11-11: bigger hole cards; the deck the same size as the hole cards; seats 200x128 and the table 1000px.
-// He picked 40x56 on desktop (2026-11-14); phones keep 28x40 under a deck of the board's 44x64. At 1440x900 and 390x844
+// He picked 40x56 on desktop (2026-11-14); phones keep 28x40 under a deck of the board's size (30x42 on the phone oval). At 1440x900 and 390x844
 // (scripted): the cells, the deck squared between hands against a hole card, a dealt card's last painted box against the
 // card it lands on, and, painted, no hole card pixel on a seat's name, stack, badge or action text: each box is shot with
 // the cards and with them hidden, and the two must be the same pixels. A hovered desktop seat shows no stats band (owner,
@@ -923,10 +923,11 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
         // Each frame, every flying card's box: the last one painted before it is removed is the box it lands at.
         await p.evaluate(() => { const last = window.__fl = new Map(); const tick = () => { for (const e of document.querySelectorAll('[data-flight=card]')) { const b = e.getBoundingClientRect(); last.set(e, { w: b.width, h: b.height, o: +getComputedStyle(e).opacity }); } requestAnimationFrame(tick); }; requestAnimationFrame(tick); });
         await p.evaluate(() => window.__stream.end(4000)); await sleep(3300);
-        const deck = await p.evaluate(box, '[data-deck]'), hole = await p.evaluate(box, '[data-seat] [data-hole] > *');
-        // Desktop: the deck is the hole cards' 40x56; phones: 28x40 hole cards under the board's 44x64 (both times the stage's zoom).
-        const want = w >= 768 ? hole : hole && { w: (hole.w * 44) / 28, h: (hole.h * 64) / 40 };
-        if (!deck || !hole || Math.abs(deck.w - want.w) > 1 || Math.abs(deck.h - want.h) > 1) bad.push(`${tag}: deck ${deck ? `${deck.w.toFixed(1)}x${deck.h.toFixed(1)}` : 'none'}, hole card ${hole ? `${hole.w.toFixed(1)}x${hole.h.toFixed(1)}` : 'none'}`);
+        const deck = await p.evaluate(box, '[data-deck]'), hole = await p.evaluate(box, '[data-seat] [data-hole] > *'), board = await p.evaluate(box, '[data-felt-cards] > *');
+        // Desktop: the deck is the hole cards' 40x56; phones: 28x40 hole cards and the deck the board's cards as drawn (the
+        // phone oval's board is 30x42 since the phone table round 2), the hand's five board cards showing at its end.
+        const want = w >= 768 ? hole : board;
+        if (!deck || !hole || !want || Math.abs(deck.w - want.w) > 1 || Math.abs(deck.h - want.h) > 1) bad.push(`${tag}: deck ${deck ? `${deck.w.toFixed(1)}x${deck.h.toFixed(1)}` : 'none'}, hole card ${hole ? `${hole.w.toFixed(1)}x${hole.h.toFixed(1)}` : 'none'}${w < 768 ? `, board card ${board ? `${board.w.toFixed(1)}x${board.h.toFixed(1)}` : 'none'}` : ''}`);
         await sleep(700); await p.evaluate(() => window.__stream.deal()); await sleep(3500);
         const flown = await p.evaluate(() => [...window.__fl.values()]), hole2 = await p.evaluate(box, '[data-seat] [data-hole] > *');
         const off = flown.filter(f => Math.abs(f.w - hole2.w) > 1.5 || Math.abs(f.h - hole2.h) > 1.5);
