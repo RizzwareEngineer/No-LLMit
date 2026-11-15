@@ -3192,7 +3192,10 @@ main(() => check('matchups-card-hugs', 'The opened Matchups card spans the table
 // checked by history-type and history-number-style): titles 20px bold; controls 14px medium; column headers and secondary
 // text 13px (muted); the Matchups tile's figures one size (11px). Model names and data figures were 14px (names bold);
 // owner, 2026-11-15, preferring the stats at 67-80% zoom to the "bigger, bolder font" at 100%: from md, 12px on the
-// tiles and 13px in the cards, names and totals 500 (phones keep 14px and bold).
+// tiles and 13px in the cards, names and totals 500 (phones keep 14px and bold). Owner, 2026-11-15 again ("standardize
+// this so that it doesn't change this drastically"): from md the stats are laid out at one reference size and zoomed as
+// one unit (StatsSections' WIDE), so these are layout sizes; one figure size, 13px, on the tiles and in the cards (the
+// Matchups tile's too), and every text drawn at 11px at least (its size times its zoom) at the window checked.
 main(() => check('stats-type-scale', 'Every text role on the stats tiles and cards uses the agreed family, size, weight and colour', async () => {
   const TEXT = 'rgb(55, 53, 47)', MUTED = 'rgba(55, 53, 47, 0.72)', BLUE = 'rgb(31, 111, 196)';
   // [role, selector, size px, weights, colours (null: any), figures must be tabular]
@@ -3202,10 +3205,10 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
       ['Open ↓', '#race-panel h2 ~ div > span[aria-hidden], #stats-panel h2 ~ div > span[aria-hidden], #pairwise-panel h2 ~ div > span[aria-hidden]', 14, [500], [BLUE]],
       ['Leader line', '#race-panel h2 ~ div span.tabular-nums', 14, [400, 700], null, true],
       ['Profiles headers', '#stats-panel thead th', 13, [500], [MUTED]],
-      ['Profiles names', '#stats-panel tbody th [translate=no]', 12, [500], [TEXT]],
-      ['Profiles figures', '#stats-panel tbody td', 12, [400], null, true],
-      ['Matchups names', '#pairwise-panel a [translate=no]', 12, [500], [TEXT]],
-      ['Matchups tile figures', '#pairwise-panel td[data-cell] [aria-hidden]', 11, [400], null, true],
+      ['Profiles names', '#stats-panel tbody th [translate=no]', 13, [500], [TEXT]],
+      ['Profiles figures', '#stats-panel tbody td', 13, [400], null, true],
+      ['Matchups names', '#pairwise-panel a [translate=no]', 13, [500], [TEXT]],
+      ['Matchups tile figures', '#pairwise-panel td[data-cell] [aria-hidden]', 13, [400], null, true],
     ],
     'stats-table': [
       ['card title', '#stats-card h2', 20, [700], [TEXT]],
@@ -3243,6 +3246,7 @@ main(() => check('stats-type-scale', 'Every text role on the stats tiles and car
           const s = getComputedStyle(e), own = [...e.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('');
           if (s.fontFamily !== body) why.add(`family ${s.fontFamily.split(',')[0]}`);
           if (parseFloat(s.fontSize) !== size) why.add(`${s.fontSize}`);
+          if (parseFloat(s.fontSize) * (e.currentCSSZoom ?? 1) < 10.95) why.add(`drawn at ${(parseFloat(s.fontSize) * e.currentCSSZoom).toFixed(1)}px`);
           if (!weights.includes(+s.fontWeight)) why.add(`weight ${s.fontWeight}`);
           if (colours && !colours.includes(s.color)) why.add(`colour ${s.color}`);
           // A figure (not a name with a digit in it, like GPT-OSS 120B) is tabular.
