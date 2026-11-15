@@ -48,6 +48,8 @@ const POSITION_COLORS: Record<string, string> = {
 
 // The phone seat's logo: a dark rim, the desktop seat's border drawn darker (owner 2026-11-15: "the same sort of dark
 // borders that we see on the rectangles"), and its shadow. PokerTable's blank logo has the same.
+// The phone's position chip: one size for every name, as the desktop badges (w-8), wide enough for UTG+1 at 11px.
+const CHIP_W = 42;
 export const LOGO_RIM = { border: '2px solid rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.1) 0px 2px 4px' } as const;
 
 // Full position names for tooltips
@@ -142,8 +144,8 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           {logo ? <img src={logo} alt="" width={28} height={28} /> : <span className="text-[13px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{player.name.slice(0, 2).toUpperCase()}</span>}
         </a>
         {position && (
-          <div data-position title={getPositionFullName(position)} className={`absolute pointer-events-auto -translate-x-1/2 rounded px-1 text-[11px] leading-4 font-bold whitespace-nowrap ${positionColor}`}
-            style={{ left: ox, top: oy + 11, boxShadow: '0 0 0 1.5px white' }}>
+          <div data-position title={getPositionFullName(position)} className={`absolute pointer-events-auto rounded text-[11px] leading-4 font-bold whitespace-nowrap text-center ${positionColor}`}
+            style={{ left: ox - CHIP_W / 2, top: oy + 11, width: CHIP_W, height: 16, boxShadow: '0 0 0 1.5px white' }}>
             {position}
           </div>
         )}
