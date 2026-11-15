@@ -245,8 +245,8 @@ function Name({ href, name, mini = false, children }: { href?: string; name: str
 // height in layout px follows the window's shape: on a wide window (1512x982, 1728x1117, 1920x1080) the Profiles card's
 // 40px rows came out 18-46px taller than the block, and its panel scrolled, which a swipe then scrolled instead of paging.
 // The card sets --card-row on the page, so its rows and the tile gliding into it (also non-mini) share one height: 40px
-// where everything fits, else what fits down to 32px, else 40px again (it scrolls anyway: All models). Layout px
-// throughout, as the zoom has them.
+// where everything fits, else what fits down to 32px, else 40px again; and 40px whenever All models adds its rows under
+// the divider (a longer list that scrolls by design, its rows as they were). Layout px throughout, as the zoom has them.
 const CARD_ROW = 40, CARD_ROW_MIN = 32;
 let fitObserved: Element | null = null, refit = () => {};
 function fitCardRows(t: HTMLTableElement | null, mini: boolean) {
@@ -260,7 +260,8 @@ function fitCardRows(t: HTMLTableElement | null, mini: boolean) {
     const now = rows.reduce((a, r) => a + r.getBoundingClientRect().height / z, 0);
     const other = sc.scrollHeight - now, room = box.clientHeight - (card.offsetHeight - sc.clientHeight);
     const per = Math.floor(((room - other) / rows.length) * 10) / 10;
-    const want = per >= CARD_ROW || per < CARD_ROW_MIN ? CARD_ROW : per;
+    const all = t.tBodies.length > 1 && !!t.tBodies[1].querySelector('tr.card-row');
+    const want = all || per >= CARD_ROW || per < CARD_ROW_MIN ? CARD_ROW : per;
     if (root.getPropertyValue('--card-row') !== `${want}px`) root.setProperty('--card-row', `${want}px`);
   };
   (refit = fit)();
