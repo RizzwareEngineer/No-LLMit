@@ -2504,10 +2504,12 @@ const filmable = p => p.evaluate(() => {
     // A part drawn fully transparent (an add-in before its fade starts) paints nothing: its box would only measure what
     // shows through it (the tile's own columns under the card's layout), read as the part appearing in one frame.
     const seen = e => { for (let x = e; x && x !== el; x = x.parentElement) if (+getComputedStyle(x).opacity < 0.01) return false; return true; };
+    // Its opacity as the page has it in this frame (the fade's own clock), against the card or tile.
+    const op = e => { let o = 1; for (let x = e; x && x !== el; x = x.parentElement) o *= +getComputedStyle(x).opacity; return o; };
     // A part inside the card's scroller is drawn only where the scroller shows it (scrolled away, its box lies over the header).
     const sc = el.querySelector('.panel-scroll'), S = sc && R(sc);
     const box = e => { const b = R(e); return S && sc.contains(e) ? [Math.max(b[0], S[0]), Math.max(b[1], S[1]), Math.min(b[2], S[2]), Math.min(b[3], S[3])] : b; };
-    const parts = [...el.querySelectorAll('[role=group], [data-scope], p, .add-in, [translate=no], span[aria-hidden]')].filter(e => shown(e) && seen(e)).map(e => [part(e), box(e)]).filter(([k]) => k);
+    const parts = [...el.querySelectorAll('[role=group], [data-scope], p, .add-in, [translate=no], span[aria-hidden]')].filter(e => shown(e) && seen(e)).map(e => [part(e), box(e), op(e)]).filter(([k]) => k);
     const names = [...el.querySelectorAll('a[title] [translate=no]')];
     const rows = [...el.querySelectorAll('tbody tr')].map((tr, i) => {
       const cells = [...tr.querySelectorAll(card === '#pairwise-card' ? 'td[data-hands]' : 'td')].filter(d => shown(d) && /\d/.test(d.textContent)).map(R);
@@ -2522,7 +2524,7 @@ const filmable = p => p.evaluate(() => {
       return { n: name.textContent.trim(), o, hit, nx: R(name), cy, cx, tr: R(tr) };
     }).filter(Boolean);
     const tip = [...el.querySelectorAll('[role=tooltip]')].find(e => shown(e) && getComputedStyle(e).visibility === 'visible');
-    return { y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), st: sc ? sc.scrollTop + sc.scrollLeft : 0, head: Math.max(0, ...[...el.querySelectorAll('thead th')].map(e => e.getBoundingClientRect().bottom)), title: R(el.querySelector('h2')) };
+    return { t: document.timeline.currentTime, y: scrollY, card: onCard, box: R(el), parts, rows, tip: tip && R(tip), sc: sc && R(sc), st: sc ? sc.scrollTop + sc.scrollLeft : 0, head: Math.max(0, ...[...el.querySelectorAll('thead th')].map(e => e.getBoundingClientRect().bottom)), title: R(el.querySelector('h2')) };
   };
   new ResizeObserver(() => {
     if (!F.on) return;
@@ -2640,6 +2642,10 @@ const film = async (p, cfg, act, to) => {
   // deliver them out of order).
   return Object.assign(frames.filter((f, i) => f.k > mark || frames[i + 1]?.k > mark).map(f => ({ ...f, s: s[f.k], post: f.k > mark })), { S: s });
 };
+// The fades of what a card adds (Section's IN and OUT, globals.css' add-in and add-out: ease-out over 300 and 120 ms) take
+// FADE_SPAN of their time to pass from 10% to 90% (or back; cubic-bezier(0, 0, 0.58, 1)). A drop-out (gone for one frame,
+// then back) is a pop over any gap.
+const IN_MS = 300, OUT_MS = 120, FADE_SPAN = 0.679;
 // Judges one film for all three checks; returns their findings (the frames are dropped after).
 const judge = (fr, name, how, state) => {
   const out = { name, blank: [], same: [], clean: [], cal: {} }, post = fr.filter(f => f.post);
@@ -2673,6 +2679,21 @@ const judge = (fr, name, how, state) => {
   const seq = fr.filter(f => f.ink >= BLANK), gap = (a, b) => b.k - a.k - fr.filter(f => f.ink < BLANK && f.k > a.k && f.k < b.k).length;
   const at = n => fr.indexOf(seq[n]) + (fr[0].post ? 1 : 0); // a frame's number after the press
   const keys = new Set(seq.flatMap(f => f.s.parts.map(([k]) => k)));
+  // Two frames painted one after the other can still lie far apart in time: on a busy machine the page draws a frame every
+  // 50-150 ms, and the compositor runs the fades (opacity) between them, so a frame's pixels can be most of a 120 ms fade
+  // ahead of the page it was painted from (measured: drawn gone while the page still had the part at 1.00, 0.04 a frame
+  // later). So a change the pixels show in one frame is judged on the page's own frames from just before the first to just
+  // after the second (every one sampled, each with its frame time): a pop is the part's opacity crossing from 10% to 90%
+  // (or back) between two of them closer in time than its fade takes to, a fade that does not run or ran out unpainted.
+  const popped = (k, ka, kb, dir) => {
+    const o = x => (x ? Math.max(0, ...x.parts.filter(([q]) => q === k).map(p => p[2])) : NaN);
+    for (let j = Math.max(0, ka - 1); j < Math.min(S.length - 1, kb + 1); j++) {
+      const a = o(S[j]), b = o(S[j + 1]), dt = S[j + 1]?.t - S[j]?.t;
+      if (!(dir > 0 ? a <= 0.1 && b >= 0.9 : a >= 0.9 && b <= 0.1)) continue;
+      if (dt < FADE_SPAN * (dir > 0 ? IN_MS : OUT_MS)) return `the page's opacity ${a.toFixed(2)} → ${b.toFixed(2)} in ${Math.round(dt)} ms`;
+    }
+    return null;
+  };
   for (const k of keys) {
     if (name.startsWith('Trends') && k === 'Open ↓') continue; // Trends' tile hides it at once too, by design so far
     const d = seq.map(f => dark(f, f.s.parts.filter(([q]) => q === k).map(([, r]) => meet(r, f.s.box))));
@@ -2681,8 +2702,11 @@ const judge = (fr, name, how, state) => {
     for (let n = 1; n < seq.length; n++) {
       if (gap(seq[n - 1], seq[n]) > 1) continue; // a frame between them was not captured
       if (seq[n].s.st !== seq[n - 1].s.st) continue; // scrolled into or out of the card's view (a closing card returns to its top), not drawn or dropped
-      if (r[n - 1] <= 0.1 && r[n] >= 0.9) out.clean.push(`${name}: ${k} appears in one frame (${at(n - 1)} → ${at(n)})`);
-      if (r[n - 1] >= 0.9 && r[n] <= 0.1) out.clean.push(`${name}: ${k} ${r[n + 1] >= 0.8 ? 'drops out for one frame' : 'vanishes in one frame'} (${at(n - 1)} → ${at(n)})`);
+      if (r[n - 1] <= 0.1 && r[n] >= 0.9) { const p = popped(k, seq[n - 1].k, seq[n].k, 1); if (p) out.clean.push(`${name}: ${k} appears in one frame (${at(n - 1)} → ${at(n)}, ${p})`); }
+      if (r[n - 1] >= 0.9 && r[n] <= 0.1) {
+        const p = r[n + 1] >= 0.8 ? 'and is back the next' : popped(k, seq[n - 1].k, seq[n].k, -1);
+        if (p) out.clean.push(`${name}: ${k} ${r[n + 1] >= 0.8 ? 'drops out for one frame' : 'vanishes in one frame'} (${at(n - 1)} → ${at(n)}, ${p})`);
+      }
     }
   }
   const torn = new Map(), tips = [], bars = [], jumps = [];
