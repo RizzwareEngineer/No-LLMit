@@ -8,7 +8,8 @@ import TableMotion, { CARD_FLIGHT, DeckPhase, dealStart } from "@/components/Tab
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import { ModelStats } from "@/lib/stats";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
-import { FELT, LOGO, MIDDLE, POT_TOP, type Spot, css, seatPlace, seatSpots } from "@/lib/phoneTable";
+import { FELT, LOGO, MIDDLE, POT_TOP, RADIUS, type Spot, css, seatPlace, seatSpots } from "@/lib/phoneTable";
+import { usePhoneShape } from "@/lib/tableSwitches";
 import { clockShare, type ButtonDetermination, type DisplayState } from "@/lib/stream";
 
 interface PlayerLayout {
@@ -110,6 +111,8 @@ export default function PokerTable({
   }, [turn.bubble]);
   const ring = clockLeft !== null && clockBudgetMs ? { left: clockShare(clockLeft, clockBudgetMs), urgent: clockLeft <= 5 } : null;
 
+  const shape = usePhoneShape();
+
   const cardStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
   // Until the first state arrives (`players` empty) the table stands in blank: the same grid, a blank seat box in every
   // seat of the default lineup (the page's layout for 9) and the felt with nothing on it, so nothing moves when it fills.
@@ -183,19 +186,20 @@ export default function PokerTable({
         nextHandCountdown={street === 'complete' ? nextHandCountdown ?? null : null}
         onDeck={setDeck}
       />}
-      {/* Phones: one oval and nothing else (owner 2026-11-14: "just do logos with positions and stack sizes and cards then pot
-          in the middle"): the felt a tall ellipse on the page drawn as the desktop's grid (owner 2026-11-15: "the felt, I
-          think, should still be a grid"), each seat a round logo on its rim with its position, stack, label
-          and cards (Player's compact seat; phoneTable's geometry), each bet between its seat and the pot, the pot and the board
-          in the middle. A logo taps through to its model's stats (the drawer). data-oval: what the page watches for the bar. */}
-      <div data-oval className="md:hidden relative w-full" style={{ height: 'var(--oval-h)', marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
-        <div data-felt-oval aria-hidden className="absolute rounded-[50%] bg-white" style={{ left: FELT.side, right: FELT.side, top: FELT.top, bottom: FELT.bottom, ...GRID, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 6px 24px' }} />
+      {/* Phones: one table and nothing else (owner 2026-11-14: "just do logos with positions and stack sizes and cards then pot
+          in the middle"): the felt a tall oval on the page (or a draft shape, ?shape=rect or ?shape=stadium) drawn as the
+          desktop's grid (owner 2026-11-15: "the felt, I think, should still be a grid"), each seat a round logo on its edge
+          with its position, stack, label and cards (Player's compact seat; phoneTable's geometry), each bet between its seat
+          and the pot, the pot and the board in the middle, the deck over the pot between hands. A logo taps through to its
+          model's stats (the drawer). data-oval: what the page watches for the bar. */}
+      <div data-oval data-shape={shape} className="md:hidden relative w-full" style={{ height: 'var(--oval-h)', marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
+        <div data-felt-oval aria-hidden className="absolute bg-white" style={{ left: FELT.side, right: FELT.side, top: FELT.top, bottom: FELT.bottom, borderRadius: RADIUS[shape], ...GRID, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 6px 24px' }} />
         <div className="absolute left-1/2 -translate-x-1/2 w-[180px] h-[116px]" style={{ top: css([MIDDLE[0], MIDDLE[1] + POT_TOP]) }}>{felt(true)}</div>
-        {!blank && seatSpots(players.length).map((spot, idx) => (
+        {!blank && seatSpots(players.length, shape).map((spot, idx) => (
           <BetStack key={idx} seat={idx} amount={players[idx]?.currentBet ?? 0} compact
             style={{ left: css([spot.x[0], spot.x[1] + spot.bet[0]]), top: css([spot.y[0], spot.y[1] + spot.bet[1]]), transform: 'translate(-50%, -50%)' }} />
         ))}
-        {seatSpots(players.length || 9).map((spot, idx) => blank ? (
+        {seatSpots(players.length || 9, shape).map((spot, idx) => blank ? (
           // Until the first state: each seat's logo, blank, where it will be.
           <div key={idx} data-seat={idx} className="absolute pointer-events-none" style={seatPlace(spot).style}>
             <div className="absolute rounded-full bg-white" style={{ left: seatPlace(spot).logo[0] - LOGO / 2, top: seatPlace(spot).logo[1] - LOGO / 2, width: LOGO, height: LOGO, ...LOGO_RIM }} />
