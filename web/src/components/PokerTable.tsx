@@ -6,7 +6,6 @@ import Player from "@/components/Player";
 import TableFelt, { BetStack, FeltBet } from "@/components/TableFelt";
 import TableMotion, { CARD_FLIGHT, DeckPhase, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
-import { ModelStats } from "@/lib/stats";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { FELT, LOGO, MIDDLE, POT_TOP, type Spot, css, seatPlace, seatSpots } from "@/lib/phoneTable";
 import { clockShare, type ButtonDetermination, type DisplayState } from "@/lib/stream";
@@ -36,7 +35,6 @@ interface PokerTableProps {
   notice?: TableNoticePayload | null;
   street: string;
   handNumber: number;
-  stats?: Record<string, ModelStats>; // by model name, for the hover stats on each seat
   display?: DisplayState | null; // the turn on screen: the phone shows each action over its seat for a moment
   clockLeft?: number | null; // seconds left on the shot clock (null: no clock): the phone's ring round the seat on the clock
   clockBudgetMs?: number | null; // the turn's whole budget, the ring's full circle
@@ -58,7 +56,6 @@ export default function PokerTable({
   notice,
   street,
   handNumber,
-  stats,
   display = null,
   clockLeft = null,
   clockBudgetMs = null,
@@ -122,7 +119,6 @@ export default function PokerTable({
       winAmount={winnersByIdx[idx]?.amount}
       winDesc={winnersByIdx[idx]?.handDesc}
       isThinking={idx === thinkingPlayerIdx}
-      stats={stats?.[players[idx].name]}
       showAction={shown(players[idx])}
       seatIdx={idx}
       handNumber={handNumber}

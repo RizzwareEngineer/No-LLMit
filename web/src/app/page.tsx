@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
@@ -169,8 +169,6 @@ function Table() {
   // All-time stats feed the leaderboard, the drawer and the stats sections; the stream sends them on connect and as each hand is saved.
   // No stats event yet means loading; once the stream has given up with none, that is the error.
   const statsError = !stats && gaveUp ? "can't reach the game server" : null;
-  // Hover stats on the seats: all-time.
-  const seatStats = useMemo(() => (stats ? Object.fromEntries(stats.models.map(m => [m.name, m])) : undefined), [stats]);
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
   // The URL names no stats screen: an old #stats, #race or #pairwise link opens the page at its top.
@@ -458,7 +456,6 @@ function Table() {
                 notice={tableNotice}
                 street={street}
                 handNumber={handNumber}
-                stats={seatStats}
                 display={displayState}
                 clockLeft={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? shotClockRemaining : null}
                 clockBudgetMs={shotClockBudgetMs}
