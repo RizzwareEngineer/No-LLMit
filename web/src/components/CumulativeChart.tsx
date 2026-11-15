@@ -678,7 +678,7 @@ export default function CumulativeChart({
   // Under the camera (and while zoomed) the ticks slide with history, fading in at the leading edge and out at the left.
   // While the replay's window widens, the finer step's ticks fade out as the coarser step takes over: no label pops. A
   // zoom, which rests where the gesture leaves it, shows the round step alone.
-  const st = steps(X1 - X0, 10);
+  const st = steps(X1 - X0, compact ? Math.max(3, Math.floor(leadW / 70)) : 10); // a phone: a tick per 70px at most
   const fadeW = st.step * 0.35;
   const xTicks = race && (playing || zoom)
     ? Array.from({ length: Math.floor(X1 / st.finer) - Math.ceil(Math.max(X0, from) / st.finer) + 1 }, (_, i) => (Math.ceil(Math.max(X0, from) / st.finer) + i) * st.finer)
@@ -927,7 +927,7 @@ export default function CumulativeChart({
           <span className="min-w-0 flex-1 truncate" data-filters-summary>{[rate ? 'bb/100' : 'Chips', filters || 'Seated now, every hand', luck && 'All-in EV'].filter(Boolean).join(' · ')}</span>
           <button
             type="button"
-            onClick={() => sheet.current?.showModal()}
+            onClick={() => { sheet.current?.showModal(); sheet.current?.focus(); }}
             aria-haspopup="dialog"
             className="shrink-0 h-11 min-w-11 rounded-full border px-4 font-semibold bg-white"
             style={{ color: TEXT, borderColor: 'rgba(55, 53, 47, 0.2)' }}
@@ -936,9 +936,10 @@ export default function CumulativeChart({
           </button>
           <dialog
             ref={sheet}
+            tabIndex={-1} // the sheet itself takes focus as it opens, not its first button (Tab reaches every control)
             aria-label="Trends filters"
             onClick={e => e.target === e.currentTarget && sheet.current?.close()} // a tap on the backdrop
-            className="phone-sheet fixed inset-x-0 bottom-0 top-auto m-0 w-full max-w-none max-h-[85svh] overflow-auto rounded-t-2xl bg-white px-4 pt-3 pb-[calc(16px+env(safe-area-inset-bottom))] text-[14px] backdrop:bg-[rgba(15,15,15,0.35)]"
+            className="phone-sheet outline-none fixed inset-x-0 bottom-0 top-auto m-0 w-full max-w-none max-h-[85svh] overflow-auto rounded-t-2xl bg-white px-4 pt-3 pb-[calc(16px+env(safe-area-inset-bottom))] text-[14px] backdrop:bg-[rgba(15,15,15,0.35)]"
             style={{ color: MUTED }}
           >
             <div aria-hidden className="mx-auto mb-2 h-1 w-10 rounded-full" style={{ background: 'rgba(55, 53, 47, 0.2)' }} />

@@ -634,7 +634,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
               </div>
             )}
           </AtHand>
-        ))}
+        ), '[&_a_[translate=no]]:max-w-[96px]')}
       </section>
       {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
       <section id="about" data-screen data-end aria-label="About" className="relative h-svh snap-start snap-always -mx-3 bg-(--page)">
