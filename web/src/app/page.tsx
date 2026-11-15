@@ -367,6 +367,7 @@ function Table() {
     : {};
 
   const tab: Tab = tableInView ? 'table' : screen === 'about' ? 'about' : 'stats';
+  const backHidden = tableInView || screen === 'phone-race' || screen === 'phone-stats-table' || screen === 'phone-pairwise';
   const onTab = (t: Tab) => {
     // A Stats or About scroll still underway must not land the page back on its screen (its scrollend resnaps there).
     if (t === 'table') { stopPaging(); window.scrollTo({ top: 0 }); }
@@ -514,13 +515,14 @@ function Table() {
       <PhoneBar blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />
       <TabBar tab={tab} onTab={onTab} />
       {/* Phones: back to the table's top from anywhere below it (the Table tab does the same), 44px, over the tab bar's
-          right end. Hidden (and out of the tab order) while the table shows. */}
+          right end. Hidden (and out of the tab order) while the table shows, and on Trends, Profiles and Matchups, whose
+          cards reach down to the tab bar (its Table tab is right there). */}
       <button
         type="button"
         onClick={() => onTab('table')}
         aria-label="Back to the table"
-        inert={tableInView}
-        className={`md:hidden fixed z-40 right-[calc(12px+env(safe-area-inset-right))] bottom-[calc(var(--bar-h)+12px)] size-11 rounded-full border bg-white/95 backdrop-blur-md shadow-md flex items-center justify-center motion-safe:transition-[opacity,transform] motion-safe:duration-200 ${tableInView ? 'opacity-0 translate-y-2 pointer-events-none' : 'opacity-100'}`}
+        inert={backHidden}
+        className={`md:hidden fixed z-40 right-[calc(12px+env(safe-area-inset-right))] bottom-[calc(var(--bar-h)+12px)] size-11 rounded-full border bg-white/95 backdrop-blur-md shadow-md flex items-center justify-center motion-safe:transition-[opacity,translate] motion-safe:duration-200 ${backHidden ? 'opacity-0 translate-y-2 pointer-events-none' : 'opacity-100'}`}
         style={{ color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.16)' }}
       >
         <ArrowUp size={20} weight="bold" aria-hidden />
