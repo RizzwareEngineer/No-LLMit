@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { MUTED, TEXT } from '@/lib/stats';
 import { Caveats, Eyebrow, Footer, Hours, How, Intro, LABEL, Next, RULE, Race, Support, Thesis } from '@/components/about/content';
 
@@ -35,7 +35,11 @@ const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 // pointer on the dial, one wheel gesture or swipe turns it one row (past either end, and off the dial, the page has the
 // wheel); a click on a blurred row, focus inside it, or ↑ ↓ brings that row forward. Every row stays in the page for
 // screen readers. Under reduced motion it turns without animating.
-function Dial({ as }: { as: 'h2' | 'h3' }) {
+function Dial({ as, rest = false, className = '' }: { as: 'h2' | 'h3'; rest?: boolean; className?: string }) {
+  // `rest`: every topic but How it works (phone layout 3 shows that one open above the dial).
+  const topics = rest ? TOPICS.slice(1) : TOPICS;
+  const count = useRef(topics.length);
+  count.current = topics.length;
   const [at, setAt] = useState(0);
   const atRef = useRef(0);
   const turn = (i: number) => { atRef.current = i; setAt(i); };
@@ -72,7 +76,7 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
         return;
       }
       const next = atRef.current + dir;
-      if (next < 0 || next >= TOPICS.length) return;
+      if (next < 0 || next >= count.current) return;
       e.preventDefault();
       if (Math.abs(e.deltaY) < 4) return;
       lockUntil = now + 700; lockDir = dir;
@@ -87,7 +91,7 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
       const dx = e.touches[0].clientX - start.x, dy = e.touches[0].clientY - start.y;
       if (Math.max(Math.abs(dx), Math.abs(dy)) < 8) return;
       const next = atRef.current + (dy < 0 ? 1 : -1);
-      mine = Math.abs(dy) > Math.abs(dx) && next >= 0 && next < TOPICS.length;
+      mine = Math.abs(dy) > Math.abs(dx) && next >= 0 && next < count.current;
       if (mine) { e.preventDefault(); turn(next); }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -104,7 +108,7 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
 
   const onKey = (e: React.KeyboardEvent) => {
     const dir = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0, next = at + dir;
-    if (!dir || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || next < 0 || next >= TOPICS.length) return;
+    if (!dir || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || next < 0 || next >= topics.length) return;
     if ((e.target as Element).closest('input, textarea, select, dialog')) return;
     e.preventDefault(); // the page leaves a prevented key alone
     turn(next);
@@ -130,12 +134,12 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
       aria-label="About, one topic at a time (↑ ↓ to turn)"
       tabIndex={0}
       onKeyDown={onKey}
-      className="order-3 @4xl:order-none border-b outline-none focus-visible:[outline:2px_solid_rgb(35,131,226)] focus-visible:[outline-offset:-2px] rounded-sm"
+      className={`order-3 @4xl:order-none ${className} border-b outline-none focus-visible:[outline:2px_solid_rgb(35,131,226)] focus-visible:[outline-offset:-2px] rounded-sm`}
       style={{ borderColor: RULE }}
     >
       <div className="overflow-clip" style={{ paddingBottom: 3 * PEEK, maskImage: mask, WebkitMaskImage: mask }}>
         <div ref={list} className="grid items-start [&>*]:[grid-area:1/1]">
-          {TOPICS.map(([title, Body], i) => {
+          {topics.map(([title, Body], i) => {
             const d = Math.min(Math.abs(i - at), 2), back = BACK[d];
             const shift = tops ? tops[i] - y : 0;
             return (
@@ -170,10 +174,30 @@ function Dial({ as }: { as: 'h2' | 'h3' }) {
 // The About content: the /about page, and the home page's last screen (where the page's own h1 is the table's title, so
 // About's first heading is an h2). Its parent sets the width (the stats overview's block on the home page). Memoized: the
 // stats re-render as each hand lands and as screens change; only its Race reads them, through PageStats (about/content).
+// Phones (under 768px) order About by the layout the URL picks (?about=1, 2 or 3; 1 by default), each with How it works
+// early (owner, 2026-11-15: "There's got to be a way to fit 'How it works' first"). The header (No-LLMit, the benchmark for
+// LLMs) stays on top in all three; wider windows keep their one layout.
+//   1: How it works (the dial, opening on it), then the race graphic, then the ask.
+//   2: a short strip of the race graphic, then How it works, then the ask.
+//   3: How it works open as plain text (no turning to read it), the race, the ask, then the other topics on the dial.
+const noSub = () => () => {};
+const PHONE = '(max-width: 767px)';
+const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
+const useLayout = () => useSyncExternalStore(noSub, (): '1' | '2' | '3' => { const v = new URLSearchParams(location.search).get('about'); return v === '2' || v === '3' ? v : '1'; }, (): '1' | '2' | '3' => '1');
+const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
+const ORDER = {
+  '1': { dial: 'max-md:order-1', race: 'max-md:order-2', support: 'max-md:order-3', art: '' },
+  '2': { dial: 'max-md:order-2', race: 'max-md:order-1', support: 'max-md:order-3', art: 'max-md:h-[148px]' },
+  '3': { dial: 'max-md:order-4', race: 'max-md:order-2', support: 'max-md:order-3', art: '' },
+} as const;
+
 export default memo(function About({ heading = 'h1' }: { heading?: 'h1' | 'h2' }) {
   const Sub = heading === 'h1' ? 'h2' : 'h3';
+  const layout = useLayout(), phone = usePhone();
+  const o = ORDER[layout];
+  const open = layout === '3' && phone; // How it works out of the dial, open
   return (
-    <article data-about className="@container flex flex-col gap-6 text-[16px] leading-normal" style={{ color: TEXT }}>
+    <article data-about data-about-layout={layout} className="@container flex flex-col gap-6 text-[16px] leading-normal" style={{ color: TEXT }}>
       <div className="flex flex-col gap-6 @4xl:grid @4xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] @4xl:gap-x-14">
         {/* Each column's parts join one stack on a phone (display: contents), in reading order there. */}
         <div className="contents @4xl:flex @4xl:flex-col @4xl:min-w-0">
@@ -182,12 +206,18 @@ export default memo(function About({ heading = 'h1' }: { heading?: 'h1' | 'h2' }
             <Thesis as={heading} />
             <Intro />
           </header>
-          <Dial as={Sub} />
+          {open && (
+            <section data-how-open className="order-1 border-t pt-3.5 flex flex-col gap-2" style={{ borderColor: RULE }}>
+              <Sub className={LABEL} style={{ color: MUTED }}>How it works</Sub>
+              <How />
+            </section>
+          )}
+          <Dial key={String(open)} as={Sub} rest={open} className={o.dial} />
         </div>
         <div className="contents @4xl:flex @4xl:flex-col @4xl:gap-8 @4xl:min-w-0">
-          <Support as={Sub} className="order-1 @4xl:order-none" />
+          <Support as={Sub} className={`order-1 @4xl:order-none ${o.support}`} />
           {/* The figure's height: the drawing as before plus its caption (59px: 10px gap, 21px label, 4px gap, 24px leader line). */}
-          <Race className="order-2 @4xl:order-none @4xl:flex-1" art="h-[calc(clamp(200px,40cqw,300px)_+_59px)] @4xl:h-auto @4xl:min-h-[259px]" />
+          <Race className={`order-2 @4xl:order-none @4xl:flex-1 ${o.race}`} art={`h-[calc(clamp(200px,40cqw,300px)_+_59px)] @4xl:h-auto @4xl:min-h-[259px] ${o.art}`} />
         </div>
       </div>
       <Footer />
