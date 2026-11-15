@@ -261,8 +261,20 @@ html:has([data-screen]) {
 /* Their times are Section's IN and OUT. */
 @keyframes add-in { from { opacity: 0; } }
 @keyframes add-out { to { opacity: 0; } }
+/* Inside a host that stays put while the card is open (.adds: Profiles' and Matchups' content box), the fade runs once,
+   on the host, as --add, and each part takes it as its opacity: a row the live table re-sorts is moved in the DOM, which
+   restarts a CSS animation on the moved element (its extra columns faded in again at every re-sort, and a Matchups name
+   moved apart from its row faded in after the row's figures). */
+@property --add {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+@keyframes adds { from { --add: 0; } }
 @media (prefers-reduced-motion: no-preference) {
   .add-in { animation: add-in 0.3s 0.08s ease-out both; }
+  .adds { animation: adds 0.3s 0.08s ease-out both; }
+  .adds .add-in { animation: none; opacity: var(--add); }
   /* Closing a card (StatsSections' back): what it adds fades out, in the card and in the tile standing in under it,
      before the tile glides back. An animation: a transition never starts on a property an animation holds. */
   .stats-room[data-leaving] :is(.add-in, .added) { animation: add-out 0.12s ease-out both; }

@@ -199,7 +199,8 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
   const toggle = 'text-[14px] font-medium hover:underline'; // controls: 14px medium, like Open ↓ and the segmented buttons
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
+    // `adds`: what the card adds fades in once per open, from here (globals.css), not again when a re-sort moves a row.
+    <div className={`flex-1 min-h-0 flex flex-col ${mini ? '' : 'adds'}`}>
       <div className={`@container relative min-w-0 ${mini ? '' : 'max-md:overflow-x-auto'}`}>
         <Grid groups={mini ? MINI : GROUPS} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={!mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} picked={picked} onPick={isolate} mini={mini} snap={snap} />
       </div>
