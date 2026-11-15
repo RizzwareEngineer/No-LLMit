@@ -575,7 +575,12 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
   // The window crossing the middle of the screen is the page's screen (the tab bar's Stats or About).
   useEffect(() => {
     const els = room.current ? [...room.current.querySelectorAll<HTMLElement>(':scope > [data-screen]')] : [];
-    const io = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && setScreen(e.target.id === 'about' ? 'about' : `phone-${e.target.id}`)), { rootMargin: '-50% 0px -50% 0px' });
+    // A window leaving the middle clears the screen it set (an instant jump from About to Profits & Losses crosses none).
+    const io = new IntersectionObserver(es => es.forEach(e => {
+      const id = e.target.id === 'about' ? 'about' : `phone-${e.target.id}`;
+      if (e.isIntersecting) setScreen(id);
+      else if (currentScreen() === id) setScreen('');
+    }), { rootMargin: '-50% 0px -50% 0px' });
     els.forEach(e => io.observe(e));
     return () => { io.disconnect(); setScreen(''); };
   }, []);
