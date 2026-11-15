@@ -14,7 +14,6 @@ import { amountParts, formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE } from "@/lib/stats";
 import { formatDuration, formatLocalTime } from "@/lib/time";
 import { useFillIn } from "@/lib/boxes";
-import { usePillPot } from "@/lib/tableSwitches";
 import { DECK, POT_TOP } from "@/lib/phoneTable";
 
 interface WinnerDisplay {
@@ -120,8 +119,6 @@ export default function TableFelt({
   compact = false,
 }: TableFeltProps) {
   const bb = useBigBlind();
-  // The phone's pot: the desktop's rectangle, or a pill behind ?pot=pill (a draft; owner 2026-11-15: "let's experiment with both").
-  const pill = usePillPot();
   const potIn = amountParts(pot, bb);
   const collected = Math.max(0, pot - betsOut);
   // Show button determination if in progress
@@ -151,7 +148,7 @@ export default function TableFelt({
       <div className={`${compact ? 'h-[30px]' : 'h-[74px]'} w-full flex items-start justify-center`}>
         {winners.length > 0 && compact ? (
           // The phone: who won and how much in the pot's place; the hand under the board.
-          <div data-pot className={`h-[30px] max-w-[220px] px-3 flex items-center gap-1 ${pill ? 'rounded-full' : ''} bg-green-50 border border-green-500 text-xs whitespace-nowrap`}>
+          <div data-pot className={`h-[30px] max-w-[220px] px-3 flex items-center gap-1 bg-green-50 border border-green-500 text-xs whitespace-nowrap`}>
             <span className="text-green-700 font-bold truncate">{winners[0].name}</span>
             <span data-chips={winners[0].amount} className="text-green-700 tabular-nums">+{formatAmount(winners[0].amount, bb)}</span>
             {winners.length > 1 && <span className="text-green-700">+{winners.length - 1}</span>}
@@ -174,7 +171,7 @@ export default function TableFelt({
           // (the number pot odds need). The chips already collected are drawn under it as a chip
           // stack with a bare amount, like the stacks in front of the seats; no second label.
           <div data-pot={compact || undefined} className={`flex flex-col items-center ${compact ? '' : 'gap-3'}`}>
-            <div data-chips={pot} className={`flex flex-row items-center gap-2 bg-white border-2 border-gray-700 shadow-sm ${compact ? `h-[30px] px-3 ${pill ? 'rounded-full' : ''}` : 'p-2 px-4'}`} aria-label={`Pot ${formatAmount(pot, bb)}`}>
+            <div data-chips={pot} className={`flex flex-row items-center gap-2 bg-white border-2 border-gray-700 shadow-sm ${compact ? 'h-[30px] px-3' : 'p-2 px-4'}`} aria-label={`Pot ${formatAmount(pot, bb)}`}>
               <div className={`${compact ? 'text-[11px]' : 'text-xs'} uppercase tracking-wider text-gray-600`}>POT</div>
               <div className={`${compact ? 'text-[15px] leading-5' : 'text-[20px] leading-7'} text-gray-700 font-bold tabular-nums`}>
                 <NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} />
