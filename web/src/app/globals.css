@@ -350,13 +350,13 @@ html:has([data-screen]) {
 @media (max-width: 767px) and (max-height: 649px) {
   [data-page] {
     --top-h: 0px;
-    --tab-h: calc(min(40px, 15svh - 2px) + env(safe-area-inset-bottom));
+    --tab-h: calc(min(40px, 15svh - 4px) + env(safe-area-inset-bottom));
     /* Trends, Profiles and Matchups' windows (StatsSections' WINDOW) stay at least this tall, so a card keeps its rows
        (Profiles' fit had squeezed them to nothing at 300%); taller than the window, it scrolls freely inside (page.tsx). */
     --win-min: 560px;
   }
   [data-phone-bar] { position: absolute; }
-  [data-tab-bar] button { height: min(40px, 15svh - 2px); flex-direction: row; gap: 6px; font-size: 12px; }
+  [data-tab-bar] button { height: min(40px, 15svh - 4px); flex-direction: row; gap: 6px; font-size: 12px; }
   [data-tab-bar] svg { width: 18px; height: 18px; }
   [data-back-top] { display: none !important; }
 }

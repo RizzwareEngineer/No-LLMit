@@ -4802,6 +4802,83 @@ group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 
+// Browser zoom (owner 2026-11-15: "an audit on how the site looks at every single zoom state ... if I zoom in all the way
+// to 500%, I should still feel as if the site is tolerable"). A W x H window at zoom z is a viewport of round(W/z) x
+// round(H/z) CSS px at deviceScaleFactor z. The full grid (14 zooms on three laptops) is scripts/zoomsweep.mjs; this
+// samples the zooms where something changes: 50% (the widest), 100%, 175% (the shortest wide layout), 200% (the phone
+// layout takes over at 1440 and 1512), 300% and 500% (the shortest), plus the phones and a landscape phone.
+// Text under 11px is judged outside the wide table stage, which is drawn as one scaled picture (table-fit owns its scale).
+const ZOOM_WINDOWS = [[1440, 900], [1512, 982], [1728, 1117]], ZOOM_SAMPLE = [0.5, 1, 1.75, 2, 3, 5];
+group(() => check('zoom-tolerable', `At 1440x900, 1512x982 and 1728x1117 zoomed to ${ZOOM_SAMPLE.map(z => z * 100 + '%').join(', ')}, and at 375x667, 390x844, 430x932 and 844x390: no sideways page scroll, the fixed bars at most 15% of the window's height, the table (or the phone oval) inside the window's width (or its screen's sideways scroll) and within the page's scroll, the prompt dialog, the model drawer, the seat stats popup and the Trends filter sheet wholly inside the window and scrolling inside where taller, text at least 11px`, async () => {
+  const { measure, modalBox } = await import('./zoom-measure.mjs');
+  const bad = [], seen = [];
+  const states = [...ZOOM_WINDOWS.flatMap(([W, H]) => ZOOM_SAMPLE.map(z => ({ W, H, z }))), ...[[375, 667], [390, 844], [430, 932], [844, 390]].map(([W, H]) => ({ W, H, z: 1, phone: true }))];
+  for (const { W, H, z, phone } of states) {
+    const name = phone ? `${W}x${H} phone` : `${W}x${H}@${Math.round(z * 100)}%`;
+    const p = await newPage();
+    try {
+      if (phone) await p.emulate({ viewport: { width: W, height: H, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: await browser.userAgent() });
+      else await p.setViewport({ width: Math.round(W / z), height: Math.round(H / z), deviceScaleFactor: z });
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => document.querySelector('[data-seat]') && document.querySelector('#stats-panel tbody tr'), { timeout: 60000 }).catch(() => {});
+      await sleep(1500);
+      const narrow = await p.evaluate(() => innerWidth < 768);
+      const skip = narrow ? '' : '.stage-zoom';
+      const look = async where => {
+        const m = await p.evaluate(measure, skip);
+        if (m.hscroll > 0) bad.push(`${name} ${where}: page scrolls ${m.hscroll}px sideways`);
+        if (m.chromePct > 15) bad.push(`${name} ${where}: fixed bars ${m.chrome}px, ${m.chromePct}% of ${m.vh}px (${m.chromeEls})`);
+        if (m.minFont < 11) bad.push(`${name} ${where}: ${m.minFont}px text (${m.minAt})`);
+        return m;
+      };
+      const t = await look('table');
+      const table = await p.evaluate(() => {
+        const e = [...document.querySelectorAll('[data-oval], .stage-zoom')].find(e => e.getBoundingClientRect().width > 0);
+        if (!e) return null;
+        const r = e.getBoundingClientRect(), top = r.top + scrollY, de = document.documentElement;
+        const bar = [...document.querySelectorAll('[data-phone-bar]')].find(b => getComputedStyle(b).position === 'fixed' && b.getBoundingClientRect().height > 0);
+        const sc = e.closest('section'), reach = sc && getComputedStyle(sc).overflowX === 'auto' ? sc.getBoundingClientRect().left + sc.scrollWidth : innerWidth;
+        return { l: r.left, r: r.right, reach, top, bottom: r.bottom + scrollY, scrollH: de.scrollHeight, under: bar ? bar.getBoundingClientRect().bottom : 0 };
+      });
+      if (!table) bad.push(`${name}: no table`);
+      else {
+        // The wide table at its floor scale (table-fit) may be wider than a short, narrow window (150-200%): its screen
+        // then scrolls sideways (table-no-hscroll), never the page.
+        if ((table.l < -1 || table.r > t.vw + 1) && table.r > table.reach + 1) bad.push(`${name}: the table spans ${Math.round(table.l)}-${Math.round(table.r)} of ${t.vw}px, out of reach`);
+        if (table.top < table.under - 1 || table.bottom > table.scrollH + 1) bad.push(`${name}: the table (${Math.round(table.top)}-${Math.round(table.bottom)}) is out of the page's scroll`);
+      }
+      await goto(p, narrow ? 'stats-table' : 'stats'); await sleep(900);
+      await look(narrow ? 'Profiles' : 'stats');
+      await goto(p, 'about'); await sleep(900);
+      await look('About');
+      const popup = async (what, sel) => {
+        const b = await p.evaluate(modalBox, sel);
+        if (!b) { bad.push(`${name}: the ${what} did not open`); return; }
+        if (!b.inside) bad.push(`${name}: the ${what} spans ${b.l},${b.t}-${b.r},${b.b}, outside the window`);
+        if (b.overflows && !b.scrolls) bad.push(`${name}: the ${what} is taller than its box and does not scroll`);
+      };
+      if (await p.evaluate(() => { const b = [...document.querySelectorAll('button')].find(b => /Read the system prompt/.test(b.textContent) && b.getBoundingClientRect().width > 0); b?.click(); return !!b; })) {
+        await sleep(600); await popup('prompt dialog', 'dialog[open]'); await p.keyboard.press('Escape'); await sleep(400);
+      } else bad.push(`${name}: no prompt link on About`);
+      const slug = await p.evaluate(() => document.querySelector('a[href^="#model="]')?.getAttribute('href'));
+      if (slug) { await p.evaluate(h => { location.hash = h.slice(1); }, slug); await sleep(900); await popup('model drawer', 'dialog[open]'); await p.keyboard.press('Escape'); await sleep(600); }
+      if (narrow) {
+        await p.evaluate(() => scrollTo({ top: 0, behavior: 'instant' })); await sleep(600);
+        const a = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-oval] a[aria-haspopup=dialog]')].find(e => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().top > 0); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+        if (a) { if (phone) await p.touchscreen.tap(a[0], a[1]); else await p.mouse.click(a[0], a[1]); await sleep(500); await popup('seat stats popup', '[data-seat-stats]'); await p.keyboard.press('Escape'); await sleep(300); }
+        else bad.push(`${name}: no seat logo to tap`);
+        await goto(p, 'race'); await sleep(800);
+        if (await p.evaluate(() => { const b = [...document.querySelectorAll('button[aria-haspopup=dialog]')].find(b => /^Filters/.test(b.textContent.trim()) && b.getBoundingClientRect().width > 0); b?.click(); return !!b; })) {
+          await sleep(600); await popup('Trends filter sheet', 'dialog[open]'); await p.keyboard.press('Escape'); await sleep(300);
+        } else bad.push(`${name}: no Filters button on Trends`);
+      }
+      seen.push(`${name} ${t.vw}x${t.vh} bars ${t.chromePct}%`);
+    } catch (e) { bad.push(`${name}: ${e.message.split('\n')[0]}`); }
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 12).join('; ') + (bad.length > 12 ? `; +${bad.length - 12} more` : '') : `${states.length} windows: ${seen.join(', ')}` };
+}));
+
 // The server ends every stream after 10 to 14 minutes and the page reopens it; the viewer must not
 // see it. On the live table, in each phase of a turn (thinking; reasoning while it types; revealed), the page's stream
 // is ended as the server ends it (closed, then its error handler), so the page reopens it against the engine. From then
