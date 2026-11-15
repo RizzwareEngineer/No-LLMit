@@ -371,6 +371,9 @@ function Table() {
     if (t === 'table') window.scrollTo({ top: 0 });
     else if (t === 'about') pageTo('about');
     else if (window.innerWidth >= 768 && (screen === 'race' || screen === 'stats-table' || screen === 'pairwise')) backToOverview();
+    // Phones: on a Stats window already (Profits & Losses, Trends, Profiles, Matchups) the Stats tab does nothing, so a
+    // tap just above the bar that touch adjustment hands to it never throws the viewer back to Profits & Losses.
+    else if (window.innerWidth < 768 && tab === 'stats') return;
     else pageTo('phone-stats');
   };
 
