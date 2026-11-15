@@ -938,7 +938,12 @@ export default function CumulativeChart({
             ref={sheet}
             tabIndex={-1} // the sheet itself takes focus as it opens, not its first button (Tab reaches every control)
             aria-label="Trends filters"
-            onClick={e => e.target === e.currentTarget && sheet.current?.close()} // a tap on the backdrop
+            onClick={e => {
+              // A tap on the backdrop: the dialog itself is the target there and on its own padding, so only a point
+              // outside its box closes it.
+              const b = e.currentTarget.getBoundingClientRect();
+              if (e.target === e.currentTarget && (e.clientX < b.left || e.clientX > b.right || e.clientY < b.top || e.clientY > b.bottom)) sheet.current?.close();
+            }}
             className="phone-sheet outline-none fixed inset-x-0 bottom-0 top-auto m-0 w-full max-w-none max-h-[85svh] overflow-auto rounded-t-2xl bg-white px-4 pt-3 pb-[calc(16px+env(safe-area-inset-bottom))] text-[14px] backdrop:bg-[rgba(15,15,15,0.35)]"
             style={{ color: MUTED }}
           >
