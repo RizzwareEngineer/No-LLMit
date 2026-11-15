@@ -17,15 +17,17 @@ export const POT_TOP = -36;
 // 2026-11-15: "the shuffle deck should not be in front of the pot count"). Its top from the felt's middle (px).
 export const DECK = { w: 30, h: 42, top: POT_TOP - 2 - 42 } as const;
 
-// Seats 1 to 5 clockwise from the top: their angle from the top (degrees, about 40 apart), and from the logo's centre
-// the centre of the two hole cards (under the stack and label up top, beside or over the logo lower down: toward the
-// middle) and of the bet. The left half mirrors them (0/2, 8/3, 7/4, 6/5). Tuned for nine seats (phoneTable.test.mjs).
+// Seats 1 to 5 clockwise from the top: their angle from the top (degrees), and from the logo's centre the centre of the
+// two hole cards (under the stack and label up top, beside or over the logo lower down: toward the middle) and of the
+// bet. The left half mirrors them (0/2, 8/3, 7/4, 6/5). Tuned for nine so the closest two neighbours are as far apart
+// as the smallest table lets them be (88px there, 110px at 390x844; owner 2026-11-15: "there has to be a way to create
+// more spacing between each of these players") and nothing overlaps (phoneTable.test.mjs).
 const RIGHT = [
   { deg: 0, cards: [0, 86], bet: [0, 133] },
-  { deg: 32, cards: [1, 87], bet: [5, 119] },
-  { deg: 72, cards: [-10, 84], bet: [-54, 47] },
-  { deg: 123, cards: [-38, -27], bet: [-94, -32] },
-  { deg: 164, cards: [-3, -52], bet: [-14, -85] },
+  { deg: 37.94, cards: [-14, 82], bet: [-9, 112] },
+  { deg: 72.56, cards: [-24, 83], bet: [-60, 48] },
+  { deg: 126.92, cards: [-18, -34], bet: [-86, -45] },
+  { deg: 158.9, cards: [-18, -36], bet: [-21, -80] },
 ] as const;
 const MIRROR: Record<number, number> = { 0: 2, 8: 3, 7: 4, 6: 5 };
 

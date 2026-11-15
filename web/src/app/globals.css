@@ -301,8 +301,9 @@ html:has([data-screen]) {
 }
 
 /* Phones: the tab bar at the bottom (TabBar) takes --tab-h from every screen (page.tsx adds it to --bar-h, which the
-   screens leave free); the table (PokerTable's oval) is --oval-h tall, about two thirds of the window and at least the
-   460px phoneTable.ts is laid out for, with the bar, its caption and the tab bar on one screen. --phone-slack is the
+   screens leave free); the table (PokerTable's oval) is --oval-h tall: all the first screen leaves under the bar, over
+   its caption and the tab bar, less 12px (owner 2026-11-15: "maybe we make the table bigger, and we occupy more of the
+   white space"), and at least the 460px phoneTable.ts is laid out for. --phone-slack is the
    first screen's room to spare, split above the table and under the caption. Registered lengths, so --bar-h reads as
    one length (0px with no bars). */
 @property --tab-h { syntax: '<length>'; inherits: true; initial-value: 0px; }
@@ -310,7 +311,7 @@ html:has([data-screen]) {
 @media (max-width: 767px) {
   [data-page] {
     --tab-h: calc(52px + env(safe-area-inset-bottom));
-    --oval-h: min(100svh - 200px, max(460px, 70svh));
+    --oval-h: max(460px, 100svh - var(--tab-h) - 150px - env(safe-area-inset-top));
     --phone-slack: max(0px, 100svh - var(--oval-h) - var(--tab-h) - 138px - env(safe-area-inset-top));
   }
 }

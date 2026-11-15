@@ -1,5 +1,5 @@
-// The phone table's geometry: at the tables of 375x667 (351x467) and 390x844 (366x591), and around them, no two seats'
-// logos, stacks and labels, hole cards or bets overlap, none overlaps the pot, the board or the deck, and all are inside the table;
+// The phone table's geometry: at the tables of 375x667, 390x844 and 430x932, and around them, no two seats'
+// logos, stacks and labels, hole cards or bets overlap, none overlaps the pot, the board or the deck, all are inside the table and no two seats' logos and stacks come within 8px;
 // a seat's cards keep off its own stack and label even landed askew (they may tuck over the edge of its logo).
 // Run from web/: node --experimental-strip-types --test src/lib/phoneTable.test.mjs
 import { test } from 'node:test';
@@ -21,10 +21,13 @@ const layout = (W, H) => {
     { k: 'deck', between: true, r: [cx - DECK.w / 2, my + DECK.top, cx + DECK.w / 2, my + DECK.top + DECK.h] });
   return boxes;
 };
+const grow = (r, g) => [r[0] - g, r[1] - g, r[2] + g, r[3] + g];
 const meet = (a, b) => Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 0 && Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > 0;
 
-for (const [W, H] of [[351, 467], [366, 591], [359, 467], [374, 591], [359, 460], [374, 523], [374, 557], [390, 600]]) {
-  test(`nothing overlaps on a ${W}x${H} table`, () => {
+// The tables of 375x667 (351x465), 390x844 (366x642) and 430x932 (406x730), and around them.
+const TABLES = [[351, 465], [366, 642], [406, 730], [359, 460], [374, 600], [351, 520], [390, 700], [374, 680]];
+for (const [W, H] of TABLES) {
+  test(`nothing overlaps on a ${W}x${H} table, and no two seats crowd each other`, () => {
     const boxes = layout(W, H), bad = [];
     for (const [i, a] of boxes.entries()) {
       if (a.r[0] < 0 || a.r[1] < 0 || a.r[2] > W || a.r[3] > H) bad.push(`${a.k} outside`);
@@ -32,6 +35,9 @@ for (const [W, H] of [[351, 467], [366, 591], [359, 467], [374, 591], [359, 460]
         if ((a.between || b.between) && [a.k, b.k].some(k => k.endsWith('bet'))) continue; // the deck shows between hands, with no bets out
         const own = a.seat !== undefined && a.seat === b.seat, kinds = [a.k, b.k].map(k => k.split(' ')[1]).sort().join('+');
         if (own && kinds === 'cards+text' ? meet((a.askew ?? b.askew), (a.askew ? b : a).r) : !own || kinds.includes('bet') ? meet(a.r, b.r) : false) bad.push(`${a.k} on ${b.k}`);
+        // Room between players (owner 2026-11-15: "more spacing between each of these players"): two seats' logos and
+        // stacks keep 8px apart.
+        if (!own && a.seat !== undefined && b.seat !== undefined && /logo|text/.test(a.k) && /logo|text/.test(b.k) && meet(grow(a.r, 4), grow(b.r, 4))) bad.push(`${a.k} within 8px of ${b.k}`);
       }
     }
     assert.deepEqual(bad, []);
