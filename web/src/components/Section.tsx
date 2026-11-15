@@ -5,6 +5,9 @@ import { AnimatePresence, MotionConfig, PresenceContext, cubicBezier, motion, us
 import { BLUE, MUTED, TEXT } from '@/lib/stats';
 import { useRememberedBox } from '@/lib/boxes';
 import { isPhone } from '@/lib/layout';
+import { CARD, CARD_SHADOW, HEADER, SHADOW, Segmented, TITLE } from '@/components/ui';
+
+export { CARD, CARD_SHADOW, HEADER, SHADOW, Segmented, TITLE };
 
 // Document y of every snap screen, top to bottom. Screens carry no transforms, so the
 // bounding box is their layout position.
@@ -314,43 +317,11 @@ export function Added({ still = false, className, style, children }: { still?: b
   return <motion.div initial={still ? false : { '--fade': 0 }} animate={{ '--fade': 1, transition: IN }} className={`added ${className ?? ''}`} style={{ ...style, opacity: 'var(--fade)' }}>{children}</motion.div>;
 }
 
-export const SHADOW = 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px';
 
 // The pill that pages on to the next main screen: "Stats ↓" under the table, "About ↓" under the overview.
 export const NEXT_BUTTON = 'flex items-center gap-2 rounded-full border px-5 py-2 text-[15px] font-semibold bg-white hover:bg-[rgba(55,53,47,0.04)] shadow-sm';
 export const NEXT_STYLE = { color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.2)' };
 
-// One chrome for every stats card (overview tiles, the zoomed Race panel and the Stats and
-// Pairwise cards): same radius, ring, shadow and padding, so paging changes only the content.
-// card-chrome (globals.css) dims the card as the next one slides over it.
-export const CARD = 'card-chrome flex flex-col min-h-0 min-w-0 bg-white p-4 rounded-lg';
-export const CARD_SHADOW = 'rgba(15, 15, 15, 0.08) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 4px 16px';
-export const HEADER = 'mb-2 min-h-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-1';
-export const TITLE = 'text-[20px] leading-8 font-bold';
 // A card as big as its content, centred in the overview's box (the opened Matchups card).
 export const HUG = 'inset-0 m-auto w-fit h-fit max-w-full max-h-full';
 
-// A row of mutually exclusive buttons (the Race range, the Pairwise view).
-export function Segmented<T extends string | number>({ label, options, value, onChange }: {
-  label: string;
-  options: { label: string; value: T; disabled?: boolean }[];
-  value: T;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div role="group" aria-label={label} className="flex shrink-0 rounded p-0.5 text-[14px]" style={{ background: 'rgba(55, 53, 47, 0.06)' }}>
-      {options.map(o => (
-        <button
-          key={o.label}
-          onClick={() => onChange(o.value)}
-          disabled={o.disabled}
-          aria-pressed={value === o.value}
-          className="rounded px-3 py-0.5 font-medium disabled:opacity-40"
-          style={value === o.value ? { background: 'white', color: TEXT, boxShadow: SHADOW } : { color: MUTED }}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 import { GLIDE, NONE } from '@/components/Section';
 import LLMLogo from '@/components/LLMLogo';
-import { DASH, MIN_HANDS, MIN_PAIR_HANDS, MUTED, ModelStats, TEXT, bb100Among, bb100Of, chips, modelHref, netColor, plural, signed, signedBrief, useChanges } from '@/lib/stats';
+import { DASH, MIN_HANDS, MIN_PAIR_HANDS, MUTED, ModelStats, TEXT, bb100Among, bb100Of, chips, modelHref, netColor, plural, signed, signedCompact, useChanges } from '@/lib/stats';
 
 // A cell's bb/100 at the grid's one font size, in full (+1234.5: a pair with few hands together reaches four
 // digits) where it fits, else rounded to a whole, else shortened (+1.2k, a phone's narrow cells), else none (the
@@ -13,7 +13,7 @@ import { DASH, MIN_HANDS, MIN_PAIR_HANDS, MUTED, ModelStats, TEXT, bb100Among, b
 // Its width in em, tabular figures (calibrated in the browser: a figure or sign 0.62em, a comma or point 0.29, k 0.53).
 const ems = (t: string) => [...t].reduce((w, c) => w + (c === ',' || c === '.' ? 0.29 : c === 'k' ? 0.53 : 0.62), 0);
 function fitFigure(n: number, room: number, px: number) {
-  return [signed(n), signed(n, 0), signedBrief(n)].find(t => ems(t) * px <= room) ?? '';
+  return [signed(n), signed(n, 0), signedCompact(n)].find(t => ems(t) * px <= room) ?? signedCompact(n);
 }
 // On the tile↔card glide the figure travels with the matrix and grows from the tile's size to the card's (motion
 // layout, measured only when `at` changes), never shrinking first.
@@ -180,6 +180,8 @@ export default memo(function HeadToHead({
   // Tile↔card: the matrix grows as one piece; the names, logos and figures inside it travel with it at their own
   // size (motion layout corrects them for the matrix's scale), like Profiles' cells; the Total column fades in.
   const move = snap ? NONE : GLIDE;
+  // The tile's names open nothing of their own (the tile does): plain text, not an anchor without an href.
+  const Name = mini ? 'span' : 'a';
   return (
     // `adds`: All models' rows and columns fade in once, from here, as they first show (globals.css).
     <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : 'w-max'} ${extras ? 'adds' : ''}`}>{/* w-max: as wide as the grid, so the pinned names can follow a sideways scroll */}
@@ -193,9 +195,9 @@ export default memo(function HeadToHead({
           {/* Model names as in Profiles (14px bold; from md 500, 12px on the tile and 13px in the card: owner 2026-11-15, not
               bigger or bolder than at 67% zoom); the Leader on the highlight. */}
           {sorted.map(row => (
-            <a key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[13px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
+            <Name key={row.name} href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[13px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
               <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{row.name}</motion.span>
-            </a>
+            </Name>
           ))}
         </div>
         <motion.div ref={square} layout layoutDependency={mini} transition={move} className="shrink-0" style={{ width: Mw, height: `calc(${Mh} + ${strip}px)` }}>

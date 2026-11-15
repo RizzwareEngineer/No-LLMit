@@ -24,7 +24,7 @@ export default function SoundToggle() {
       type="button"
       onClick={() => setSoundOn(!on)}
       aria-pressed={on}
-      aria-label="Sounds"
+      data-sound // named by its visible word (Sound or Muted), so what voice control hears matches what shows
       title={on ? 'Sound on. Browsers start it after your first click or key press on the page.' : 'Sound off'}
       className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[14px] hover:bg-black/5"
       style={{ color: on ? 'rgb(55, 53, 47)' : MUTED }}

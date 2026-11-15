@@ -5,8 +5,8 @@ import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef,
 import PlaySoonButton from '@/components/PlaySoonButton';
 import { motion, useInView, useReducedMotion } from 'motion/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
-import { RATE_FROM, series } from '@/components/CumulativeChart';
-import { CARD, CARD_SHADOW, Segmented, TITLE } from '@/components/Section';
+import { RATE_FROM, series } from '@/lib/series';
+import { CARD, CARD_SHADOW, Segmented, TITLE } from '@/components/ui';
 import { BLUE, MIN_HANDS, MUTED, ModelStats, StatsResponse, TEXT, chips, netColor, seatedModels, signed, useStats } from '@/lib/stats';
 import { EXAMPLE_REPLY, EXAMPLE_USER_PROMPT, SYSTEM_PROMPT } from '@/lib/systemPrompt';
 import { joinWaitlist, waitlistCount } from '@/lib/waitlist';
@@ -244,10 +244,10 @@ const VIEWS: { label: string; value: View }[] = [{ label: 'System prompt', value
 
 function PromptLinks() {
   const [view, setView] = useState<View | null>(null);
-  const ref = useRef<HTMLDialogElement>(null);
+  const ref = useRef<HTMLDialogElement>(null), title = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     const d = ref.current;
-    if (view && !d?.open) d?.showModal();
+    if (view && !d?.open) { d?.showModal(); title.current?.focus(); }
     if (!view && d?.open) d.close();
     document.documentElement.toggleAttribute(HOLD, !!view);
   }, [view]);
@@ -279,20 +279,25 @@ function PromptLinks() {
         style={{ color: TEXT, boxShadow: 'rgba(15, 15, 15, 0.1) 0 0 0 1px, rgba(15, 15, 15, 0.2) 0 8px 24px' }}
       >
         <div className="flex flex-col max-h-[inherit] text-[16px] leading-normal">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 pt-4 pb-3 border-b" style={{ borderColor: RULE }}>
-            <h2 id="about-prompt-title" className={TITLE}>{view === 'user' ? 'The user prompt' : 'The system prompt'}</h2>
-            <div className="flex items-center gap-3">
-              <Segmented label="Show" options={VIEWS} value={view ?? 'system'} onChange={setView} />
-              <button onClick={close} aria-label="Close" className="p-1.5 -m-1 rounded hover:bg-[rgba(55,53,47,0.06)]">
+          {/* The title row: the title, and the close at the inner right edge (as the model drawer's); the switch on a row of
+              its own under it, so a narrow or zoomed window never wraps the close into the middle. */}
+          <div className="flex flex-col gap-3 px-5 pt-4 pb-3 border-b" style={{ borderColor: RULE }}>
+            <div className="flex items-start gap-3">
+              {/* Focused on open (tabIndex -1), so no switch segment starts out ringed as if chosen. */}
+              <h2 ref={title} tabIndex={-1} id="about-prompt-title" className={`flex-1 min-w-0 outline-none ${TITLE}`}>{view === 'user' ? 'The user prompt' : 'The system prompt'}</h2>
+              <button onClick={close} aria-label="Close" className="shrink-0 p-1.5 -m-1 rounded hover:bg-[rgba(55,53,47,0.06)]">
                 <X size={18} aria-hidden />
               </button>
             </div>
+            <Segmented label="Show" options={VIEWS} value={view ?? 'system'} onChange={setView} />
           </div>
-          <div className={`min-h-0 overflow-y-auto overscroll-contain px-5 py-4 flex flex-col gap-2 ${view === 'user' ? 'lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-6' : ''}`}>
+          <div tabIndex={0} role="region" aria-label={view === 'user' ? 'The user prompt' : 'The system prompt'} className={`min-h-0 overflow-y-auto overscroll-contain px-5 py-4 flex flex-col gap-2 outline-none ${view === 'user' ? 'lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-6' : ''}`}>
             {view === 'user' ? (
               <>
                 <div className="flex flex-col gap-2">
-                  <Label>What a model sees on its turn, sent right after the system prompt.</Label>
+                  {/* Headed like the reply, so both blocks start level side by side. */}
+                  <p className="font-bold">The prompt</p>
+                  <Label>Sent each turn, after the system prompt.</Label>
                   <Code>{EXAMPLE_USER_PROMPT}</Code>
                 </div>
                 <div className="flex flex-col gap-2 mt-2 lg:mt-0">
@@ -303,7 +308,7 @@ function PromptLinks() {
               </>
             ) : (
               <>
-                <Label>Every model gets exactly this at the start of every turn.</Label>
+                <Label>Sent to every model at the start of each turn.</Label>
                 <Code>{SYSTEM_PROMPT}</Code>
               </>
             )}
@@ -449,7 +454,7 @@ export function Race({ art, className = '' }: { art: string; className?: string 
             initial={{ opacity: reduce ? 1 : 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: reduce ? 0 : 0.6 + i * 0.05, duration: 0.3 }}
-            className="absolute right-0 -translate-y-1/2 rounded"
+            className="absolute right-0 -translate-y-1/2 rounded p-0.5"
             style={{ top: `${r.y * 100}%` }}
             onPointerEnter={e => atLogo(r.m.name, e.currentTarget)}
             onPointerDown={e => atLogo(r.m.name, e.currentTarget)}

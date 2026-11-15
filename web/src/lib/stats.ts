@@ -194,19 +194,23 @@ export const ciTitle = (m: ModelStats) => (m.bb100_ci ? `95% range: ${signed(m.b
 
 export const DASH = '—';
 
+// The site's one number format: thousands separators (as Profits & Losses), a true minus, `digits` decimals.
+export const grouped = (n: number, digits = 0) =>
+  Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
 export const signed = (n: number, digits = 1) =>
-  `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toFixed(digits)}`;
+  `${n > 0 ? '+' : n < 0 ? '−' : ''}${grouped(n, digits)}`;
 
-// A magnitude for a narrow cell: 12.3 below a thousand, 12.6k above, so it never needs clipping.
-const brief = (n: number, digits = 1) =>
-  Math.abs(n) < 1000 ? Math.abs(n).toFixed(digits) : Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase();
+// A figure for a narrow column: one decimal under 100, whole from 100 up, grouped (+12.3, +485, −1,306).
+export const signedBrief = (n: number) => signed(n, Math.abs(n) < 100 ? 1 : 0);
 
-// signed() in brief form: +12.3, −12.6k.
-export const signedBrief = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${brief(n)}`;
+// The last resort of a matrix cell too narrow for the grouped figure (+1.3k), so a value never goes blank.
+export const signedCompact = (n: number) =>
+  `${n > 0 ? '+' : n < 0 ? '−' : ''}${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase()}`;
 
-export const chips = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toLocaleString()}`;
+export const chips = (n: number) => signed(n, 0);
 
-export const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+export const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
 
 export const pct = (n: number | null) => (n === null ? DASH : `${Math.round(n * 100)}%`);
 

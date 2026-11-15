@@ -443,6 +443,8 @@ function Table() {
         covers a screen's edge. data-page: the page's one background (globals.css) behind every screen. */}
     <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: bar ? 'calc(40px + var(--tab-h))' : 'var(--tab-h)' }}>
       <main className="flex flex-col items-center-safe">
+      {/* Phones: the page's top heading (the desktop one sits in the header phones hide; the phone bar shows the name). */}
+      <h1 className="sr-only md:hidden">No-LLMit</h1>
       {/* Screen 1: the live table and nothing else. Each screen is a scroll-snap point (globals.css). */}
       {/* Phones: under the slim bar (PhoneBar) only the table and its caption fill the first screen (the header's rows are
           the bar's), Profits & Losses under them starts the stats (the tab bar's Stats): their own snap point,
@@ -458,7 +460,7 @@ function Table() {
             <Link
               href="/about"
               onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about'); } }}
-              className="hover:underline"
+              className="underline underline-offset-2 decoration-1 decoration-[rgba(31,111,196,0.4)]"
               style={{ color: BLUE }}
             >
               ⓘ About
@@ -570,8 +572,11 @@ function Table() {
       <script dangerouslySetInnerHTML={{ __html: BEFORE_PAINT }} />
       </main>
 
-      {desk && <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />}
-      {phone && <PhoneBar blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />}
+      {/* The status bars in a landmark of their own (their boxes are fixed: the header adds no box). */}
+      <header aria-label="Table status">
+        {desk && <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />}
+        {phone && <PhoneBar blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />}
+      </header>
       {phone && <TabBar tab={tab} onTab={onTab} />}
       {/* Phones: back to the table's top from anywhere below it (the Table tab does the same), 44px, over the tab bar's
           right end. Hidden (and out of the tab order) while the table shows, and on Trends, Profiles and Matchups, whose

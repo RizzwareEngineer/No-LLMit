@@ -921,7 +921,7 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
     return {
       // Beside the sound switch: the status row's on desktop, the phone bar's (its controls' row) on a phone, where only the
       // phone bar is mounted now (lib/layout: one layout's tree).
-      ok: !!(btn('Chips') && btn('BB')) && !!group.parentElement.closest('div')?.querySelector('button[aria-label="Sounds"]'),
+      ok: !!(btn('Chips') && btn('BB')) && !!group.parentElement.closest('div')?.querySelector('button[data-sound]'),
       pressed: group && btn('BB')?.getAttribute('aria-pressed') === 'true',
       amounts: [...sec.querySelectorAll('[data-chips]')].filter(vis).map(e => ({
         chips: +e.dataset.chips, text: (e.getAttribute('aria-label')?.replace(/^Pot /, '') ?? e.textContent).trim().replace(/^[+−-]/, ''),
@@ -2442,7 +2442,7 @@ group(() => check('history-overtake-sound', 'Trends overtakes sound through the 
     const before = await stretch();
     await p.keyboard.press('Shift'); await sleep(300); // the first trusted key press unlocks audio
     const on = await stretch();
-    await p.evaluate(() => document.querySelector('button[aria-label="Sounds"]').click()); await sleep(300); // mute
+    await p.evaluate(() => document.querySelector('button[data-sound]').click()); await sleep(300); // mute
     const muted = await stretch();
     const ok = before.sounds === 0 && on.sounds >= 1 && on.sounds <= on.events && !on.overlaps && muted.sounds === 0 && on.events > 0;
     return { pass: ok, detail: `before any key press: ${before.sounds} sounds over ${before.events} overtake frames; sound on: ${on.sounds} sounds over ${on.events} overtake frames, ${on.overlaps} overlapping; muted: ${muted.sounds} sounds over ${muted.events}` };

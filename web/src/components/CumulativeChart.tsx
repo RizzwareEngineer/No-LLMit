@@ -8,6 +8,9 @@ import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
 import { PLAY_MS, Timeline, playReplay, playedAt, replaySpeed, replayStarted, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
 import { playSound } from '@/lib/sound';
+import { RATE_FROM, series, type Metric } from '@/lib/series';
+
+export { RATE_FROM, series };
 
 const GRID = 'rgba(55, 53, 47, 0.12)';
 const AXIS = 'rgba(55, 53, 47, 0.75)'; // tick marks
@@ -82,21 +85,9 @@ function trace(pts: Pts, x0: number, x1: number, end = Infinity, to?: Pts, k = 1
 
 // The Race window choices: the last 100 or 1,000 hands, or all of them.
 const RANGES = [{ label: 'Last 100', n: 100 }, { label: 'Last 1k', n: 1000 }, { label: 'All', n: 0 }] as const;
-// A running bb/100 over a model's first hands is mostly noise. Trends draws each rate line from hand 0 but fits its
-// y axis to it only from this many hands on, so those early swings may sit clamped at the plot's edge.
-export const RATE_FROM = 20;
 
-type Metric = 'bb100' | 'chips' | 'bb';
 type License = 'all' | 'open' | 'closed';
 
-// A model's line in the plotted metric: running bb/100 (break-even at hand 0, where it has no rate yet), or
-// cumulative chips (or bb), as [hands played, value], from hand 0.
-export function series(m: ModelStats, metric: Metric, bigBlind = 1, ev = false): [number, number][] {
-  const curve = ev ? m.cumulative_aiev_bb ?? [] : m.cumulative_bb;
-  if (metric === 'bb100') return curve.map(([n, v]) => [n, n ? (v / n) * 100 : 0]);
-  const k = metric === 'chips' ? bigBlind : 1;
-  return curve.map(([n, v]) => [n, v * k]);
-}
 
 // A model's curve over hands played, moved onto table hands (the x axis Arena puts time on): the
 // hands it played between two profiles snapshots are spread evenly across them, as playedAt reads
@@ -685,7 +676,7 @@ export default function CumulativeChart({
         .map(t => ({ t, o: Math.min(t % st.step ? (playing ? (st.step - st.s0) / (st.step - st.finer) : 0) : 1, (X1 - t) / fadeW, X0 > from ? (t - X0) / fadeW : 1) }))
         .filter(d => d.o > 0.01)
     : blend(xTicksOf(wa[0], wa[1]), xTicksOf(wb[0], wb[1]), X0, X1, k);
-  const tick = (t: number) => (metric === 'chips' ? t.toLocaleString() : String(t)).replace('-', '−');
+  const tick = (t: number) => t.toLocaleString('en-US').replace('-', '−'); // grouped in both units, as every figure
   // Every line ends in a dot and a pill (rank, logo, name, value) just past it, Arena style. A tip
   // beyond the steady axis is pinned to its edge (an arrow instead of the dot). Pills that would
   // overlap stack apart in rank order and slide with their lines; a pill fades in as its line starts
@@ -956,7 +947,8 @@ export default function CumulativeChart({
               </div>
             </div>
             {/* One control per row, label above, every target at least 40px tall. */}
-            <div className="flex flex-col gap-3 [&_[role=group]_button]:min-h-10 [&_[role=group]_button]:px-3 [&_[role=group]]:flex-wrap">
+            {/* A switch's segments share its track evenly (native style), so no track is an empty grey band. */}
+            <div className="flex flex-col gap-3 [&_[role=group]_button]:min-h-10 [&_[role=group]_button]:px-3 [&_[role=group]]:flex-wrap [&_[data-seg]_button]:flex-1">
               <SheetRow label="Metric"><Segmented label="Metric" options={[{ label: 'bb/100', value: 'bb100' as const }, { label: 'Chips', value: 'chips' as const }]} value={metricPick} onChange={setMetric} /></SheetRow>
               <SheetRow label="Hands">
                 <Segmented label="Hands shown" options={RANGES.map(r => ({ label: r.label, value: r.n, disabled: r.n > 0 && r.n >= lastHand }))} value={range && range < lastHand ? range : 0} onChange={n => { setRange(n); setZoom(null); }} />
@@ -965,7 +957,8 @@ export default function CumulativeChart({
               <SheetRow label="License"><Segmented label="License" options={[{ label: 'All', value: 'all' as const }, { label: 'Open weights', value: 'open' as const }, { label: 'Proprietary', value: 'closed' as const }]} value={license} onChange={setLicense} /></SheetRow>
               <SheetRow label="Show"><Segmented label="Top models" options={[{ label: 'All', value: 0 }, { label: 'Top 5', value: 5 }]} value={top} onChange={setTop} /></SheetRow>
               <SheetRow label="All-in EV">
-                <Toggles label="All-in EV" title="Dashed lines: what each model would have won if every all-in were paid out by its odds at that moment. Solid above dashed means it ran lucky." items={[{ label: luck ? 'On' : 'Off', on: luck, toggle: () => setLuck(l => !l) }]} />
+                {/* A switch like its neighbours (Off | On), not a lone chip that does not say what a tap does. */}
+                <Segmented label="All-in EV" options={[{ label: 'Off', value: 0 }, { label: 'On', value: 1 }]} value={luck ? 1 : 0} onChange={v => setLuck(v === 1)} />
               </SheetRow>
               <SheetRow label="Family">
                 <Toggles label="Family" items={families.map(f => ({ label: f, on: fams.includes(f), disabled: !inPool.has(f) && !fams.includes(f), toggle: () => setFams(toggle(fams, f)) }))}>
@@ -1044,11 +1037,12 @@ export default function CumulativeChart({
           tabIndex={interactive && onSelect ? 0 : undefined}
           onKeyDown={interactive && onSelect ? onKey : undefined}
           onBlur={interactive ? () => setHover(null) : undefined}
-          role="img"
+          // A group, not an img: an img's children are presentational, and the plot holds real buttons (pills, markers).
+          role="group"
           aria-label={interactive && onSelect ? `${label} Left and right arrows step through the hands.` : label}
         >
           <div className="absolute left-0 top-0 origin-top-left" style={{ width: lw, height: lh, transform: s === 1 ? undefined : `scale(${s})` }}>
-            <svg className="absolute inset-0" width={lw} height={lh} viewBox={`0 0 ${lw} ${lh}`} aria-hidden>
+            <svg className="absolute inset-0" width={lw} height={lh} viewBox={`0 0 ${lw} ${lh}`} role="img" aria-label={label}>
               <defs><clipPath id={clipId}><rect x={left} y={padTop - 2} width={leadW} height={plotH + 4} /></clipPath></defs>
               {/* Axis titles: the unit above the y labels, the hands under the x labels. */}
               {/* One type for the chart's furniture: x and y ticks alike, both titles alike (13px, muted). */}
@@ -1067,7 +1061,7 @@ export default function CumulativeChart({
                 // A label fades out before it would reach past the plot into the pill column.
                 <g key={t} opacity={o}>
                   <line x1={x(t)} x2={x(t)} y1={padTop + plotH} y2={padTop + plotH + 4} stroke={AXIS} />
-                  <text x={x(t)} y={padTop + plotH + ts + 6} textAnchor="middle" fontSize={ts} fontWeight={400} fill={MUTED} className="tabular-nums" data-x-tick>{t.toLocaleString()}</text>
+                  <text x={x(t)} y={padTop + plotH + ts + 6} textAnchor="middle" fontSize={ts} fontWeight={400} fill={MUTED} className="tabular-nums" data-x-tick>{t.toLocaleString('en-US')}</text>
                 </g>
               ))}
               <g clipPath={`url(#${clipId})`}>
@@ -1240,7 +1234,7 @@ export default function CumulativeChart({
                   onPointerEnter={() => shownNow && onHighlight?.(m.name)}
                   onPointerLeave={() => onHighlight?.(undefined)}
                   aria-pressed={shownNow}
-                  className="flex items-center gap-1.5 rounded px-1 transition-opacity duration-300 hover:bg-[rgba(55,53,47,0.06)]"
+                  className="flex items-center gap-1.5 rounded px-1 max-md:min-h-6 transition-opacity duration-300 hover:bg-[rgba(55,53,47,0.06)]"
                   style={{ color: shownNow ? TEXT : MUTED, textDecoration: shownNow ? undefined : 'line-through', opacity: shownNow && !inView ? 0.4 : 1 }}
                 >
                   <span aria-hidden className="inline-block w-3 h-[3px] rounded-full" style={{ background: shownNow ? modelColor(m.name) : 'rgba(55, 53, 47, 0.25)' }} />

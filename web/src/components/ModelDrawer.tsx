@@ -6,7 +6,7 @@ import LLMLogo from '@/components/LLMLogo';
 import CumulativeChart from '@/components/CumulativeChart';
 import { missPct } from '@/components/StatsTable';
 import { SmallSampleNote, StatsMessage } from '@/components/StatsPanel';
-import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, ciHalf, modelHref, modelSlug, netColor, pct, signed, chips } from '@/lib/stats';
+import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, ciHalf, modelHref, modelSlug, netColor, pct, signed, chips, grouped } from '@/lib/stats';
 
 const POSITION_ORDER = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']; // the engine's names, in seat order
 
@@ -140,7 +140,7 @@ export default function ModelDrawer({
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3">
               <Fact
                 label="bb/100"
-                value={<>{signed(m.bb100)} <span className="font-normal text-[13px]" style={{ color: MUTED }}>± {ciHalf(m)?.toFixed(1) ?? DASH}</span></>}
+                value={<>{signed(m.bb100)} <span className="font-normal text-[13px]" style={{ color: MUTED }}>±{ciHalf(m) === null ? DASH : grouped(ciHalf(m)!, 1)}</span></>}
                 color={netColor(m.bb100)}
               />
               <Fact label="Hands" value={m.hands.toLocaleString()} />
