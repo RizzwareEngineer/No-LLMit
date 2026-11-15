@@ -142,7 +142,8 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           {logo ? <img src={logo} alt="" width={28} height={28} /> : <span className="text-[13px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{player.name.slice(0, 2).toUpperCase()}</span>}
         </a>
         {position && (
-          <div data-position title={getPositionFullName(position)} className={`absolute pointer-events-auto rounded text-[11px] leading-4 font-bold whitespace-nowrap text-center ${positionColor}`}
+          // A tap on the chip (over the logo's lower edge) opens the seat's stats as a tap on the logo does.
+          <div data-position title={getPositionFullName(position)} onClick={onOpen} className={`absolute pointer-events-auto rounded text-[11px] leading-4 font-bold whitespace-nowrap text-center ${positionColor}`}
             style={{ left: ox - CHIP_W / 2, top: oy + 11, width: CHIP_W, height: 16, boxShadow: '0 0 0 1.5px white' }}>
             {position}
           </div>
