@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
-import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
+import { ArrowDown, ArrowUp, CircleNotch } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
@@ -505,6 +505,18 @@ function Table() {
       <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />
       <PhoneBar blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />
       <TabBar tab={tab} onTab={onTab} />
+      {/* Phones: back to the table's top from anywhere below it (the Table tab does the same), 44px, over the tab bar's
+          right end. Hidden (and out of the tab order) while the table shows. */}
+      <button
+        type="button"
+        onClick={() => onTab('table')}
+        aria-label="Back to the table"
+        inert={tableInView}
+        className={`md:hidden fixed z-40 right-[calc(12px+env(safe-area-inset-right))] bottom-[calc(var(--bar-h)+12px)] size-11 rounded-full border bg-white/95 backdrop-blur-md shadow-md flex items-center justify-center motion-safe:transition-[opacity,transform] motion-safe:duration-200 ${tableInView ? 'opacity-0 translate-y-2 pointer-events-none' : 'opacity-100'}`}
+        style={{ color: 'rgb(55, 53, 47)', borderColor: 'rgba(55, 53, 47, 0.16)' }}
+      >
+        <ArrowUp size={20} weight="bold" aria-hidden />
+      </button>
       <ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} />
 
       {/* Fixed notification bar for connection status */}
