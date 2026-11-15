@@ -199,7 +199,8 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
   const toggle = 'text-[14px] font-medium hover:underline'; // controls: 14px medium, like Open ↓ and the segmented buttons
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
+    // `adds`: the extra cells of each row fade in once per open, from here (globals.css), not again when a re-sort moves a row.
+    <div className={`flex-1 min-h-0 flex flex-col ${mini ? '' : 'adds'}`}>
       <div className={`@container relative min-w-0 ${mini ? '' : 'max-md:overflow-x-auto'}`}>
         <Grid groups={mini ? MINI : GROUPS} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={!mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} picked={picked} onPick={isolate} mini={mini} snap={snap} />
       </div>
@@ -365,7 +366,7 @@ function Grid({
         </Glides>
       </th>
       {columns.map(c => (
-        <td key={c.key} className={`${cell} ${added(c)} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
+        <td key={c.key} className={`${cell} ${added(c) && 'add-in add-moves'} relative text-right whitespace-nowrap`} style={{ background: i === null ? undefined : shade(c, i) }}>
           <Glides at={at} move={move}>{c === BB100 ? <Bb100 m={m} /> : <>{i !== null && mark(c, m)}{c.render(m)}</>}</Glides>
         </td>
       ))}
@@ -401,7 +402,7 @@ function Grid({
         {noHands.map(name => (
           <tr key={name} className={rowH}>
             <th scope="row" className={nameCell}><Name name={name} mini={mini} /></th>
-            {columns.map(c => <td key={c.key} className={`${cell} ${added(c)} text-right`} style={{ color: MUTED }}>{DASH}</td>)}
+            {columns.map(c => <td key={c.key} className={`${cell} ${added(c) && 'add-in add-moves'} text-right`} style={{ color: MUTED }}>{DASH}</td>)}
           </tr>
         ))}
       </tbody>

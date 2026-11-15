@@ -1,7 +1,7 @@
 'use client';
 
 import { useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AnimatePresence, MotionConfig, PresenceContext, motion, usePresence } from 'motion/react';
+import { AnimatePresence, MotionConfig, PresenceContext, cubicBezier, motion, usePresence } from 'motion/react';
 import { BLUE, MUTED, TEXT } from '@/lib/stats';
 import { useRememberedBox } from '@/lib/boxes';
 
@@ -135,7 +135,11 @@ export function StatsZoom({ children }: { children: React.ReactNode }) {
 
 // The glide between a tile and its screen's card: ease-out, half a second.
 export const GLIDE_MS = 500;
-export const GLIDE = { duration: GLIDE_MS / 1000, ease: [0.22, 1, 0.36, 1] } as const;
+// Its last ~60 ms are under 3/10,000 of the way from rest (under 0.3px on the widest glide): drawn there, text raster under
+// that leftover transform came out softer than the same text at rest, so the frame before a hand-over (often the glide's
+// last step: a busy machine drops the landed frame) differed from the card in the title and names. Those frames draw at rest.
+const glideEase = cubicBezier(0.22, 1, 0.36, 1);
+export const GLIDE = { duration: GLIDE_MS / 1000, ease: (t: number) => { const v = glideEase(t); return v > 1 - 3e-4 ? 1 : v; } } as const;
 export const NONE = { duration: 0 } as const;
 // What a card adds to its tile (and the header extras) fades in just after the glide starts, and out quickly.
 // OUT and IN are globals.css' add-out and add-in, which must keep their times.
@@ -297,7 +301,8 @@ function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean;
     else if (at.current !== null) el.style.left = `${at.current - box.offsetLeft}px`;
   });
   return (
-    <motion.div ref={ref} initial={false} animate={shown ? { opacity: 1, transition: snap ? NONE : IN } : { opacity: 0, transition: OUT }} onAnimationComplete={() => !present && safeToRemove?.()} className={present ? '' : `absolute ${stay ? '' : 'right-0'} inset-y-0 flex items-center`}>
+    // A variable, not opacity, fades (globals.css' add-in): an opacity fade leaves its text in a layer of its own a while after.
+    <motion.div ref={ref} initial={false} animate={shown ? { '--fade': 1, transition: snap ? NONE : IN } : { '--fade': 0, transition: OUT }} onAnimationComplete={() => !present && safeToRemove?.()} className={present ? '' : `absolute ${stay ? '' : 'right-0'} inset-y-0 flex items-center`} style={{ opacity: 'var(--fade)' }}>
       {children}
     </motion.div>
   );
@@ -305,7 +310,7 @@ function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean;
 
 // Something the card adds around its tile's content: fades in as the tile glides open (nothing when `still`).
 export function Added({ still = false, className, style, children }: { still?: boolean; className?: string; style?: React.CSSProperties; children: React.ReactNode }) {
-  return <motion.div initial={still ? false : { opacity: 0 }} animate={{ opacity: 1, transition: IN }} className={`added ${className ?? ''}`} style={style}>{children}</motion.div>;
+  return <motion.div initial={still ? false : { '--fade': 0 }} animate={{ '--fade': 1, transition: IN }} className={`added ${className ?? ''}`} style={{ ...style, opacity: 'var(--fade)' }}>{children}</motion.div>;
 }
 
 export const SHADOW = 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px';
