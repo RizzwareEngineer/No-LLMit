@@ -56,6 +56,18 @@ export default function HoleCard({ value, faceUp, peek = false, fade = false, sl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [faceUp, at, variant]);
 
+  // The layout changed under a card at rest (a phone turned to landscape crosses 768px mid-hand): it takes the new
+  // layout's pose for its face, as if it had been dealt there.
+  const sized = useRef({ fade, w });
+  useEffect(() => {
+    if (sized.current.fade === fade && sized.current.w === w) return;
+    sized.current = { fade, w };
+    if (at !== undefined) return;
+    cover.set(0);
+    show(faceUp ? up : down(lay));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fade, w]);
+
   return (
     <motion.div className={`relative ${className}`} style={{ zIndex: z, perspective: 1000, perspectiveOrigin: `${slot ? -GAP / 2 : w + GAP / 2}px 50%` }}>
       <motion.div data-lay className="absolute inset-0" style={{ transform, transformStyle: 'preserve-3d' }}>
