@@ -1,13 +1,17 @@
-// A hole card's pose on the felt, as one rigid transform (HoleCard). Owner, 2026-11-14, on how a player peeks: the cards
-// land in front of the player at random angles, "the player will then stack the cards on top of each other so they line
-// up", "they then turn the cards horizontally, and then, from the side that's closest to the player, they'll peel the
-// cards up", "diagonally left and up"; "once we've seen that, you can flip them on their backs, continuing the peel-up
-// motion after you pause for a bit"; "stop distorting the cards. They need to be proportional."
-// So: stacked, turned a quarter counterclockwise (the card's left long side is then the near, bottom, edge and its top-left
-// corner the near-left one), lifted as a whole about a hinge through the far-right corner, tilted so the near-left
-// corner rises most, the second sliding out from under the first so both corners show, held, then turned on over the same hinge to lie
-// face up, and righted into their slots. Only rotations and translations of whole cards: no scale, skew or bend.
+// A hole card's pose on the felt, as one rigid transform (HoleCard). Owner, 2026-11-14: the cards land in front of the
+// player at random angles, are stacked, "turn the cards horizontally", and peeled up; "stop distorting the cards". Owner,
+// 2026-11-15, on the peel lab: "we peel from the bottom-right corners and then we peel all the way up. Pause the moment we
+// can see what's in the middle"; "the cards are still sideways, and they're still a bit slanted, but the text itself
+// shouldn't be able to distort anymore"; and a second route: "we just get the cards, then we stack them on top of each
+// other vertically, and then we flip them over". Both are here, picked by ?peel=a (the default) or ?peel=b:
+// A: stacked, turned a quarter counterclockwise, lifted as a whole about a hinge through the far-left corner (leaning so
+// the near-right corner rises first) and turned on all the way over, the second card sliding out from under the first so
+// both middles show, held flat towards the viewer (sideways, a little slanted), then righted into their slots.
+// B: stacked upright, the stack turned over about its upright middle line (one rigid turn), held a moment, then slid into
+// the slots. The card's face is always the plain one (Card): rank and suit in the middle. Only rotations and translations
+// of whole cards: no scale, skew or bend.
 
+export type Variant = 'a' | 'b';
 export type Pose = {
   x: number; y: number; // px from the card's slot
   r: number; // degrees in the felt's plane, clockwise
@@ -15,74 +19,93 @@ export type Pose = {
   slide: number; // px along the card's long side, in its own plane (the second card's spread)
   side: number; // px along the card's short side, in its own plane (the second card's spread)
   flip: number; // degrees about the card's upright middle line: 180 face down, 0 face up
-  index: number; // the corner index's opacity (drawn only for the peek)
 };
 export type Lay = { x: number; y: number; rotate: number };
 
 export const GAP = 4; // px between the two slots: Player's gap-1
-export const TILT = 12; // degrees the hinge leans from the card's long side, so the near-left corner rises most
-export const HOLD_LIFT = 135; // degrees lifted at the hold: past upright, the faces towards a viewer above
-// As the stack lifts, the second card slides from under the first in their shared plane (never turning apart: one
-// rotation for both), by these shares of the card's width: along the long side past the first's corner, and a little along
-// the short side, so at the hold its index shows beside and below the first's (the owner's photo: the A above the K).
-export const SLIDE = -0.45, SIDE = 0.55;
-// As it lifts, the stack moves toward the player by this share of the card's width at a half turn, so the faces, which rise
-// past the hinge, stay inside the seat (the hinge's lean already carries the lifted corner to the left; on the phone ring
-// the seat's text is just left of the cards, so nothing more leftward).
-export const SINK = 1;
-// Degrees the corner index is turned on the face so it reads upright at the hold (the peel lab's poses show it).
-export const INDEX_TURN = 60;
-// Seconds: the steps' ends. Stacked, turned, lifted, held, turned over, righted.
-export const STEPS = [0.35, 0.75, 1.15, 1.95, 2.25, 2.6] as const;
-export const SHOW = STEPS[5];
+// Degrees the hinge leans from the card's long side: the far end of the near side (the bottom-right corner, sideways)
+// rises first, so the peel starts at that corner.
+export const TILT = 14;
+const AX = -1, AY = -1; // the axis's sense: the card rises towards the viewer
+// At the hold the second card lies this share of the card's width along its long side and its short side from the first
+// (in their shared plane, never turning apart): sideways, to the right of and below the first, so both middles show.
+export const SLIDE = -0.95, SIDE = -0.2;
+// Seconds: the steps' ends. A: stacked, turned, lifted all the way over, held, righted. B: stacked, turned over, held, slid.
+export const STEPS = { a: [0.35, 0.75, 1.5, 2.3, 2.9], b: [0.4, 0.95, 1.25, 1.8] } as const;
+export const SHOWS = { a: STEPS.a[4], b: STEPS.b[3] } as const;
 export const TURN = 0.5; // seconds: a card turning over at the hand's end
+export const FADE = 0.25; // seconds: a phone's cards fading face up
+
+// The variant the page asked for (?peel=b), else A.
+export const variantNow = (): Variant => (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('peel') === 'b' ? 'b' : 'a');
 
 const rad = (d: number) => (d * Math.PI) / 180;
 const ease = (u: number) => (u < 0.5 ? 4 * u ** 3 : 1 - (2 - 2 * u) ** 3 / 2);
 const step = (t: number, a: number, b: number) => ease(Math.min(1, Math.max(0, (t - a) / (b - a))));
 const mix = (a: number, b: number, u: number) => a + (b - a) * u;
 
-export const REST: Pose = { x: 0, y: 0, r: 0, lift: 0, slide: 0, side: 0, flip: 0, index: 0 };
-export const down = (lay: Lay): Pose => ({ x: lay.x, y: lay.y, r: lay.rotate, lift: 0, slide: 0, side: 0, flip: 180, index: 0 });
+export const REST: Pose = { x: 0, y: 0, r: 0, lift: 0, slide: 0, side: 0, flip: 0 };
+export const down = (lay: Lay): Pose => ({ x: lay.x, y: lay.y, r: lay.rotate, lift: 0, slide: 0, side: 0, flip: 180 });
 export const between = (a: Pose, b: Pose, u: number): Pose => ({
-  x: mix(a.x, b.x, u), y: mix(a.y, b.y, u), r: mix(a.r, b.r, u), lift: mix(a.lift, b.lift, u), slide: mix(a.slide, b.slide, u), side: mix(a.side, b.side, u), flip: mix(a.flip, b.flip, u), index: mix(a.index, b.index, u),
+  x: mix(a.x, b.x, u), y: mix(a.y, b.y, u), r: mix(a.r, b.r, u), lift: mix(a.lift, b.lift, u), slide: mix(a.slide, b.slide, u), side: mix(a.side, b.side, u), flip: mix(a.flip, b.flip, u),
 });
 
-// The peek at `t` seconds, for the card in `slot` (0 the first dealt, 1 the second, on top) `w` px wide, landed at `lay`.
-export function peekPose(t: number, slot: 0 | 1, w: number, lay: Lay, h = w / 0.7): Pose {
+// The peek at `t` seconds, for the card in `slot` (0 the first dealt, 1 the second, on top) `w` x `h` px, landed at `lay`.
+export function peekPose(t: number, slot: 0 | 1, w: number, lay: Lay, h = w / 0.7, variant: Variant = 'a'): Pose {
   const cx = (slot ? -1 : 1) * (w + GAP) / 2; // the middle of the two slots, from this one
-  const [a, b, c, d, e] = STEPS;
-  const stacked = step(t, 0, a), turned = step(t, a, b), lifted = step(t, b, c), over = step(t, d, e);
-  // Righted: first turned upright where the stack lies, then each card slid into its slot, so no corner swings out of the
-  // two slots' space as it turns.
-  const upright = step(t, e, e + 0.6 * (SHOW - e)), home = step(t, e + 0.4 * (SHOW - e), SHOW);
-  const spread = slot ? lifted - over : 0, lift = HOLD_LIFT * lifted + (180 - HOLD_LIFT) * over;
-  const p: Pose = {
-    x: mix(lay.x, cx, stacked), y: mix(lay.y, 0, stacked) + SINK * w * (1 - Math.cos(rad(lift))) / 2, r: mix(lay.rotate, 0, stacked) - 90 * turned,
-    lift, slide: SLIDE * w * spread, side: SIDE * w * spread, flip: 180, index: 1 - step(t, d, e),
-  };
-  // While it turns over, the stack also moves so that, face up, it lies on the middle of the two slots.
-  const to = flatOf({ ...p, x: cx, y: SINK * w, r: -90, lift: 180, slide: 0, side: 0 }, w, h);
-  p.x += over * (cx - to.x); p.y -= over * to.y;
-  if (t <= e) return p;
-  // Turned over, the card lies face up: the same place as a flat pose (two half turns about lines in the felt's plane make
-  // one turn in it), from which it is righted into its slot.
-  const flat = flatOf(p, w, h);
-  return { x: mix(flat.x, 0, home), y: mix(flat.y, 0, home), r: mix(flat.r, 0, upright), lift: 0, slide: 0, side: 0, flip: 0, index: p.index };
+  if (variant === 'b') {
+    const [a, b, c, d] = STEPS.b, stacked = step(t, 0, a), over = step(t, a, b), home = step(t, c, d);
+    return { x: mix(mix(lay.x, cx, stacked), 0, home), y: mix(lay.y, 0, stacked), r: mix(lay.rotate, 0, stacked), lift: 0, slide: 0, side: 0, flip: 180 * (1 - over) };
+  }
+  const [a, b, c, d, e] = STEPS.a;
+  const stacked = step(t, 0, a), turned = step(t, a, b), lifted = step(t, b, c);
+  const lift = 180 * lifted, spread = slot ? lifted : 0;
+  const p: Pose = { x: mix(lay.x, cx, stacked), y: mix(lay.y, 0, stacked), r: mix(lay.rotate, 0, stacked) + 90 * turned, lift, slide: SLIDE * w * spread, side: SIDE * w * spread, flip: 180 };
+  // As it turns over, the stack moves so that, face up, the pair lies on the middle of the two slots (the turn about the
+  // hinge carries it past the hinge): by the share of that move the turn has made.
+  const to = overMiddle(w, h);
+  const share = (1 - Math.cos(rad(lift))) / 2;
+  p.x -= share * to.x; p.y -= share * to.y;
+  if (t <= d) return p;
+  // Turned over, the card lies face up: the same place as a flat pose, from which it is righted (turned upright where it
+  // lies, then slid into its slot, the two overlapping).
+  const flat = flatOf(p, w, h), upright = step(t, d, d + 0.6 * (e - d)), home = step(t, d + 0.35 * (e - d), e);
+  return { x: mix(flat.x, 0, home), y: mix(flat.y, 0, home), r: mix(flat.r, 0, upright), lift: 0, slide: 0, side: 0, flip: 0 };
 }
 
-// A pose turned over (lift 180, flip 180, no spread) as the flat face-up pose it equals: the half turn about the card's middle
-// line then the half turn about the hinge are one turn of 2 x TILT about the point where the two lines cross.
+// Where the pair's middle (both cards' middles' mean, from the slots' middle) would lie turned over, stacked on the slots'
+// middle: the turned-over pair is moved back by this, both cards alike.
+function overMiddle(w: number, h: number) {
+  const g = (w + GAP) / 2, one = (slot: 0 | 1) => flatOf({ x: slot ? -g : g, y: 0, r: 90, lift: 180, slide: slot ? SLIDE * w : 0, side: slot ? SIDE * w : 0, flip: 180 }, w, h);
+  const a = one(0), b = one(1);
+  return { x: (a.x - g + b.x + g) / 2, y: (a.y + b.y) / 2 };
+}
+
+// 4x4 matrices, column vectors, as CSS composes a transform list.
+type M = number[][];
+const mul = (a: M, b: M): M => a.map((row, i) => row.map((_, j) => row.reduce((s, _, k) => s + a[i][k] * b[k][j], 0)));
+const tr = (x: number, y: number): M => [[1, 0, 0, x], [0, 1, 0, y], [0, 0, 1, 0], [0, 0, 0, 1]];
+const rz = (d: number): M => { const c = Math.cos(rad(d)), s = Math.sin(rad(d)); return [[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]; };
+const rot = (x: number, y: number, d: number): M => { // about the in-plane unit axis (x, y)
+  const c = Math.cos(rad(d)), s = Math.sin(rad(d)), t = 1 - c;
+  return [[t * x * x + c, t * x * y, s * y, 0], [t * x * y, t * y * y + c, -s * x, 0], [-s * y, s * x, c, 0], [0, 0, 0, 1]];
+};
+// The hinge: through the card's top-right corner (the far-left one once turned), its axis the long side leant TILT.
+const hinge = (w: number, h: number) => ({ hx: -w / 2, hy: h / 2, ax: AX * Math.sin(rad(TILT)), ay: AY * Math.cos(rad(TILT)) });
+export function matrixOf(p: Pose, w: number, h = w / 0.7): M {
+  const { hx, hy, ax, ay } = hinge(w, h);
+  return [tr(p.x, p.y), rz(p.r), tr(hx, hy), rot(ax, ay, p.lift), tr(p.side - hx, p.slide - hy), rot(0, 1, p.flip)].reduce(mul);
+}
+
+// A pose that lies flat face up (lift and flip both 0 or both 180: two half turns about lines in the felt's plane make one
+// turn in it) as the plain flat pose it equals.
 export function flatOf(p: Pose, w: number, h: number): Pose {
-  const s = rad(TILT), cross = h / 2 + (w / 2) / Math.tan(s); // on the middle line, below the card
-  const turn = (deg: number, x: number, y: number) => [x * Math.cos(rad(deg)) - y * Math.sin(rad(deg)), x * Math.sin(rad(deg)) + y * Math.cos(rad(deg))];
-  const r = p.r + 2 * TILT, [ax, ay] = turn(p.r, 0, cross), [bx, by] = turn(r, 0, cross);
-  return { x: p.x + ax - bx, y: p.y + ay - by, r, lift: 0, slide: 0, side: 0, flip: 0, index: 0 };
+  const m = matrixOf(p, w, h);
+  return { x: m[0][3], y: m[1][3], r: (Math.atan2(m[1][0], m[0][0]) * 180) / Math.PI, lift: 0, slide: 0, side: 0, flip: 0 };
 }
 
-// The CSS transform, about the card's middle, for a card `w` x `h` px. The hinge runs through the card's bottom-right
-// corner (the far-right one once it is turned), leaning TILT from its long side.
+// The CSS transform, about the card's middle, for a card `w` x `h` px.
 export function css(p: Pose, w: number, h = w / 0.7) {
-  const s = rad(TILT), f = (n: number) => +n.toFixed(3);
-  return `translate(${f(p.x)}px, ${f(p.y)}px) rotate(${f(p.r)}deg) translate(${f(w / 2)}px, ${f(h / 2)}px) rotate3d(${f(-Math.sin(s))}, ${f(Math.cos(s))}, 0, ${f(p.lift)}deg) translate(${f(p.side - w / 2)}px, ${f(p.slide - h / 2)}px) rotateY(${f(p.flip)}deg)`;
+  const { hx, hy, ax, ay } = hinge(w, h), f = (n: number) => +n.toFixed(3);
+  return `translate(${f(p.x)}px, ${f(p.y)}px) rotate(${f(p.r)}deg) translate(${f(hx)}px, ${f(hy)}px) rotate3d(${f(ax)}, ${f(ay)}, 0, ${f(p.lift)}deg) translate(${f(p.side - hx)}px, ${f(p.slide - hy)}px) rotateY(${f(p.flip)}deg)`;
 }
