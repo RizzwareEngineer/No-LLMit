@@ -1045,7 +1045,7 @@ const lifted = c => Math.abs(c.turn) < 0.999;
 // motion: the faces switch with no frame between and nothing lifts. Live engine: a reload mid-hand, once a seat has had its
 // turn and one has not: the first frame with the cards drawn (faded in) shows the snapshot's peeked seats up and upright and
 // the rest down, and after it nothing moves but the one seat whose turn may come.
-group(() => check('table-hole-peel', 'Hole cards land face down at random angles (two per seat, per seat, per hand); on a seat\'s first turn, at 1440x900 (40x56): route A (?peel=a) lines its two cards up in one stack, turns it a quarter clockwise, lifts it as one piece from the near-right corner all the way over, holds both faces flat, sideways and slanted with both middles (rank and suit) showing, then rights them face up, upright and side by side; route B (?peel=b) stacks them upright, turns the stack over as one, and slides them side by side; on a phone (390x844) the faces fade in where the cards landed, with no lift and no turn; rigid and inside the seat and off its text throughout; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no motion; reduced motion switches faces with no motion', async () => {
+group(() => check('table-hole-peel', 'Hole cards land face down at random angles (two per seat, per seat, per hand); on a seat\'s first turn, at 1440x900 (40x56): route A (the plain URL viewers load, the default) lines its two cards up in one stack, turns it a quarter clockwise, lifts it as one piece from the near-right corner all the way over, holds both faces flat, sideways and slanted with both middles (rank and suit) showing, then rights them face up, upright and side by side; route B (?peel=b) stacks them upright, turns the stack over as one, and slides them side by side; on a phone (390x844) the faces fade in where the cards landed, with no lift and no turn; rigid and inside the seat and off its text throughout; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no motion; reduced motion switches faces with no motion', async () => {
   const bad = [], seen = [], degs = a => a.map(d => `${d.toFixed(1)}°`).join(' and ');
   const run = async (w, h, reduced, query = '') => {
     const tag = `${w}x${h}${query}${reduced ? ' reduced motion' : ''}: `, settle = reduced ? 1100 : 3400; // the peek takes 2.9 s
@@ -1149,7 +1149,7 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
       if (!reduced && kind === 'a' && held < 700) bad.push(`${tag}turn with the deal: seat ${c} held ${held} ms`);
     } finally { await p.close(); }
   };
-  for (const [w, h, reduced, query] of [[1440, 900, false, '?peel=a'], [1440, 900, false, '?peel=b'], [390, 844, false], [1440, 900, true], [390, 844, true]]) await run(w, h, reduced, query);
+  for (const [w, h, reduced, query] of [[1440, 900, false, ''], [1440, 900, false, '?peel=b'], [390, 844, false], [1440, 900, true], [390, 844, true]]) await run(w, h, reduced, query);
   // Live: reload until the snapshot has a seat that has had its turn and one that has not.
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   try {
