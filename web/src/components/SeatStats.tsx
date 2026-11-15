@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRight, X } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
@@ -11,7 +11,7 @@ import { DASH, MUTED, ModelStats, TEXT, BLUE, chips, ciHalf, netColor, signed } 
 // icon, they should be able to see the basic stats: BB, 100 hands, net, and all-in EV. For the more stats, they should
 // be prompted to go to the stats page"). The drawer's four facts (ModelDrawer), the seat's card look, and More stats,
 // which closes it and goes to the Stats tab. A tap outside, the close button, Escape or a scroll closes it; focus moves
-// in and back. On the page's top layer (a portal, z-50: over TableMotion's flying chips and cards), centred on `at`,
+// in and back. On the page's top layer (a portal, z-50: over TableMotion's flying chips and cards), centred on `at` (moved in to fit),
 // the table's middle in the window.
 export default function SeatStats({ name, stats: m, at, onClose }: { name: string; stats?: ModelStats; at: { x: number; y: number }; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -23,6 +23,15 @@ export default function SeatStats({ name, stats: m, at, onClose }: { name: strin
     window.addEventListener('scroll', onClose, { passive: true });
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('scroll', onClose); back?.focus?.({ preventScroll: true }); };
   }, [onClose]);
+  // Wholly inside the window, 8px clear, at any zoom: centred on `at` where it fits, else moved in (a short window, high
+  // zoom: the table's middle can sit near the window's bottom); taller than the window, it scrolls inside itself.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const h = el.offsetHeight, w = el.offsetWidth, H = window.innerHeight, W = document.documentElement.clientWidth;
+    el.style.top = `${Math.max(8, Math.min(at.y - h / 2, H - h - 8))}px`;
+    el.style.left = `${Math.max(8, Math.min(at.x - w / 2, W - w - 8))}px`;
+  }, [at]);
   const fact = (label: string, value: React.ReactNode, color?: string) => (
     <div>
       <dt className="text-[11px] uppercase tracking-wider" style={{ color: MUTED }}>{label}</dt>
@@ -38,8 +47,8 @@ export default function SeatStats({ name, stats: m, at, onClose }: { name: strin
         role="dialog"
         aria-labelledby="seat-stats-title"
         tabIndex={-1}
-        className="fixed z-50 -translate-x-1/2 -translate-y-1/2 w-[min(300px,calc(100vw-48px))] rounded bg-white p-3 outline-none motion-safe:animate-[pop_160ms_ease-out]"
-        style={{ left: at.x, top: at.y, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.12) 0px 6px 20px' }}
+        className="fixed z-50 w-[min(300px,calc(100vw-48px))] max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain rounded bg-white p-3 outline-none motion-safe:animate-[pop_160ms_ease-out]"
+        style={{ left: at.x - 150, top: at.y - 100, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.12) 0px 6px 20px' }}
       >
         <div className="flex items-center gap-2">
           <LLMLogo model={name} size={24} />
