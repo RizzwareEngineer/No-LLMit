@@ -4168,7 +4168,7 @@ group(() => check('about-dial-touch-motion', 'At 390x844 with touch, one vertica
 // Every line of the API usage card fits on one line (owner's rule: UI text fits one line); the mock provider's test-mode
 // line wrapped "called" onto a second line at 1440x900.
 // Owner, 2026-11-15: "For the mobile view, we don't actually need to show the API usage, just the profits and losses."
-group(() => check('usage-card-one-line', 'At 1440x900 and 1728x1117 every text line in the API usage card sits on one line; at 390x844 there is no API usage card and Profits & Losses is shown', async () => {
+group(() => check('usage-card-one-line', 'At 1440x900 and 1728x1117 every text line in the API usage card sits on one line; at 390x844 there is no API usage card and Profits & Losses shows every seat\'s row (2 at least) unclipped and unscrolled', async () => {
   const bad = [], seen = [];
   {
     const p = await newPage(); await p.setViewport({ width: 390, height: 844 });
@@ -4178,12 +4178,17 @@ group(() => check('usage-card-one-line', 'At 1440x900 and 1728x1117 every text l
     const r = await p.evaluate(() => {
       const vis = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
       const usage = [...document.querySelectorAll('#table a[href*="github.com/sponsors"]')].some(vis) || [...document.querySelectorAll('#table h2, #table h3, #table span')].some(e => /^API usage/i.test(e.textContent.trim()) && vis(e));
-      const pnl = [...document.querySelectorAll('#table h2')].some(e => /Profits/.test(e.textContent) && vis(e));
-      return { usage, pnl };
+      const head = [...document.querySelectorAll('#table h2')].find(e => /Profits/.test(e.textContent) && vis(e));
+      // Profits & Losses shows every seat's row unclipped and unscrolled (as donate-apparent checked here with the usage card).
+      const list = head?.closest('.rounded')?.querySelector('ol'), scroller = list?.parentElement, pb = scroller?.getBoundingClientRect();
+      const rows = list ? [...list.children] : [];
+      const cut = rows.filter(li => { const q = li.getBoundingClientRect(); return q.top < pb.top - 1 || q.bottom > pb.bottom + 1; }).length;
+      return { usage, pnl: !!head, rows: rows.length, cut, scrolls: scroller ? scroller.scrollHeight > scroller.clientHeight + 1 : true };
     });
     if (r.usage) bad.push('390x844: the API usage card is shown');
     if (!r.pnl) bad.push('390x844: no Profits & Losses');
-    seen.push(`390x844: ${r.usage ? 'usage card' : 'no usage card'}, ${r.pnl ? 'P&L shown' : 'no P&L'}`);
+    if (r.rows < 2 || r.cut || r.scrolls) bad.push(`390x844: Profits & Losses ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
+    seen.push(`390x844: ${r.usage ? 'usage card' : 'no usage card'}, ${r.pnl ? 'P&L shown' : 'no P&L'}, ${r.rows} rows, ${r.cut} cut${r.scrolls ? ', scrolls' : ''}`);
     await p.close();
   }
   for (const [w, h] of [[1440, 900], [1728, 1117]]) {
