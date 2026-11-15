@@ -13,12 +13,15 @@ export const FELT = { side: 30, top: 40, bottom: 60 } as const;
 export const LOGO = 48;
 // The pot's top from the felt's middle (px): the pot (30px), then the board (42px cards) from 2px over the middle.
 export const POT_TOP = -36;
+// The deck between hands (TableMotion's shuffle), board-card size: over the pot, never over it or the board (owner
+// 2026-11-15: "the shuffle deck should not be in front of the pot count"). Its top from the felt's middle (px).
+export const DECK = { w: 30, h: 42, top: POT_TOP - 2 - 42 } as const;
 
 // Seats 1 to 5 clockwise from the top: their angle from the top (degrees, about 40 apart), and from the logo's centre
 // the centre of the two hole cards (under the stack and label up top, beside or over the logo lower down: toward the
 // middle) and of the bet. The left half mirrors them (0/2, 8/3, 7/4, 6/5). Tuned for nine seats (phoneTable.test.mjs).
 const RIGHT = [
-  { deg: 0, cards: [0, 88], bet: [0, 135] },
+  { deg: 0, cards: [0, 86], bet: [0, 133] },
   { deg: 32, cards: [1, 87], bet: [5, 119] },
   { deg: 72, cards: [-10, 84], bet: [-54, 47] },
   { deg: 123, cards: [-38, -27], bet: [-94, -32] },

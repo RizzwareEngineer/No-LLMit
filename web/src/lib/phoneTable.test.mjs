@@ -1,10 +1,10 @@
 // The phone table's geometry: at the tables of 375x667 (351x467) and 390x844 (366x591), and around them, no two seats'
-// logos, stacks and labels, hole cards or bets overlap, none overlaps the pot or the board, and all are inside the table;
+// logos, stacks and labels, hole cards or bets overlap, none overlaps the pot, the board or the deck, and all are inside the table;
 // a seat's cards keep off its own stack and label even landed askew (they may tuck over the edge of its logo).
 // Run from web/: node --experimental-strip-types --test src/lib/phoneTable.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LOGO, MIDDLE, POT_TOP, TEXT_H, at, seatBox, seatLabel, seatSpots } from './phoneTable.ts';
+import { DECK, LOGO, MIDDLE, POT_TOP, TEXT_H, at, seatBox, seatLabel, seatSpots } from './phoneTable.ts';
 
 const layout = (W, H) => {
   const my = at(MIDDLE, H), cx = W / 2, boxes = [];
@@ -17,7 +17,8 @@ const layout = (W, H) => {
       { k: `${i} bet`, seat: i, r: [b[0] - 24, b[1] - 9, b[0] + 24, b[1] + 9] },
     );
   });
-  boxes.push({ k: 'pot', r: [cx - 50, my + POT_TOP, cx + 50, my + POT_TOP + 30] }, { k: 'board', r: [cx - 84, my - 2, cx + 84, my + 42] });
+  boxes.push({ k: 'pot', r: [cx - 50, my + POT_TOP, cx + 50, my + POT_TOP + 30] }, { k: 'board', r: [cx - 84, my - 2, cx + 84, my + 42] },
+    { k: 'deck', between: true, r: [cx - DECK.w / 2, my + DECK.top, cx + DECK.w / 2, my + DECK.top + DECK.h] });
   return boxes;
 };
 const meet = (a, b) => Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 0 && Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > 0;
@@ -28,6 +29,7 @@ for (const [W, H] of [[351, 467], [366, 591], [359, 467], [374, 591], [359, 460]
     for (const [i, a] of boxes.entries()) {
       if (a.r[0] < 0 || a.r[1] < 0 || a.r[2] > W || a.r[3] > H) bad.push(`${a.k} outside`);
       for (const b of boxes.slice(i + 1)) {
+        if ((a.between || b.between) && [a.k, b.k].some(k => k.endsWith('bet'))) continue; // the deck shows between hands, with no bets out
         const own = a.seat !== undefined && a.seat === b.seat, kinds = [a.k, b.k].map(k => k.split(' ')[1]).sort().join('+');
         if (own && kinds === 'cards+text' ? meet((a.askew ?? b.askew), (a.askew ? b : a).r) : !own || kinds.includes('bet') ? meet(a.r, b.r) : false) bad.push(`${a.k} on ${b.k}`);
       }
