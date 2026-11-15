@@ -270,6 +270,13 @@ html:has([data-screen]) {
   inherits: true;
   initial-value: 1;
 }
+/* Section's Swap and Added fade it (motion animates a variable through the page's own animations): registered, it
+   interpolates; unregistered, it flipped from 0 to 1 halfway, and a header extra came or went in one frame. */
+@property --fade {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 1;
+}
 @keyframes add-in { from { --add: 0; } }
 @keyframes add-out { to { opacity: 0; } }
 @media (prefers-reduced-motion: no-preference) {
