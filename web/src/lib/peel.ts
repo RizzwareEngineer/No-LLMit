@@ -32,8 +32,10 @@ const AX = -1, AY = -1; // the axis's sense: the card rises towards the viewer
 // At the hold the second card lies this share of the card's width along its long side and its short side from the first
 // (in their shared plane, never turning apart): sideways, to the right of and below the first, so both middles show.
 export const SLIDE = -0.95, SIDE = -0.2;
-// Seconds: the steps' ends. A: stacked, turned, lifted all the way over, held, righted. B: stacked, turned over, held, slid.
-export const STEPS = { a: [0.35, 0.75, 1.5, 2.3, 2.9], b: [0.4, 0.95, 1.25, 1.8] } as const;
+// Seconds: the steps' ends. A: stacked, turned, lifted all the way over, held (0.45 s, both middles readable), righted.
+// B: stacked, turned over, held, slid. Sped up from 2.9 s and 1.8 s (owner, 2026-11-15: "the flow is a little bit too
+// slow as of right now for users to tolerate").
+export const STEPS = { a: [0.2, 0.42, 0.85, 1.3, 1.7], b: [0.22, 0.58, 0.78, 1.1] } as const;
 export const SHOWS = { a: STEPS.a[4], b: STEPS.b[3] } as const;
 export const TURN = 0.5; // seconds: a card turning over at the hand's end
 export const FADE = 0.25; // seconds: a phone's cards fading face up

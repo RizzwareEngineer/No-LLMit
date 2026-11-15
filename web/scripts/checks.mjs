@@ -1045,7 +1045,7 @@ const routeOf = (hand, seat) => {
 // llm_thinking (face down until it starts; its two cards line up in one stack, face down and upright, A: then turn a
 // quarter clockwise, still one stack, before anything lifts; while lifted the two share one 3D rotation; A: at the hold
 // both faces lie flat towards the viewer, sideways (over 20° off upright), every mark of both middles painted and hit, for
-// 0.7 s or more; B: upright from the stack on; no card's untransformed box ever changes its width-to-height ratio; it ends
+// 0.4 s or more (sped up, owner 2026-11-15: "speed it up too"; the peek lasts at most 1.9 s for A and 1.3 s for B); B: upright from the stack on; no card's untransformed box ever changes its width-to-height ratio; it ends
 // face up, upright, side by side, never outside the seat or over its text; on the phone the faces fade in over 3 or more
 // frames where the cards landed, nothing lifting or turning; every other seat stays down); its game_state with peeked (no
 // change); a second seat's turn; the hand complete (the rest turn up); the next deal (every seat at new angles). Reduced
@@ -1055,7 +1055,7 @@ const routeOf = (hand, seat) => {
 group(() => check('table-hole-peel', 'Hole cards land face down at random angles (two per seat, per seat, per hand); on a seat\'s first turn, at 1440x900 (40x56): each seat takes route A or B at random per hand (from a hash of the hand and the seat, so every viewer and reload agrees; ?peel=a or ?peel=b forces one for the checks): route A lines its two cards up in one stack, turns it a quarter clockwise, lifts it as one piece from the near-right corner all the way over, holds both faces flat, sideways and slanted with both middles (rank and suit) showing, then rights them face up, upright and side by side; route B stacks them upright, turns the stack over as one, and slides them side by side; on a phone (390x844) the faces fade in where the cards landed, with no lift and no turn; rigid and inside the seat and off its text throughout; the rest turn up when the hand completes; a reload mid-hand shows the same faces with no motion; reduced motion switches faces with no motion', async () => {
   const bad = [], seen = [], degs = a => a.map(d => `${d.toFixed(1)}°`).join(' and ');
   const run = async (w, h, reduced, query = '') => {
-    const tag = `${w}x${h}${query}${reduced ? ' reduced motion' : ''}: `, settle = reduced ? 1100 : 3400; // the peek takes 2.9 s
+    const tag = `${w}x${h}${query}${reduced ? ' reduced motion' : ''}: `, settle = reduced ? 1100 : 2600; // the peek takes 1.7 s
     // The route a seat takes this hand: forced by ?peel=a or ?peel=b, else its own (routeOf), which its cards say (data-route).
     const forced = query.match(/peel=([ab])/)?.[1], kindOf = (hand, i) => (w < 768 ? 'phone' : forced ?? routeOf(hand, +i));
     const routes = { a: 0, b: 0 }, misroute = [];
@@ -1123,7 +1123,8 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
           }
           // The peek. Before anything lifts: face down, lined up in one stack upright (A: then that stack turned a quarter
           // clockwise). While lifted: one 3D rotation for both. A's hold (both faces flat towards the viewer, still sideways,
-          // both middles' rank and suit painted and hit): 0.7 s or more. B: upright from the stack on. Every frame: each
+          // both middles' rank and suit painted and hit): 0.4 s or more (0.45 s since the owner asked for a faster peek). The
+          // whole peek, first move to rest: at most 1.9 s for A, 1.3 s for B. B: upright from the stack on. Every frame: each
           // card's untransformed boxes keep their width-to-height ratio.
           const ch = c0.box[3] - c0.box[1], wrong = new Set(), first = frames.findIndex(s => s.cards.some(lifted)), before = frames.slice(0, first < 0 ? 0 : first);
           const one = s => s.cards[0].box.every((v, k) => Math.abs(v - s.cards[1].box[k]) < 0.5) && Math.abs(s.cards[0].deg - s.cards[1].deg) < 0.5;
@@ -1142,9 +1143,13 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
           const flatSide = c => c.turn > 0.999 && Math.abs(c.deg) > 20 && c.seen;
           const hold = frames.filter(s => s.cards.every(flatSide));
           const ms = hold.length ? rec[rec.findIndex(f => f.seats[i] === hold.at(-1))].t - rec[rec.findIndex(f => f.seats[i] === hold[0])].t : 0;
-          if (kind === 'a' && ms < 700) wrong.add(`both middles flat and painted, sideways, for ${Math.round(ms)} ms`);
+          if (kind === 'a' && ms < 400) wrong.add(`both middles flat and painted, sideways, for ${Math.round(ms)} ms`);
+          const at = rec.filter(f => f.seats[i]).map(f => f.t), same = (x, y) => x.cards.every((c, k) => c.box.every((v, j) => Math.abs(v - y.cards[k].box[j]) < 0.1));
+          const go = frames.findIndex(s => !same(s, frames[0])), rest = frames.length - 1 - [...frames].reverse().findIndex(s => !same(s, last));
+          const took = go < 0 ? 0 : at[Math.min(rest + 1, at.length - 1)] - at[go], most = kind === 'a' ? 1900 : 1300;
+          if (took > most) wrong.add(`the peek took ${Math.round(took)} ms (at most ${most})`);
           if (wrong.size) bad.push(`${tag}${name}: seat ${i}: ${[...wrong].slice(0, 3).join(', ')}`);
-          else if (name === 'thinking A') seen.push(kind === 'a' ? `${tag}seat ${i} peeked: stacked, turned to ${turned.cards[0].deg.toFixed(0)}°, both middles flat and painted ${Math.round(ms)} ms at ${degs(hold[0].cards.map(c => c.deg))} (card ${(c0.box[2] - c0.box[0]).toFixed(0)}x${ch.toFixed(0)})` : `${tag}seat ${i} stacked upright and flipped over ${lift.length} frames`);
+          else if (name === 'thinking A') seen.push(kind === 'a' ? `${tag}seat ${i} peeked: stacked, turned to ${turned.cards[0].deg.toFixed(0)}°, both middles flat and painted ${Math.round(ms)} ms in a ${Math.round(took)} ms peek at ${degs(hold[0].cards.map(c => c.deg))} (card ${(c0.box[2] - c0.box[0]).toFixed(0)}x${ch.toFixed(0)})` : `${tag}seat ${i} stacked upright and flipped over ${lift.length} frames in a ${Math.round(took)} ms peek`);
         }
       }
       // The next hand: every seat at new angles.
@@ -1159,7 +1164,7 @@ group(() => check('table-hole-peel', 'Hole cards land face down at random angles
       const early = rec3.map(f => f.seats[c]), lift = s => s.cards.some(lifted), hold = rec3.filter(f => f.seats[c].cards.every(x => x.turn > 0.999 && Math.abs(x.deg) > 20 && x.seen)), held = hold.length ? Math.round(hold.at(-1).t - hold[0].t) : 0;
       if (early.at(-1)?.cards.map(holeFace).join('') !== 'upup') bad.push(`${tag}turn with the deal: seat ${c} ends ${early.at(-1)?.cards.map(holeFace).join('')}, want upup`);
       if (!reduced && early.some(s => s.cards.some(x => x.shown < 0.99) && (lift(s) || s.cards.some(x => holeFace(x) !== 'down')))) bad.push(`${tag}turn with the deal: seat ${c} peeked before both its cards landed`);
-      if (!reduced && kindOf(third.handNumber, c) === 'a' && held < 700) bad.push(`${tag}turn with the deal: seat ${c} held ${held} ms`);
+      if (!reduced && kindOf(third.handNumber, c) === 'a' && held < 400) bad.push(`${tag}turn with the deal: seat ${c} held ${held} ms`);
       if (misroute.length) bad.push(`${tag}cards on the wrong route: ${misroute.slice(0, 3).join(', ')}`);
       if (!forced && w >= 768 && (!routes.a || !routes.b)) bad.push(`${tag}every seat on one route over two hands (${JSON.stringify(routes)})`);
       if (!forced && w >= 768) seen.push(`${tag}routes per seat over two hands: ${routes.a} A, ${routes.b} B, each as routeOf`);
