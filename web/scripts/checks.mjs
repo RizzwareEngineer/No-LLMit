@@ -477,12 +477,7 @@ group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, fro
       const order = [];
       for (const want of [...PARTS, 'About']) {
         await swipe(h * 0.85, h * 0.12);
-        let r = await where();
-        // A layout with an overview of tiles: open the part's tile (the way a viewer gets to it there).
-        if (r.at !== want && want !== 'About') {
-          const tile = await p.evaluate(t => { const e = [...document.querySelectorAll('h2')].find(e => e.textContent.trim() === t && e.getBoundingClientRect().height > 0)?.closest('section'); if (!e) return null; e.scrollIntoView({ block: 'nearest' }); const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + Math.min(20, b.height / 2)]; }, want);
-          if (tile) { await p.touchscreen.tap(tile[0], tile[1]); await sleep(1800); r = await where(); }
-        }
+        const r = await where();
         order.push(r.at);
         if (r.at !== want) { bad.push(`${size}: swiped to ${r.at}, want ${want}`); continue; }
         if (want === 'About') break;
