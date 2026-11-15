@@ -19,7 +19,7 @@ import DevPace from "@/components/DevPace";
 import PeelLab from "@/components/PeelLab";
 import { setTypingPace } from "@/components/TypewriterText";
 import { useGameState } from "@/hooks/useGameState";
-import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, useScreen } from "@/components/Section";
+import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 
@@ -368,7 +368,8 @@ function Table() {
 
   const tab: Tab = tableInView ? 'table' : screen === 'about' ? 'about' : 'stats';
   const onTab = (t: Tab) => {
-    if (t === 'table') window.scrollTo({ top: 0 });
+    // A Stats or About scroll still underway must not land the page back on its screen (its scrollend resnaps there).
+    if (t === 'table') { stopPaging(); window.scrollTo({ top: 0 }); }
     else if (t === 'about') pageTo('about');
     else if (window.innerWidth >= 768 && (screen === 'race' || screen === 'stats-table' || screen === 'pairwise')) backToOverview();
     // Phones: on a Stats window already (Profits & Losses, Trends, Profiles, Matchups) the Stats tab does nothing, so a
