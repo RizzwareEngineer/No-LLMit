@@ -1,7 +1,7 @@
 'use client';
 
 import { useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AnimatePresence, MotionConfig, PresenceContext, motion, usePresence } from 'motion/react';
+import { AnimatePresence, MotionConfig, PresenceContext, cubicBezier, motion, usePresence } from 'motion/react';
 import { BLUE, MUTED, TEXT } from '@/lib/stats';
 import { useRememberedBox } from '@/lib/boxes';
 
@@ -135,7 +135,11 @@ export function StatsZoom({ children }: { children: React.ReactNode }) {
 
 // The glide between a tile and its screen's card: ease-out, half a second.
 export const GLIDE_MS = 500;
-export const GLIDE = { duration: GLIDE_MS / 1000, ease: [0.22, 1, 0.36, 1] } as const;
+// Its last ~60 ms are under 3/10,000 of the way from rest (under 0.3px on the widest glide): drawn there, text raster under
+// that leftover transform came out softer than the same text at rest, so the frame before a hand-over (often the glide's
+// last step: a busy machine drops the landed frame) differed from the card in the title and names. Those frames draw at rest.
+const glideEase = cubicBezier(0.22, 1, 0.36, 1);
+export const GLIDE = { duration: GLIDE_MS / 1000, ease: (t: number) => { const v = glideEase(t); return v > 1 - 3e-4 ? 1 : v; } } as const;
 export const NONE = { duration: 0 } as const;
 // What a card adds to its tile (and the header extras) fades in just after the glide starts, and out quickly.
 // OUT and IN are globals.css' add-out and add-in, which must keep their times.
