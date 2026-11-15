@@ -2175,13 +2175,17 @@ group(() => check('history-overtake-sound', 'Trends overtakes sound through the 
 main(() => check('history-type', 'Trends type: x and y ticks alike, axis titles alike (13px muted body sans), pills 13px (names medium, values tabular)', async () => {
   const r = await pg.evaluate(() => {
     const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
-    const svg = plot.querySelector('svg'), k = plot.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+    // k in layout px: from md the stats are zoomed as one unit (StatsSections' WIDE), and these are its design sizes;
+    // drawn (k times the zoom) every one is 11px at least (owner, 2026-11-15: one scale for the whole stats layout).
+    const z = plot.currentCSSZoom ?? 1, svg = plot.querySelector('svg'), k = plot.getBoundingClientRect().width / z / svg.viewBox.baseVal.width;
     const body = getComputedStyle(document.body).fontFamily;
-    const st = e => { const c = getComputedStyle(e); return { family: c.fontFamily === body ? 'body' : c.fontFamily.slice(0, 24), px: Math.round(parseFloat(c.fontSize) * k * 4) / 4, weight: c.fontWeight, color: e instanceof SVGElement ? c.fill : c.color, tab: c.fontVariantNumeric.includes('tabular-nums') }; };
+    let least = Infinity;
+    const st = e => { const c = getComputedStyle(e); least = Math.min(least, parseFloat(c.fontSize) * k * z); return { family: c.fontFamily === body ? 'body' : c.fontFamily.slice(0, 24), px: Math.round(parseFloat(c.fontSize) * k * 4) / 4, weight: c.fontWeight, color: e instanceof SVGElement ? c.fill : c.color, tab: c.fontVariantNumeric.includes('tabular-nums') }; };
     const all = sel => [...plot.querySelectorAll(sel)].map(st);
-    return { y: all('[data-y-tick]'), x: all('[data-x-tick]'), titles: all('[data-axis-title]'), names: all('[data-pill-name]'), values: all('[data-pill-value]') };
+    return { y: all('[data-y-tick]'), x: all('[data-x-tick]'), titles: all('[data-axis-title]'), names: all('[data-pill-name]'), values: all('[data-pill-value]'), least };
   });
   const bad = [];
+  if (r.least < 10.95) bad.push(`text drawn at ${r.least.toFixed(1)}px (at least 11)`);
   const one = (role, xs, want) => {
     if (!xs.length) return bad.push(`${role}: none`);
     const keys = [...new Set(xs.map(s => JSON.stringify(s)))];
@@ -2202,7 +2206,8 @@ main(() => check('history-number-style', 'The Trends hover readout uses the body
   await pg.mouse.move(c[0], c[1]); await sleep(300);
   const r = await pg.evaluate(() => {
     const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
-    const svg = plot.querySelector('svg'), k = plot.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+    // In layout px, as history-type: the stats' one zoom (StatsSections' WIDE) scales the readout with everything else.
+    const svg = plot.querySelector('svg'), k = plot.getBoundingClientRect().width / (plot.currentCSSZoom ?? 1) / svg.viewBox.baseVal.width;
     const ref = document.querySelector('#stats-panel td, #stats-card td') || document.body;
     const es = [...plot.querySelectorAll('[data-readout-value]')];
     if (!es.length) return ['readout: none'];

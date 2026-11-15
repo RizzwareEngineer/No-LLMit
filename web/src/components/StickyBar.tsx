@@ -45,9 +45,9 @@ function StickyBar({ show, slide = true, blank = false, pot, handNumber, display
           exit={{ y: '-100%', opacity: 0 }}
           transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
         >
-          {/* The page's padding, the stats column (--stage-w, page.tsx) and the cards' padding (16px from lg), so the
+          {/* The page's padding, the stats column (--stage-w, page.tsx) and the cards' padding (16px from lg, at the stats' scale --sz), so the
               bar's text lines up with the card content below. */}
-          <div className="px-3 lg:px-4"><div ref={row} className={`max-w-(--stage-w) mx-auto h-11 px-3 lg:px-4 flex items-center gap-3 text-[13px] whitespace-nowrap ${blank ? '[&>*]:invisible' : ''}`} style={{ color: TEXT }}>
+          <div className="px-3 lg:px-4"><div ref={row} className={`max-w-(--stage-w) mx-auto h-11 px-3 lg:px-[calc(16px*var(--sz,1))] flex items-center gap-3 text-[13px] whitespace-nowrap ${blank ? '[&>*]:invisible' : ''}`} style={{ color: TEXT }}>
             <span className="font-bold hidden sm:inline">No-LLMit</span>
             {handNumber > 0 && <span className="tabular-nums hidden sm:inline" style={{ color: MUTED }}>#{handNumber}</span>}
             <span className="tabular-nums shrink-0">
