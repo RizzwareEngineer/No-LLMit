@@ -96,12 +96,11 @@ export default memo(StickyBar, () => document.documentElement.hasAttribute('data
 // A switch's small button made a 44px tap target: its hit area reaches past it (a pseudo-element), its look stays.
 const TAP = "[&_button]:relative [&_button]:after:absolute [&_button]:after:-inset-x-1 [&_button]:after:-inset-y-[11px] [&_button]:after:content-['']";
 
-// Phones: one slim bar always at the top, under the notch: live and how many watch, the hand, the pot, the Chips/BB and
+// Phones: one slim bar always at the top, under the notch: live and how many watch, the hand (not the pot: the table shows
+// it right under the bar, owner 2026-11-15: "there's no need to repeat the pot again"), the Chips/BB and
 // sound switches (the sound's as its icon alone; the status row's SoundToggle, mounted though hidden, starts the sound on
 // the first gesture), and on a stats card the way back to the overview.
-export function PhoneBar({ blank = false, live, watching, handNumber, pot, bigBlind }: { blank?: boolean; live: boolean; watching?: number; handNumber: number; pot: number; bigBlind: number }) {
-  const bb = useBigBlind();
-  const potIn = amountParts(pot, bb);
+export function PhoneBar({ blank = false, live, watching, handNumber, bigBlind }: { blank?: boolean; live: boolean; watching?: number; handNumber: number; pot?: number; bigBlind: number }) {
   const screen = useScreen();
   const detail = screen === 'race' || screen === 'stats-table' || screen === 'pairwise';
   const sound = useSyncExternalStore(subscribeSound, isSoundOn, () => false);
@@ -115,11 +114,7 @@ export function PhoneBar({ blank = false, live, watching, handNumber, pot, bigBl
           <span className="sr-only">{live ? 'Live' : 'Not live'}{watching !== undefined && `, ${watching.toLocaleString()} watching`}</span>
           {watching !== undefined && <span aria-hidden>{watching.toLocaleString()}</span>}
         </span>
-        {handNumber > 0 && !detail && <span className="tabular-nums" style={{ color: MUTED }}>#{handNumber}</span>}
-        <span className="tabular-nums shrink-0">
-          <span style={{ color: MUTED }}>Pot </span>
-          <span className="font-bold"><NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} /></span>
-        </span>
+        {handNumber > 0 && !detail && <span className="tabular-nums" style={{ color: MUTED }}>Hand #{handNumber}</span>}
         {detail && (
           <button onClick={backToOverview} className="shrink-0 flex items-center gap-1 rounded px-2 h-11 font-medium" style={{ color: BLUE }}>
             <SquaresFour size={13} weight="bold" aria-hidden />Overview

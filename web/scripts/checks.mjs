@@ -336,7 +336,7 @@ group(() => check('phone-felt-no-bets', 'With bets out, the felt draws them at 1
 // nine round logos on its rim, each with its position chip, stack and label; the shot clock a ring round the acting logo;
 // a caption under the table; a bottom tab bar (Table, Stats, About). Scripted: bets out on seats 1-3, a full board, seat 4
 // on the clock.
-group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its caption fit one screen between the top bar and the tab bar; nine logos sit on the oval\'s rim, none over another, the board or the pot; every position chip, stack and label is visible (painted on top), inside the window and not cut; no text under 11px; the shot clock\'s ring is round the acting logo only; the tab bar is at the bottom with three targets at least 44px tall that switch to the table, the stats (Profits & Losses on top) and About; tapping a logo opens its drawer', async () => {
+group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its caption fit one screen between the top bar and the tab bar; nine logos sit on the oval\'s rim, none over another, the board or the pot; every position chip, stack and label is visible (painted on top), inside the window and not cut, and every position chip is one size; no text under 11px; the shot clock\'s ring is round the acting logo only; the top bar shows the hand and no pot; the tab bar is at the bottom with three targets at least 44px tall that switch to the table, the stats (Profits & Losses on top) and About; tapping a logo opens its stats popup (bb/100, hands, net, all-in EV) whose More stats goes to the Stats tab', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[390, 844], [375, 667]]) {
     const size = `${w}x${h}`, p = await scriptedTable(w, h);
@@ -372,9 +372,16 @@ group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its 
             if (e.scrollWidth > e.clientWidth + 1) out.push(`seat ${s.i}'s ${what} is cut`);
           }
         }
-        // Text: every element with text of its own, at 11px at least.
-        const small = [oval, caption, nav, top].flatMap(r => [...r.querySelectorAll('*')]).filter(e => vis(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 11);
+        // Text: every element with text of its own that shows (not under a layer at opacity 0, as a resting card's
+        // corner index), at 11px at least.
+        const shows = e => { for (let a = e; a; a = a.parentElement) if (+getComputedStyle(a).opacity === 0) return false; return true; };
+        const small = [oval, caption, nav, top].flatMap(r => [...r.querySelectorAll('*')]).filter(e => vis(e) && shows(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 11);
         for (const e of small.slice(0, 3)) out.push(`"${e.textContent.trim().slice(0, 12)}" at ${getComputedStyle(e).fontSize}`);
+        // Position chips: one fixed size whatever the name (owner 2026-11-15: "should not shorten or lengthen based on the text").
+        const chipSizes = new Set(logos.map(s => s.e.closest('[data-seat]').querySelector('[data-position]')).filter(vis).map(e => `${e.getBoundingClientRect().width}x${e.getBoundingClientRect().height}`));
+        if (chipSizes.size !== 1) out.push(`position chips in ${chipSizes.size} sizes (${[...chipSizes].join(', ')})`);
+        // The top bar: the hand, not the pot (owner 2026-11-15: "there's no need to repeat the pot again").
+        if (/\bPot\b/.test(top.textContent) || !/Hand #\d/.test(top.textContent)) out.push(`the top bar reads "${top.textContent.trim().slice(0, 40)}"`);
         const rings = [...document.querySelectorAll('[data-clock-ring]')].filter(vis).map(e => e.closest('[data-seat]').dataset.seat);
         const tabs = [...nav.querySelectorAll('button')].map(e => ({ t: e.textContent.trim(), h: e.getBoundingClientRect().height }));
         return { out, logos: logos.length, middle: middle.length, rings, tabs, oval: box(oval), caption: box(caption), nav: box(nav), top: box(top), H: innerHeight };
@@ -399,12 +406,38 @@ group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its 
       if (st.current !== 'Stats' || !(st.pnl > 44 && st.pnl < r.H / 2)) bad.push(`${size}: Stats → ${st.current}, Profits & Losses at ${st.pnl}px`);
       if (ab.current !== 'About' || Math.abs(ab.about) > 1) bad.push(`${size}: About → ${ab.current}, About at ${ab.about}px`);
       if (ta.current !== 'Table' || Math.abs(ta.oval - r.oval.t) > 1) bad.push(`${size}: Table → ${ta.current}, the table at ${ta.oval}px`);
-      // A logo opens its model's drawer.
-      const logo = await p.evaluate(() => { const e = document.querySelector('[data-oval] [data-seat="2"] a[aria-label]'), b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, name: e.getAttribute('aria-label') }; });
-      await p.mouse.click(logo.x, logo.y); await sleep(1000);
-      const drawer = await p.evaluate(() => document.querySelector('dialog[open] #drawer-title')?.textContent.trim());
-      if (!drawer || !drawer.includes(logo.name)) bad.push(`${size}: tapping ${logo.name}'s logo opened ${drawer ? `"${drawer}"` : 'no drawer'}`);
-      seen.push(`${size}: table ${Math.round(r.oval.t)}-${Math.round(r.oval.b)}, caption to ${Math.round(r.caption.b)}, tab bar from ${Math.round(r.nav.t)}; 9 logos clear, ring on 4, tabs ${r.tabs.map(t => Math.round(t.h)).join('/')}px; ${logo.name} → drawer`);
+      // A logo opens its model's basic stats (owner 2026-11-15: "they should be able to see the basic stats: BB, 100 hands,
+      // net, and all-in EV. For the more stats, they should be prompted to go to the stats page"): a popup named for the
+      // model with those four, its text 11px at least and its buttons 44px tall; its More stats goes to the Stats tab.
+      // The logo still links the model's drawer (#model=, the drawer's code kept) for a new tab.
+      const logo = await p.evaluate(() => { const e = document.querySelector('[data-oval] [data-seat="2"] a[aria-label]'), b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, name: e.getAttribute('aria-label'), href: e.getAttribute('href') }; });
+      await p.mouse.click(logo.x, logo.y); await sleep(600);
+      const pop = await p.evaluate(() => {
+        const d = document.querySelector('[data-seat-stats][role=dialog]'), vis = e => { const b = e?.getBoundingClientRect(); return !!b && b.width > 0 && b.height > 0; };
+        if (!vis(d)) return null;
+        const b = d.getBoundingClientRect();
+        return {
+          title: d.querySelector('#seat-stats-title')?.textContent.trim(), facts: [...d.querySelectorAll('dt')].map(e => e.textContent.trim()),
+          inside: b.left >= 0 && b.right <= innerWidth && b.top >= 0 && b.bottom <= innerHeight,
+          small: [...d.querySelectorAll('*')].filter(e => vis(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 11).length,
+          buttons: [...d.querySelectorAll('button')].map(e => ({ t: e.textContent.trim() || e.getAttribute('aria-label'), h: e.getBoundingClientRect().height })),
+          drawer: !!document.querySelector('dialog[open]'),
+        };
+      });
+      if (!pop) bad.push(`${size}: tapping ${logo.name}'s logo opened no stats popup`);
+      else {
+        if (pop.title !== logo.name) bad.push(`${size}: the popup for ${logo.name} is titled "${pop.title}"`);
+        if (pop.facts.join() !== 'bb/100,Hands,Net,All-in EV bb/100') bad.push(`${size}: the popup shows ${pop.facts.join(', ') || 'no stats'}`);
+        if (!pop.inside || pop.small) bad.push(`${size}: the popup ${pop.inside ? '' : 'leaves the window'}${pop.small ? ` has ${pop.small} texts under 11px` : ''}`);
+        if (pop.buttons.some(x => x.h < 44) || !pop.buttons.some(x => x.t.startsWith('More stats'))) bad.push(`${size}: popup buttons ${pop.buttons.map(x => `${x.t} ${Math.round(x.h)}px`).join(', ')}`);
+        if (pop.drawer) bad.push(`${size}: the drawer opened over the popup`);
+        if (!/^#model=/.test(logo.href ?? '')) bad.push(`${size}: the logo no longer links the drawer (${logo.href})`);
+        await p.evaluate(() => [...document.querySelectorAll('[data-seat-stats] button')].find(b => b.textContent.trim().startsWith('More stats')).click());
+        await sleep(2000);
+        const more = await p.evaluate(() => ({ open: !!document.querySelector('[data-seat-stats]'), current: document.querySelector('nav[aria-label=Sections] [aria-current=page]')?.textContent.trim(), pnl: Math.round(document.querySelector('#phone-stats ol')?.getBoundingClientRect().top) }));
+        if (more.open || more.current !== 'Stats' || !(more.pnl > 44 && more.pnl < r.H / 2)) bad.push(`${size}: More stats → popup ${more.open ? 'still open' : 'closed'}, tab ${more.current}, Profits & Losses at ${more.pnl}px`);
+      }
+      seen.push(`${size}: table ${Math.round(r.oval.t)}-${Math.round(r.oval.b)}, caption to ${Math.round(r.caption.b)}, tab bar from ${Math.round(r.nav.t)}; 9 logos clear, ring on 4, tabs ${r.tabs.map(t => Math.round(t.h)).join('/')}px; ${logo.name} → popup (${pop?.facts.length} stats) → More stats → Stats`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };

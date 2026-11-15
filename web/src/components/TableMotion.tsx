@@ -58,7 +58,7 @@ function onScreen() {
 // Card backs as on Card's face-down side (.card-back, globals.css): the deck, and the cards dealt from it.
 const BACK = 'rounded card-back shadow-[0_0_0_1px_rgba(255,255,255,0.85),0_1px_2px_rgba(15,15,15,0.25)]';
 const FLIGHT_CLASS = {
-  // A hole card (w-7 h-10) that leaves the deck at the board's size (w-11 h-16) and shrinks on the way.
+  // A hole card (w-7 h-10) that leaves the deck at the deck's size (30x42 on phones) and shrinks on the way.
   card: `absolute left-0 top-0 -ml-3.5 -mt-5 w-7 h-10 opacity-0 will-change-transform ${BACK}`,
   // One of ChipStack's chips: white top, dark edge.
   chip: 'absolute left-0 top-0 -ml-[7px] -mt-[4px] w-3.5 h-[7px] rounded-[50%] bg-white opacity-0 will-change-transform shadow-[0_0_0_0.6px_#37352f,0_2px_0_#37352f]',
@@ -112,7 +112,7 @@ export function Deck({ phase }: { phase: DeckPhase }) {
     <motion.div
       ref={ref}
       data-deck={phase}
-      className={size ? 'relative' : 'relative w-11 h-16'}
+      className={size ? 'relative' : 'relative w-[30px] h-[42px]'}
       style={size ? { width: box.w, height: box.h } : undefined}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}

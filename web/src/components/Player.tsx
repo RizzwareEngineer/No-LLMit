@@ -31,6 +31,7 @@ interface PlayerProps {
   spot?: Spot;
   ring?: { left: number; urgent: boolean } | null; // the shot clock's share left, for the seat on the clock; null: no clock
   bubble?: string; // the action just taken, shown for a moment (phone)
+  onOpen?: () => void; // phone: a tap on the logo opens its basic stats (PokerTable's SeatStats); without it, the drawer
 }
 
 // Position badge colors, for exactly the engine's names (game.PositionName)
@@ -45,6 +46,12 @@ const POSITION_COLORS: Record<string, string> = {
   'HJ': 'bg-purple-600 text-white',
   'CO': 'bg-green-700 text-white',
 };
+
+// The phone seat's logo: a dark rim, the desktop seat's border drawn darker (owner 2026-11-15: "the same sort of dark
+// borders that we see on the rectangles"), and its shadow. PokerTable's blank logo has the same.
+// The phone's position chip: one size for every name, as the desktop badges (w-8), wide enough for UTG+1 at 11px.
+const CHIP_W = 42;
+export const LOGO_RIM = { border: '2px solid rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.1) 0px 2px 4px' } as const;
 
 // Full position names for tooltips
 function getPositionFullName(pos: string): string {
@@ -62,7 +69,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peek = false, compact = false, spot, ring, bubble }: PlayerProps) {
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, stats, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peek = false, compact = false, spot, ring, bubble, onOpen }: PlayerProps) {
   const [hovered, setHovered] = useState(false);
   const bb = useBigBlind();
   const cards = player.holeCards || [];
@@ -133,13 +140,14 @@ export default function Player({ player, active, position, winAmount, winDesc, i
               strokeDasharray={C} strokeDashoffset={C * (1 - (ring?.left ?? 1))} className="motion-safe:transition-[stroke-dashoffset] motion-safe:duration-1000 motion-safe:ease-linear" />
           </svg>
         )}
-        <a href={modelHref(player.name)} aria-label={player.name} className="absolute pointer-events-auto rounded-full bg-white flex items-center justify-center" style={{ left: ox - LOGO / 2, top: oy - LOGO / 2, width: LOGO, height: LOGO, boxShadow: 'rgba(15, 15, 15, 0.12) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}>
+        <a href={modelHref(player.name)} aria-label={player.name} aria-haspopup={onOpen ? 'dialog' : undefined}
+          onClick={e => { if (onOpen && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); onOpen(); } }} className="absolute pointer-events-auto rounded-full bg-white flex items-center justify-center" style={{ left: ox - LOGO / 2, top: oy - LOGO / 2, width: LOGO, height: LOGO, ...LOGO_RIM }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {logo ? <img src={logo} alt="" width={28} height={28} /> : <span className="text-[13px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{player.name.slice(0, 2).toUpperCase()}</span>}
         </a>
         {position && (
-          <div data-position title={getPositionFullName(position)} className={`absolute pointer-events-auto -translate-x-1/2 rounded px-1 text-[11px] leading-4 font-bold whitespace-nowrap ${positionColor}`}
-            style={{ left: ox, top: oy + 11, boxShadow: '0 0 0 1.5px white' }}>
+          <div data-position title={getPositionFullName(position)} className={`absolute pointer-events-auto rounded text-[11px] leading-4 font-bold whitespace-nowrap text-center ${positionColor}`}
+            style={{ left: ox - CHIP_W / 2, top: oy + 11, width: CHIP_W, height: 16, boxShadow: '0 0 0 1.5px white' }}>
             {position}
           </div>
         )}
