@@ -16,3 +16,12 @@ export function deckSize(size = cardSizeNow()) {
 
 const onWidth = (fn: () => void) => { const m = window.matchMedia(WIDE); m.addEventListener('change', fn); return () => m.removeEventListener('change', fn); };
 export const useCardSize = () => useSyncExternalStore(onWidth, cardSizeNow, () => 0);
+
+// The phone table's drafts, by query (owner 2026-11-15: "let's experiment with both", "some other layouts"): ?pot=pill
+// for the round pot (the rectangle, the desktop's, is the default), ?shape=rect or ?shape=stadium for the other table
+// shapes (the oval is the default). The prerendered page and the first render have the defaults.
+export type PhoneShape = 'oval' | 'rect' | 'stadium';
+const query = (k: string) => new URLSearchParams(window.location.search).get(k);
+const noSub = () => () => {};
+export const usePhoneShape = () => useSyncExternalStore(noSub, () => { const s = query('shape'); return (s === 'rect' || s === 'stadium' ? s : 'oval') as PhoneShape; }, () => 'oval' as PhoneShape);
+export const usePillPot = () => useSyncExternalStore(noSub, () => query('pot') === 'pill', () => false);
