@@ -7,7 +7,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 // the boxes the data fills, so nothing moves when it arrives. Per viewer (localStorage), for the current window size only.
 // shortcut: a first visit (or a new window size) has nothing remembered and takes the boxes' empty size; upgrade by
 // sending the lineup with the page if that first load matters.
-const KEY = 'nollmit:boxes'; // also spelled out in holdBoxes, which must stand alone
+const KEY = 'nollmit:boxes:2'; // also spelled out in holdBoxes, which must stand alone
 
 // The boxes remembered for this window size: name -> [width, height] (the overview's measured widths under their CSS
 // variable's name). With `apply`, also puts them on the page: every [data-box] at least its size, the variables on the
@@ -16,7 +16,7 @@ const KEY = 'nollmit:boxes'; // also spelled out in holdBoxes, which must stand 
 export function holdBoxes(apply = false): Record<string, [number, number]> {
   let boxes: Record<string, [number, number]> = {};
   try {
-    const s = JSON.parse(localStorage.getItem('nollmit:boxes') || 'null');
+    const s = JSON.parse(localStorage.getItem('nollmit:boxes:2') || 'null');
     if (s && s.size === innerWidth + 'x' + innerHeight) boxes = s.boxes;
   } catch {}
   if (apply) {
