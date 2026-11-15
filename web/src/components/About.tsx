@@ -181,7 +181,7 @@ function Dial({ as, rest = false, className = '' }: { as: 'h2' | 'h3'; rest?: bo
 //   2: a short strip of the race graphic, then How it works, then the ask.
 //   3: How it works open as plain text (no turning to read it), the race, the ask, then the other topics on the dial.
 const noSub = () => () => {};
-const PHONE = '(max-width: 767px)';
+import { PHONE } from '@/lib/layout';
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
 const useLayout = () => useSyncExternalStore(noSub, (): '1' | '2' | '3' => { const v = new URLSearchParams(location.search).get('about'); return v === '2' || v === '3' ? v : '1'; }, (): '1' | '2' | '3' => '1');
 const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);

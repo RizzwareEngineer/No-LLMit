@@ -47,7 +47,7 @@ const useNativeTimeline = () =>
 
 // Phones (under 768px) get their own stats: one full-screen window per part (PhoneStats); wider windows the overview and
 // its cards' loop. The prerender is the wide one (stats sit below the table screen, out of sight when a phone swaps them).
-const PHONE = '(max-width: 767px)';
+import { PHONE } from '@/lib/layout';
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
 const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
 
@@ -88,7 +88,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
       const kids = root ? [...root.children] as HTMLElement[] : [];
       const box = kids.reduce<HTMLElement | null>((a, c) => (!a || c.offsetHeight > a.offsetHeight ? c : a), null);
       const keep = (h: number) => (f: number | undefined) => (f !== undefined && Math.abs(f - h) < 1 ? f : h);
-      if (innerWidth < 768) {
+      if (matchMedia(PHONE).matches) {
         const name = zoomedNow ? 'race-fit' : 'race-tile';
         // No chart yet (a blank tile or card): the height it last had with its chart (lib/boxes).
         if (!root?.lastElementChild) {
@@ -147,7 +147,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
   }, [ready, data]);
   // A phone's overview scrolls inside its stage: a tile opening starts from the stage's top, where its card sits.
   useLayoutEffect(() => {
-    if (tiles.on && innerWidth < 768) stage.current?.scrollTo({ top: 0, behavior: 'instant' });
+    if (tiles.on && matchMedia(PHONE).matches) stage.current?.scrollTo({ top: 0, behavior: 'instant' });
   }, [tiles.on]);
 
   // The screen crossing the middle of the window sets the stage; the table screen counts as the

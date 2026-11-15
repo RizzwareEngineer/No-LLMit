@@ -4,6 +4,7 @@ import { Fragment, memo, useEffect, useId, useLayoutEffect, useRef, useState } f
 import { motion, type Transition } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
+import { isPhone } from '@/lib/layout';
 import { GLIDE, GLIDE_MS, NONE } from '@/components/Section';
 import { BLUE, MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
@@ -255,7 +256,7 @@ function fitCardRows(t: HTMLTableElement | null, mini: boolean) {
   if (mini || !t || !sc || !card || !box) return;
   const fit = () => {
     const root = document.documentElement.style;
-    if (innerWidth < 768) return root.removeProperty('--card-row');
+    if (isPhone()) return root.removeProperty('--card-row');
     const rows = [...t.querySelectorAll<HTMLElement>('tr.card-row')], z = t.currentCSSZoom ?? 1;
     if (!rows.length) return;
     const now = rows.reduce((a, r) => a + r.getBoundingClientRect().height / z, 0);
