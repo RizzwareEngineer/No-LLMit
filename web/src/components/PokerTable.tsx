@@ -89,7 +89,14 @@ export default function PokerTable({
   const reduce = useReducedMotion();
   const [firstHand, setFirstHand] = useState(0);
   if (!firstHand && handNumber && players.length) setFirstHand(handNumber);
-  const dealt = !reduce && firstHand > 0 && handNumber !== firstHand;
+  // A layout switch (lib/layout: a rotated tablet, a resize or zoom across it) mounts the other layout's seats: they show
+  // the hand as it stands, not dealt again (no fade from nothing, no face down then turned over again). The hand on screen
+  // when the shown layout last changed is that hand; the next one is dealt as usual.
+  const mounted = useLayout(); // only the shown layout's table, once hydrated (null: both, CSS shows one)
+  const [shownAt, setShownAt] = useState({ mounted, hand: 0 });
+  if (mounted !== shownAt.mounted) setShownAt({ mounted, hand: handNumber });
+  const switched = shownAt.hand > 0 && handNumber === shownAt.hand;
+  const dealt = !reduce && firstHand > 0 && handNumber !== firstHand && !switched;
   const [deck, setDeck] = useState<DeckPhase | null>(null);
 
   // Phones: a turn's action shows over its seat for 2 s once the table applies it (reasoning, then revealed), not for one
@@ -113,9 +120,10 @@ export default function PokerTable({
   const ring = clockLeft !== null && clockBudgetMs ? { left: clockShare(clockLeft, clockBudgetMs), urgent: clockLeft <= 5 } : null;
 
   const shape = usePhoneShape();
-  const mounted = useLayout(); // only the shown layout's table, once hydrated (null: both, CSS shows one)
-  // The phone seat whose stats are open (SeatStats), and the table's middle in the window then, where they show.
+  // The phone seat whose stats are open (SeatStats), and the table's middle in the window then, where they show. The
+  // popup is the phone table's: when the desktop table replaces it, it closes, and does not come back on the next switch.
   const [open, setOpen] = useState<{ seat: number; at: { x: number; y: number } } | null>(null);
+  if (mounted === 'desk' && open) setOpen(null);
   const oval = useRef<HTMLDivElement>(null);
   const openStats = (seat: number) => {
     const b = oval.current?.getBoundingClientRect();
@@ -138,6 +146,7 @@ export default function PokerTable({
       showAction={shown(players[idx])}
       seatIdx={idx}
       handNumber={handNumber}
+      fillIn={!switched}
       dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + CARD_FLIGHT) : undefined}
       faceUp={street === 'complete' || peeked.includes(idx)}
       peek={peeked.includes(idx)}

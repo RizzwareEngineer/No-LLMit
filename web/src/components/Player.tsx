@@ -32,6 +32,7 @@ interface PlayerProps {
   ring?: { left: number; urgent: boolean } | null; // the shot clock's share left, for the seat on the clock; null: no clock
   bubble?: string; // the action just taken, shown for a moment (phone)
   onOpen?: () => void; // phone: a tap on the logo opens its basic stats (PokerTable's SeatStats); without it, the drawer
+  fillIn?: boolean; // fade in on mount (the table filling); false for a seat mounted by a layout switch mid-hand
 }
 
 // Position badge colors, for exactly the engine's names (game.PositionName)
@@ -70,7 +71,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peek = false, compact = false, spot, ring, bubble, onOpen }: PlayerProps) {
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peek = false, compact = false, spot, ring, bubble, onOpen, fillIn = true }: PlayerProps) {
   const bb = useBigBlind();
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
@@ -84,8 +85,10 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const up = faceUp && (!dealDelays || landed === handNumber);
   const seatBg = isWinner ? 'rgb(237, 253, 244)' : '#ffffff';
   // A seat mounts where the blank one stood (PokerTable) when the table fills: its content fades in.
+  // Not a seat mounted by a layout switch (PokerTable): it shows the table as it was. Only how it mounted counts.
   const ref = useRef<HTMLDivElement>(null);
-  useFillIn(ref, true);
+  const [fill] = useState(fillIn);
+  useFillIn(ref, fill);
 
   const hole = (
     <div data-hole className="flex flex-row items-center gap-1 shrink-0">
