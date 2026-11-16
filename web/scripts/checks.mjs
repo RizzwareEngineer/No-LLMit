@@ -30,6 +30,9 @@ const SRC = readFileSync(new URL(import.meta.url), 'utf8').split('\n');
 const CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/;
 const IDS = SRC.map(l => l.match(CHECK)?.[1]).filter(Boolean);
 const want = id => !SKIP.has(id) && (!ONLY.size || ONLY.has(id));
+// --query shape=rect&seat=beside: added to the URL of every scripted table (the phone table's drafts), unless a check sets that key itself.
+const QUERY = arg('--query', '') || '';
+const withQuery = q => { const u = new URLSearchParams((q || '').replace(/^\?/, '')); for (const [k, v] of new URLSearchParams(QUERY)) if (!u.has(k)) u.set(k, v); const t = u.toString(); return t ? `?${t}` : ''; };
 let lastEnd = Date.now();
 async function check(id, rule, fn) {
   if (!want(id)) return;
@@ -224,7 +227,7 @@ const scriptedTable = async (w, h, reduced = false, query = '') => {
   const p = await newPage(); await p.setViewport({ width: w, height: h });
   if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await scriptStream(p);
-  await p.goto(`${BASE}/${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p.goto(`${BASE}/${withQuery(query)}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat]'), { timeout: 120000 });
   await sleep(2000);
   return p;
@@ -453,6 +456,46 @@ group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its 
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
 }));
 
+// Each seat's hole cards and bet in front of it, with all cards face up and a bet out at every seat (the audit's rules).
+async function ownership(p) {
+  const r = await p.evaluate(() => {
+    const box = e => { const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 }; };
+    const vis = e => e.getBoundingClientRect().width > 0;
+    const oval = document.querySelector('[data-oval]'), fe = oval.querySelector('[data-felt-oval]'), felt = box(fe), radius = getComputedStyle(fe).borderTopLeftRadius;
+    const seats = [...oval.querySelectorAll('[data-seat]')].map(s => ({ i: +s.dataset.seat, logo: box(s.querySelector('a[aria-label]')), cards: [...s.querySelectorAll('[data-hole] > *')].filter(vis).map(box) }));
+    const bets = [...oval.querySelectorAll('[data-bet]')].filter(vis).map(e => ({ i: +e.dataset.bet, b: box(e) }));
+    const board = [...oval.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(box);
+    return { seats, bets, board, felt, radius };
+  });
+  const mine = [], d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y), gap = (a, b) => Math.max(a.l - b.r, b.l - a.r, a.t - b.b, b.t - a.b);
+  const logos = r.seats.map(s => ({ i: s.i, c: s.logo }));
+  const owner = pt => logos.reduce((a, b) => (d(pt, b.c) < d(pt, a.c) ? b : a));
+  const rx = (r.felt.r - r.felt.l) / 2, ry = (r.felt.b - r.felt.t) / 2, cx = r.felt.l + rx, cy = r.felt.t + ry;
+  // The felt: an ellipse (the oval, 50%), else a rectangle with round corners of that radius (?shape=rect, stadium).
+  const rad = r.radius.endsWith('%') ? null : parseFloat(r.radius);
+  const onFelt = (x, y) => {
+    if (rad === null) return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1.0001;
+    if (x < r.felt.l - 0.5 || x > r.felt.r + 0.5 || y < r.felt.t - 0.5 || y > r.felt.b + 0.5) return false;
+    const qx = Math.min(Math.max(x, r.felt.l + rad), r.felt.r - rad), qy = Math.min(Math.max(y, r.felt.t + rad), r.felt.b - rad);
+    return Math.hypot(x - qx, y - qy) <= rad + 0.5;
+  };
+  const row = r.board.length ? { l: Math.min(...r.board.map(b => b.l)) - 12, r: Math.max(...r.board.map(b => b.r)) + 12, t: Math.min(...r.board.map(b => b.t)), b: Math.max(...r.board.map(b => b.b)) } : null;
+  for (const s of r.seats) {
+    if (s.cards.length !== 2) continue;
+    const mid = { x: (s.cards[0].x + s.cards[1].x) / 2, y: (s.cards[0].y + s.cards[1].y) / 2 };
+    if (owner(mid).i !== s.i) mine.push(`seat ${s.i}'s cards nearer seat ${owner(mid).i}`);
+    for (const c of s.cards) {
+      if (row && c.b > row.t && c.t < row.b && c.r > row.l && c.l < row.r) mine.push(`seat ${s.i}'s card on the board's row`);
+      for (const o of logos) if (o.i !== s.i && gap(c, o.c) < 8) mine.push(`seat ${s.i}'s card within 8px of seat ${o.i}'s logo`);
+      if ([[c.l, c.t], [c.r, c.t], [c.l, c.b], [c.r, c.b]].some(([x, y]) => !onFelt(x, y))) mine.push(`seat ${s.i}'s card off the felt`);
+    }
+  }
+  for (const b of r.bets) {
+    if (owner(b.b).i !== b.i) mine.push(`seat ${b.i}'s bet nearer seat ${owner(b.b).i}`);
+    for (const o of r.bets) if (o.i > b.i && gap(b.b, o.b) < 8) mine.push(`bets ${b.i} and ${o.i} within 8px`);
+  }
+  return { r, mine };
+}
 // The audit (2026-11-15) of the phone table, every class it found, at 360, 375, 390 and 430 wide: a seat's hole cards and
 // bet sit in front of it (nearer its own logo than any other seat's, the bet at least 8px from any other bet), clear of the
 // board's row by 12px either side and of every other seat's logo by 8px, with their corners on the felt; face-down and
@@ -478,34 +521,8 @@ group(async () => {
       await sleep(2500);
       const up = await sizes(), all = new Set([...down, ...up]);
       if (all.size !== 1) bad.push(`${size}: hole cards in ${all.size} sizes (${[...all].join(', ')})`);
-      const r = await p.evaluate(() => {
-        const box = e => { const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 }; };
-        const vis = e => e.getBoundingClientRect().width > 0;
-        const oval = document.querySelector('[data-oval]'), felt = box(oval.querySelector('[data-felt-oval]'));
-        const seats = [...oval.querySelectorAll('[data-seat]')].map(s => ({ i: +s.dataset.seat, logo: box(s.querySelector('a[aria-label]')), cards: [...s.querySelectorAll('[data-hole] > *')].filter(vis).map(box) }));
-        const bets = [...oval.querySelectorAll('[data-bet]')].filter(vis).map(e => ({ i: +e.dataset.bet, b: box(e) }));
-        const board = [...oval.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(box);
-        return { seats, bets, board, felt };
-      });
-      const out = [], mine = [], d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y), gap = (a, b) => Math.max(a.l - b.r, b.l - a.r, a.t - b.b, b.t - a.b);
-      const logos = r.seats.map(s => ({ i: s.i, c: s.logo }));
-      const owner = pt => logos.reduce((a, b) => (d(pt, b.c) < d(pt, a.c) ? b : a));
-      const rx = (r.felt.r - r.felt.l) / 2, ry = (r.felt.b - r.felt.t) / 2, cx = r.felt.l + rx, cy = r.felt.t + ry;
-      const row = r.board.length ? { l: Math.min(...r.board.map(b => b.l)) - 12, r: Math.max(...r.board.map(b => b.r)) + 12, t: Math.min(...r.board.map(b => b.t)), b: Math.max(...r.board.map(b => b.b)) } : null;
-      for (const s of r.seats) {
-        if (s.cards.length !== 2) { out.push(`seat ${s.i} shows ${s.cards.length} cards`); continue; }
-        const mid = { x: (s.cards[0].x + s.cards[1].x) / 2, y: (s.cards[0].y + s.cards[1].y) / 2 };
-        if (owner(mid).i !== s.i) mine.push(`seat ${s.i}'s cards nearer seat ${owner(mid).i}`);
-        for (const c of s.cards) {
-          if (row && c.b > row.t && c.t < row.b && c.r > row.l && c.l < row.r) mine.push(`seat ${s.i}'s card on the board's row`);
-          for (const o of logos) if (o.i !== s.i && gap(c, o.c) < 8) mine.push(`seat ${s.i}'s card within 8px of seat ${o.i}'s logo`);
-          if ([[c.l, c.t], [c.r, c.t], [c.l, c.b], [c.r, c.b]].some(([x, y]) => ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 > 1.0001)) mine.push(`seat ${s.i}'s card off the felt`);
-        }
-      }
-      for (const b of r.bets) {
-        if (owner(b.b).i !== b.i) mine.push(`seat ${b.i}'s bet nearer seat ${owner(b.b).i}`);
-        for (const o of r.bets) if (o.i > b.i && gap(b.b, o.b) < 8) mine.push(`bets ${b.i} and ${o.i} within 8px`);
-      }
+      const out = [], { r, mine } = await ownership(p);
+      for (const s of r.seats) if (s.cards.length !== 2) out.push(`seat ${s.i} shows ${s.cards.length} cards`);
       if (r.bets.length !== 9) out.push(`${r.bets.length} of 9 bets drawn`);
       // Position chips: the name inside with 3px a side at least (the audit: UTG+1 squeezed into its chip).
       const chips = await p.evaluate(() => [...document.querySelectorAll('[data-oval] [data-position]')].map(e => { const r = document.createRange(); r.selectNodeContents(e); return { t: e.textContent, room: (e.clientWidth - r.getBoundingClientRect().width) / 2, over: e.scrollWidth > e.clientWidth }; }));
@@ -528,10 +545,16 @@ group(async () => {
         await sleep(300);
         const hit = await p.evaluate(() => {
           const b = document.querySelector('[data-oval] [data-bubble]'); if (!b) return null;
-          const seat = b.closest('[data-seat]'), r = b.getBoundingClientRect(), meet = e => { const o = e.getBoundingClientRect(); return o.width > 0 && Math.min(r.right, o.right) - Math.max(r.left, o.left) > 0.5 && Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top) > 0.5; };
-          return { seat: seat.dataset.seat, on: [...seat.querySelectorAll('[data-hole] > *, a[aria-label], [data-position], [data-chips]')].filter(meet).map(e => e.dataset.position !== undefined ? 'chip' : e.dataset.chips !== undefined ? 'stack' : e.tagName === 'A' ? 'logo' : 'cards') };
+          const seat = b.closest('[data-seat]'), r = b.getBoundingClientRect(), meet = e => { const o = e?.getBoundingClientRect(); return !!o && o.width > 0 && Math.min(r.right, o.right) - Math.max(r.left, o.left) > 0.5 && Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top) > 0.5; };
+          // The page's bars (the review: the top seat's bubble sat 8px over the table, under the top bar on short windows).
+          const top = [...document.querySelectorAll('div.fixed.top-0')].find(e => e.getBoundingClientRect().width > 0), nav = document.querySelector('nav[aria-label=Sections]');
+          return { seat: seat.dataset.seat, bars: [meet(top) && 'top bar', meet(nav) && 'tab bar'].filter(Boolean),
+            on: [...seat.querySelectorAll('[data-hole] > *, a[aria-label], [data-position], [data-chips]')].filter(meet).map(e => e.dataset.position !== undefined ? 'chip' : e.dataset.chips !== undefined ? 'stack' : e.tagName === 'A' ? 'logo' : 'cards') };
         });
         if (hit?.on.length) out.push(`seat ${hit.seat}'s bubble over its ${[...new Set(hit.on)].join(', ')}`);
+        if (hit?.bars.length) out.push(`seat ${hit.seat}'s bubble under the ${hit.bars.join(' and ')}`);
+        // The bubble is over the seat that acted (the review: a mix-up of seat and spot would pass unseen).
+        if (hit && hit.seat !== String(i)) out.push(`seat ${i}'s action shown over seat ${hit.seat}`);
         if (!hit) out.push(`no bubble over seat ${i}`);
         await p.waitForFunction(() => !document.querySelector('[data-oval] [data-bubble]'), { timeout: 5000 }).catch(() => {});
       }
@@ -547,11 +570,138 @@ group(async () => {
       else seen.push(`${size}: ${r.seats.length} seats, ${r.bets.length} bets in place${dk ? `, deck ${dk.gap.toFixed(0)}px from the pot` : ''}`);
     } finally { await p.close(); }
   }
-  await check('phone-table-places', 'At 360x640, 375x667, 390x844 and 430x932, with a bet in front of every seat and all cards showing: all hole cards one size face down or up, every seat\'s bet drawn, every position chip holding its name with 3px a side, between hands the deck at least 8px under the pot, an action\'s bubble never over its seat\'s cards, logo, chip or stack', async () => ({ pass: !bad.length && seen.length === 4, detail: bad.length ? bad.join(' | ') : seen.join(' | ') }));
+  await check('phone-table-places', 'At 360x640, 375x667, 390x844 and 430x932, with a bet in front of every seat and all cards showing: all hole cards one size face down or up, every seat\'s bet drawn, every position chip holding its name with 3px a side, between hands the deck at least 8px under the pot, an action\'s bubble over the seat that acted and never over its seat\'s cards, logo, chip or stack or under the top or tab bar', async () => ({ pass: !bad.length && seen.length === 4, detail: bad.length ? bad.join(' | ') : seen.join(' | ') }));
   // Not met yet (FIX-LAYOUT.md): on a 9-seat oval at 351x465 no placement found meets these with the stack and label under
   // each logo; this fails until the phone seat's design changes, and fails again if a fix ever regresses.
   await check('phone-table-ownership', 'At 360x640, 375x667, 390x844 and 430x932: each seat\'s hole cards and bet nearer its own logo than any other seat\'s, bets 8px apart, its cards 12px clear of the board\'s row sideways, 8px clear of other seats\' logos and with every corner on the felt', async () => ({ pass: !own.length && ownSeen.length === 4, detail: own.length ? own.join(' | ') : ownSeen.join(' | ') }));
 });
+// The same rules for the phone seat's drafts (?seat=beside, ?seat=tucked; phoneTable's SeatDraft), one check each, on the
+// oval (with --query shape=rect or shape=stadium, on that shape).
+for (const draft of ['beside', 'tucked']) group(async () => {
+  const id = `phone-table-ownership-${draft}`;
+  if (!want(id)) return;
+  const own = [], ownSeen = [];
+  for (const [w, h] of [[360, 640], [375, 667], [390, 844], [430, 932]]) {
+    const size = `${w}x${h}`, p = await scriptedTable(w, h, false, `?seat=${draft}`);
+    try {
+      await p.evaluate(() => {
+        const s = window.__stream, l = s.last;
+        s.scripted = true;
+        s.last = { ...l, street: 'river', communityCards: ['Kh', '7d', '2c', '9s', 'Ks'], peeked: l.players.map((_, i) => i), currentPlayerIdx: -1,
+          players: l.players.map((q, i) => ({ ...q, status: 'active', currentBet: 10 + 5 * i, lastAction: 'CALL', lastAmount: 10 + 5 * i })) };
+        s.feed({ type: 'game_state', payload: s.last });
+      });
+      await sleep(2500);
+      const { r, mine } = await ownership(p);
+      if (r.seats.some(s => s.cards.length !== 2) || r.bets.length !== 9) mine.push(`${r.seats.filter(s => s.cards.length === 2).length} pairs and ${r.bets.length} bets of 9 drawn`);
+      if (mine.length) own.push(`${size}: ${[...new Set(mine)].slice(0, 6).join(', ')}${mine.length > 6 ? ` and ${mine.length - 6} more` : ''}`);
+      else ownSeen.push(`${size}: every pair and bet in front of its seat, off the board's row and on the felt`);
+    } finally { await p.close(); }
+  }
+  await check(id, `With ?seat=${draft}, at 360x640, 375x667, 390x844 and 430x932: each seat's hole cards and bet nearer its own logo than any other seat's, bets 8px apart, its cards 12px clear of the board's row sideways, 8px clear of other seats' logos and with every corner on the felt`, async () => ({ pass: !own.length && ownSeen.length === 4, detail: own.length ? own.join(' | ') : ownSeen.join(' | ') }));
+});
+// Crossing lib/layout's switch (a tablet rotated, a window resized across it, a zoom) mid-hand and between hands (the
+// review, 2026-11-16): the other layout's table mounts showing the hand as it stands. No hole card fades out or shows its
+// back again once face up, no second riffle or shuffle sound, and a seat's stats popup open before the switch does not
+// come back after it. Scripted at 1100x900 (the desktop table) and 900x900 (the phone table).
+group(() => check('table-switch-midhand', 'Resizing 1100x900 to 900x900 and back while the hole cards are out (two seats face up) and again while the deck riffles: no hole card fades out or turns face down and over again, no second riffle or shuffle sound, and a seat popup opened on the phone table does not come back after a round trip', async () => {
+  const bad = [], notes = [];
+  const p = await newPage(); await p.setViewport({ width: 1100, height: 900 });
+  try {
+    await p.evaluateOnNewDocument(() => {
+      window.__snd = 0;
+      for (const N of [AudioScheduledSourceNode.prototype, AudioBufferSourceNode.prototype].filter(n => Object.hasOwn(n, 'start'))) {
+        const start = N.start;
+        N.start = function () { window.__snd++; return start.apply(this, arguments); };
+      }
+      try { localStorage.setItem('nollmit:sound', 'on'); } catch {}
+    });
+    await scriptStream(p);
+    await p.goto(`${BASE}/${withQuery('')}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat]'), { timeout: 120000 });
+    await sleep(2000);
+    await p.mouse.click(4, 4); await sleep(300); // the first trusted click unlocks audio
+    // A hand dealt while watching (not the first one seen), then two seats' turns: their cards face up.
+    await p.evaluate(() => window.__stream.deal()); await sleep(4000);
+    await p.evaluate(() => { const s = window.__stream; s.last = { ...s.last, peeked: [1, 2] }; s.feed({ type: 'game_state', payload: s.last }); });
+    await sleep(3500);
+    // Every frame: each visible hole card's opacity (with its seat's and the table's) and whether its back shows.
+    const sample = () => p.evaluate(() => {
+      const f = window.__frames = [];
+      const look = () => {
+        const cards = [...document.querySelectorAll('[data-seat] [data-hole] > *')].filter(e => e.getBoundingClientRect().width > 0).map(e => {
+          let o = 1; for (let a = e; a; a = a.parentElement) o *= +getComputedStyle(a).opacity;
+          const lay = e.querySelector('[data-lay]'), m = lay && new DOMMatrix(getComputedStyle(lay).transform), cover = e.querySelector('[data-cover]');
+          const back = (m && m.a * m.d - m.b * m.c < 0) || (cover && +getComputedStyle(cover).opacity > 0.5);
+          return { k: `${e.closest('[data-seat]').dataset.seat}:${[...e.parentElement.children].indexOf(e)}`, o, back };
+        });
+        const deck = [...document.querySelectorAll('[data-deck]')].find(e => e.getBoundingClientRect().width > 0);
+        const spread = deck ? Math.max(0, ...[...deck.children].map(c => Math.abs(new DOMMatrix(getComputedStyle(c).transform).m41))) : null;
+        f.push({ t: performance.now(), phone: !!document.querySelector('[data-oval]'), cards, spread, popup: !!document.querySelector('[data-seat-stats]') });
+        if (!window.__stopSampling) requestAnimationFrame(look);
+      };
+      window.__stopSampling = false; requestAnimationFrame(look);
+    });
+    const frames = async () => p.evaluate(() => { window.__stopSampling = true; return window.__frames; });
+
+    // Mid-hand: to the phone table, open a seat's stats there, back to the desktop and to the phone again, then back.
+    await sample();
+    const before = await p.evaluate(() => [...document.querySelectorAll('[data-seat] [data-hole] > *')].filter(e => e.getBoundingClientRect().width > 0).length);
+    await sleep(300);
+    await p.setViewport({ width: 900, height: 900 }); await sleep(1500);
+    const opened = await p.evaluate(() => { const a = document.querySelector('[data-oval] [data-seat] a[aria-label]'); a?.click(); return !!a; });
+    await sleep(800);
+    const popupOpen = await p.evaluate(() => !!document.querySelector('[data-seat-stats]'));
+    await p.setViewport({ width: 1100, height: 900 }); await sleep(1500);
+    await p.setViewport({ width: 900, height: 900 }); await sleep(1500);
+    const back = await p.evaluate(() => !!document.querySelector('[data-seat-stats]'));
+    await p.setViewport({ width: 1100, height: 900 }); await sleep(1500);
+    const mid = await frames();
+    if (!opened || !popupOpen) bad.push('no seat popup opened on the phone table');
+    if (back) bad.push('the seat popup came back after a round trip through the desktop table');
+    const first = new Map(mid[0]?.cards.map(c => [c.k, c]) ?? []);
+    const faded = new Set(), turned = new Set(), counts = new Set();
+    let switches = 0;
+    mid.forEach((fr, i) => {
+      if (i && fr.phone !== mid[i - 1].phone) switches++;
+      counts.add(fr.cards.length);
+      for (const c of fr.cards) {
+        const was = first.get(c.k); if (!was) continue;
+        if (c.o < was.o - 0.02) faded.add(c.k);
+        if (!was.back && c.back) turned.add(c.k);
+      }
+    });
+    if (before !== 18 || first.size !== 18) bad.push(`${first.size} hole cards out before the switch`);
+    if (switches < 4) bad.push(`only ${switches} layout switches seen`);
+    if (faded.size) bad.push(`hole cards faded out on a switch (${[...faded].slice(0, 6).join(', ')})`);
+    if (turned.size) bad.push(`face-up cards showed their backs again (${[...turned].slice(0, 6).join(', ')})`);
+    if ([...counts].some(n => n !== 18)) bad.push(`frames with ${[...counts].filter(n => n !== 18).join('/')} hole cards`);
+    const up = [...first.values()].filter(c => !c.back).length;
+    notes.push(`mid-hand: ${switches} switches over ${mid.length} frames, 18 cards (${up} face up) never faded or turned again, popup closed for good`);
+
+    // Between hands: the deck riffles; switch while it riffles and again while it waits squared.
+    await p.evaluate(() => window.__stream.end(6000));
+    const riffle = await p.waitForFunction(() => [...document.querySelectorAll('[data-deck=riffle]')].some(e => e.getBoundingClientRect().width > 0), { timeout: 9000 }).then(() => true).catch(() => false);
+    if (!riffle) bad.push('no riffle between hands');
+    else {
+      await sleep(250);
+      const n0 = await p.evaluate(() => window.__snd);
+      await sample();
+      await p.setViewport({ width: 900, height: 900 }); await sleep(700);
+      await p.setViewport({ width: 1100, height: 900 }); await sleep(700);
+      const fr = await frames(), n1 = await p.evaluate(() => window.__snd);
+      if (n0 === 0) bad.push('no shuffle sound with sound on');
+      if (n1 > n0) bad.push(`${n1 - n0} more sounds started after the switch (a second shuffle)`);
+      // The deck mounted by the switch shows squared: no card of it spreads (the riffle's half-decks are 17px or more apart).
+      const at = fr.findIndex((f, i) => i && f.phone !== fr[i - 1].phone);
+      const spread = Math.max(0, ...fr.slice(at).filter(f => f.spread !== null).map(f => f.spread));
+      if (at < 0) bad.push('no layout switch seen while the deck was out');
+      else if (spread > 2) bad.push(`the deck riffled again after the switch (cards ${spread.toFixed(0)}px out)`);
+      else notes.push(`between hands: switched twice during the riffle, deck squared after, no sound after the first ${n0}`);
+    }
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : notes.join('; ') };
+  } finally { await p.close(); }
+}));
 // The audit's phone chrome, at a phone, phones held sideways and a laptop at 200%, 300% and 500% (the phone layout,
 // lib/layout): the phone layout shows (tab bar, no shrunk desktop page), no text under 11px, no sideways scroll; the bars
 // opaque and together at most 25% of the height; the bar names the site and labels its count; every seat can be scrolled
