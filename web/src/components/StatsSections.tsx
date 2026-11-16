@@ -251,7 +251,12 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
       };
       // glideend comes in the frame that draws the glide's last step (under a pixel, its scale not yet 1): handed over in
       // that frame, the card's first frame replaced a tile never drawn at rest. The tile is drawn landed first, for a frame.
-      const ended = (e: Event) => { if ((e as CustomEvent<string>).detail === TILES[tile].panel) requestAnimationFrame(land); };
+      // The card shows its header extras (the Leader, the Lineup control) whole: the tile's, fading in as it glides
+      // (Section's Swap), must be whole too before the swap, or the hand-over changes the picture there (a busy machine
+      // started their fade late). Waited for a frame at a time; the late timer still lands it.
+      const whole = () => [...document.querySelectorAll<HTMLElement>(`#${TILES[tile].panel} .added`)].every(e => parseFloat(getComputedStyle(e.parentElement ?? e).opacity) >= 0.999);
+      const settle = () => { if (!busy || landed) return; if (whole()) land(); else requestAnimationFrame(settle); };
+      const ended = (e: Event) => { if ((e as CustomEvent<string>).detail === TILES[tile].panel) requestAnimationFrame(settle); };
       window.addEventListener('glideend', ended);
       const timer = setTimeout(land, late);
     };
@@ -313,7 +318,16 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
         setMuFold(false);
         // A close is over once the tile has glided back (the header extra it leaves is unseen until then): a card reached
         // afterwards by scrolling shows all of itself again.
-        setTimeout(() => !busy && room.current?.removeAttribute('data-leaving'), glide());
+        // Not before the tile's own header extras (the Lineup control, the Leader: Section's Swap, leaving as the tile
+        // glides back) are gone: on a busy machine their exit outlasted a fixed timer, and they showed again whole for a
+        // frame, then faded (glide-clean). Polled a frame at a time, at most 2 s.
+        const until = performance.now() + 2000;
+        const clear = () => {
+          if (busy) return;
+          if (room.current?.querySelector(':is(#stats-panel, #pairwise-panel) .added') && performance.now() < until) { requestAnimationFrame(clear); return; }
+          room.current?.removeAttribute('data-leaving');
+        };
+        setTimeout(clear, glide());
         document.getElementById(TILES[at].panel)?.focus({ preventScroll: true });
       }))), fade));
     };
@@ -591,11 +605,43 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     els.forEach(e => io.observe(e));
     return () => { io.disconnect(); setScreen(''); };
   }, []);
+  // A card body wider than its window (Profiles' columns, Matchups' matrix) fades out at its right edge while more lies
+  // that way, so a column cut at the edge reads as "scroll for more", not as broken text (the audit's clipped columns).
+  useEffect(() => {
+    const els = room.current ? [...room.current.querySelectorAll<HTMLElement>('.panel-scroll, .panel-scroll [class*="overflow-x-auto"]')] : [];
+    const fade = (el: HTMLElement) => {
+      const more = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      el.toggleAttribute('data-more-right', more);
+      el.style.maskImage = more ? 'linear-gradient(to right, #000 calc(100% - 32px), transparent)' : '';
+    };
+    const ro = new ResizeObserver(es => es.forEach(e => fade(e.target as HTMLElement)));
+    // Its content's boxes (through display: contents wrappers), and the moment content-visibility lays it out.
+    const boxes = (el: Element): Element[] => [...el.children].flatMap(k => (getComputedStyle(k).display === 'contents' ? boxes(k) : [k]));
+    const offs = els.map(el => {
+      const f = () => fade(el);
+      el.addEventListener('scroll', f, { passive: true });
+      el.addEventListener('contentvisibilityautostatechange', f);
+      ro.observe(el); boxes(el).forEach(k => ro.observe(k)); f();
+      return () => { el.removeEventListener('scroll', f); el.removeEventListener('contentvisibilityautostatechange', f); };
+    });
+    return () => { ro.disconnect(); offs.forEach(o => o()); };
+  }, [data, muLineup]);
   // Matchups' names column at its longest name, whole (as the wide layout measures it).
   useLayoutEffect(() => {
     const names = [...document.querySelectorAll<HTMLElement>('#pairwise-card a [translate=no]')];
     if (names.length) room.current?.style.setProperty('--mu-names', `${Math.max(...names.map(e => e.scrollWidth)) + 5}px`);
   }, [data, muLineup]);
+  // The row names' cap: 96px, or up to 40% of the card where it is wider (a zoomed laptop's 720px window cut names to
+  // nine letters beside an empty fifth of the card).
+  useLayoutEffect(() => {
+    const body = document.querySelector<HTMLElement>('#pairwise-card .panel-scroll');
+    if (!body) return;
+    const cap = () => room.current?.style.setProperty('--mu-cap', `${Math.max(96, Math.round(0.4 * body.clientWidth))}px`);
+    cap();
+    const ro = new ResizeObserver(cap);
+    ro.observe(body);
+    return () => ro.disconnect();
+  }, [ready]);
 
   const card = (id: string, title: string, aside: React.ReactNode, body: React.ReactNode, cls = '') => (
     <div id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className="flex-1 min-h-0 flex flex-col outline-none">
@@ -647,11 +693,11 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
           <AtHand tl={tl} models={muModels}>
             {(ms, hand) => (
               <div {...syncAttrs(tl, hand)} className="contents">
-                <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} fitTo={field.map(m => m.name)} leader={leaderAt(tl, ms, hand)?.m.name} />
+                <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} fitTo={field.map(m => m.name)} leader={leaderAt(tl, ms, hand)?.m.name} shorten />
               </div>
             )}
           </AtHand>
-        ), '[&_a_[translate=no]]:max-w-[96px]')}
+        ), '[&_a_[translate=no]]:max-w-[var(--mu-cap,96px)]')}
       </section>
       {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
       <section id="about" data-screen data-end aria-label="About" className={`relative h-svh snap-start snap-always -mx-3 bg-(--page) ${LAZY}`}>
