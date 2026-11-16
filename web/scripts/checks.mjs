@@ -2977,7 +2977,7 @@ const ctrlWheel = async (p, s, f, dy, n) => {
   for (let i = 0; i < n; i++) { await p.mouse.wheel({ deltaY: dy }); await sleep(30); }
   await p.keyboard.up('Control'); await sleep(900);
 };
-group(() => check('trends-zoom', 'In the opened Trends card a pinch or ctrl+wheel over the plot narrows the hands axis around the pointer (no page zoom), a drag pans it, and double-click, Reset zoom or a Hands preset restore every hand; a zoom over the replay ends it; a plain wheel over the chart still moves the page', async () => {
+group(() => check('trends-zoom', 'In the opened Trends card a pinch or ctrl+wheel over the plot narrows the hands axis around the pointer (no page zoom), a drag pans it, and double-click, Reset zoom or a Hands preset restore every hand; a zoom over the replay ends it; zoomed into the first hands at rest, every line point and the hover readout\'s dots lie inside the plot band; a plain wheel over the chart still moves the page', async () => {
   const p = await pageAt(1440, 900, 'race'), bad = [], seen = [];
   try {
     await clickCenter(p, '#race-panel'); await sleep(1500);
@@ -3022,6 +3022,31 @@ group(() => check('trends-zoom', 'In the opened Trends card a pinch or ctrl+whee
     const rz = await zoomState(p);
     if (!playing || rz.clock || !(rz.x1 - rz.x0 < all * 0.9)) bad.push(`a zoom over the replay: ${!playing ? 'it was not playing' : rz.clock ? 'it kept playing' : `${(rz.x1 - rz.x0).toFixed(0)} hands shown`}`);
     await p.mouse.click(rz.left + 0.5 * rz.w, rz.y, { count: 2 }); await sleep(900);
+    // Review 3, findings 9 and 10: zoomed into the first hands at rest, the y axis fits that stretch: every line point is
+    // inside the plot band (a point past it is cut by the clip; one held at the edge is inside), and the hover readout's
+    // dots too (they were drawn in the margins, over the x tick labels).
+    const z0 = await zoomState(p);
+    await ctrlWheel(p, z0, 0.02, -40, 14); await sleep(1500);
+    const ze = await zoomState(p);
+    if (!(ze.x1 - ze.x0 < all * 0.35)) bad.push(`zooming into the first hands left ${(ze.x1 - ze.x0).toFixed(0)} of ${all.toFixed(0)} hands`);
+    await p.mouse.move(ze.left + 0.3 * ze.w, ze.y); await sleep(600);
+    const band = await p.evaluate(() => {
+      const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0), c = plot.querySelector('clipPath rect');
+      const top = +c.getAttribute('y') + 2, bot = top + +c.getAttribute('height') - 4, out = [];
+      let n = 0;
+      for (const path of plot.querySelectorAll('g[clip-path] path[fill="none"]')) {
+        const v = (path.getAttribute('d') || '').match(/-?\d*\.?\d+(?:e-?\d+)?/g)?.map(Number) ?? [];
+        for (let i = 1; i < v.length; i += 2) { n++; if (v[i] < top - 0.5 || v[i] > bot + 0.5) out.push(v[i].toFixed(1)); }
+      }
+      const dots = [...plot.querySelectorAll('g[pointer-events="none"] circle')].map(e => +e.getAttribute('cy')), dotsOut = dots.filter(y => y < top - 0.5 || y > bot + 0.5);
+      return { top, bot, n, out: out.length, sample: out.slice(0, 4), dots: dots.length, dotsOut: dotsOut.map(y => y.toFixed(1)) };
+    });
+    if (!band.n) bad.push('zoomed: no line points read');
+    if (band.out) bad.push(`zoomed into hands ${ze.x0.toFixed(0)}–${ze.x1.toFixed(0)}: ${band.out} of ${band.n} line points outside the plot band ${band.top.toFixed(0)}–${band.bot.toFixed(0)} (${band.sample.join(', ')})`);
+    if (!band.dots) bad.push('zoomed: no hover readout dots');
+    else if (band.dotsOut.length) bad.push(`zoomed: ${band.dotsOut.length} readout dots outside the plot band (${band.dotsOut.join(', ')})`);
+    seen.push(`zoomed into ${ze.x0.toFixed(0)}–${ze.x1.toFixed(0)}: ${band.n} line points and ${band.dots} dots inside`);
+    await p.mouse.click(ze.left + 0.5 * ze.w, ze.y, { count: 2 }); await sleep(900);
     // A plain wheel over the plot pages as everywhere (Trends to Profiles) and leaves the axis alone.
     const before = await zoomState(p);
     await p.mouse.move(before.left + 0.5 * before.w, before.y); await p.mouse.wheel({ deltaY: 100 }); await sleep(1800);

@@ -587,7 +587,9 @@ export default function CumulativeChart({
     // The recent quarter itself and every tip are always inside: the leader's latest run is never clipped.
     const inView = [...[...lines.keys()].map(n => fitted(n, drawn.get(n) ?? [])), ...evDrawn.filter(e => evs.has(e.n)).map(e => fitted(e.n, e.p))].filter(p => p.length);
     const cut = lerp(X0, Math.min(X1, nowX), 0.75);
-    const recent = inView.flatMap(p => p.filter(q => q[0] >= cut).map(q => q[1]));
+    // A zoom (at rest only) is the viewer asking for that stretch: its own points are fitted, not its right quarter, so
+    // the stretch zoomed into is not clipped at the plot's edges (review 3, finding 9).
+    const recent = inView.flatMap(p => p.filter(q => zoom || q[0] >= cut).map(q => q[1]));
     const tips = [...lines.keys()].flatMap(n => fitted(n, drawn.get(n)?.slice(-1) ?? []).map(q => q[1]));
     // The replay is known ahead: the next LOOK_S of each line, so the eased axis is never caught out by a jump.
     const ahead = handNow === null ? [] : [...lines].flatMap(([n, p]) => fitted(n, trace(p, nowX, nowX + (LOOK_S * 1000 / PLAY_MS) * timeline!.hands, Infinity)).map(q => q[1]));
@@ -1102,7 +1104,8 @@ export default function CumulativeChart({
                 <g pointerEvents="none">
                   <line x1={x(hover.n)} x2={x(hover.n)} y1={padTop} y2={padTop + plotH} stroke="rgba(55, 53, 47, 0.55)" strokeDasharray="3 3" />
                   {readout.map(({ m, v }) => (
-                    <circle key={m.name} cx={x(hover.n)} cy={y(v)} r={m === hot ? 4.5 : 3} fill={modelColor(m.name)} stroke="white" strokeWidth={1} />
+                    // Held at the plot's edge, as the line is (path), for a value beyond the axis: never in the margins.
+                    <circle key={m.name} cx={x(hover.n)} cy={Math.min(padTop + plotH, Math.max(padTop, y(v)))} r={m === hot ? 4.5 : 3} fill={modelColor(m.name)} stroke="white" strokeWidth={1} />
                   ))}
                 </g>
               )}
