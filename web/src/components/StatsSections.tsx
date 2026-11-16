@@ -53,6 +53,9 @@ const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHON
 
 // The three panels under the live table, all time. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
+// The model drawer's code loads with the stats (page.tsx): their rows and seats open it.
+if (typeof window !== 'undefined') import('@/components/ModelDrawer');
+
 // The stats in the layout shown: loaded and mounted only once the page needs them (StatsScreens).
 export default memo(function StatsSections(props: { stats: StatsResponse | null; error: string | null }) {
   return usePhone() ? <PhoneStats {...props} /> : <WideStats {...props} />;

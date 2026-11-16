@@ -5608,7 +5608,9 @@ group(() => check('zoom-tolerable', `At 1440x900, 1512x982 and 1728x1117 zoomed 
       if (phone) await p.emulate({ viewport: { width: W, height: H, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: await browser.userAgent() });
       else await p.setViewport({ width: Math.round(W / z), height: Math.round(H / z), deviceScaleFactor: z });
       await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-      await p.waitForFunction(() => document.querySelector('[data-seat]') && document.querySelector('#stats-panel tbody tr'), { timeout: 60000 }).catch(() => {});
+      // The stats mount as they near the window (StatsScreens): waitStats scrolls toward them as a viewer would.
+      await p.waitForFunction(() => document.querySelector('[data-seat]'), { timeout: 60000 }).catch(() => {});
+      await waitStats(p);
       await sleep(1500);
       const narrow = await p.evaluate(q => matchMedia(q).matches, PHONE_Q);
       const skip = narrow ? '' : '.stage-zoom';

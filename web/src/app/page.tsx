@@ -11,8 +11,10 @@ import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import StatsSections from "@/components/StatsScreens";
 import PlaySoonButton from "@/components/PlaySoonButton";
-// The model drawer's code (its chart, its tables) loads the first time a model is opened.
-const ModelDrawer = lazy(() => import("@/components/ModelDrawer"));
+// The model drawer's code (its chart, its tables) is not in the first load: it loads with the stats (StatsSections
+// starts it), or as a pointer or a touch comes to a model's link, so it opens at once; a link opened before then waits for it.
+const loadDrawer = () => import("@/components/ModelDrawer");
+const ModelDrawer = lazy(loadDrawer);
 import StickyBar, { PhoneBar } from "@/components/StickyBar";
 import TabBar, { type Tab } from "@/components/TabBar";
 import SessionProgress from "@/components/SessionProgress";
@@ -221,6 +223,13 @@ function Table() {
   // Mounted from the first time a model opens, then kept (it closes as a dialog does).
   const [drawerEver, setDrawerEver] = useState(false);
   if (drawerSlug && !drawerEver) setDrawerEver(true);
+  useEffect(() => {
+    const near = (e: Event) => { if (e.target instanceof Element && e.target.closest('a[href^="#model="]')) { loadDrawer(); off(); } };
+    const off = () => { removeEventListener('pointerover', near, true); removeEventListener('touchstart', near, true); };
+    addEventListener('pointerover', near, { capture: true, passive: true });
+    addEventListener('touchstart', near, { capture: true, passive: true });
+    return off;
+  }, []);
 
   // Phones: the tab bar's part is where the page is (the table while it shows, else About or the stats); a tap goes to
   // the top of that part: the table, Profits & Losses over the stats (#phone-stats), About. On an opened stats card,
