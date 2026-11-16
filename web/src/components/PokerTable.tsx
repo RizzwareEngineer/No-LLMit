@@ -204,6 +204,7 @@ export default function PokerTable({
         winnerIdxs={Object.keys(winnersByIdx).map(Number)}
         nextHandCountdown={street === 'complete' ? nextHandCountdown ?? null : null}
         onDeck={setDeck}
+        notice={!!notice}
       />}
       {/* Phones: one table and nothing else (owner 2026-11-14: "just do logos with positions and stack sizes and cards then pot
           in the middle"): the felt a tall oval on the page (or a draft shape, ?shape=rect or ?shape=stadium) drawn as the

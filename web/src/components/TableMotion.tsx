@@ -142,11 +142,12 @@ interface TableMotionProps {
   winnerIdxs: number[];
   nextHandCountdown: number | null; // seconds to the next deal while the hand is over (page.tsx counts it down)
   onDeck: (phase: DeckPhase | null) => void; // shows or hides the deck on the felt
+  notice?: boolean; // a table notice is up: it is drawn where the deck would be, so no shuffle (deck or sound)
 }
 
 // Chips and cards flying across the table, the shuffle between hands, and the table sounds. Driven only by the
 // difference between consecutive game states and the next-hand countdown; it never holds up the server's timing.
-export default function TableMotion({ players, handNumber, boardCount, winnerIdxs, nextHandCountdown, onDeck }: TableMotionProps) {
+export default function TableMotion({ players, handNumber, boardCount, winnerIdxs, nextHandCountdown, onDeck, notice = false }: TableMotionProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const prev = useRef<Snapshot | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]); // deal sounds and the deck's steps
@@ -249,7 +250,9 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
 
   // Between hands, the shuffle. The countdown's first value n puts the next deal more than n - 1 s away: the riffle
   // ends 0.1 s before that, so it never meets the deal, and the deck waits squared. Too little time left: none.
-  const pauseOf = nextHandCountdown ? handNumber : 0;
+  // None while a table notice is up (an outage, a failed save): the notice hides the deck, and a notice that comes after
+  // the timer is set cancels it through the effect's cleanup, the reduced-motion sound included.
+  const pauseOf = nextHandCountdown && !notice ? handNumber : 0;
   const shuffle = useEffectEvent(() => {
     const wait = ((nextHandCountdown ?? 0) - 1 - RIFFLE.length) * 1000 - 100;
     if (wait < 0) return;

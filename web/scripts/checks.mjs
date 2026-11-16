@@ -2202,6 +2202,50 @@ group(() => check('table-shuffle-sound', 'The shuffle sound is in time with the 
   } finally { await p.close(); }
 }));
 
+// Review finding (table-fixes #3): a table notice (an outage, a failed save) is drawn where the deck would be, so a
+// shuffle set for the gap between hands is dropped when one comes: no riffle and no sound under it, reduced motion too.
+const shuffleUnderNotice = async reduced => {
+  const bad = [];
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  if (reduced) await p.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  try {
+    await p.evaluateOnNewDocument(() => {
+      const snd = window.__snd = [];
+      const start = AudioBufferSourceNode.prototype.start;
+      AudioBufferSourceNode.prototype.start = function (when, offset, duration) { snd.push({ at: performance.now(), duration }); return start.apply(this, arguments); };
+      try { localStorage.setItem('nollmit:sound', 'on'); } catch {}
+    });
+    await scriptStream(p);
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat]'), { timeout: 120000 });
+    await sleep(2000);
+    await p.mouse.click(4, 4); await sleep(300); // the first trusted click unlocks audio
+    await p.evaluate(() => {
+      const r = window.__deckSeen = { n: 0 };
+      const f = () => { if ([...document.querySelectorAll('[data-deck]')].some(e => e.getBoundingClientRect().width > 0)) r.n++; requestAnimationFrame(f); };
+      requestAnimationFrame(f);
+    });
+    await p.evaluate(() => window.__stream.end(7200));
+    await sleep(1000);
+    const n0 = await p.evaluate(() => {
+      const s = window.__stream;
+      s.feed({ type: 'table_notice', payload: { kind: 'outage', message: "The models can't be reached, so that hand doesn't count." } });
+      s.feed({ type: 'game_state', payload: { ...s.last, nextHandInMs: 180000 } });
+      return window.__snd.length;
+    });
+    await sleep(8000);
+    const { after, deck, notice } = await p.evaluate(n0 => ({ after: window.__snd.slice(n0), deck: window.__deckSeen.n, notice: document.body.innerText.includes("can't be reached") }), n0);
+    if (!notice) bad.push('the notice never showed');
+    const flicks = after.filter(x => x.duration === 0.01 || x.duration === 0.05);
+    if (flicks.length) bad.push(`${flicks.length} shuffle sounds under the notice`);
+    if (deck) bad.push(`a deck on screen for ${deck} frames`);
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `the notice up, no shuffle sound and no deck for 8 s (${after.length} other sounds)` };
+  } finally { await p.close(); }
+};
+const NOTICE_RULE = 'No shuffle (deck or sound) while a table notice is up: a hand ends with the next deal 7.2 s away, an outage notice comes 1 s later, and nothing riffles or sounds for the 8 s after';
+group(() => check('table-shuffle-notice', NOTICE_RULE, () => shuffleUnderNotice(false)));
+group(() => check('table-shuffle-notice-reduced', `${NOTICE_RULE}, with reduced motion`, () => shuffleUnderNotice(true)));
+
 // Owner, 2026-11-09: "Any time I refresh the site, the loading skeleton is so much different compared to the shapes that
 // actually load in. When stuff is loading, there should just be blank squares that are the same size as all the squares
 // that are currently on the site." While the table's state and the stats load, every box (the table, its seats and felt,
