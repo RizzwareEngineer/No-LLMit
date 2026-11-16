@@ -510,12 +510,16 @@ group(async () => {
       const chips = await p.evaluate(() => [...document.querySelectorAll('[data-oval] [data-position]')].map(e => { const r = document.createRange(); r.selectNodeContents(e); return { t: e.textContent, room: (e.clientWidth - r.getBoundingClientRect().width) / 2, over: e.scrollWidth > e.clientWidth }; }));
       for (const c of chips) if (c.over || c.room < 3) out.push(`chip ${c.t} has ${c.room.toFixed(1)}px a side`);
       // The bubble: each seat acts in turn and its action shows over it for a moment.
-      for (const i of [1, 2, 3, 4, 5]) {
-        await p.evaluate(i => {
-          const s = window.__stream, name = s.last.players[i].name, turn = 100 + i;
+      // Each seat acts; a turn the page missed (a busy machine) is played once more under a new number.
+      for (let k = 0; k < 10; k++) {
+        const i = 1 + (k % 5), missed = out.indexOf(`no bubble over seat ${i}`);
+        if (k >= 5 && missed < 0) continue;
+        if (k >= 5) out.splice(missed, 1);
+        await p.evaluate(([i, k]) => {
+          const s = window.__stream, name = s.last.players[i].name, turn = 100 + 10 * k + i;
           s.feed({ type: 'llm_thinking', payload: { turn, playerIdx: i, playerName: name, budgetMs: 45000, elapsedMs: 0 } });
           s.feed({ type: 'llm_action', payload: { turn, playerIdx: i, playerName: name, action: 'RAISE', amount: 632, reason: 'Raise.' } });
-        }, i);
+        }, [i, k]);
         // The table applies the action (the next state), which is when the bubble shows.
         await sleep(1200);
         await p.evaluate(i => { const s = window.__stream; s.last = { ...s.last, players: s.last.players.map((q, j) => (j === i ? { ...q, lastAction: 'RAISE', lastAmount: 632 } : q)) }; s.feed({ type: 'game_state', payload: s.last }); }, i);
