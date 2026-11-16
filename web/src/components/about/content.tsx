@@ -166,7 +166,7 @@ function Waitlist() {
         <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="sr-only" />
         <button type="submit" disabled={status === 'pending'} className="btn-brutal px-3 py-1 disabled:opacity-60">Join the waitlist</button>
         {/* Held in place (invisible) until the count arrives, so the row keeps its height (skeleton-matches). */}
-        <Label as="span" data-waitlist-count className={count === null ? 'invisible' : ''}>{count ? `${count.toLocaleString()} on the waitlist` : 'Be the first on the waitlist.'}</Label>
+        <Label as="span" data-waitlist-count className={count === null ? 'invisible' : ''}>{count ? `${count.toLocaleString('en-US')} on the waitlist` : 'Be the first on the waitlist.'}</Label>
       </div>
       <div aria-live="polite" className="-mt-1.5">{said && <Label className="mt-1.5">{said}</Label>}</div>
     </form>
@@ -451,7 +451,7 @@ export function Race({ art, className = '' }: { art: string; className?: string 
             key={r.m.name}
             type="button"
             data-race-row={r.m.name}
-            aria-label={`${r.m.name}: ${chips(Math.round(r.m.bb100))} bb/100 over ${r.m.hands.toLocaleString()} hands`}
+            aria-label={`${r.m.name}: ${chips(Math.round(r.m.bb100))} bb/100 over ${r.m.hands.toLocaleString('en-US')} hands`}
             initial={{ opacity: reduce ? 1 : 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: reduce ? 0 : 0.6 + i * 0.05, duration: 0.3 }}
@@ -479,7 +479,7 @@ export function Race({ art, className = '' }: { art: string; className?: string 
             }}
           >
             <div className="flex items-center gap-1.5"><LLMLogo model={hot.m.name} size={16} /><b translate="no">{hot.m.name}</b></div>
-            <div><b style={{ color: netColor(hot.m.bb100) }}>{chips(Math.round(hot.m.bb100))}</b> bb/100 over {hot.m.hands.toLocaleString()} hands</div>
+            <div><b style={{ color: netColor(hot.m.bb100) }}>{chips(Math.round(hot.m.bb100))}</b> bb/100 over {hot.m.hands.toLocaleString('en-US')} hands</div>
           </div>
         )}
       </div>
@@ -491,9 +491,9 @@ export function Race({ art, className = '' }: { art: string; className?: string 
           {leader ? (
             <>
               <LLMLogo model={leader.name} size={18} />
-              {/* The name never shortens (a "G…" says nothing): the clause after it gives way first. */}
-              <b translate="no" className="shrink-0">{leader.name}</b>
-              <span className="min-w-0 truncate">leads with <b style={{ color: netColor(leader.bb100) }}>{signed(leader.bb100, 0)}</b> bb/100<span className="hidden @md:inline"> over {leader.hands.toLocaleString()} hands</span>.</span>
+              {/* The figure always shows: the name gives way first, never below about four letters (a "G…" says nothing). */}
+              <b translate="no" className="min-w-[2.4em] truncate">{leader.name}</b>
+              <span className="shrink-0">leads with <b style={{ color: netColor(leader.bb100) }}>{signed(leader.bb100, 0)}</b> bb/100<span className="hidden @md:inline"> over {leader.hands.toLocaleString('en-US')} hands</span>.</span>
             </>
           ) : field.length > 0 && <span>No LLM has played {MIN_HANDS} hands yet.</span>}
         </div>

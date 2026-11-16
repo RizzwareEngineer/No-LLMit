@@ -1041,7 +1041,7 @@ export default function CumulativeChart({
           aria-label={interactive && onSelect ? `${label} Left and right arrows step through the hands.` : label}
         >
           <div className="absolute left-0 top-0 origin-top-left" style={{ width: lw, height: lh, transform: s === 1 ? undefined : `scale(${s})` }}>
-            <svg className="absolute inset-0" width={lw} height={lh} viewBox={`0 0 ${lw} ${lh}`} role="img" aria-label={label}>
+            <svg className="absolute inset-0" width={lw} height={lh} viewBox={`0 0 ${lw} ${lh}`} aria-hidden>
               <defs><clipPath id={clipId}><rect x={left} y={padTop - 2} width={leadW} height={plotH + 4} /></clipPath></defs>
               {/* Axis titles: the unit above the y labels, the hands under the x labels. */}
               {/* One type for the chart's furniture: x and y ticks alike, both titles alike (13px, muted). */}
@@ -1056,7 +1056,7 @@ export default function CumulativeChart({
                 </g>
               ))}
               <line x1={left} x2={left} y1={padTop} y2={padTop + plotH} stroke={GRID} />
-              {xTicks.map(({ t, o }) => ({ t, o: o * Math.min(1, Math.max(0, (plotR - x(t) - t.toLocaleString().length * ts * 0.31) / 12)) })).filter(d => d.o > 0.01).map(({ t, o }) => (
+              {xTicks.map(({ t, o }) => ({ t, o: o * Math.min(1, Math.max(0, (plotR - x(t) - t.toLocaleString('en-US').length * ts * 0.31) / 12)) })).filter(d => d.o > 0.01).map(({ t, o }) => (
                 // A label fades out before it would reach past the plot into the pill column.
                 <g key={t} opacity={o}>
                   <line x1={x(t)} x2={x(t)} y1={padTop + plotH} y2={padTop + plotH + 4} stroke={AXIS} />
@@ -1150,7 +1150,7 @@ export default function CumulativeChart({
               <div className="absolute flex items-center gap-2 tabular-nums" style={{ right, top: 0, height: padTop - 4, fontSize: ts, color: MUTED }}>
                 {playing && (
                   <span data-race-clock>
-                    Hand <b style={{ color: TEXT }}>{(handNow === null ? Math.round(head) : Math.floor(handNow)).toLocaleString()}</b> of {(handNow === null ? lastHand : timeline!.hands).toLocaleString()}
+                    Hand <b style={{ color: TEXT }}>{(handNow === null ? Math.round(head) : Math.floor(handNow)).toLocaleString('en-US')}</b> of {(handNow === null ? lastHand : timeline!.hands).toLocaleString('en-US')}
                   </span>
                 )}
                 {zoom && (
@@ -1183,7 +1183,7 @@ export default function CumulativeChart({
                   boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.2) 0px 3px 8px',
                 }}
               >
-                <div className="font-bold mb-1" style={{ color: TEXT }}>Hand {hover.n.toLocaleString()}</div>
+                <div className="font-bold mb-1" style={{ color: TEXT }}>Hand {hover.n.toLocaleString('en-US')}</div>
                 {readout.map(({ m, v }) => (
                   <div key={m.name} className={`flex items-center gap-2 whitespace-nowrap ${m === hot ? 'font-bold' : ''}`} style={{ color: TEXT, lineHeight: `${20 * u}px` }}>
                     <span aria-hidden className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: modelColor(m.name) }} />

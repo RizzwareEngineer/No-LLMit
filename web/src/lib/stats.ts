@@ -194,19 +194,9 @@ export const ciTitle = (m: ModelStats) => (m.bb100_ci ? `95% range: ${signed(m.b
 
 export const DASH = '—';
 
-// The site's one number format: thousands separators (as Profits & Losses), a true minus, `digits` decimals.
-export const grouped = (n: number, digits = 0) =>
-  Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
-
-export const signed = (n: number, digits = 1) =>
-  `${n > 0 ? '+' : n < 0 ? '−' : ''}${grouped(n, digits)}`;
-
-// A figure for a narrow column: one decimal under 100, whole from 100 up, grouped (+12.3, +485, −1,306).
-export const signedBrief = (n: number) => signed(n, Math.abs(n) < 100 ? 1 : 0);
-
-// The last resort of a matrix cell too narrow for the grouped figure (+1.3k), so a value never goes blank.
-export const signedCompact = (n: number) =>
-  `${n > 0 ? '+' : n < 0 ? '−' : ''}${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase()}`;
+// The number formatters live in lib/format (no imports, so its unit test can load it).
+export { grouped, signed, signedBrief, signedCompact } from '@/lib/format';
+import { signed } from '@/lib/format';
 
 export const chips = (n: number) => signed(n, 0);
 

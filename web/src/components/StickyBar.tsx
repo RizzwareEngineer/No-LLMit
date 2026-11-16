@@ -52,7 +52,7 @@ function StickyBar({ show, slide = true, blank = false, pot, handNumber, display
             {handNumber > 0 && <span className="tabular-nums hidden sm:inline" style={{ color: MUTED }}>#{handNumber}</span>}
             <span className="tabular-nums shrink-0">
               <span style={{ color: MUTED }}>Pot </span>
-              <span className="font-bold"><NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} /></span>
+              <span className="font-bold"><NumberFlow locales="en-US" value={potIn.value} format={potIn.format} suffix={potIn.suffix} /></span>
             </span>
             {display && doing && (
               <div className="flex items-center gap-1.5 min-w-0">
@@ -111,10 +111,10 @@ export function PhoneBar({ blank = false, live, watching, handNumber, bigBlind }
       <div ref={row} className={`h-11 px-3 flex items-center gap-3 text-[13px] whitespace-nowrap ${blank ? '[&>*]:invisible' : ''}`} style={{ color: TEXT }}>
         {/* The site's name, as the desktop header's, then the live dot and how many watch (labelled: a bare number read as nothing). */}
         <span data-brand className="font-bold">No-LLMit</span>
-        <span data-watching className="flex items-center gap-1.5 tabular-nums" title={watching === undefined ? undefined : `${watching.toLocaleString()} watching`}
-          aria-label={`${live ? 'Live' : 'Not live'}${watching !== undefined ? `, ${watching.toLocaleString()} watching` : ''}`} role="status">
+        <span data-watching className="flex items-center gap-1.5 tabular-nums" title={watching === undefined ? undefined : `${watching.toLocaleString('en-US')} watching`}
+          aria-label={`${live ? 'Live' : 'Not live'}${watching !== undefined ? `, ${watching.toLocaleString('en-US')} watching` : ''}`} role="status">
           <span aria-hidden className="inline-block w-2 h-2 rounded-full" style={{ background: live ? 'rgb(220, 38, 38)' : MUTED }} />
-          {watching !== undefined && <span aria-hidden>{watching.toLocaleString()}<span className="max-[400px]:hidden"> watching</span></span>}
+          {watching !== undefined && <span aria-hidden>{watching.toLocaleString('en-US')}<span className="max-[400px]:hidden"> watching</span></span>}
         </span>
         {/* Under 360px (a laptop at 500%) the hand number gives way, so the bar never runs past the window. */}
         {handNumber > 0 && !detail && <span className="tabular-nums max-[359px]:hidden" style={{ color: MUTED }}>Hand #{handNumber}</span>}
@@ -125,7 +125,7 @@ export function PhoneBar({ blank = false, live, watching, handNumber, bigBlind }
         )}
         <div className="ml-auto shrink-0 flex items-center gap-1">
           {!detail && <span className={TAP}><UnitToggle bigBlind={bigBlind} /></span>}
-          <button type="button" onClick={() => setSoundOn(!sound)} aria-pressed={sound} aria-label="Sounds" data-sound className="flex items-center justify-center w-11 h-11 -mr-2" style={{ color: sound ? TEXT : MUTED }}>
+          <button type="button" onClick={() => setSoundOn(!sound)} aria-pressed={sound} aria-label="Sound" data-sound className="flex items-center justify-center w-11 h-11 -mr-2" style={{ color: sound ? TEXT : MUTED }}>
             {sound ? <SpeakerHigh size={18} weight="bold" aria-hidden /> : <SpeakerSlash size={18} weight="bold" aria-hidden />}
           </button>
         </div>

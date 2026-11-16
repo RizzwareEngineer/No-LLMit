@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { ArrowRight, X } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
 import { pageTo } from '@/components/Section';
-import { DASH, MUTED, ModelStats, TEXT, BLUE, chips, ciHalf, netColor, signed } from '@/lib/stats';
+import { DASH, MUTED, ModelStats, TEXT, BLUE, chips, ciHalf, grouped, netColor, signed } from '@/lib/stats';
 
 // Phones: a tapped seat's basic stats, over the middle of the table (owner 2026-11-15: "If they do click on a player
 // icon, they should be able to see the basic stats: BB, 100 hands, net, and all-in EV. For the more stats, they should
@@ -61,8 +61,8 @@ export default function SeatStats({ name, stats: m, at, onClose }: { name: strin
         </div>
         {m ? (
           <dl className="mt-2 grid grid-cols-2 max-[260px]:grid-cols-1 gap-x-4 gap-y-2">
-            {fact('bb/100', <>{signed(m.bb100)}{ciHalf(m) !== null && <span className="font-normal text-[12px]" style={{ color: MUTED }}> ±{ciHalf(m)!.toFixed(1)}</span>}</>, netColor(m.bb100))}
-            {fact('Hands', m.hands.toLocaleString())}
+            {fact('bb/100', <>{signed(m.bb100)}{ciHalf(m) !== null && <span className="font-normal text-[12px]" style={{ color: MUTED }}> ±{grouped(ciHalf(m)!, 1)}</span>}</>, netColor(m.bb100))}
+            {fact('Hands', grouped(m.hands))}
             {fact('Net', chips(m.net_chips), netColor(m.net_chips))}
             {fact('All-in EV bb/100', m.aiev_bb100 === null ? DASH : signed(m.aiev_bb100))}
           </dl>

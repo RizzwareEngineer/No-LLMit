@@ -71,7 +71,7 @@ export default function UsageIndicator({ usage, error }: { usage: UsageData | nu
   const isCritical = usedPct > 80;
   const barColor = error ? MUTED : isCritical ? 'rgb(235, 87, 87)' : isLow ? 'rgb(203, 145, 47)' : 'rgb(15, 123, 108)';
   const hours = localHoursLabel(table);
-  const calls = error || !table ? '???' : `${table.callsToday.toLocaleString()} / ${table.dailyCallCap.toLocaleString()}`;
+  const calls = error || !table ? '???' : `${table.callsToday.toLocaleString('en-US')} / ${table.dailyCallCap.toLocaleString('en-US')}`;
   // Until the first answer: a blank box as tall as its lines were (remembered).
   const [box, size, attrs] = useRememberedBox<HTMLDivElement>('usage', !!usage);
   useFillIn(box, !!(usage || error));

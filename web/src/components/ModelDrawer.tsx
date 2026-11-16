@@ -59,7 +59,7 @@ function Opponents({ m }: { m: ModelStats }) {
                 {name}
               </a>
             </th>
-            <td className="text-right p-2">{v.pots}</td>
+            <td className="text-right p-2">{grouped(v.pots)}</td>
             <td className="text-right p-2 font-bold" style={{ color: netColor(v.net_chips) }}>{chips(v.net_chips)}</td>
           </tr>
         ))}
@@ -145,7 +145,7 @@ export default function ModelDrawer({
                 value={<>{signed(m.bb100)} <span className="font-normal text-[13px]" style={{ color: MUTED }}>±{ciHalf(m) === null ? DASH : grouped(ciHalf(m)!, 1)}</span></>}
                 color={netColor(m.bb100)}
               />
-              <Fact label="Hands" value={m.hands.toLocaleString()} />
+              <Fact label="Hands" value={m.hands.toLocaleString('en-US')} />
               <Fact label="Net" value={chips(m.net_chips)} color={netColor(m.net_chips)} />
               <Fact label="All-in EV bb/100" value={m.aiev_bb100 === null ? DASH : signed(m.aiev_bb100)} />
             </dl>
@@ -178,7 +178,7 @@ export default function ModelDrawer({
                     {positions.map(([pos, p]) => (
                       <tr key={pos} className="lift">
                         <th scope="row" className="text-left font-medium p-2">{pos}</th>
-                        <td className="text-right p-2">{p.hands}</td>
+                        <td className="text-right p-2">{grouped(p.hands)}</td>
                         <td className="text-right p-2">{pct(p.vpip)}</td>
                         <td className="text-right p-2">{pct(p.pfr)}</td>
                         <td className="text-right p-2 font-bold" style={{ color: netColor(p.bb100) }}>{signed(p.bb100)}</td>
@@ -195,8 +195,8 @@ export default function ModelDrawer({
 
             <Block title="Biggest pots">
               <dl className="flex gap-8">
-                <Fact label="Won" value={`${m.biggest_pot_won.toLocaleString()}`} color={netColor(1)} />
-                <Fact label="Lost" value={`${m.biggest_pot_lost.toLocaleString()}`} color={netColor(-1)} />
+                <Fact label="Won" value={`${m.biggest_pot_won.toLocaleString('en-US')}`} color={netColor(1)} />
+                <Fact label="Lost" value={`${m.biggest_pot_lost.toLocaleString('en-US')}`} color={netColor(-1)} />
               </dl>
             </Block>
 
