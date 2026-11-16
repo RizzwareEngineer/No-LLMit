@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, lazy, memo, startTransition, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, startTransition, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { StatsResponse } from '@/lib/stats';
 import { PHONE } from '@/lib/layout';
 import { isPaging } from '@/components/Section';
@@ -10,7 +10,14 @@ import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
 // it (useStatsMount): the prerendered page and the hydration hold just its screens, empty, at their places and heights
 // (StatsHold), so a phone's first load is the table's work alone (its code, its hydration, its first state). Then the
 // stats mount in a transition, in the layout shown, over the same screens.
-const StatsSections = lazy(() => import('@/components/StatsSections'));
+// The chunk is loaded first and only then is the component put in state, in a transition: no React.lazy and no Suspense.
+// A lazy that suspends commits a fallback and finishes on a retry lane, which never expires and which every
+// default-lane update (each typed character of a reason, the 1 s clocks, each stream message) restarts, so the stats
+// stayed empty while a reason typed. A transition lane is not interrupted by those and expires after 5 s. And a chunk
+// that fails to load (a deploy replaced it, the phone went offline) never reaches React: the stand-in stays, and the
+// next trigger tries again (a failed webpack chunk is requested anew).
+let StatsSections: typeof import('@/components/StatsSections').default | null = null; // once loaded
+const loadStats = () => import('@/components/StatsSections').catch(() => import('@/components/StatsSections')).then(m => { StatsSections = m.default; });
 
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
 const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
@@ -19,8 +26,8 @@ export default memo(function StatsScreens(props: { stats: StatsResponse | null; 
   const phone = usePhone();
   const hold = useRef<HTMLDivElement>(null);
   const on = useStatsMount(hold);
-  const stand = <StatsHold ref={hold} phone={phone} />;
-  return on ? <Suspense fallback={stand}><KeepScroll><StatsSections {...props} /></KeepScroll></Suspense> : stand;
+  // One swap, from the stand-in to the stats (a screen reader on a stand-in's section loses it once, not twice).
+  return on && StatsSections ? <KeepScroll><StatsSections {...props} /></KeepScroll> : <StatsHold ref={hold} phone={phone} />;
 });
 
 // Where the page was scrolled to before the stats mounted. Their screens replace the hold's (new elements), and the
@@ -28,7 +35,9 @@ export default memo(function StatsScreens(props: { stats: StatsResponse | null; 
 // they mount): it went back to the top. So the page is put back where it was, before that frame is painted.
 // Only a jump of more than half a window, and never while a paged scroll runs: a scroll the viewer is making moves less
 // than that in a frame. lastY follows every scroll until the swap (a re-snap's own scroll event comes a frame later).
-let lastY = 0;
+// Seeded with where the page is when this module runs: a viewer may have scrolled, or the browser restored a scroll,
+// before the JS ran, and no scroll event follows that.
+let lastY = typeof window !== 'undefined' ? window.scrollY : 0;
 if (typeof window !== 'undefined') window.addEventListener('scroll', () => { lastY = window.scrollY; }, { passive: true });
 function KeepScroll({ children }: { children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -55,14 +64,20 @@ function useStatsMount(hold: React.RefObject<HTMLDivElement | null>) {
   const [on, setOn] = useState(false);
   useEffect(() => {
     if (on) return;
-    let done = false;
-    const go = () => { if (!done) { done = true; startTransition(() => setOn(true)); } };
+    let done = false, live = true;
+    const go = () => {
+      if (done) return;
+      done = true;
+      lastY = window.scrollY;
+      loadStats().then(() => { if (live) startTransition(() => setOn(true)); }, () => { done = false; });
+    };
     // The hold itself (the same element in both layouts: its screens change when a phone swaps the wide ones after hydrating).
     const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) go(); }, { rootMargin: '25% 0px' });
     if (hold.current) io.observe(hold.current);
     const gestures = ['keydown', 'wheel', 'touchstart'] as const;
     gestures.forEach(g => window.addEventListener(g, go, { passive: true, capture: true }));
     return () => {
+      live = false;
       io.disconnect();
       gestures.forEach(g => window.removeEventListener(g, go, { capture: true }));
     };

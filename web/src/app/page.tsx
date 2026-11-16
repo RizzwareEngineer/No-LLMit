@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, lazy, useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { startTransition, useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
@@ -13,8 +13,13 @@ import StatsSections from "@/components/StatsScreens";
 import PlaySoonButton from "@/components/PlaySoonButton";
 // The model drawer's code (its chart, its tables) is not in the first load: it loads with the stats (StatsSections
 // starts it), or as a pointer or a touch comes to a model's link, so it opens at once; a link opened before then waits for it.
-const loadDrawer = () => import("@/components/ModelDrawer");
-const ModelDrawer = lazy(loadDrawer);
+// Loaded on the first pointer near a model link, or the first model opened, and put in state only once loaded, in a
+// transition (StatsScreens says why: a lazy would finish on a retry lane that a typing reason restarts). A failed load
+// never reaches React: the drawer stays closed and the next open tries again.
+let drawerChunk: Promise<typeof import("@/components/ModelDrawer")> | null = null;
+let ModelDrawer: typeof import("@/components/ModelDrawer").default | null = null; // once loaded
+const loadDrawer = () => drawerChunk ??= import("@/components/ModelDrawer").catch(() => import("@/components/ModelDrawer"))
+  .then(m => { ModelDrawer = m.default; return m; }, e => { drawerChunk = null; throw e; });
 import StickyBar, { PhoneBar } from "@/components/StickyBar";
 import TabBar, { type Tab } from "@/components/TabBar";
 import SessionProgress from "@/components/SessionProgress";
@@ -131,6 +136,7 @@ export default function Home() {
 function Table() {
   const {
     gameState,
+    dealAt,
     connection,
     gaveUp,
     tableNotice,
@@ -223,9 +229,14 @@ function Table() {
   const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
   // Mounted from the first time a model opens, then kept (it closes as a dialog does).
   const [drawerEver, setDrawerEver] = useState(false);
-  if (drawerSlug && !drawerEver) setDrawerEver(true);
   useEffect(() => {
-    const near = (e: Event) => { if (e.target instanceof Element && e.target.closest('a[href^="#model="]')) { loadDrawer(); off(); } };
+    if (!drawerSlug || drawerEver) return;
+    let live = true;
+    loadDrawer().then(() => { if (live) startTransition(() => setDrawerEver(true)); }, () => { if (live) closeModel(); });
+    return () => { live = false; };
+  }, [drawerSlug, drawerEver]);
+  useEffect(() => {
+    const near = (e: Event) => { if (e.target instanceof Element && e.target.closest('a[href^="#model="]')) { loadDrawer().catch(() => {}); off(); } };
     const off = () => { removeEventListener('pointerover', near, true); removeEventListener('touchstart', near, true); };
     addEventListener('pointerover', near, { capture: true, passive: true });
     addEventListener('touchstart', near, { capture: true, passive: true });
@@ -401,27 +412,25 @@ function Table() {
     };
   }, []);
 
-  // Next hand countdown: the server deals the next hand and tells us how long is left.
-  const nextHandInMs = gameState?.nextHandInMs;
+  // Next hand countdown: the server deals the next hand and tells us how long is left (nextHandInMs, from when it sent
+  // it). Counted from the deal's time (dealAt: that message's arrival plus nextHandInMs), each step on the second it is
+  // due, so a message that waited for hydration, or a late timer, never shows more seconds than the engine has left.
   useEffect(() => {
     if (!isHandComplete) {
-      // Mirrors the server's next-hand timer into the local countdown.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setNextHandCountdown(null);
-    } else if (nextHandInMs) {
-      setNextHandCountdown(Math.ceil(nextHandInMs / 1000));
+      return;
     }
-  }, [isHandComplete, nextHandInMs]);
-
-  useEffect(() => {
-    if (nextHandCountdown === null || nextHandCountdown <= 0) return;
-
-    const timer = setTimeout(() => {
-      setNextHandCountdown(prev => prev !== null ? prev - 1 : null);
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [nextHandCountdown]);
+    if (!dealAt) return;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const step = () => {
+      const left = dealAt - Date.now(), n = Math.max(0, Math.ceil(left / 1000));
+      setNextHandCountdown(n);
+      if (n > 0) t = setTimeout(step, left - (n - 1) * 1000 + 1);
+    };
+    step();
+    return () => clearTimeout(t);
+  }, [isHandComplete, dealAt]);
 
   // Calculate winners by player index for display on player cards
   const winnersByIdx = isHandComplete && winners.length > 0
@@ -506,6 +515,7 @@ function Table() {
                 pot={pot}
                 winnersByIdx={winnersByIdx}
                 nextHandCountdown={nextHandCountdown}
+                dealAt={dealAt}
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
                 peeked={displayState ? [...peeked, displayState.playerIdx] : peeked}
                 buttonDetermination={buttonDetermination}
@@ -566,7 +576,7 @@ function Table() {
       {phone && <TabBar tab={tab} onTab={onTab} />}
       {/* No floating back-to-top button on phones: it covered text, logos and chart marks. The tab bar's Table tab is the way
           back to the table's top, as a native tab bar's. */}
-      {drawerEver && <Suspense fallback={null}><ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} /></Suspense>}
+      {drawerEver && ModelDrawer && <ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} />}
 
       {/* Fixed notification bar for connection status */}
       {bar && (
