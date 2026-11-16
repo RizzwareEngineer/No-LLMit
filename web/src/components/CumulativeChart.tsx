@@ -745,11 +745,7 @@ export default function CumulativeChart({
     const shake = (n: string, lead: boolean) => {
       const el = pillEls.current.get(n);
       if (!el) return;
-      // A pill passed again shakes again, except that a lead shake still running is not cut short by a lighter one: at
-      // speed the new #1 was often passed or passing again a frame later, and its harder shake was never drawn.
-      const running = el.getAnimations().filter(a => /shake/.test(a.id) && a.playState === 'running');
-      if (!lead && running.some(a => a.id === 'pill-shake-lead')) return;
-      running.forEach(a => a.cancel());
+      el.getAnimations().forEach(a => /shake/.test(a.id) && a.cancel()); // a pill passed again shakes again
       const { ms, em } = lead ? LEAD_SHAKE : SHAKE;
       el.animate(SWINGS.map(k => ({ translate: `${k * em}em 0`, easing: 'ease-out' })), { duration: ms / sp, id: lead ? 'pill-shake-lead' : 'pill-shake' });
     };
