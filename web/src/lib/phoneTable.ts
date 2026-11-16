@@ -120,7 +120,6 @@ type DraftSeat = { cards: readonly [number, number]; bet: readonly [number, numb
 const D = (cards: readonly [number, number], bet: readonly [number, number], text: TextAt, chipTop = false): DraftSeat => ({ cards, bet, text, chipTop });
 const ANGLES: Record<Exclude<SeatDraft, 'today'>, readonly number[]> = { beside: [34.86, 68.84, 118.63, 153.87], tucked: [39.31, 86.33, 119.28, 156.1] };
 const U: TextAt = { under: [0, 0] };
-const TODAY = (shape: Shape) => NINE[shape].map(([, h]) => D(h.cards, h.bet, U));
 const DRAFTS: Record<Exclude<SeatDraft, 'today'>, Record<Shape, DraftSeat[]>> = {
   // The stack and label beside the logo, on the side with room (outward up top and at the foot, inward on the side
   // seats, whose outer side is off the table); at the widest part of the oval neither side has room under the seat
@@ -133,7 +132,7 @@ const DRAFTS: Record<Exclude<SeatDraft, 'today'>, Record<Shape, DraftSeat[]>> = 
       D([-33, -18], [-92, -23], { under: [4, 0] }),
       D([-28, -26], [-6, -61], { beside: 'right', dy: 8 }),
     ],
-    rect: TODAY('rect'), stadium: TODAY('stadium'),
+    rect: [], stadium: [],
   },
   // The top seats' cards cover the logo's lower edge, so their chip sits on its top edge and their stack and label under
   // the cards (or beside them); lower down the cards sit over the logo's inner upper edge.
@@ -145,7 +144,7 @@ const DRAFTS: Record<Exclude<SeatDraft, 'today'>, Record<Shape, DraftSeat[]>> = 
       D([-33, -19], [-90, -22], U),
       D([-23, -28], [-19, -62], U),
     ],
-    rect: TODAY('rect'), stadium: TODAY('stadium'),
+    rect: [], stadium: [],
   },
 };
 
@@ -153,7 +152,8 @@ export function seatSpots(n: number, shape: Shape = 'oval', draft: SeatDraft = '
   if (draft !== 'today' && n === 9) {
     const where = shape === 'oval' ? [0, ...ANGLES[draft]].map(onRim) : NINE[shape].map(([p]) => p);
     return Array.from({ length: 9 }, (_, i) => {
-      const m = MIRROR[i], p = where[(m ?? i) - 1], d = DRAFTS[draft][shape][(m ?? i) - 1];
+      // Not tuned for the other shapes yet: the oval's seats at their places (phone-table-ownership measures how they fare).
+      const m = MIRROR[i], p = where[(m ?? i) - 1], d = (DRAFTS[draft][shape].length ? DRAFTS[draft][shape] : DRAFTS[draft].oval)[(m ?? i) - 1];
       if (m === undefined) return { ...p, cards: d.cards, bet: d.bet, text: d.text, chipTop: d.chipTop };
       const text: TextAt = 'beside' in d.text ? { beside: d.text.beside === 'left' ? 'right' : 'left', dy: d.text.dy } : { under: [-d.text.under[0], d.text.under[1]] };
       return { ...flip(p), cards: [-d.cards[0], d.cards[1]], bet: [-d.bet[0], d.bet[1]], text, chipTop: d.chipTop };
