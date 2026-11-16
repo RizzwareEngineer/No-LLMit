@@ -35,6 +35,11 @@ const GUARDS = [
   ['web/src/components/CumulativeChart.tsx', 'zoom-tolerable'],
   ['web/src/components/TypewriterText.tsx', 'stats-while-typing'],
   ['web/src/hooks/useGameState.ts', 'clock-after-load'],
+  ['web/src/hooks/useSecondsDraw.ts', 'clock-after-load'],
+  ['web/src/hooks/useSecondsDraw.ts', 'clock-stops-at-move'],
+  ['web/src/components/ReasoningPanel.tsx', 'clock-stops-at-move'],
+  ['web/src/components/TableFelt.tsx', 'clock-after-load'],
+  ['web/src/components/PokerTable.tsx', 'clock-after-load'],
   ['web/src/components/TableMotion.tsx', 'table-shuffle-resume'],
 ];
 test('--changed selects the checks that guard each named file', () => {
@@ -56,13 +61,29 @@ test('every check is selected by a --changed row, or named as page-wide', () => 
 // Review 3, finding 13: an edit to a line of this script belongs to the check whose block holds it (changedChecks walks
 // up to the nearest check line, or a block's end, which means every check). skeleton-matches' SKELETON sat under two
 // one-line checks, so its edits ran only table-shuffle-notice-reduced.
+const walk = (lines, n) => { // as changedChecks: the check whose block holds line n, or null (every check)
+  const CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/, ONE_LINE = /\)\);\s*$/;
+  let i = n; while (i >= 0 && !CHECK.test(lines[i]) && !(i < n && END.test(lines[i]))) i--;
+  return (i >= 0 && !(i < n && ONE_LINE.test(lines[i])) && lines[i].match(CHECK)?.[1]) || null;
+};
+test('changedChecks and this test walk the same way', () => {
+  assert.ok(src.includes('const id = i >= 0 && !(i < n && ONE_LINE.test(src[i])) && src[i].match(CHECK)?.[1];'), 'changedChecks\' walk changed: update walk() here');
+});
+// Review 4, finding 10: a line under a one-line check is outside its block (the Trends main step sat under two).
+test('no line resolves to a one-line check above it', () => {
+  const lines = src.split('\n'), CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/;
+  const ones = new Set(lines.filter(l => CHECK.test(l) && /\)\);\s*$/.test(l)).map(l => l.match(CHECK)[1]));
+  assert.ok(ones.size > 0, 'no one-line checks found');
+  const wrong = [];
+  lines.forEach((l, n) => { const id = walk(lines, n); if (id && ones.has(id) && !(CHECK.test(l) && l.match(CHECK)[1] === id)) wrong.push(`${n + 1} -> ${id}`); });
+  assert.deepEqual(wrong.slice(0, 5), []);
+});
 test('an edit to SKELETON selects skeleton-matches, or every check', () => {
-  const lines = src.split('\n'), CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/;
+  const lines = src.split('\n');
   const at = lines.findIndex(l => l.startsWith('const SKELETON = {'));
   assert.ok(at > 0, 'no SKELETON');
   for (let n = at; !lines[n].startsWith('};'); n++) {
-    let i = n; while (i >= 0 && !CHECK.test(lines[i]) && !(i < n && END.test(lines[i]))) i--;
-    const id = i >= 0 && lines[i].match(CHECK)?.[1];
+    const id = walk(lines, n);
     assert.ok(!id || id === 'skeleton-matches', `line ${n + 1} of SKELETON selects ${id}`);
   }
 });

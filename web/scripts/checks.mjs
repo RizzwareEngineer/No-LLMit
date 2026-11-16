@@ -27,7 +27,7 @@ const results = [];
 const SPEED = +arg('--replay-speed', 4);
 // This script's lines and its checks' ids in order (for --changed, and to print results in order).
 const SRC = readFileSync(new URL(import.meta.url), 'utf8').split('\n');
-const CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/;
+const CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/, ONE_LINE = /\)\);\s*$/;
 const IDS = SRC.map(l => l.match(CHECK)?.[1]).filter(Boolean);
 const want = id => !SKIP.has(id) && (!ONLY.size || ONLY.has(id));
 // --query shape=rect&seat=beside: added to the URL of every scripted table (the phone table's drafts), and of table-card-sizes and phone-chrome, unless a check sets that key itself.
@@ -77,7 +77,9 @@ const COVERS = [
   [/components\/(PokerTable|Player|TableFelt|WinningsPanel|UsageIndicator|ReasoningPanel|StickyBar|StatsTable|HeadToHead|CumulativeChart|About)\.tsx|lib\/boxes\./, /^skeleton-/],
   [/lib\/boxes\./, /^status-boxes-remembered$/], // useRememberedBox
   [/components\/(UsageIndicator|WinningsPanel)\.tsx|hooks\//, /^(usage-card-one-line|donate-apparent|watching-counts-me)$/],
-  [/components\/(TypewriterText|ReasoningPanel)\.tsx|hooks\//, /^(reconnect-unseen|stats-while-typing|clock-after-load)$/],
+  [/components\/(TypewriterText|ReasoningPanel)\.tsx|hooks\//, /^(reconnect-unseen|stats-while-typing|clock-after-load|clock-stops-at-move)$/],
+  // TableFelt draws "Next hand in Ns" and PokerTable passes its deal time: only clock-after-load reads that figure.
+  [/components\/(TableFelt|PokerTable)\.tsx/, /^clock-after-load$/],
   [/components\/TableMotion\.tsx/, /^table-shuffle-resume$/],
   [/components\/CumulativeChart\.tsx/, /^zoom-tolerable$/],
   [/(^|\/)AGENTS\.md$/, /(?!)/], // the file next dev writes: no check covers it
@@ -93,7 +95,8 @@ function changedChecks() { // a Set of ids, or null for every check
       const lines = git(`git diff -U0 $(git merge-base ${ref} HEAD) -- ${me}`).flatMap(l => { const m = l.match(/^@@ .* \+(\d+)(?:,(\d+))? @@/); return m ? Array.from({ length: Math.max(1, +(m[2] ?? 1)) }, (_, i) => +m[1] + i - 1) : []; });
       for (const n of lines) {
         let i = n; while (i >= 0 && !CHECK.test(src[i]) && !(i < n && END.test(src[i]))) i--;
-        const id = i >= 0 && src[i].match(CHECK)?.[1];
+        // A one-line check above the changed line ends its own block there: the line is outside every check's block.
+        const id = i >= 0 && !(i < n && ONE_LINE.test(src[i])) && src[i].match(CHECK)?.[1];
         if (!id) return null;
         ids.add(id);
       }
