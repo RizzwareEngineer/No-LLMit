@@ -1,6 +1,7 @@
 "use client";
 
-import { startTransition, useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { flushSync } from "react-dom";
+import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
@@ -13,9 +14,9 @@ import StatsSections from "@/components/StatsScreens";
 import PlaySoonButton from "@/components/PlaySoonButton";
 // The model drawer's code (its chart, its tables) is not in the first load: it loads with the stats (StatsSections
 // starts it), or as a pointer or a touch comes to a model's link, so it opens at once; a link opened before then waits for it.
-// Loaded on the first pointer near a model link, or the first model opened, and put in state only once loaded, in a
-// transition (StatsScreens says why: a lazy would finish on a retry lane that a typing reason restarts). A failed load
-// never reaches React: the drawer stays closed and the next open tries again.
+// Loaded on the first pointer near a model link, or the first model opened, and mounted only once loaded (StatsScreens
+// says why: a lazy would finish on a retry lane that a typing reason restarts). A failed load never reaches React: the
+// drawer stays closed and the next open tries again.
 let drawerChunk: Promise<typeof import("@/components/ModelDrawer")> | null = null;
 let ModelDrawer: typeof import("@/components/ModelDrawer").default | null = null; // once loaded
 const loadDrawer = () => drawerChunk ??= import("@/components/ModelDrawer").catch(() => import("@/components/ModelDrawer"))
@@ -232,7 +233,9 @@ function Table() {
   useEffect(() => {
     if (!drawerSlug || drawerEver) return;
     let live = true;
-    loadDrawer().then(() => { if (live) startTransition(() => setDrawerEver(true)); }, () => { if (live) closeModel(); });
+    // Not a transition: a model was asked for, and the Trends replay's frames (sync updates) would restart a transition's
+    // render of the page until the replay ended (8 s on a phone). A default update renders in one go, and is not lazy.
+    loadDrawer().then(() => { if (live) setDrawerEver(true); }, () => { if (live) closeModel(); });
     return () => { live = false; };
   }, [drawerSlug, drawerEver]);
   useEffect(() => {
@@ -414,8 +417,8 @@ function Table() {
 
   // Next hand countdown: the server deals the next hand and tells us how long is left (nextHandInMs, from when it sent
   // it). Counted from the deal's time (dealAt: that message's arrival plus nextHandInMs), each step on the second it is
-  // due, so a message that waited for hydration, or a late timer, never shows more seconds than the engine has left.
-  useEffect(() => {
+  // due and before its frame is painted, so a message that waited for hydration, or a late timer, never shows more seconds than the engine has left.
+  useLayoutEffect(() => {
     if (!isHandComplete) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setNextHandCountdown(null);
@@ -423,12 +426,13 @@ function Table() {
     }
     if (!dealAt) return;
     let t: ReturnType<typeof setTimeout> | undefined;
-    const step = () => {
+    // From the timer, rendered at once (flushSync), as the shot clock's (useGameState).
+    const step = (sync: boolean) => {
       const left = dealAt - Date.now(), n = Math.max(0, Math.ceil(left / 1000));
-      setNextHandCountdown(n);
-      if (n > 0) t = setTimeout(step, left - (n - 1) * 1000 + 1);
+      if (sync) flushSync(() => setNextHandCountdown(n)); else setNextHandCountdown(n);
+      if (n > 0) t = setTimeout(() => step(true), left - (n - 1) * 1000 + 1);
     };
-    step();
+    step(false);
     return () => clearTimeout(t);
   }, [isHandComplete, dealAt]);
 

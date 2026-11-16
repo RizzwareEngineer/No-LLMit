@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { GameStream, GameState, TableNoticePayload } from '@/lib/api';
 import { StatsResponse } from '@/lib/stats';
 import { ButtonDetermination, DisplayState, EMPTY_TABLE, Tables, applyMessage, applyStats, clockLeft } from '@/lib/stream';
@@ -39,10 +40,21 @@ export function useGameState(): UseGameStateReturn {
   // The shot clock ticks from llm_thinking until the move arrives (llm_action), then holds its last value.
   const { clock } = table;
   const [tick, setTick] = useState({ received: 0, left: 0 });
-  useEffect(() => {
+  // Read at once (a clock from a message that waited for hydration has run since it arrived), then each time its whole
+  // seconds change, before the frame is painted: never a second more than the engine's.
+  useLayoutEffect(() => {
     if (!clock?.running) return;
-    const id = setInterval(() => setTick({ received: clock.received, left: clockLeft(clock, Date.now()) }), 1000);
-    return () => clearInterval(id);
+    let t: ReturnType<typeof setTimeout> | undefined;
+    // From the timer, rendered at once (flushSync): a render left to the scheduler waited behind a slow phone's long
+    // tasks (the stats' mount) for most of a second, showing a second the engine no longer had.
+    const step = (sync: boolean) => {
+      const now = Date.now(), ms = clock.budgetMs - clock.elapsedMs - (now - clock.received);
+      const set = () => setTick({ received: clock.received, left: clockLeft(clock, now) });
+      if (sync) flushSync(set); else set();
+      if (ms > 0) t = setTimeout(() => step(true), (ms % 1000 || 1000) + 1);
+    };
+    step(false);
+    return () => clearTimeout(t);
   }, [clock]);
   const shotClockRemaining = !clock ? null : tick.received === clock.received ? tick.left : clockLeft(clock, clock.received);
 

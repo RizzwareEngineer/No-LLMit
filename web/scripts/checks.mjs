@@ -6256,6 +6256,139 @@ group(() => check('reconnect-unseen', 'The routine stream reconnect is unseen: n
   return { pass: !bad.length, detail: bad.length ? `${bad.join('; ')} (${seen.join('; ')})` : seen.join('; ') };
 }));
 
+// --- Third review (.cloud-out/INPUT-review3.json) ---
+
+// A long reason typing from the first state the page gets (before it hydrates): the next game_state at pace 1, then a
+// seat's thinking and its move with REASON (about 15 s of typing at pace 1). Played into the inline stream's queue the
+// moment the engine's state is in, so the page drains it at hydration.
+const LONG_REASON = 'Qzstart ' + 'The board is dry and the pot is small, so a call keeps the weaker hands in while my pair is ahead. '.repeat(6) + 'zqend';
+const typingFromLoad = async (w, h, opts = {}) => {
+  const p = await newPage();
+  if (opts.touch) await p.emulate({ viewport: { width: w, height: h, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: '' });
+  else await p.setViewport({ width: w, height: h });
+  await scriptStream(p);
+  await p.evaluateOnNewDocument(reason => {
+    const iv = setInterval(() => {
+      const s = window.__stream; if (!s?.last || !s.feed) return;
+      clearInterval(iv);
+      const l = s.last, i = Math.max(0, l.players.findIndex(q => q.status === 'active')), name = l.players[i].name;
+      s.scripted = true;
+      s.feed({ type: 'table_notice', payload: { kind: '', message: '' } });
+      s.feed({ type: 'game_state', payload: { ...l, pace: 1, street: l.street === 'complete' ? 'flop' : l.street, winners: undefined, nextHandInMs: undefined, currentPlayerIdx: i } });
+      s.feed({ type: 'llm_thinking', payload: { playerIdx: i, playerName: name, budgetMs: 45000, elapsedMs: 0 } });
+      s.feed({ type: 'llm_action', payload: { playerIdx: i, playerName: name, action: 'CALL', amount: l.currentBet || 10, reason } });
+    }, 2);
+  }, LONG_REASON);
+  await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  return p;
+};
+// Ms from now until fn(page) holds (polled each frame), or null after `ms`; and whether the reason was still typing then.
+const WITHIN_MS = +(process.env.WITHIN_MS || 2500);
+// With `hash`, that hash is set first, and the time counts from it.
+const within = (p, fn, ms, hash = null) => p.evaluate((src, ms, hash) => new Promise(res => {
+  const f = new Function(`return (${src})()`), t0 = performance.now();
+  if (hash) location.hash = hash;
+  // TypewriterText's span: the typed part and its cursor (a full copy of the words elsewhere, for sizing, does not count).
+  const typing = () => [...document.querySelectorAll('span')].some(e => e.textContent.startsWith('Qzstart') && e.textContent.endsWith('▌'));
+  const tick = () => { const dt = performance.now() - t0; if (f()) res({ ms: Math.round(dt), typing: typing() }); else if (dt > ms) res({ ms: null, typing: typing() }); else requestAnimationFrame(tick); };
+  tick();
+}), fn.toString(), ms, hash);
+group(() => check('stats-while-typing', 'While a long reason types (pace 1, from the first state the page gets): at 390x844 (touch) a swipe to Trends shows the stats, a jump to About shows About, and a model opens its drawer, each within 2 s; at 1440x900 the stats overview shows within 2 s of the page\'s first typed character, and a model\'s drawer within 2 s of its open', async () => {
+  const bad = [], seen = [];
+  const started = p => p.waitForFunction(() => [...document.querySelectorAll('span')].some(e => e.textContent.startsWith('Qzstart') && e.textContent.endsWith('▌')), { timeout: 60000 }).then(() => true, () => false);
+  const judge = (what, r) => {
+    seen.push(`${what} ${r.ms === null ? 'never' : `${r.ms}ms`}`);
+    if (r.ms === null || r.ms > 2000) bad.push(`${what}: ${r.ms === null ? 'not shown in 2 s' : `${r.ms}ms`}`);
+    else if (!r.typing) bad.push(`${what}: the reason had stopped typing (nothing tested)`);
+  };
+  const statsShown = () => !!document.querySelector('#race-panel svg, #race-panel [data-box]') || !!document.getElementById('race-panel');
+  const aboutShown = () => (document.getElementById('about')?.innerText ?? '').length > 200;
+  const drawerShown = () => !!document.querySelector('dialog[open]');
+  const modelHash = p => p.evaluate(() => document.querySelector('a[href^="#model="]')?.getAttribute('href').slice(1) ?? null);
+  // Phone: a swipe to Trends.
+  let p = await typingFromLoad(390, 844, { touch: true });
+  if (!(await started(p))) bad.push('390x844: the reason never started typing');
+  else {
+    await sleep(500);
+    await goto(p, 'race');
+    judge('390x844 Trends', await within(p, statsShown, WITHIN_MS));
+    const h = await modelHash(p);
+    if (h) judge('390x844 drawer', await within(p, drawerShown, WITHIN_MS, h)); else bad.push('390x844: no model link');
+  }
+  await p.close();
+  // Phone: a jump to About.
+  p = await typingFromLoad(390, 844, { touch: true });
+  if (await started(p)) { await sleep(500); await goto(p, 'about'); judge('390x844 About', await within(p, aboutShown, WITHIN_MS)); }
+  else bad.push('390x844 (About): the reason never started typing');
+  await p.close();
+  // Desktop: the overview mounts at load, as the reason starts typing.
+  p = await typingFromLoad(1440, 900);
+  if (await started(p)) {
+    judge('1440x900 overview', await within(p, statsShown, WITHIN_MS));
+    const h = await modelHash(p);
+    if (h) judge('1440x900 drawer', await within(p, drawerShown, WITHIN_MS, h)); else bad.push('1440x900: no model link');
+  } else bad.push('1440x900: the reason never started typing');
+  await p.close();
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
+}));
+
+// The engine's clock and next-hand countdown, against the page's, after a load on a 4x-throttled CPU: the state comes in
+// the inline stream's queue (as a mid-turn or between-hands load does) at a time this records (Date.now()), and each
+// value the page then shows is compared with the engine's at that moment: a turn of 45 s with 3 s already run, a deal
+// 9 s away. Each value is read as it changes (a MutationObserver), so it is exact, not up to a tick late.
+group(() => check('clock-after-load', 'Loaded mid-turn and between hands at 1440x900 on a 4x-throttled CPU, the shot clock and "Next hand in Ns" each show the engine\'s whole seconds left (counted from when its message arrived), never more', async () => {
+  const bad = [], seen = [];
+  for (const kind of ['clock', 'countdown']) {
+    const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+    const cdp = await p.createCDPSession(); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+    // A slow phone's network too: the page's scripts come 1.5 s late, so it hydrates seconds after the engine's state
+    // is in (the inline stream is not delayed).
+    await p.setRequestInterception(true);
+    p.on('request', r => { if (/\/_next\/static\/chunks\/.*\.js/.test(r.url())) setTimeout(() => r.continue().catch(() => {}), 1500); else r.continue().catch(() => {}); });
+    await scriptStream(p);
+    await p.evaluateOnNewDocument(kind => {
+      const iv = setInterval(() => {
+        const s = window.__stream; if (!s?.last || !s.feed) return;
+        clearInterval(iv);
+        const l = s.last, i = Math.max(0, l.players.findIndex(q => q.status === 'active'));
+        s.scripted = true;
+        s.feed({ type: 'table_notice', payload: { kind: '', message: '' } });
+        if (kind === 'clock') {
+          s.feed({ type: 'game_state', payload: { ...l, street: l.street === 'complete' ? 'flop' : l.street, winners: undefined, nextHandInMs: undefined, currentPlayerIdx: i } });
+          s.feed({ type: 'llm_thinking', payload: { playerIdx: i, playerName: l.players[i].name, budgetMs: 45000, elapsedMs: 3000 } });
+          window.__engineEnd = Date.now() + 42000;
+        } else {
+          s.feed({ type: 'game_state', payload: { ...l, street: 'complete', nextHandInMs: 9000, currentPlayerIdx: -1, winners: [{ playerIdx: i, amount: l.pot || 15, handType: 'Pair', handDesc: 'Pair of Kings', eligiblePlayers: [i], potNumber: 1 }] } });
+          window.__engineEnd = Date.now() + 9000;
+        }
+        window.__shown = [];
+        const read = () => {
+          const e = kind === 'clock' ? document.querySelector('[data-clock]') : [...document.querySelectorAll('span')].find(x => /^Next hand in \d+s$/.test(x.textContent.trim()) && x.getBoundingClientRect().width > 0);
+          const v = e && (kind === 'clock' ? (e.closest('.invisible') ? null : +e.textContent.replace(/\D/g, '')) : +e.textContent.replace(/\D/g, ''));
+          const last = window.__shown.at(-1);
+          if (v != null && (!last || last.v !== v)) window.__shown.push({ v, at: Date.now() });
+        };
+        new MutationObserver(read).observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+      }, 2);
+    }, kind);
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await sleep(kind === 'clock' ? 8000 : 6000);
+    const r = await p.evaluate(() => ({ end: window.__engineEnd, shown: window.__shown ?? [] }));
+    if (!r.end || !r.shown.length) { bad.push(`${kind}: ${r.end ? 'never shown' : 'the state never came in'}`); await p.close(); continue; }
+    // Engine's whole seconds left at the moment shown. 300 ms of slack: the observer reads a change only once the task
+    // that made it ends, and a 4x-throttled main thread's tasks (the hydration, the stats' mount) last that long.
+    const off = r.shown.map(s => ({ v: s.v, eng: Math.ceil((r.end - s.at) / 1000), eng2: Math.ceil((r.end - s.at + 300) / 1000) }));
+    const high = off.filter(o => o.v > o.eng2);
+    const low = off.filter(o => o.v < o.eng - 1);
+    seen.push(`${kind} ${off.slice(0, 4).map(o => `${o.v}/${o.eng}`).join(' ')}`);
+    if (process.env.DEBUG_CLOCK) console.log(kind, r.end, JSON.stringify(r.shown.map(s => [s.v, r.end - s.at])));
+    if (high.length) bad.push(`${kind} reads more than the engine: ${high.slice(0, 3).map(o => `${o.v}s shown, ${o.eng}s left`).join(', ')}`);
+    if (low.length) bad.push(`${kind} reads far less than the engine: ${low.slice(0, 3).map(o => `${o.v}s shown, ${o.eng}s left`).join(', ')}`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `shown/engine: ${seen.join('; ')}` };
+}));
+
 // --lanes 1 runs one page at a time (the main page's steps, then each group, then each late): a timing check on the main
 // page (a 4x replay's splashes, a refresh's fade) misreads frames while a group films in a window beside it.
 const beside = LANES > 1 ? drain(groups, LANES - 1) : null;
