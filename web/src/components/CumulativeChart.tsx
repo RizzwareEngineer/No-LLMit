@@ -6,7 +6,7 @@ import { GLIDE_MS, SHADOW, Segmented } from '@/components/Section';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
-import { PLAY_MS, Timeline, playReplay, playedAt, replaySpeed, replayStarted, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
+import { PLAY_MS, Timeline, playReplay, playedAt, replaySpeed, replayStarted, replayStep, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
 import { playSound } from '@/lib/sound';
 import { RATE_FROM, series, type Metric } from '@/lib/series';
 
@@ -600,7 +600,10 @@ export default function CumulativeChart({
     const tips = [...lines.keys()].flatMap(n => fitted(n, drawn.get(n)?.slice(-1) ?? []).map(q => q[1]));
     // The replay is known ahead: the next LOOK_S of each line, so the eased axis is never caught out by a jump.
     const perS = handNow === null ? 0 : (1000 / PLAY_MS) * timeline!.hands; // replay hands per second
-    const ahead = handNow === null ? [] : [...lines].flatMap(([n, p]) => fitted(n, trace(p, nowX, nowX + LOOK_S * perS, Infinity)).map(q => q[1]));
+    // Two of the replay's frames longer: the axis moves only when a frame comes, so where frames are slow (a busy phone;
+    // 0.6 s of replay a frame at 4x on a loaded machine) a 0.6 s look saw a jump only a frame before it.
+    const look = LOOK_S + 2 * Math.min(1, (replayStep() * PLAY_MS) / 1000);
+    const ahead = handNow === null ? [] : [...lines].flatMap(([n, p]) => fitted(n, trace(p, nowX, nowX + look * perS, Infinity)).map(q => q[1]));
     // A scene tween (the replay ending on the whole history, a filter): the new view's recent stretch is inside from the
     // tween's start, so the eased axis is not left behind as the window swings to it (the replay's end drew 30px out).
     const [d0, d1] = [wb[0], Math.min(wb[1], nowX)];
@@ -617,10 +620,10 @@ export default function CumulativeChart({
       const take = (h: number, v: number) => {
         if (v >= lo && v <= hi) return;
         const f = (Math.max(hi, v) - Math.min(lo, v)) / (hi - lo || 1);
-        if ((h - nowX) / perS <= Math.log(f) / CAM_MAX + LOOK_S) far.push(v);
+        if ((h - nowX) / perS <= Math.log(f) / CAM_MAX + look) far.push(v);
       };
       for (const [n, p] of lines) {
-        for (const [h, v] of fitted(n, trace(p, nowX + LOOK_S * perS, nowX + LOOK_MAX_S * perS, Infinity))) take(h, v);
+        for (const [h, v] of fitted(n, trace(p, nowX + look * perS, nowX + LOOK_MAX_S * perS, Infinity))) take(h, v);
         if ((end - nowX) / perS <= LOOK_MAX_S) for (const [, v] of fitted(n, trace(p, rest, lastHand))) take(end, v);
       }
       if (far.length) want = robustRange(all, tips, [...must, ...far]);

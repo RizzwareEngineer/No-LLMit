@@ -17,8 +17,11 @@ let start: number | null = null;
 let progress = 1;
 let frame = 0;
 const subs = new Set<() => void>();
+let step = 0;
 function tick(t: number) {
+  const was = progress;
   progress = start === null ? 1 : Math.min(1, Math.max(0, ((t - start) * speed) / PLAY_MS));
+  step = progress > was && progress < 1 ? progress - was : 0;
   subs.forEach(f => f());
   cancelAnimationFrame(frame);
   if (progress < 1) frame = requestAnimationFrame(tick);
@@ -26,6 +29,9 @@ function tick(t: number) {
 export const playReplay = () => { speed = (window as { __replaySpeed?: number }).__replaySpeed || 1; start = performance.now(); tick(start); };
 export const skipReplay = () => { start = -Infinity; tick(0); };
 export const replayStarted = () => start !== null;
+// The share of the replay its last frame moved (0 at rest): a slow frame's step is long, and what draws only per frame (the
+// Trends axis) must look that much further ahead.
+export const replayStep = () => step;
 const subscribe = (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; };
 // `select` should return a primitive, so a component re-renders only when what it shows changes.
 export const useReplay = <T,>(select: (p: number) => T): T => useSyncExternalStore(subscribe, () => select(progress), () => select(1));
