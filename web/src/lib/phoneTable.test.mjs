@@ -4,17 +4,18 @@
 // Run from web/: node --experimental-strip-types --test src/lib/phoneTable.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DECK, LOGO, MIDDLE, POT_TOP, TEXT_H, at, seatBox, seatLabel, seatSpots } from './phoneTable.ts';
+import { CHIP, DECK, LOGO, MIDDLE, POT_TOP, at, chipTop, seatBox, seatLabel, seatSpots, textBox } from './phoneTable.ts';
 
 const SHAPES = ['oval', 'rect', 'stadium'];
 
-const layout = (W, H, shape) => {
+const layout = (W, H, shape, draft = 'today') => {
   const my = at(MIDDLE, H), cx = W / 2, boxes = [];
-  seatSpots(9, shape).forEach((s, i) => {
+  seatSpots(9, shape, draft).forEach((s, i) => {
     const x = at(s.x, W), y = at(s.y, H), c = [x + s.cards[0], y + s.cards[1]], b = [x + s.bet[0], y + s.bet[1]];
     boxes.push(
       { k: `${i} logo`, seat: i, r: [x - LOGO / 2, y - LOGO / 2, x + LOGO / 2, y + LOGO / 2] },
-      { k: `${i} text`, seat: i, r: [x - 28, y + LOGO / 2 + 4, x + 28, y + LOGO / 2 + 4 + TEXT_H] },
+      { k: `${i} text`, seat: i, r: textBox(s).map((v, j) => v + (j % 2 ? y : x)) },
+      { k: `${i} chip`, seat: i, r: [x - CHIP.w / 2, y + chipTop(s), x + CHIP.w / 2, y + chipTop(s) + CHIP.h] },
       { k: `${i} cards`, seat: i, r: [c[0] - 30, c[1] - 20, c[0] + 30, c[1] + 20], askew: [c[0] - 32, c[1] - 26, c[0] + 32, c[1] + 26] },
       { k: `${i} bet`, seat: i, r: [b[0] - 24, b[1] - 9, b[0] + 24, b[1] + 9] },
     );
@@ -28,15 +29,18 @@ const meet = (a, b) => Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 0 && Math.m
 
 // The tables of 375x667 (351x465), 390x844 (366x642) and 430x932 (406x730), and around them.
 const TABLES = [[351, 465], [366, 642], [406, 730], [359, 460], [374, 600], [351, 520], [390, 700], [374, 680]];
-for (const shape of SHAPES) for (const [W, H] of TABLES) {
-  test(`nothing overlaps on a ${W}x${H} ${shape} table, and no two seats crowd each other`, () => {
-    const boxes = layout(W, H, shape), bad = [];
+// The phone seat's drafts (?seat=beside, ?seat=tucked) on the oval, also at the tables the page draws at 360x640, 375x667,
+// 390x844, 430x932 and 844x390 (326x460, 341x465, 356x642, 396x730, 810x460).
+const RUNS = [...SHAPES.map(shape => [shape, 'today', TABLES]), ...['beside', 'tucked'].map(d => ['oval', d, [...TABLES, [326, 460], [341, 465], [356, 642], [396, 730], [810, 460]]])];
+for (const [shape, draft, tables] of RUNS) for (const [W, H] of tables) {
+  test(`nothing overlaps on a ${W}x${H} ${shape} table${draft === 'today' ? '' : ` (${draft} seats)`}, and no two seats crowd each other`, () => {
+    const boxes = layout(W, H, shape, draft), bad = [];
     for (const [i, a] of boxes.entries()) {
       if (a.r[0] < 0 || a.r[1] < 0 || a.r[2] > W || a.r[3] > H) bad.push(`${a.k} outside`);
       for (const b of boxes.slice(i + 1)) {
         if ((a.between || b.between) && [a.k, b.k].some(k => k.endsWith('bet') || k === 'board')) continue; // the deck shows between hands, in the board's place, with no bets out
         const own = a.seat !== undefined && a.seat === b.seat, kinds = [a.k, b.k].map(k => k.split(' ')[1]).sort().join('+');
-        if (own && kinds === 'cards+text' ? meet((a.askew ?? b.askew), (a.askew ? b : a).r) : !own || kinds.includes('bet') ? meet(a.r, b.r) : false) bad.push(`${a.k} on ${b.k}`);
+        if (own && kinds === 'cards+text' ? meet((a.askew ?? b.askew), (a.askew ? b : a).r) : !own || kinds.includes('bet') || kinds === 'cards+chip' ? meet(a.r, b.r) : false) bad.push(`${a.k} on ${b.k}`);
         // Room between players (owner 2026-11-15: "more spacing between each of these players"): two seats' logos and
         // stacks keep 8px apart.
         if (!own && a.seat !== undefined && b.seat !== undefined && /logo|text/.test(a.k) && /logo|text/.test(b.k) && meet(grow(a.r, 4), grow(b.r, 4))) bad.push(`${a.k} within 8px of ${b.k}`);
@@ -46,11 +50,11 @@ for (const shape of SHAPES) for (const [W, H] of TABLES) {
   });
 }
 
-for (const shape of SHAPES) test(`every ${shape} seat sits on the edge, clockwise, the left half mirroring the right`, () => {
-  const s = seatSpots(9, shape), x = s.map(p => at(p.x, 374)), y = s.map(p => at(p.y, 591));
+for (const [shape, draft] of RUNS) test(`every ${shape} seat${draft === 'today' ? '' : ` (${draft})`} sits on the edge, clockwise, the left half mirroring the right`, () => {
+  const s = seatSpots(9, shape, draft), x = s.map(p => at(p.x, 374)), y = s.map(p => at(p.y, 591));
   for (const [l, r] of [[0, 2], [8, 3], [7, 4], [6, 5]]) assert.ok(Math.abs(x[l] + x[r] - 374) < 1e-9 && Math.abs(y[l] - y[r]) < 1e-9, `${l} mirrors ${r}`);
   assert.ok(x[0] < x[1] && x[1] < x[2] && y[2] < y[3] && y[3] < y[4] && y[4] < y[5] && x[6] < x[5]);
-  for (const p of seatSpots(9, shape)) { const b = seatBox(p); assert.ok(b.left <= p.cards[0] - 32 && b.top <= p.cards[1] - 26 && b.left + b.width >= p.cards[0] + 32 && b.top + b.height >= p.cards[1] + 26); }
+  for (const p of s) { const b = seatBox(p); assert.ok(b.left <= p.cards[0] - 32 && b.top <= p.cards[1] - 26 && b.left + b.width >= p.cards[0] + 32 && b.top + b.height >= p.cards[1] + 26); }
 });
 
 test('the seat label tells a family\'s models apart', () => {

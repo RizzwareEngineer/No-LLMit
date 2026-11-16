@@ -118,11 +118,23 @@ const withHands = (p: Pick<Spot, 'x' | 'y'>): Spot => ({ ...p, ...toward(at(p.x,
 // own angles (seat 1 at the top), so the board's row has room between the side seats.
 type DraftSeat = { cards: readonly [number, number]; bet: readonly [number, number]; text: TextAt; chipTop?: boolean };
 const D = (cards: readonly [number, number], bet: readonly [number, number], text: TextAt, chipTop = false): DraftSeat => ({ cards, bet, text, chipTop });
-const ANGLES: Record<Exclude<SeatDraft, 'today'>, readonly number[]> = { beside: [37.94, 72.56, 126.92, 158.9], tucked: [39.31, 86.33, 119.28, 156.1] };
+const ANGLES: Record<Exclude<SeatDraft, 'today'>, readonly number[]> = { beside: [34.86, 68.84, 118.63, 153.87], tucked: [39.31, 86.33, 119.28, 156.1] };
 const U: TextAt = { under: [0, 0] };
 const TODAY = (shape: Shape) => NINE[shape].map(([, h]) => D(h.cards, h.bet, U));
 const DRAFTS: Record<Exclude<SeatDraft, 'today'>, Record<Shape, DraftSeat[]>> = {
-  beside: { oval: TODAY('oval'), rect: TODAY('rect'), stadium: TODAY('stadium') },
+  // The stack and label beside the logo, on the side with room (outward up top and at the foot, inward on the side
+  // seats, whose outer side is off the table); at the widest part of the oval neither side has room under the seat
+  // below, so that seat keeps them under its logo.
+  beside: {
+    oval: [
+      D([0, 47], [-1, 81], { beside: 'left', dy: -14 }),
+      D([-14, 48], [-52, 78], { beside: 'right', dy: -14 }),
+      D([-27, 47], [-90, 24], { beside: 'left' }),
+      D([-33, -18], [-92, -23], { under: [4, 0] }),
+      D([-28, -26], [-6, -61], { beside: 'right', dy: 8 }),
+    ],
+    rect: TODAY('rect'), stadium: TODAY('stadium'),
+  },
   // The top seats' cards cover the logo's lower edge, so their chip sits on its top edge and their stack and label under
   // the cards (or beside them); lower down the cards sit over the logo's inner upper edge.
   tucked: {
