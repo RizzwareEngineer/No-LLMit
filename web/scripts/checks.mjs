@@ -2528,7 +2528,11 @@ main(() => check('history-camera-follows', 'While replaying, the leading tips st
 // Like Arena: every line's tip is "now", so the tips share one x; and the plot is never mostly
 // empty, because the window starts at the first hand until the lines reach the camera's edge.
 main(() => check('history-tips-aligned', 'All line tips sit at the same x (one shared clock, like Arena)', async () => {
-  const xs = await pg.evaluate(() => [...document.querySelectorAll('[data-pill]')].filter(e => getComputedStyle(e).opacity > 0.5).map(e => +e.dataset.tipX).filter(Number.isFinite));
+  // Read once two lines show (up to 20 s): early in a replay a lineup that joined late has one line on screen, which
+  // tests nothing ("1 pills").
+  const read = () => pg.evaluate(() => [...document.querySelectorAll('[data-pill]')].filter(e => getComputedStyle(e).opacity > 0.5).map(e => +e.dataset.tipX).filter(Number.isFinite));
+  let xs = await read();
+  for (const t0 = Date.now(); xs.length < 2 && Date.now() - t0 < 20000; xs = await read()) await sleep(250);
   if (xs.length < 2) return { pass: false, detail: `${xs.length} pills` };
   const spread = Math.max(...xs) - Math.min(...xs);
   return { pass: spread <= 6, detail: `${xs.length} tips spread over ${spread.toFixed(0)}px` };
@@ -3175,19 +3179,22 @@ group(() => check('history-overtake-sound', 'Trends overtakes sound through the 
     await waitStats(p); await sleep(3000); await goto(p, 'race'); await sleep(1500);
     // No trusted input yet: open the card and replay with script clicks.
     await p.evaluate(() => document.querySelector('#race-panel').click()); await sleep(1500);
-    // Replays the opening at 1x for 6.5 s: the sounds it started, and the frames whose order of pills on screen changed.
+    // Replays the opening at 1x until 6.5 s past its first overtake: the sounds it started, and the frames whose order of
+    // pills on screen changed.
     const stretch = async () => {
       await clickText(p, 'Skip'); await sleep(400);
       const n0 = await p.evaluate(() => window.__snd.length);
       if (!(await clickText(p, 'Replay'))) throw new Error('no Replay button');
       const events = await p.evaluate(() => new Promise(res => {
-        const t0 = performance.now(); let last = '', n = 0;
+        const t0 = performance.now(); let last = '', n = 0, first = 0;
         const f = () => {
           const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
           const order = [...plot.querySelectorAll('[data-pill]')].filter(e => +e.style.opacity > 0.5).sort((a, b) => +a.dataset.rank - +b.dataset.rank).map(e => e.querySelector('[data-pill-name]')?.textContent).join('|');
           if (last && order !== last) n++;
           last = order;
-          if (performance.now() - t0 < 6500) requestAnimationFrame(f); else res(n);
+          // 6.5 s from the first overtake (up to 30 s for one: a lineup that joined late has one line in the opening).
+          if (n && !first) first = performance.now();
+          if (performance.now() - (first || t0) < (first ? 6500 : 30000)) requestAnimationFrame(f); else res(n);
         };
         requestAnimationFrame(f);
       }));
