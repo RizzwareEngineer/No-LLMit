@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useEffectEvent, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { memo, useEffect, useEffectEvent, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { animate, motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
@@ -100,17 +100,11 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: Box | null, to: Bo
 // The deck between hands, in the board's place: split in two, riffled together card by card and squared (2D, card
 // backs only, on RIFFLE's beat, which its sound shares), then squared until the deal flies from it. data-deck: its phase.
 export function Deck({ phase }: { phase: DeckPhase }) {
+  // The riffle's sound starts with the riffle (TableMotion's showDeck), not here: a felt mounted by a layout switch while
+  // the deck is out shows it squared (TableFelt's AnimatePresence initial={false}) and silent.
   const size = useCardSize(), box = deckSize(size);
-  // The sound starts on the frame the cards start to move (motion starts them on the next frame after this commit), so
-  // each flick is heard as its card lands. Only the deck that shows: the phone layout's felt is in the page too.
-  const ref = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const f = requestAnimationFrame(() => ref.current?.offsetWidth && playSound('shuffle'));
-    return () => cancelAnimationFrame(f);
-  }, []);
   return (
     <motion.div
-      ref={ref}
       data-deck={phase}
       className={size ? 'relative' : 'relative w-[30px] h-[42px]'}
       style={size ? { width: box.w, height: box.h } : undefined}
@@ -267,6 +261,9 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
         return;
       }
       showDeck('riffle');
+      // The sound starts on the frame the cards start to move (motion starts them on the frame after the deck's commit),
+      // so each flick is heard as its card lands.
+      requestAnimationFrame(() => playSound('shuffle'));
       timers.current.push(
         setTimeout(() => showDeck('ready'), RIFFLE.length * 1000),
         setTimeout(() => showDeck(null), (RIFFLE.length + 3) * 1000), // no deal came (the table paused): put it away

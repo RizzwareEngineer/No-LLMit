@@ -212,8 +212,8 @@ export default function TableFelt({
             {/* The phone's deck between hands takes the board's place too, as the desktop's does, 8px under the pot
                 (phoneTable's DECK; owner 2026-11-15: "the shuffle deck should not be in front of the pot count"; the audit:
                 over the pot it covered the P of POT at 375). */}
-            {compact ? <AnimatePresence>{deck && <div key="deck" className="relative" style={{ top: DECK.top + 2, width: DECK.w, height: DECK.h }}><Deck phase={deck} /></div>}</AnimatePresence>
-              : <AnimatePresence>{deck && <Deck key="deck" phase={deck} />}</AnimatePresence>}
+            {compact ? <AnimatePresence initial={false}>{deck && <div key="deck" className="relative" style={{ top: DECK.top + 2, width: DECK.w, height: DECK.h }}><Deck phase={deck} /></div>}</AnimatePresence>
+              : <AnimatePresence initial={false}>{deck && <Deck key="deck" phase={deck} />}</AnimatePresence>}
           </>
         )}
       </div>
