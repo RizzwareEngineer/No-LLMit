@@ -529,8 +529,10 @@ async function ownership(p) {
 // cards, logo, position chip or stack.
 group(async () => {
   const bad = [], seen = [], own = [], ownSeen = [];
+  // A seat draft also on the landscape phone (review 4, finding 6: ?seat=tucked's seat 3 bubble covered seat 2's label at 844x390).
+  const SIZES = [[360, 640], [375, 667], [390, 844], [430, 932], ...(/(^|&)seat=/.test(QUERY.replace(/^\?/, '')) ? [[844, 390]] : [])];
   if (want('phone-table-places') || want('phone-table-ownership'))
-  for (const [w, h] of [[360, 640], [375, 667], [390, 844], [430, 932]]) {
+  for (const [w, h] of SIZES) {
     const size = `${w}x${h}`, p = await scriptedTable(w, h);
     try {
       // As the live hand left them (face down but for the seats that have had their turn), then all face up: one size
@@ -580,7 +582,9 @@ group(async () => {
           const others = [...document.querySelectorAll('[data-oval] [data-seat]')].filter(e => e !== seat && e.getBoundingClientRect().width > 0)
             .flatMap(o => [...o.querySelectorAll('[data-hole] > *, a[aria-label], [data-label], [data-chips]')].filter(meet).map(e => `seat ${o.dataset.seat}'s ${kind(e)}`))
             // The pot and the board's cards (review 3: ?seat=tucked's seat 3 bubble covered the river card).
-            .concat([...document.querySelectorAll('[data-oval] [data-felt-cards] [role=img], [data-oval] [data-pot]')].filter(meet).map(e => (e.matches('[data-pot]') ? 'the pot' : 'a board card')));
+            .concat([...document.querySelectorAll('[data-oval] [data-felt-cards] [role=img], [data-oval] [data-pot]')].filter(meet).map(e => (e.matches('[data-pot]') ? 'the pot' : 'a board card')))
+            // Every bet, the acting seat's own too (review 4, finding 7: ?seat=tucked's seat 3 bubble covered its own bet).
+            .concat([...document.querySelectorAll('[data-oval] [data-bet]')].filter(e => e.getBoundingClientRect().width > 0 && meet(e)).map(e => (e.dataset.bet === seat.dataset.seat ? 'its own bet' : `seat ${e.dataset.bet}'s bet`)));
           return { seat: seat.dataset.seat, bars: [meet(top) && 'top bar', meet(nav) && 'tab bar'].filter(Boolean), others,
             on: [...seat.querySelectorAll('[data-hole] > *, a[aria-label], [data-position], [data-chips]:not([data-label])')].filter(meet).map(kind) };
         });
@@ -604,10 +608,10 @@ group(async () => {
       else seen.push(`${size}: ${r.seats.length} seats, ${r.bets.length} bets in place${dk ? `, deck ${dk.gap.toFixed(0)}px from the pot` : ''}`);
     } finally { await p.close(); }
   }
-  await check('phone-table-places', 'At 360x640, 375x667, 390x844 and 430x932, with a bet in front of every seat and all cards showing: all hole cards one size face down or up, every seat\'s bet drawn, every position chip holding its name with 3px a side, between hands the deck at least 8px under the pot, an action\'s bubble (each of the nine seats acting) over the seat that acted and never over its seat\'s cards, logo, chip or stack, any other seat\'s logo, label, stack or cards, the pot or a board card, or under the top or tab bar', async () => ({ pass: !bad.length && seen.length === 4, detail: bad.length ? bad.join(' | ') : seen.join(' | ') }));
+  await check('phone-table-places', 'At 360x640, 375x667, 390x844 and 430x932 (and 844x390 for a seat draft), with a bet in front of every seat and all cards showing: all hole cards one size face down or up, every seat\'s bet drawn, every position chip holding its name with 3px a side, between hands the deck at least 8px under the pot, an action\'s bubble (each of the nine seats acting) over the seat that acted and never over its seat\'s cards, logo, chip or stack, any bet (its own too), any other seat\'s logo, label, stack or cards, the pot or a board card, or under the top or tab bar', async () => ({ pass: !bad.length && seen.length === SIZES.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') }));
   // Not met yet (FIX-LAYOUT.md): on a 9-seat oval at 351x465 no placement found meets these with the stack and label under
   // each logo; this fails until the phone seat's design changes, and fails again if a fix ever regresses.
-  await check('phone-table-ownership', 'At 360x640, 375x667, 390x844 and 430x932: each seat\'s hole cards and bet nearer its own logo than any other seat\'s, bets 8px apart, its cards 12px clear of the board\'s row sideways, 8px clear of other seats\' logos and with every corner on the felt', async () => ({ pass: !own.length && ownSeen.length === 4, detail: own.length ? own.join(' | ') : ownSeen.join(' | ') }));
+  await check('phone-table-ownership', 'At 360x640, 375x667, 390x844 and 430x932: each seat\'s hole cards and bet nearer its own logo than any other seat\'s, bets 8px apart, its cards 12px clear of the board\'s row sideways, 8px clear of other seats\' logos and with every corner on the felt', async () => ({ pass: !own.length && ownSeen.length === SIZES.length, detail: own.length ? own.join(' | ') : ownSeen.join(' | ') }));
 });
 // The same rules for the phone seat's drafts (?seat=beside, ?seat=tucked; phoneTable's SeatDraft), one check each, on the
 // oval (with --query shape=rect or shape=stadium, on that shape).
@@ -3823,7 +3827,7 @@ const films = () => (filmed ??= alone(async () => {
       await back(); await sleep(2500);
     }
     // A hand landing mid-glide (review 3, finding 11: with the stream held, nothing covered it): per section, an open and
-    // a close with a stats message 100 ms after the press, one more hand for the last model, which then leads (a
+    // a close with a stats message 100 ms after the press, the table's hand count one more each take, one more hand for the last model, which then leads (a
     // re-sort), and one of its pairs changed. Judged by handover-no-blank and glide-clean only: the figures change at the
     // swap by design. Filmed after every other take, so the changed figures meet none of them.
     const st = (await engineStats(p))?.stats;
@@ -3837,7 +3841,10 @@ const films = () => (filmed ??= alone(async () => {
             const s = structuredClone(st), ms = [...s.models].sort((a, b) => b.bb100 - a.bb100), top = ms[0], last = ms.at(-1);
             last.hands += n; last.net_chips += 1000 * n; last.bb100 = top.bb100 + 5 * n;
             const v = last.vs?.[top.name]; if (v) { v.hands += n; v.net_chips += 100 * n; }
-            window.__stream.feed({ type: 'stats', payload: s });
+            // As the engine sends a hand (review 4, finding 13): the envelope with the table's hand count one up per take,
+            // every model's name in order, and the changed row, so Trends' timeline stretches mid-glide.
+            const { models, ...envelope } = s;
+            window.__stream.feed({ type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: envelope.scope.hands + n }, model_names: models.map(m => m.name), changed: [last] } });
           }, st, ++landed);
         };
         await sleep(800);

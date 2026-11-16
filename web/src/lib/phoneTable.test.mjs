@@ -53,8 +53,13 @@ for (const [shape, draft, tables] of RUNS) for (const [W, H] of tables) {
 // The action's bubble (20px tall) of each of the nine draft seats keeps off every other seat's stack, label, logo and
 // cards, and off the pot and the board (the review: with ?seat=beside at 360x640 and 375x667 seat 0's bubble covered the
 // top seat's label; review 3: ?seat=tucked's seat 3 and 8 bubbles covered the river and the first flop card). Its
-// widths: 'Fold', 'Call 20' and 'Raise 632' (44, 58 and 76px at 12px bold).
-for (const draft of ['beside', 'tucked']) for (const [W, H] of [...TABLES, [326, 460], [341, 465], [356, 642], [396, 730]]) {
+// widths: 'Fold', 'Call 20' and 'Raise 632' (44, 58 and 76px at 12px bold). Review 4, findings 6 and 7: also at the
+// landscape phones' tables (667x375 to 932x430 draw 633x460 to 898x460), and off every seat's bet, its own included (a
+// bet is 20px tall, up to 48px wide: '632' with its chip).
+// (The beside draft's seat 3 and 8 bubbles also meet bets, theirs and their neighbours': its geometry waits for the
+// owner's pick of the seat, so those two rules hold for tucked only, the draft review 4 found it in.)
+const LANDSCAPE = [[633, 460], [706, 460], [810, 460], [862, 460], [898, 460]];
+for (const draft of ['beside', 'tucked']) for (const [W, H] of [...TABLES, [326, 460], [341, 465], [356, 642], [396, 730], ...(draft === 'tucked' ? LANDSCAPE : [])]) {
   test(`no ${draft} seat's action bubble covers another seat, the pot or the board on a ${W}x${H} oval table`, () => {
     const spots = seatSpots(9, 'oval', draft).map(s => ({ s, x: at(s.x, W), y: at(s.y, H) })), bad = [];
     const my = at(MIDDLE, H), cx = W / 2, pot = [cx - 50, my + POT_TOP, cx + 50, my + POT_TOP + 30], board = [cx - 84, my - 2, cx + 84, my + 42];
@@ -65,6 +70,8 @@ for (const draft of ['beside', 'tucked']) for (const [W, H] of [...TABLES, [326,
         if (meet(box, pot)) bad.push(`seat ${i}'s ${w}px bubble on the pot`);
         if (meet(box, board)) bad.push(`seat ${i}'s ${w}px bubble on the board`);
         spots.forEach((o, j) => {
+          const bet = [o.x + o.s.bet[0], o.y + o.s.bet[1]];
+          if (draft === 'tucked' && meet(box, [bet[0] - 24, bet[1] - 10, bet[0] + 24, bet[1] + 10])) bad.push(`seat ${i}'s ${w}px bubble on seat ${j}'s bet`);
           if (j === i) return;
           const c = [o.x + o.s.cards[0], o.y + o.s.cards[1]];
           if (meet(box, textBox(o.s).map((v, k) => v + (k % 2 ? o.y : o.x)))) bad.push(`seat ${i}'s ${w}px bubble on seat ${j}'s stack and label`);
