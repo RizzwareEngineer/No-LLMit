@@ -3258,11 +3258,13 @@ main(() => check('profiles-rows-slide', 'When the replay reorders Profiles, rows
   return { pass: r.mid >= 3 && r.reorders > 0, detail: `${r.reorders} reorders, ${r.mid} frames with a row mid-slide (of ${r.frames})` };
 }));
 
-// The Trends replay playing, started here if it is not (fix-final: matchups-cells-still and -together leaned on a check
+// The Trends replay playing, started here (fix-final: matchups-cells-still and -together leaned on a check
 // before them having started it, and over 1,000 hands it had ended before they ran): the overview tile's Replay.
+// Always from its start: late in a 1,000-hand replay a step changes no Matchups cell for seconds (the full run's "no
+// value changed in 4s" with the clock still showing), so one still playing is skipped first.
 const replaying = async p => {
+  await goto(p, 'race'); await sleep(800); await clickText(p, 'Skip'); await sleep(800);
   await goto(p, 'stats'); await sleep(800);
-  if (await p.evaluate(() => !!document.querySelector('[data-race-clock]'))) return true;
   await p.evaluate(() => document.querySelector('#race-panel [data-tile-replay]')?.click()); await sleep(1200);
   return p.evaluate(() => !!document.querySelector('[data-race-clock]'));
 };
