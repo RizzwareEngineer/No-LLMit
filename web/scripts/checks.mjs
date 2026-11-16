@@ -137,14 +137,14 @@ const replayHand = async pg => {
 };
 
 // The stats cards have their data (a loaded machine can take far longer than a fixed wait). The stats mount only once
-// their screens come within half a window of it (StatsScreens: at once on a desktop, whose table screen is one window
-// tall), so this scrolls down as a viewer would until they are that near, never into view (Trends' replay starts when
-// it is first seen), and back to where the page was once they have mounted.
+// their screens come within a quarter of a window of it (StatsScreens: at once on a desktop, whose table screen is one
+// window tall), so this scrolls down as a viewer would until they are that near, never into view (Trends' replay starts
+// when it is first seen), and back to where the page was once they have mounted.
 const waitStats = async p => {
   try {
     const y = await p.evaluate(() => scrollY);
     await p.waitForFunction(() => document.getElementById('stats'), { timeout: 90000 });
-    await p.evaluate(() => { const s = document.getElementById('stats'); window.scrollTo({ top: Math.max(scrollY, s.getBoundingClientRect().top + scrollY - 1.4 * innerHeight), behavior: 'instant' }); });
+    await p.evaluate(() => { const s = document.getElementById('stats'); window.scrollTo({ top: Math.max(scrollY, s.getBoundingClientRect().top + scrollY - 1.2 * innerHeight), behavior: 'instant' }); });
     await p.waitForFunction(() => document.getElementById('race-panel'), { timeout: 90000 });
     await p.evaluate(y => { if (scrollY !== y) window.scrollTo({ top: y, behavior: 'instant' }); }, y);
   } catch {}

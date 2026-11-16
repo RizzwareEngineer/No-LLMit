@@ -1,8 +1,9 @@
 'use client';
 
-import { Suspense, lazy, memo, startTransition, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Suspense, lazy, memo, startTransition, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { StatsResponse } from '@/lib/stats';
 import { PHONE } from '@/lib/layout';
+import { isPaging } from '@/components/Section';
 import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
 
 // Everything below the table screen (the stats and About, StatsSections) is loaded and mounted only once the page needs
@@ -19,10 +20,34 @@ export default memo(function StatsScreens(props: { stats: StatsResponse | null; 
   const hold = useRef<HTMLDivElement>(null);
   const on = useStatsMount(hold);
   const stand = <StatsHold ref={hold} phone={phone} />;
-  return on ? <Suspense fallback={stand}><StatsSections {...props} /></Suspense> : stand;
+  return on ? <Suspense fallback={stand}><KeepScroll><StatsSections {...props} /></KeepScroll></Suspense> : stand;
 });
 
-// When the stats mount: as their screens near the window (a scroll, a page key, the tab bar, a link to About), or on the
+// Where the page was scrolled to before the stats mounted. Their screens replace the hold's (new elements), and the
+// browser re-snaps a page resting on a removed snap point (a reload below the table restores the scroll there before
+// they mount): it went back to the top. So the page is put back where it was, before that frame is painted.
+// Only a jump of more than half a window, and never while a paged scroll runs: a scroll the viewer is making moves less
+// than that in a frame. lastY follows every scroll until the swap (a re-snap's own scroll event comes a frame later).
+let lastY = 0;
+if (typeof window !== 'undefined') window.addEventListener('scroll', () => { lastY = window.scrollY; }, { passive: true });
+function KeepScroll({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const y = lastY;
+    const keep = () => { if (!isPaging() && Math.abs(window.scrollY - y) > window.innerHeight / 2) window.scrollTo({ top: y, behavior: 'instant' }); };
+    keep(); // reading scrollY lays the page out: a re-snap then has happened
+    // And after the frame's layout, before its paint, should the re-snap come only then.
+    const box = ref.current?.parentElement, ro = new ResizeObserver(() => { keep(); ro.disconnect(); });
+    if (box) ro.observe(box);
+    const stop = () => ro.disconnect();
+    const t = setTimeout(stop, 500);
+    return () => { clearTimeout(t); stop(); };
+  }, []);
+  return <><span ref={ref} hidden />{children}</>;
+}
+
+// When the stats mount: as their screens come within a quarter of a window of it (a scroll, a page key, the tab bar, a
+// link to About; at once on a desktop, whose table screen is one window tall), or on the
 // first gesture that could scroll there (a key, the wheel, a touch). Never in the hydration or the first state's render,
 // which the table's first paint waits on, nor on a timer while the viewer watches the table (their mount is a long task
 // on a slow phone).
@@ -32,8 +57,9 @@ function useStatsMount(hold: React.RefObject<HTMLDivElement | null>) {
     if (on) return;
     let done = false;
     const go = () => { if (!done) { done = true; startTransition(() => setOn(true)); } };
-    const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) go(); }, { rootMargin: '50% 0px' });
-    for (const e of hold.current?.children ?? []) io.observe(e);
+    // The hold itself (the same element in both layouts: its screens change when a phone swaps the wide ones after hydrating).
+    const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) go(); }, { rootMargin: '25% 0px' });
+    if (hold.current) io.observe(hold.current);
     const gestures = ['keydown', 'wheel', 'touchstart'] as const;
     gestures.forEach(g => window.addEventListener(g, go, { passive: true, capture: true }));
     return () => {
