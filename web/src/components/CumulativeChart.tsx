@@ -165,6 +165,11 @@ const CAM_W = 7; // the spring's rate, 1/s: a step settles in about 0.8 s, trail
 // view still eases (a spring step that large crossed over 4% of the span in one 60 Hz frame, history-y-dynamic).
 const CAM_MAX = 2;
 const LOOK_S = 0.6; // while the replay plays, the axis also fits the next this-many seconds of the lines, so the spring is there before a jump
+// And a jump far out of the fit sooner: the capped camera widens its span at most e^(CAM_MAX t) (one edge moving), so a value
+// that needs the span F times wider is taken in ln(F) / CAM_MAX + LOOK_S seconds before the line gets there, up to this far
+// ahead. Lines that join the fit only at their RATE_FROM-th hand (many at once when a lineup that sat out returns) widened
+// it 45x within one 0.6 s look, and the eased axis drew their recent stretch up to 15,000px off the plot (history-no-recent-clip).
+const LOOK_MAX_S = 4;
 function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
   const [cur, setCur] = useState<[number, number]>([lo, hi]);
   const cam = useRef({ x: [lo, hi], v: [0, 0], tgt: [lo, hi], t: 0, raf: 0 });
@@ -176,7 +181,7 @@ function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
     if (c.raf) return; // the running loop picks up the new target
     c.t = performance.now();
     const step = (t: number) => {
-      const dt = Math.min(0.25, Math.max(0, ((t - c.t) / 1000) * replaySpeed())), span = Math.abs(c.tgt[1] - c.tgt[0]) || 1;
+      const dt = Math.min(0.25, Math.max(0, (t - c.t) / 1000)) * replaySpeed(), span = Math.abs(c.tgt[1] - c.tgt[0]) || 1;
       c.t = t;
       if (!dt) { c.raf = requestAnimationFrame(step); return; } // a frame stamped before the effect: no time passed, and the speed cap would divide by 0
       let still = true;
@@ -594,10 +599,32 @@ export default function CumulativeChart({
     const all = zoom ? inView.flatMap(p => p.map(q => q[1])) : recent;
     const tips = [...lines.keys()].flatMap(n => fitted(n, drawn.get(n)?.slice(-1) ?? []).map(q => q[1]));
     // The replay is known ahead: the next LOOK_S of each line, so the eased axis is never caught out by a jump.
-    const ahead = handNow === null ? [] : [...lines].flatMap(([n, p]) => fitted(n, trace(p, nowX, nowX + (LOOK_S * 1000 / PLAY_MS) * timeline!.hands, Infinity)).map(q => q[1]));
+    const perS = handNow === null ? 0 : (1000 / PLAY_MS) * timeline!.hands; // replay hands per second
+    const ahead = handNow === null ? [] : [...lines].flatMap(([n, p]) => fitted(n, trace(p, nowX, nowX + LOOK_S * perS, Infinity)).map(q => q[1]));
+    // A scene tween (the replay ending on the whole history, a filter): the new view's recent stretch is inside from the
+    // tween's start, so the eased axis is not left behind as the window swings to it (the replay's end drew 30px out).
+    const [d0, d1] = [wb[0], Math.min(wb[1], nowX)];
+    const dest = k < 1 ? [...lines].flatMap(([n, p]) => fitted(n, trace(p, lerp(d0, d1, 0.75), d1)).map(q => q[1])) : [];
+    const must = [...recent, ...tips, ...ahead, ...dest];
     want = inView.length
-      ? robustRange(all, tips, [...recent, ...tips, ...ahead])
+      ? robustRange(all, tips, must)
       : robustRange([...lines].flatMap(([n, p]) => fitted(n, trace(p, from, lastHand)).map(q => q[1])));
+    // Farther ahead, each value the axis could not widen to in time if it waited (see LOOK_MAX_S); and the view the replay
+    // ends on (the last quarter of every hand, and the tips), due when it ends: else that one widened the axis only once
+    // the replay had stopped, its recent stretch out of the plot for a few frames.
+    if (perS && inView.length) {
+      const [lo, hi] = want, far: number[] = [], end = timeline!.hands, rest = lerp(from, lastHand, 0.75);
+      const take = (h: number, v: number) => {
+        if (v >= lo && v <= hi) return;
+        const f = (Math.max(hi, v) - Math.min(lo, v)) / (hi - lo || 1);
+        if ((h - nowX) / perS <= Math.log(f) / CAM_MAX + LOOK_S) far.push(v);
+      };
+      for (const [n, p] of lines) {
+        for (const [h, v] of fitted(n, trace(p, nowX + LOOK_S * perS, nowX + LOOK_MAX_S * perS, Infinity))) take(h, v);
+        if ((end - nowX) / perS <= LOOK_MAX_S) for (const [, v] of fitted(n, trace(p, rest, lastHand))) take(end, v);
+      }
+      if (far.length) want = robustRange(all, tips, [...must, ...far]);
+    }
   } else {
     const ys = [...drawn.values()].flatMap(p => p.map(q => q[1]));
     if (sel) trace(pts(sel), X0, X1, nowX).forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));
