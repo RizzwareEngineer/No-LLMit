@@ -25,6 +25,17 @@ const GUARDS = [
   ['web/src/components/HeadToHead.tsx', 'matchups-cells-fit'],
   ['web/src/lib/boxes.ts', 'status-boxes-remembered'],
   ['web/src/lib/boxes.ts', 'skeleton-matches'],
+  // Review 3, finding 12: these were named page-wide, so --changed never ran them for the files they guard.
+  ['web/src/components/UsageIndicator.tsx', 'usage-card-one-line'],
+  ['web/src/components/UsageIndicator.tsx', 'donate-apparent'],
+  ['web/src/components/UsageIndicator.tsx', 'watching-counts-me'],
+  ['web/src/components/WinningsPanel.tsx', 'usage-card-one-line'],
+  ['web/src/components/TypewriterText.tsx', 'reconnect-unseen'],
+  ['web/src/components/ReasoningPanel.tsx', 'reconnect-unseen'],
+  ['web/src/components/CumulativeChart.tsx', 'zoom-tolerable'],
+  ['web/src/components/TypewriterText.tsx', 'stats-while-typing'],
+  ['web/src/hooks/useGameState.ts', 'clock-after-load'],
+  ['web/src/components/TableMotion.tsx', 'table-shuffle-resume'],
 ];
 test('--changed selects the checks that guard each named file', () => {
   const miss = GUARDS.filter(([f, id]) => { assert.ok(IDS.includes(id), `no check ${id}`); const s = selected(f); return s && !s.has(id); });
@@ -32,7 +43,21 @@ test('--changed selects the checks that guard each named file', () => {
 });
 // A check no row selects runs only when a file outside every row changes: that is fine for whole-page checks, but each
 // such check is named here, so a new one has to be placed in a row (or here) on purpose.
-const PAGE_WIDE = ['card-adds-after-close', 'usage-card-one-line', 'watching-counts-me', 'donate-apparent', 'zoom-tolerable', 'reconnect-unseen'];
+const PAGE_WIDE = ['card-adds-after-close'];
 test('every check is selected by a --changed row, or named as page-wide', () => {
   assert.deepEqual(IDS.filter(id => !PAGE_WIDE.includes(id) && !COVERS.some(([, r]) => r.test(id))), []);
+});
+
+// Review 3, finding 13: an edit to a line of this script belongs to the check whose block holds it (changedChecks walks
+// up to the nearest check line, or a block's end, which means every check). skeleton-matches' SKELETON sat under two
+// one-line checks, so its edits ran only table-shuffle-notice-reduced.
+test('an edit to SKELETON selects skeleton-matches, or every check', () => {
+  const lines = src.split('\n'), CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/;
+  const at = lines.findIndex(l => l.startsWith('const SKELETON = {'));
+  assert.ok(at > 0, 'no SKELETON');
+  for (let n = at; !lines[n].startsWith('};'); n++) {
+    let i = n; while (i >= 0 && !CHECK.test(lines[i]) && !(i < n && END.test(lines[i]))) i--;
+    const id = i >= 0 && lines[i].match(CHECK)?.[1];
+    assert.ok(!id || id === 'skeleton-matches', `line ${n + 1} of SKELETON selects ${id}`);
+  }
 });

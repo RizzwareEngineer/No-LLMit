@@ -76,6 +76,10 @@ const COVERS = [
   [/components\/StickyBar\.tsx|lib\/amounts\./, /^(sticky-|table-bb-toggle|history-overtake-sound|a11y-axe|sound-switch-name)/],
   [/components\/(PokerTable|Player|TableFelt|WinningsPanel|UsageIndicator|ReasoningPanel|StickyBar|StatsTable|HeadToHead|CumulativeChart|About)\.tsx|lib\/boxes\./, /^skeleton-/],
   [/lib\/boxes\./, /^status-boxes-remembered$/], // useRememberedBox
+  [/components\/(UsageIndicator|WinningsPanel)\.tsx|hooks\//, /^(usage-card-one-line|donate-apparent|watching-counts-me)$/],
+  [/components\/(TypewriterText|ReasoningPanel)\.tsx|hooks\//, /^(reconnect-unseen|stats-while-typing|clock-after-load)$/],
+  [/components\/TableMotion\.tsx/, /^table-shuffle-resume$/],
+  [/components\/CumulativeChart\.tsx/, /^zoom-tolerable$/],
   [/(^|\/)AGENTS\.md$/, /(?!)/], // the file next dev writes: no check covers it
 ];
 function changedChecks() { // a Set of ids, or null for every check
@@ -971,7 +975,7 @@ group(() => check('phone-card-ring', 'At 390x844 and 375x667 (touch), no ancesto
 // Two seated pairs are given the widest figures a pair reaches (fix-final #0): one hand together where the row model
 // won a 185bb all-in (+18,500 bb/100: +18.5k was clipped to "+18.5"), and +999.6 bb/100 over 50 hands (+1,000 was
 // clipped to "+1,00"). The stream is held from then on, so a live hand cannot replace them while the check reads.
-group(() => check('matchups-cells-fit', 'At 390x844 and 375x667 (touch), with the seated and with all models, and with pairs at +18,500 and +999.6 bb/100, no Matchups cell\'s figure is wider than its cell', async () => {
+group(() => check('matchups-cells-fit', 'At 390x844 and 375x667 (touch), with the seated and with all models, and with pairs at +18,500, +999.6 and +1,450 bb/100, no Matchups cell\'s figure is wider than its cell, and +1,450 reads +1.5k (or fuller)', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[390, 844], [375, 667]]) {
     const p = await polishPage(w, h, { phone: true, script: true });
@@ -982,12 +986,16 @@ group(() => check('matchups-cells-fit', 'At 390x844 and 375x667 (touch), with th
       const st = e.stats, at = seatedOf(st), bb = st.scope?.big_blind ?? 10;
       if (at.length < 3) { bad.push(`${w}x${h}: fewer than 3 seated models`); continue; }
       const pair = (a, b, hands, net) => { a.vs = { ...a.vs, [b.name]: { ...(a.vs?.[b.name] ?? {}), hands, net_chips: net } }; b.vs = { ...b.vs, [a.name]: { ...(b.vs?.[a.name] ?? {}), hands, net_chips: -net } }; };
-      pair(at[0], at[1], 1, 185 * bb); pair(at[2], at[0], 50, 4998 * bb / 10);
-      const keys = [`${at[0].name}|${at[1].name}`, `${at[1].name}|${at[0].name}`, `${at[2].name}|${at[0].name}`, `${at[0].name}|${at[2].name}`];
+      // And +1,450 bb/100 over 10 hands (review 3, finding 8): the 34px room fits no full form, but +1.5k fits the cell; it
+      // read +1k, 31% under the engine.
+      pair(at[0], at[1], 1, 185 * bb); pair(at[2], at[0], 50, 4998 * bb / 10); pair(at[1], at[2], 10, 145 * bb);
+      const keys = [`${at[0].name}|${at[1].name}`, `${at[1].name}|${at[0].name}`, `${at[2].name}|${at[0].name}`, `${at[0].name}|${at[2].name}`, `${at[1].name}|${at[2].name}`, `${at[2].name}|${at[1].name}`];
       await p.evaluate(st => { window.__stream.scripted = true; window.__stream.feed({ type: 'stats', payload: st }); }, st); await sleep(1500);
       const drawn = await p.evaluate(keys => keys.map(k => document.querySelector(`#pairwise td[data-cell="${CSS.escape(k)}"] [aria-hidden]`)?.textContent ?? null), keys);
       if (drawn.some(d => d === null)) bad.push(`${w}x${h}: a fixture pair is not drawn (${drawn.join(', ')})`);
       else seen.push(`${w}x${h} fixture ${drawn.join(' ')}`);
+      // The engine's ±1,450 in the most precise form that fits: never +1k or +2k.
+      for (const d of drawn.slice(4)) if (d !== null && !/^[+−](1,450(\.0)?|1\.5k)$/.test(d)) bad.push(`${w}x${h}: the engine's ${d[0]}1,450 drawn ${d}`);
       for (const lineup of ['Seated now', 'All models']) {
         await p.evaluate(l => [...document.querySelectorAll('#pairwise button')].find(b => b.textContent.trim() === l && b.getBoundingClientRect().width > 0)?.click(), lineup); await sleep(1200);
         const r = await p.evaluate(() => { const cells = [...document.querySelectorAll('#pairwise td[data-cell]')].filter(c => c.getBoundingClientRect().width > 0 && c.textContent.trim()); return { n: cells.length, over: cells.filter(c => c.scrollWidth > c.clientWidth + 0.5 || [...c.querySelectorAll('span')].some(s => s.getBoundingClientRect().width > c.getBoundingClientRect().width + 0.5)).map(c => `${c.textContent.trim()} in ${c.clientWidth}px`) }; });
@@ -2306,6 +2314,9 @@ const shuffleUnderNotice = async reduced => {
     await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat]'), { timeout: 120000 });
     await sleep(2000);
     await p.mouse.click(4, 4); await sleep(300); // the first trusted click unlocks audio
+    // A scripted hand first: the live table may be between hands with its deck out (or its riffle due) as the count
+    // starts, and end() keeps the hand number, so that riffle would stand (review 3, finding 16: a false failure).
+    await p.evaluate(() => window.__stream.deal()); await sleep(1500);
     await p.evaluate(() => {
       const r = window.__deckSeen = { n: 0 };
       const f = () => { if ([...document.querySelectorAll('[data-deck]')].some(e => e.getBoundingClientRect().width > 0)) r.n++; requestAnimationFrame(f); };
@@ -2329,8 +2340,6 @@ const shuffleUnderNotice = async reduced => {
   } finally { await p.close(); }
 };
 const NOTICE_RULE = 'No shuffle (deck or sound) while a table notice is up: a hand ends with the next deal 7.2 s away, an outage notice comes 1 s later, and nothing riffles or sounds for the 8 s after';
-group(() => check('table-shuffle-notice', NOTICE_RULE, () => shuffleUnderNotice(false)));
-group(() => check('table-shuffle-notice-reduced', `${NOTICE_RULE}, with reduced motion`, () => shuffleUnderNotice(true)));
 
 // Owner, 2026-11-09: "Any time I refresh the site, the loading skeleton is so much different compared to the shapes that
 // actually load in. When stuff is loading, there should just be blank squares that are the same size as all the squares
@@ -2406,6 +2415,35 @@ group(() => check('skeleton-matches', 'While the page loads, every box (table, s
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
 }));
+// Review 3, finding 7: a shuffle resumed when a notice clears is timed from the deal's own time, not the whole-second
+// countdown, so it still ends before the deal: a hand ends with the deal 7.2 s away, a notice comes at 1 s and clears at
+// 2.6 s (mid-second), and the riffle's last frame must come at least 0.1 s before the deal is due.
+group(() => check('table-shuffle-resume', 'A shuffle resumed after a notice clears mid-second (deal 7.2 s away, notice from 1 s to 2.6 s) ends at least 0.1 s before the deal is due', async () => {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  try {
+    await scriptStream(p);
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat]'), { timeout: 120000 });
+    await sleep(2000);
+    await p.evaluate(() => window.__stream.deal()); await sleep(1500);
+    const r = await p.evaluate(() => new Promise(res => {
+      const s = window.__stream, riffle = [];
+      const f = () => { if ([...document.querySelectorAll('[data-deck="riffle"]')].some(e => e.getBoundingClientRect().width > 0)) riffle.push(performance.now()); requestAnimationFrame(f); };
+      requestAnimationFrame(f);
+      const t0 = s.end(7200);
+      setTimeout(() => s.feed({ type: 'table_notice', payload: { kind: 'outage', message: "The models can't be reached, so that hand doesn't count." } }), 1000);
+      setTimeout(() => s.feed({ type: 'table_notice', payload: { kind: '', message: '' } }), 2600);
+      setTimeout(() => res({ deal: t0 + 7200, first: riffle[0] ?? null, last: riffle.at(-1) ?? null, frames: riffle.length, t0 }), 8500);
+    }));
+    if (r.last === null) return { pass: false, detail: 'no riffle after the notice cleared (nothing tested)' };
+    const early = r.deal - r.last;
+    return { pass: early >= 100, detail: `riffle ${((r.first - r.t0) / 1000).toFixed(2)}-${((r.last - r.t0) / 1000).toFixed(2)} s after the hand ended (${r.frames} frames), its last frame ${early.toFixed(0)} ms before the deal (at 7.20 s)` };
+  } finally { await p.close(); }
+}));
+// (Here, below skeleton-matches' block: --changed files a changed line under the nearest check line above it, and these
+// one-line checks above SKELETON took its edits.)
+group(() => check('table-shuffle-notice', NOTICE_RULE, () => shuffleUnderNotice(false)));
+group(() => check('table-shuffle-notice-reduced', `${NOTICE_RULE}, with reduced motion`, () => shuffleUnderNotice(true)));
 
 // --- Trends (overview tile, then the card) ---
 main(async () => { await goto(pg, 'stats'); await sleep(2500); });

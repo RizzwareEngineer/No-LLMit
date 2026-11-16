@@ -21,6 +21,10 @@ test('fitFigure never draws a form wider than its cell when a narrower one fits'
   assert.equal(fitFigure(999.6, 34, 14), '+1k');
   assert.equal(fitFigure(1234.5, 200, 14), '+1,234.5');
   assert.equal(fitFigure(485.9, 34, 14), '+486');
+  // A phone's 38.8px cell (34px inside its padding): the engine's +1,450 reads +1.5k, never +1k (review 3, finding 8).
+  assert.equal(fitFigure(1450, 34, 14, 38.7), '+1.5k');
+  assert.equal(fitFigure(-2499, 34, 14, 38.7), '−2.5k');
+  assert.equal(fitFigure(18500, 34, 14, 38.7), '+19k');
   for (const room of [30, 34, 38.8, 47.5, 64]) for (const px of [13, 14]) for (let v = 0.05; v < 300000; v *= 1.013) for (const n of [v, -v]) {
     const forms = [signed(n), signed(n, 0), signedCompact(n), signedCompact(n, 0)], t = fitFigure(n, room, px);
     if (forms.some(f => figureEms(f) * px <= room)) assert.ok(figureEms(t) * px <= room, `${n} in ${room}px at ${px}px drew ${t}`);

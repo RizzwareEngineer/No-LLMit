@@ -17,13 +17,16 @@ export const signedCompact = (n: number, digits = 1) =>
   `${n > 0 ? '+' : n < 0 ? '−' : ''}${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: digits }).format(Math.abs(n)).toLowerCase()}`;
 
 // A matrix cell's figure (HeadToHead) at one font size `px` in `room` px: in full (+1,234.5: a pair with few hands
-// together reaches four or five digits) where it fits, else rounded to a whole, else shortened (+1.2k), else shortened
-// to whole thousands (+19k); where none fits, the narrowest of them all, never a wider one the cell clips (+18.5k in a
-// 34px cell cut to "+18.5", the engine's +18,500).
+// together reaches four or five digits) where it fits, else rounded to a whole, else shortened (+1.2k); else that same
+// shortened form where it fits the cell's whole width (`cell`: the cell inside its 1px spacing, its padding given up:
+// +1.5k in a phone's 38.8px cell, not +1k for the engine's +1,450); else shortened to whole thousands (+19k); where
+// none fits, the narrowest of them all, never a wider one the cell clips (+18.5k in a 34px cell cut to "+18.5", the
+// engine's +18,500).
 // Its width in em, tabular figures (calibrated in the browser: a figure or sign 0.62em, a comma or point 0.29, k 0.53).
 export const figureEms = (t: string) => [...t].reduce((w, c) => w + (c === ',' || c === '.' ? 0.29 : c === 'k' ? 0.53 : 0.62), 0);
-export function fitFigure(n: number, room: number, px: number) {
+export function fitFigure(n: number, room: number, px: number, cell = room) {
   const forms = [signed(n), signed(n, 0), signedCompact(n), signedCompact(n, 0)];
-  return forms.find(t => figureEms(t) * px <= room) ?? forms.reduce((a, b) => (figureEms(b) < figureEms(a) ? b : a));
+  const fits = (t: string, w: number) => figureEms(t) * px <= w;
+  return forms.slice(0, 3).find(t => fits(t, room)) ?? (fits(forms[2], cell) ? forms[2] : null) ?? (fits(forms[3], room) ? forms[3] : null)
+    ?? forms.reduce((a, b) => (figureEms(b) < figureEms(a) ? b : a));
 }
-

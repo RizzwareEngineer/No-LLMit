@@ -12,8 +12,8 @@ import { fitFigure } from '@/lib/format';
 // A cell's figure: lib/format's fitFigure (in full where it fits, never a form the cell clips). Screen readers get the full figure.
 // On the tile↔card glide the figure travels with the matrix and grows from the tile's size to the card's (motion
 // layout, measured only when `at` changes), never shrinking first.
-const Fit = memo(function Fit({ n, room, px, at, move }: { n: number; room: number; px: number; at: boolean; move: typeof GLIDE | typeof NONE }) {
-  return <motion.span aria-hidden layout layoutDependency={at} transition={move} className="inline-block">{fitFigure(n, room, px)}</motion.span>;
+const Fit = memo(function Fit({ n, room, full, px, at, move }: { n: number; room: number; full: number; px: number; at: boolean; move: typeof GLIDE | typeof NONE }) {
+  return <motion.span aria-hidden layout layoutDependency={at} transition={move} className="inline-block">{fitFigure(n, room, px, full)}</motion.span>;
 });
 
 // A changed cell flashes toward its new tint (a stronger shade of it fading to it, 400ms) as its figure
@@ -91,12 +91,13 @@ export default memo(function HeadToHead({
   const px = mini ? TILE_PX : 14;
   const totals = mini ? 0 : TOTALS;
   const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
+  const full = cell - 1; // the cell inside its spacing: a shortened figure (+1.5k) may use its padding (fitFigure)
   // Every figure in the grid exactly as drawn (fitFigure's text), keyed row|column (row| for the Total); a pair that never
   // met, or a row with no hands together, has none. Compared as text: a rounded number missed changes the text shows
   // (+12 to +13 across 12.5, a sign at zero, a negative half rounded the other way), which then drew a frame before their flash.
   const shown: Record<string, string> = {};
   for (const row of sorted) {
-    for (const col of sorted) { const bb = col !== row ? cellOf(row, col.name).bb : null; if (bb !== null) shown[`${row.name}|${col.name}`] = fitFigure(bb, room, px); }
+    for (const col of sorted) { const bb = col !== row ? cellOf(row, col.name).bb : null; if (bb !== null) shown[`${row.name}|${col.name}`] = fitFigure(bb, room, px, full); }
     const t = among.get(row.name)!;
     if (!mini && row.hands > 0 && t.hands > 0) shown[`${row.name}|`] = fitFigure(t.bb100, totals - 8, px);
   }
@@ -245,7 +246,7 @@ export default memo(function HeadToHead({
                         style={{ color: TEXT, background: tint(bb), opacity: hands < MIN_PAIR_HANDS ? FAINT : undefined, outline: tip?.row === row.name && tip.col === col.name ? `2px solid ${TEXT}` : undefined }}
                         onMouseMove={mini ? undefined : e => show(e, row.name, col.name)}
                       >
-                        <Fit n={bb} room={room} px={px} at={mini} move={move} />
+                        <Fit n={bb} room={room} full={full} px={px} at={mini} move={move} />
                         <span className="sr-only">{signed(bb)} bb/100 vs {col.name} over {plural(hands, 'hand')} together{v!.pots ? `, ${plural(v!.pots, 'pot')}` : ''}</span>
                       </td>
                     );
