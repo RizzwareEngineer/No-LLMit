@@ -30,7 +30,18 @@ const STADIUM_R = 120;
 export interface Spot {
   x: Lin; y: Lin; // the logo's centre
   cards: readonly [number, number]; bet: readonly [number, number]; // centres, px from the logo's centre
+  text?: TextAt; // where the stack and the label sit (default: under the logo)
+  chipTop?: boolean; // the position chip on the logo's top edge, not its lower one (tucked cards cover the lower one)
 }
+// The stack and the label: under the logo, `dx` across and `dy` down from the usual place (a tucked top seat's sit just
+// under its cards), or beside it, on the side with room.
+export type TextAt = { under: readonly [dx: number, dy: number] } | { beside: 'left' | 'right' };
+// The phone seat's drafts (?seat=, tableSwitches; the owner has not picked one): today's (the stack and label under the
+// logo, the cards under them up top), 'beside' (the stack and label beside the logo, so the seat is short and its cards
+// and bet sit on its line to the middle) and 'tucked' (the cards against the logo, over its inner edge, as phone poker
+// apps tuck them at the avatar; the stack and label under the logo).
+export type SeatDraft = 'today' | 'beside' | 'tucked';
+export const TEXT_W = 48; // the stack's and label's column beside the logo (the widest label, "Maverick", is 46px at 11px)
 
 // A seat at `deg` degrees from the top, clockwise, on the oval's rim.
 function onRim(deg: number): Pick<Spot, 'x' | 'y'> {
@@ -101,7 +112,30 @@ function toward(x: number, y: number): Pick<Spot, 'cards' | 'bet'> {
 }
 const withHands = (p: Pick<Spot, 'x' | 'y'>): Spot => ({ ...p, ...toward(at(p.x, REF.w), at(p.y, REF.h)) });
 
-export function seatSpots(n: number, shape: Shape = 'oval'): Spot[] {
+// The drafts' seats 1 to 5 (the left half mirrors them, as NINE), worked out on the tables of 360x640 to 430x932 and
+// 844x390 against the audit's rules (phone-table-ownership): each pair and bet nearer its own logo than any other, off
+// the board's row, on the felt, 8px clear of other logos and bets. On the oval the beside and tucked seats sit at their
+// own angles (seat 1 at the top), so the board's row has room between the side seats.
+type DraftSeat = { cards: readonly [number, number]; bet: readonly [number, number]; text: TextAt; chipTop?: boolean };
+const D = (cards: readonly [number, number], bet: readonly [number, number], text: TextAt, chipTop = false): DraftSeat => ({ cards, bet, text, chipTop });
+const ANGLES: Record<Exclude<SeatDraft, 'today'>, readonly number[]> = { beside: [37.94, 72.56, 126.92, 158.9], tucked: [37.94, 72.56, 126.92, 158.9] };
+const U: TextAt = { under: [0, 0] };
+const TODAY = (shape: Shape) => NINE[shape].map(([, h]) => D(h.cards, h.bet, U));
+const DRAFTS: Record<Exclude<SeatDraft, 'today'>, Record<Shape, DraftSeat[]>> = {
+  beside: { oval: TODAY('oval'), rect: TODAY('rect'), stadium: TODAY('stadium') },
+  tucked: { oval: TODAY('oval'), rect: TODAY('rect'), stadium: TODAY('stadium') },
+};
+
+export function seatSpots(n: number, shape: Shape = 'oval', draft: SeatDraft = 'today'): Spot[] {
+  if (draft !== 'today' && n === 9) {
+    const where = shape === 'oval' ? [0, ...ANGLES[draft]].map(onRim) : NINE[shape].map(([p]) => p);
+    return Array.from({ length: 9 }, (_, i) => {
+      const m = MIRROR[i], p = where[(m ?? i) - 1], d = DRAFTS[draft][shape][(m ?? i) - 1];
+      if (m === undefined) return { ...p, cards: d.cards, bet: d.bet, text: d.text, chipTop: d.chipTop };
+      const text: TextAt = 'beside' in d.text ? { beside: d.text.beside === 'left' ? 'right' : 'left' } : { under: [-d.text.under[0], d.text.under[1]] };
+      return { ...flip(p), cards: [-d.cards[0], d.cards[1]], bet: [-d.bet[0], d.bet[1]], text, chipTop: d.chipTop };
+    });
+  }
   if (n !== 9) {
     // shortcut: other table sizes space the seats evenly round the oval; tune a table like NINE if the engine ever seats
     // other than nine.
@@ -120,9 +154,29 @@ export const MIDDLE: Lin = [0.5, (FELT.top - FELT.bottom) / 2 + 6];
 // room to land askew (35 degrees) and to be peeked. The hole cards' flights and peek checks treat it as the seat.
 export const TEXT_H = 28; // the stack's line and the label's, from 4px under the logo
 export function seatBox(spot: Spot) {
-  const c = spot.cards, half = LOGO / 2;
-  const l = Math.min(-36, c[0] - 33), r = Math.max(36, c[0] + 33), t = Math.min(-half - 2, c[1] - 27), b = Math.max(half + 4 + TEXT_H, c[1] + 27);
+  const c = spot.cards, half = LOGO / 2, x = textBox(spot);
+  const l = Math.min(-36, c[0] - 33, x[0]), r = Math.max(36, c[0] + 33, x[2]), t = Math.min(-half - 4, c[1] - 27, x[1]), b = Math.max(half + 4, c[1] + 27, x[3]);
   return { left: l, top: t, width: r - l, height: b - t };
+}
+// The stack and label's box (px from the logo's centre: left, top, right, bottom), and the position chip's.
+export function textBox(spot: Spot): [number, number, number, number] {
+  const t = spot.text ?? { under: [0, 0] };
+  if ('beside' in t) return t.beside === 'right' ? [LOGO / 2 + 4, -TEXT_H / 2, LOGO / 2 + 4 + TEXT_W, TEXT_H / 2] : [-LOGO / 2 - 4 - TEXT_W, -TEXT_H / 2, -LOGO / 2 - 4, TEXT_H / 2];
+  const [dx, dy] = t.under;
+  return [-28 + dx, LOGO / 2 + 4 + dy, 28 + dx, LOGO / 2 + 4 + TEXT_H + dy];
+}
+export const CHIP = { w: 44, h: 16 } as const;
+export const chipTop = (spot: Spot) => (spot.chipTop ? -LOGO / 2 - 3 : LOGO / 2 - 13);
+// The action's bubble (20px tall), px from the logo's centre: its top and its horizontal anchor. Away from the middle, where
+// the seat's cards never are: over the logo (and a top chip) in the table's top half, under the logo and everything under
+// it in the bottom half. The top seat's would leave the table (under the page's top bar), so it sits beside its logo, on
+// the side without its stack and label.
+export function bubbleAt(spot: Spot): { x: number; top: number; align: 'center' | 'left' | 'right' } {
+  const x = textBox(spot), right = 'beside' in (spot.text ?? {}) && x[0] > 0;
+  if (spot.y[0] === 0 && spot.y[1] < LOGO) return right ? { x: -LOGO / 2 - 6, top: -10, align: 'right' } : { x: LOGO / 2 + 6, top: -10, align: 'left' };
+  if (spot.y[0] < 0.5) return { x: 0, top: (spot.chipTop ? -LOGO / 2 - 3 : -LOGO / 2) - 24, align: 'center' };
+  const under = 'beside' in (spot.text ?? { under: 0 }) ? LOGO / 2 + 6 : LOGO / 2 + 18;
+  return { x: 0, top: under, align: 'center' };
 }
 
 // One short label per seat, from the model's name: families share logos, so it is what tells two Gemmas apart. A size

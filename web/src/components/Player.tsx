@@ -5,7 +5,7 @@ import HoleCard from "@/components/HoleCard";
 import FitName from "@/components/FitName";
 import LLMLogo from "@/components/LLMLogo";
 import { logoFile } from "@/lib/families";
-import { LOGO, type Spot, seatLabel, seatPlace } from "@/lib/phoneTable";
+import { CHIP, LOGO, type Spot, bubbleAt, chipTop, seatLabel, seatPlace, textBox } from "@/lib/phoneTable";
 import { useRef, useState } from "react";
 import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
@@ -52,7 +52,6 @@ const POSITION_COLORS: Record<string, string> = {
 // borders that we see on the rectangles"), and its shadow. PokerTable's blank logo has the same.
 // The phone's position chip: one size for every name, as the desktop badges (w-8), wide enough for UTG+1 at 11px with
 // 4px a side (the audit: at 42px it had almost none).
-const CHIP_W = 44;
 export const LOGO_RIM = { border: '2px solid rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.1) 0px 2px 4px' } as const;
 
 // Full position names for tooltips
@@ -130,7 +129,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
     // the clock has the shot clock as a ring round its logo; its action shows over the logo for a moment (`bubble`). The
     // box is the seat's whole extent (the cards' flights and the peek's bounds); only what it draws takes taps.
     const place = seatPlace(spot), [ox, oy] = place.logo, logo = logoFile(player.name);
-    const c = spot.cards, R = 27, C = 2 * Math.PI * R;
+    const c = spot.cards, R = 27, C = 2 * Math.PI * R, tb = textBox(spot), say = bubbleAt(spot);
     return (
       <div ref={ref} data-seat={seatIdx} className={`absolute pointer-events-none transition-opacity ${folded && !isWinner ? 'opacity-40' : ''}`} style={place.style}>
         {active && (
@@ -149,11 +148,11 @@ export default function Player({ player, active, position, winAmount, winDesc, i
         {position && (
           // A tap on the chip (over the logo's lower edge) opens the seat's stats as a tap on the logo does.
           <div data-position title={getPositionFullName(position)} onClick={onOpen} className={`absolute pointer-events-auto rounded text-[11px] leading-4 font-bold whitespace-nowrap text-center ${positionColor}`}
-            style={{ left: ox - CHIP_W / 2, top: oy + 11, width: CHIP_W, height: 16, boxShadow: '0 0 0 1.5px white' }}>
+            style={{ left: ox - CHIP.w / 2, top: oy + chipTop(spot), width: CHIP.w, height: CHIP.h, boxShadow: '0 0 0 1.5px white' }}>
             {position}
           </div>
         )}
-        <div className="absolute flex flex-col items-center pointer-events-auto tabular-nums whitespace-nowrap" style={{ left: ox - 28, top: oy + LOGO / 2 + 4, width: 56 }}>
+        <div className={`absolute flex flex-col ${tb[0] > 0 ? 'items-start' : tb[2] < 0 ? 'items-end' : 'items-center'} pointer-events-auto tabular-nums whitespace-nowrap`} style={{ left: ox + tb[0], top: oy + tb[1], width: tb[2] - tb[0] }}>
           <div data-chips={player.stack} className="text-[12px] leading-[14px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(player.stack, bb)}</div>
           {isWinner
             ? <div data-label data-chips={winAmount} className="text-[11px] leading-[14px] font-bold" style={{ color: 'rgb(15, 123, 108)' }} aria-label={`won ${formatAmount(winAmount, bb)}, ${winDesc}`}>+{formatAmount(winAmount, bb)}</div>
@@ -165,8 +164,8 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             bottom half (its cards are over it). Never over its cards, logo, chip or stack (the audit: 'Raise 632' hid the
             seat's own face-up cards). */}
         {bubble && (
-          <div data-bubble className="absolute z-10 rounded-full bg-white px-2 text-[12px] leading-5 font-bold whitespace-nowrap -translate-x-1/2 motion-safe:animate-[bubble_2s_ease-out_both]"
-            style={{ left: ox, top: spot.y[0] < 0.5 ? oy - LOGO / 2 - 24 : oy + LOGO / 2 + 18, color: 'rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.12) 0px 0px 0px 1px, rgba(15, 15, 15, 0.12) 0px 2px 6px' }}>
+          <div data-bubble className={`absolute z-10 rounded-full bg-white px-2 text-[12px] leading-5 font-bold whitespace-nowrap ${say.align === 'center' ? '-translate-x-1/2' : say.align === 'right' ? '-translate-x-full' : ''} motion-safe:animate-[bubble_2s_ease-out_both]`}
+            style={{ left: ox + say.x, top: oy + say.top, color: 'rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.12) 0px 0px 0px 1px, rgba(15, 15, 15, 0.12) 0px 2px 6px' }}>
             {bubble}
           </div>
         )}

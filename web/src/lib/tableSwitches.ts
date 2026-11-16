@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { isPhone, onLayoutChange } from "@/lib/layout";
+import type { SeatDraft } from "@/lib/phoneTable";
 
 // Hole card sizes in px, the card's 0.7 ratio: phones' 28x40 (the deck then is the board's 30x42), and desktop's 40x56 (the owner picked it, 2026-11-14; the deck is then the hole cards' size).
 export const CARD_SIZES = [{ w: 28, h: 40 }, { w: 40, h: 56 }] as const;
@@ -21,6 +22,8 @@ export const useCardSize = () => useSyncExternalStore(onLayoutChange, cardSizeNo
 export type PhoneShape = 'oval' | 'rect' | 'stadium';
 const query = (k: string) => new URLSearchParams(window.location.search).get(k);
 const noSub = () => () => {};
+// ?seat=beside or ?seat=tucked: the phone seat's drafts (phoneTable's SeatDraft); without it, today's seat.
+export const useSeatDraft = () => useSyncExternalStore(noSub, () => { const s = query('seat'); return (s === 'beside' || s === 'tucked' ? s : 'today') as SeatDraft; }, () => 'today' as SeatDraft);
 export const usePhoneShape = () => useSyncExternalStore(noSub, () => { const s = query('shape'); return (s === 'rect' || s === 'stadium' ? s : 'oval') as PhoneShape; }, () => 'oval' as PhoneShape);
 
 // Which layout's tree to mount (lib/layout's switch): 'phone' or 'desk' once the page runs; null in the prerendered page
