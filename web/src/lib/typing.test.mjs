@@ -19,3 +19,13 @@ test('a reason ends inside the reasoning pause plus the pause after the action, 
     }
   }
 });
+
+test('a panel remounted mid-reason resumes where the typing stands, not at the first character', async () => {
+  const { typedSoFar } = await import('./stream.ts');
+  const text = 'x'.repeat(200); // 25 ms a character
+  assert.equal(typedSoFar(text, null, 1000), 0);
+  assert.equal(typedSoFar(text, { text: 'another reason', at: 0 }, 1000), 0);
+  assert.equal(typedSoFar(text, { text, at: 0 }, 1000), 40);
+  assert.equal(typedSoFar(text, { text, at: 0 }, 6000), 201); // done: past the end, no cursor
+  assert.equal(typedSoFar(text, { text, at: 0 }, 60000), 0); // a past turn's same words type afresh
+});

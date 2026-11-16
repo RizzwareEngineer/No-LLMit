@@ -197,3 +197,14 @@ export function applyStats(held: StatsResponse | null, payload: StatsResponse | 
 // Milliseconds per character of a reason: 25 times the table's pace (1 when absent), faster for a long reason, so it ends
 // inside the engine's longest reasoning pause plus the pause after the action (10 s + 5 s, engine/api/table.go) at any pace.
 export const typingMs = (chars: number, pace?: number) => (pace && pace > 0 ? pace : 1) * Math.min(25, 15000 / Math.max(chars, 1));
+
+// Where the typing of `text` stands at `now`: the characters already due since it first began (`began`, kept outside
+// any one panel), so a panel that mounts mid-reason (the layout switch remounts the caption or the reasoning panel)
+// resumes where the other stopped instead of retyping from the first character. One past the end once it is done.
+// A record older than the typing plus the engine's longest wait after it (15 s at pace 1) is a past turn's: the same
+// words said again type afresh.
+export const typedSoFar = (text: string, began: { text: string; at: number } | null, now: number, pace?: number) => {
+  if (!began || began.text !== text) return 0;
+  const ms = typingMs(text.length, pace), since = now - began.at;
+  return since > (text.length + 1) * ms + 15000 * (pace && pace > 0 ? pace : 1) ? 0 : Math.min(text.length + 1, Math.floor(since / ms));
+};

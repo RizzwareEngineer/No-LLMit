@@ -158,11 +158,6 @@ function Table() {
   // their remembered widths while blank (lib/boxes), so the toggles beside them do not move when they fill in.
   const statusKnown = connection === 'down' || (!!gameState && (!!usage || usageError));
   const handKnown = statusKnown && (gameState?.handNumber ?? 0) > 0;
-  const labelRef = useRef<HTMLDivElement>(null), handRef = useRef<HTMLDivElement>(null);
-  useFillIn(labelRef, statusKnown);
-  useFillIn(handRef, handKnown);
-  const [labelBox, labelSize, labelAttrs] = useRememberedBox<HTMLSpanElement>('status-label', statusKnown, 'wh');
-  const [handBox, handSize, handAttrs] = useRememberedBox<HTMLSpanElement>('hand-no', handKnown, 'wh');
 
   // Timer effect - update elapsed time every second using server's gameStartTime. Before the paint, so the row's first
   // frame has the time and not 00:00:00.
@@ -472,36 +467,10 @@ function Table() {
           <PlaySoonButton />
         </div>
 
-        {/* Status row - live indicator, hand counter, blinds, timer */}
-        <div className="mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 max-md:hidden">
-          {/* Live indicator */}
-          <div ref={labelRef} className={`flex items-center gap-2 ${statusKnown ? '' : '[&>*]:invisible'}`}>
-            <span
-              aria-hidden
-              className="inline-block w-2.5 h-2.5 rounded-full"
-              style={{ background: isLive ? 'rgb(220, 38, 38)' : MUTED }}
-            />
-            <span ref={labelBox} {...labelAttrs} className="text-[14px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)', ...labelSize }}>
-              {connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
-              {statusKnown && watching !== undefined && ` · ${watching.toLocaleString()} watching`}
-            </span>
-          </div>
-
-          {/* Hand counter, blinds, timer. Held blank until the first state, so the row keeps its width (a phone wraps it
-              to the same lines) and nothing under it moves when they fill in. */}
-          <div ref={handRef} className={`contents ${handKnown ? '' : '[&>*]:invisible'}`}>
-            <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-            <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '00'}</span>
-            <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-            <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
-            <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-            <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
-          </div>
-          <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-          <UnitToggle bigBlind={stakes.bigBlind} />
-          <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-          <SoundToggle />
-        </div>
+        {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
+            it when a window crosses into the desktop layout. */}
+        <StatusRow statusKnown={statusKnown} handKnown={handKnown} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+          watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
 
         <div className="max-md:hidden"><SessionProgress table={usageError ? undefined : usage?.table} /></div></>}
 
@@ -607,5 +576,49 @@ function Table() {
       <DevPace />
     </div>
     </MotionConfig>
+  );
+}
+
+// The desktop status row. Its hooks live here, not in Table, so they run when the row mounts: a window that loads in
+// the phone layout and widens past the switch still remembers the label and hand number boxes.
+function StatusRow({ statusKnown, handKnown, isLive, label, watching, handNumber, stakes, elapsedTime }: {
+  statusKnown: boolean; handKnown: boolean; isLive: boolean; label: string; watching: number | undefined;
+  handNumber: number; stakes: { smallBlind: number; bigBlind: number }; elapsedTime: string;
+}) {
+  const labelRef = useRef<HTMLDivElement>(null), handRef = useRef<HTMLDivElement>(null);
+  useFillIn(labelRef, statusKnown);
+  useFillIn(handRef, handKnown);
+  const [labelBox, labelSize, labelAttrs] = useRememberedBox<HTMLSpanElement>('status-label', statusKnown, 'wh');
+  const [handBox, handSize, handAttrs] = useRememberedBox<HTMLSpanElement>('hand-no', handKnown, 'wh');
+  return (
+    <div className="mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 max-md:hidden">
+      {/* Live indicator */}
+      <div ref={labelRef} className={`flex items-center gap-2 ${statusKnown ? '' : '[&>*]:invisible'}`}>
+        <span
+          aria-hidden
+          className="inline-block w-2.5 h-2.5 rounded-full"
+          style={{ background: isLive ? 'rgb(220, 38, 38)' : MUTED }}
+        />
+        <span ref={labelBox} {...labelAttrs} className="text-[14px] font-medium tabular-nums" style={{ color: 'rgb(55, 53, 47)', ...labelSize }}>
+          {label}
+          {statusKnown && watching !== undefined && ` · ${watching.toLocaleString('en-US')} watching`}
+        </span>
+      </div>
+
+      {/* Hand counter, blinds, timer. Held blank until the first state, so the row keeps its width (a phone wraps it
+          to the same lines) and nothing under it moves when they fill in. */}
+      <div ref={handRef} className={`contents ${handKnown ? '' : '[&>*]:invisible'}`}>
+        <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+        <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '00'}</span>
+        <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+        <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
+        <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+        <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
+      </div>
+      <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+      <UnitToggle bigBlind={stakes.bigBlind} />
+      <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+      <SoundToggle />
+    </div>
   );
 }
