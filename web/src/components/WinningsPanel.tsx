@@ -47,7 +47,9 @@ function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
 
   return (
     // The name takes all the row the rank, logo and number leave it (owner's audit: names were cut while there was room).
-    <div className="flex flex-row items-center gap-1.5 p-2 px-2">
+    // 4px between them: at 6px a five-digit figure left "DeepSeek Flash", the shortest form of "DeepSeek V4 Flash",
+    // 100px of the 102 it needs (desktop-table-text), and it was cut.
+    <div className="flex flex-row items-center gap-1 p-2 px-2">
       <span className="text-[13px] min-w-3.5 font-bold tabular-nums shrink-0" style={{ color: MUTED }}>{rank}.</span>
       <LLMLogo model={player.name} size={18} />
       <div className="flex-1 min-w-0">

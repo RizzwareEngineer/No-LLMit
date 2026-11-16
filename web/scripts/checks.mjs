@@ -1458,8 +1458,11 @@ group(() => check('history-splash-survives-hand', 'A hand saved while Trends rep
     // A splash on screen, then the next hand's stats (its count one up), as the engine sends them.
     const flying = await p.waitForFunction(() => document.querySelector('[data-burst]'), { timeout: 20000 }).then(() => true, () => false);
     if (!flying) return { pass: false, detail: 'no splash in 20 s of replay' };
-    const { models, ...envelope } = e.stats;
-    await p.evaluate(m => { window.__splash.armed = true; window.__stream.scripted = true; window.__stream.feed(m); },
+    // The stream held first, then the engine's stats read again: read at the start, the live table had often dealt a
+    // hand since, the page already had that count, and "one up" was no change (no tween: the check tested nothing).
+    await p.evaluate(() => { window.__stream.scripted = true; });
+    const { models, ...envelope } = (await engineStats(p))?.stats ?? e.stats;
+    await p.evaluate(m => { window.__splash.armed = true; window.__stream.feed(m); },
       { type: 'stats', payload: { ...envelope, scope: { ...envelope.scope, hands: envelope.scope.hands + 1 }, model_names: models.map(m => m.name), changed: [] } });
     await sleep(1500);
     const r = await p.evaluate(() => window.__splash);
@@ -2573,7 +2576,7 @@ main(() => check('history-starts-at-zero', 'At rest the Trends x axis starts at 
 }));
 // One replay from the start, sampled every frame until it has ended and settled: how much of the
 // plot's height the visible tips span, and how far the y axis moves per frame.
-let camSamples = null, camAnims = null;
+let camSamples = null, camAnims = null, camShakeSeen = {};
 const camRun = async () => {
   if (camSamples) return camSamples;
   // On Trends itself (a run of only these checks left the page at the table, where the pills are not drawn: "no tips").
@@ -2592,7 +2595,19 @@ const camRun = async () => {
         const amp = Math.max(0, ...(Array.isArray(kf) ? kf : []).map(k => /pop/.test(opts?.id) ? +(String(k.transform).match(/scale\(([\d.]+)/)?.[1] ?? 1) : len(k.translate ?? String(k.transform ?? '').match(/translateX\(([^)]+)\)/)?.[1])));
         window.__anims.push({ at: performance.now(), id: opts?.id, amp, lead: splash && this.parentElement?.dataset.lead != null, name: splash ? this.parentElement?.dataset.burst : pill ? this.querySelector('[data-pill-name]')?.textContent : tip });
       }
-      return orig.apply(this, arguments);
+      const anim = orig.apply(this, arguments);
+      // A shake is also read eight times through its run, off the frame clock: on a slow, software-rendered machine a
+      // frame lasts longer than a 4x lead shake (75 ms), and no frame sample landed in it (seen 0.0px while it ran). The
+      // same reading as the frames' (how far the pill sits off its place across x), only at more moments.
+      if (pill && /shake/.test(opts?.id ?? '')) {
+        const el = this, d = +opts.duration || 0, seen = (window.__shakeSeen ??= {});
+        for (let i = 1; i <= 8; i++) setTimeout(() => {
+          if (anim.playState !== 'running') return;
+          const cs = getComputedStyle(el), m = cs.transform.match(/matrix\(([^)]+)\)/), dx = Math.abs((parseFloat(cs.translate) || 0) + (m ? +m[1].split(',')[4] : 0));
+          seen[opts.id] = Math.max(seen[opts.id] ?? 0, dx);
+        }, (i * d) / 9);
+      }
+      return anim;
     };
   }, SPEED);
   const clicked = await clickText(pg, 'Replay');
@@ -2667,6 +2682,7 @@ const camRun = async () => {
   }, SPEED);
   await sleep(63_500 / SPEED);
   camAnims = await pg.evaluate(S => window.__anims.map(a => ({ ...a, t: (a.at - window.__t0) * S })), SPEED);
+  camShakeSeen = await pg.evaluate(() => window.__shakeSeen ?? {});
   return (camSamples = await pg.evaluate(() => window.__cam));
 };
 const near = (ss, s) => ss.reduce((a, b) => (Math.abs(b.t - s * 1000) < Math.abs(a.t - s * 1000) ? b : a));
@@ -2849,7 +2865,7 @@ main(() => check('history-overtake-shake', 'Every overtake in the replay with a 
   const amps = id => an.filter(a => a.id === id).map(a => a.amp);
   const [norm, lead] = [amps('pill-shake'), amps('pill-shake-lead')];
   const harder = !leads.length || (lead.length && Math.min(...lead) > Math.max(...norm) * 1.4);
-  const seen = id => Math.max(0, ...ss.flatMap(s => s.shakes.filter(k => k.id === id).map(k => Math.abs(k.dx))));
+  const seen = id => Math.max(camShakeSeen[id] ?? 0, ...ss.flatMap(s => s.shakes.filter(k => k.id === id).map(k => Math.abs(k.dx))));
   const moves = seen('pill-shake') >= 1 && (!leads.length || seen('pill-shake-lead') >= 1);
   const list = bad.slice(0, 3).map(o => `${o.a} past ${o.b} at ${(o.t / 1000).toFixed(1)} s: ${why(o).join(', ')}`).join('; ');
   return {
@@ -3503,7 +3519,11 @@ const filmable = p => p.evaluate(() => {
     const names = [...el.querySelectorAll('[data-row-name] [translate=no]')]; // the tile's names are spans now (no href), the card's links
     const rows = [...el.querySelectorAll('tbody tr')].map((tr, i) => {
       const cells = [...tr.querySelectorAll(card === '#pairwise-card' ? 'td[data-hands]' : 'td')].filter(d => shown(d) && /\d/.test(d.textContent)).map(R);
-      const name = card === '#pairwise-card' ? names[i] : tr.querySelector('th [translate=no]');
+      // Matchups' names are a column of their own: the row's name by the model its cells name (data-cell "row|col"), not
+      // by its index among the names (a name column that holds one more or one fewer row for a frame paired a row's
+      // numbers with another row's name box, read as "numbers but no name").
+      const who = card === '#pairwise-card' && tr.querySelector('td[data-cell]')?.dataset.cell.split('|')[0];
+      const name = card === '#pairwise-card' ? (names.find(e => e.closest('[data-row-name]')?.title === who) ?? names[i]) : tr.querySelector('th [translate=no]');
       // Its opacity (a row fading as a whole, or faded by picked rows): faint text on a tint still reads as ink, on white not.
       let o = 1; for (let x = tr; x && x !== el; x = x.parentElement) o *= +getComputedStyle(x).opacity;
       if (!cells.length || !name || !shown(name)) return null;
@@ -3749,26 +3769,6 @@ const films = () => (filmed ??= alone(async () => {
       const back = () => clickPrefix(p, 'Back to overview'), esc = () => p.keyboard.press('Escape');
       await take('open', 'default', open); await take('close by Back', 'default', back);
       await take('open', 'default', open); await take('close by Escape', 'default', esc);
-      // A hand landing mid-glide (review 3, finding 11: with the stream held, nothing covered it): a stats message 100 ms
-      // after the press, one more hand for the last model, which then leads (a re-sort), and one of its pairs changed.
-      // Judged by handover-no-blank and glide-clean only: the figures change at the swap by design.
-      const st = (await engineStats(p))?.stats;
-      for (const how of st?.models?.length > 1 ? ['open', 'close by Back'] : []) {
-        const act = async () => {
-          await (how === 'open' ? open() : back()); await sleep(100);
-          await p.evaluate((st, n) => {
-            const s = structuredClone(st), ms = [...s.models].sort((a, b) => b.bb100 - a.bb100), top = ms[0], last = ms.at(-1);
-            last.hands += n; last.net_chips += 1000 * n; last.bb100 = top.bb100 + 5 * n;
-            const v = last.vs?.[top.name]; if (v) { v.hands += n; v.net_chips += 100 * n; }
-            window.__stream.feed({ type: 'stats', payload: s });
-          }, st, how === 'open' ? 1 : 2);
-        };
-        await sleep(800);
-        const fr = await film(p, { tile, card, screen }, act, how === 'open' ? screen : 'stats');
-        const r = judge(fr, `${sec} ${how} ${w}x${h} (a hand landing)`, how, 'default');
-        out.push({ ...r, same: [], missed: false });
-      }
-      if (st) await p.evaluate(st => window.__stream.feed({ type: 'stats', payload: st }), st); // the figures as loaded again
       if (sec === 'Trends') continue;
       // The viewer changes the card, then closes and opens it again.
       await open(); await sleep(3000);
@@ -3786,6 +3786,30 @@ const films = () => (filmed ??= alone(async () => {
       const state = `${changed}${scrolled ? `, scrolled ${scrolled}px` : ''}`;
       await take('close by Back', state, back); await take('open', state, open);
       await back(); await sleep(2500);
+    }
+    // A hand landing mid-glide (review 3, finding 11: with the stream held, nothing covered it): per section, an open and
+    // a close with a stats message 100 ms after the press, one more hand for the last model, which then leads (a
+    // re-sort), and one of its pairs changed. Judged by handover-no-blank and glide-clean only: the figures change at the
+    // swap by design. Filmed after every other take, so the changed figures meet none of them.
+    const st = (await engineStats(p))?.stats;
+    let landed = 0;
+    if (st?.models?.length > 1) for (const [sec, [tile, card, screen]] of Object.entries(SECTIONS)) {
+      const open = async () => { const pt = await p.evaluate(s => { const b = document.querySelector(s).getBoundingClientRect(); return [b.left + b.width / 2, b.top + 20]; }, tile); await p.mouse.click(pt[0], pt[1]); };
+      for (const how of ['open', 'close by Back']) {
+        const act = async () => {
+          await (how === 'open' ? open() : clickPrefix(p, 'Back to overview')); await sleep(100);
+          await p.evaluate((st, n) => {
+            const s = structuredClone(st), ms = [...s.models].sort((a, b) => b.bb100 - a.bb100), top = ms[0], last = ms.at(-1);
+            last.hands += n; last.net_chips += 1000 * n; last.bb100 = top.bb100 + 5 * n;
+            const v = last.vs?.[top.name]; if (v) { v.hands += n; v.net_chips += 100 * n; }
+            window.__stream.feed({ type: 'stats', payload: s });
+          }, st, ++landed);
+        };
+        await sleep(800);
+        const fr = await film(p, { tile, card, screen }, act, how === 'open' ? screen : 'stats');
+        out.push({ ...judge(fr, `${sec} ${how} ${w}x${h} (a hand landing)`, how, 'default'), same: [], missed: false });
+      }
+      await sleep(2500);
     }
     // A real pointer move over a cell still shows its readout.
     await (async () => {
