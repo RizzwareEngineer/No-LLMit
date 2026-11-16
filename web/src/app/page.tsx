@@ -18,6 +18,7 @@ import SessionProgress from "@/components/SessionProgress";
 import DevPace from "@/components/DevPace";
 import PeelLab from "@/components/PeelLab";
 import { setTypingPace } from "@/components/TypewriterText";
+import { isSoundOn, unlockOnFirstGesture } from "@/lib/sound";
 import { useGameState } from "@/hooks/useGameState";
 import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
@@ -137,6 +138,12 @@ function Table() {
     retry,
   } = useGameState();
   useEffect(() => setTypingPace(gameState?.pace), [gameState?.pace]); // reasons type in step with the table's pace
+  // Sound starts on the first gesture (SoundToggle does it too, but a phone no longer mounts the desktop status row).
+  useEffect(() => {
+    if (!isSoundOn()) return;
+    const once = unlockOnFirstGesture();
+    return () => { window.removeEventListener('pointerdown', once); window.removeEventListener('keydown', once); };
+  }, []);
 
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
   const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);

@@ -7,10 +7,11 @@ export type Tab = 'table' | 'stats' | 'about';
 const TABS = [['table', 'Table', Cards], ['stats', 'Stats', ChartLine], ['about', 'About', Info]] as const;
 
 // Phones: the bottom tab bar over the home page's three parts (the iOS and Android pattern for three top-level sections),
-// above the home indicator. `tab` is where the page is; a tap takes it to that part's top (page.tsx).
+// above the home indicator. `tab` is where the page is; a tap takes it to that part's top (page.tsx). Opaque, with the
+// desktop's hairline on top: see-through, the page's large text at high zoom showed through and mixed with the labels.
 export default function TabBar({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   return (
-    <nav data-tab-bar aria-label="Sections" className="md:hidden fixed bottom-0 inset-x-0 z-40 flex border-t border-notion bg-white/90 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
+    <nav data-tab-bar aria-label="Sections" className="md:hidden fixed bottom-0 inset-x-0 z-40 flex border-t border-notion bg-white pb-[env(safe-area-inset-bottom)]">
       {TABS.map(([id, label, Icon]) => (
         <button
           key={id}

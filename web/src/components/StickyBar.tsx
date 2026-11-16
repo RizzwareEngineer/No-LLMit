@@ -107,14 +107,17 @@ export function PhoneBar({ blank = false, live, watching, handNumber, bigBlind }
   const row = useRef<HTMLDivElement>(null);
   useFillIn(row, !blank);
   return (
-    <div data-phone-bar className="md:hidden fixed top-0 inset-x-0 z-40 border-b border-notion bg-white/85 backdrop-blur-md pt-[env(safe-area-inset-top)]">
+    <div data-phone-bar className="md:hidden fixed top-0 inset-x-0 z-40 border-b border-notion bg-white pt-[env(safe-area-inset-top)]">
       <div ref={row} className={`h-11 px-3 flex items-center gap-3 text-[13px] whitespace-nowrap ${blank ? '[&>*]:invisible' : ''}`} style={{ color: TEXT }}>
-        <span className="flex items-center gap-1.5 tabular-nums" title={watching === undefined ? undefined : `${watching.toLocaleString()} watching`}>
+        {/* The site's name, as the desktop header's, then the live dot and how many watch (labelled: a bare number read as nothing). */}
+        <span data-brand className="font-bold">No-LLMit</span>
+        <span data-watching className="flex items-center gap-1.5 tabular-nums" title={watching === undefined ? undefined : `${watching.toLocaleString()} watching`}
+          aria-label={`${live ? 'Live' : 'Not live'}${watching !== undefined ? `, ${watching.toLocaleString()} watching` : ''}`} role="status">
           <span aria-hidden className="inline-block w-2 h-2 rounded-full" style={{ background: live ? 'rgb(220, 38, 38)' : MUTED }} />
-          <span className="sr-only">{live ? 'Live' : 'Not live'}{watching !== undefined && `, ${watching.toLocaleString()} watching`}</span>
-          {watching !== undefined && <span aria-hidden>{watching.toLocaleString()}</span>}
+          {watching !== undefined && <span aria-hidden>{watching.toLocaleString()}<span className="max-[400px]:hidden"> watching</span></span>}
         </span>
-        {handNumber > 0 && !detail && <span className="tabular-nums" style={{ color: MUTED }}>Hand #{handNumber}</span>}
+        {/* Under 360px (a laptop at 500%) the hand number gives way, so the bar never runs past the window. */}
+        {handNumber > 0 && !detail && <span className="tabular-nums max-[359px]:hidden" style={{ color: MUTED }}>Hand #{handNumber}</span>}
         {detail && (
           <button onClick={backToOverview} className="shrink-0 flex items-center gap-1 rounded px-2 h-11 font-medium" style={{ color: BLUE }}>
             <SquaresFour size={13} weight="bold" aria-hidden />Overview

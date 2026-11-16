@@ -452,6 +452,222 @@ group(() => check('phone-table-oval', 'At 390x844 and 375x667 the table and its 
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
 }));
 
+// The audit (2026-11-15) of the phone table, every class it found, at 360, 375, 390 and 430 wide: a seat's hole cards and
+// bet sit in front of it (nearer its own logo than any other seat's, the bet at least 8px from any other bet), clear of the
+// board's row by 12px either side and of every other seat's logo by 8px, with their corners on the felt; face-down and
+// face-up hole cards one size; between hands the deck 8px over the pot; the action's bubble over none of its own seat's
+// cards, logo, position chip or stack.
+group(async () => {
+  const bad = [], seen = [], own = [], ownSeen = [];
+  if (want('phone-table-places') || want('phone-table-ownership'))
+  for (const [w, h] of [[360, 640], [375, 667], [390, 844], [430, 932]]) {
+    const size = `${w}x${h}`, p = await scriptedTable(w, h);
+    try {
+      await p.evaluate(() => window.__stream.deal()); await sleep(3000); // a fresh hand, scripted from here: every seat's cards face down
+      // Face down first: one size whichever way up (the audit: face-down pairs drawn twice the face-up ones).
+      const sizes = async () => p.evaluate(() => [...document.querySelectorAll('[data-oval] [data-hole] > *')].filter(e => e.getBoundingClientRect().width > 0).map(e => `${e.offsetWidth}x${e.offsetHeight}`));
+      const down = await sizes();
+      await p.evaluate(() => {
+        const s = window.__stream, l = s.last;
+        s.scripted = true; // the live table no longer overwrites the scripted one
+        s.last = { ...l, street: 'river', communityCards: ['Kh', '7d', '2c', '9s', 'Ks'], peeked: l.players.map((_, i) => i), currentPlayerIdx: -1,
+          players: l.players.map((q, i) => ({ ...q, status: 'active', currentBet: 10 + 5 * i, lastAction: 'CALL', lastAmount: 10 + 5 * i })) };
+        s.feed({ type: 'game_state', payload: s.last });
+      });
+      await sleep(2500);
+      const up = await sizes(), all = new Set([...down, ...up]);
+      if (all.size !== 1) bad.push(`${size}: hole cards in ${all.size} sizes (${[...all].join(', ')})`);
+      const r = await p.evaluate(() => {
+        const box = e => { const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 }; };
+        const vis = e => e.getBoundingClientRect().width > 0;
+        const oval = document.querySelector('[data-oval]'), felt = box(oval.querySelector('[data-felt-oval]'));
+        const seats = [...oval.querySelectorAll('[data-seat]')].map(s => ({ i: +s.dataset.seat, logo: box(s.querySelector('a[aria-label]')), cards: [...s.querySelectorAll('[data-hole] > *')].filter(vis).map(box) }));
+        const bets = [...oval.querySelectorAll('[data-bet]')].filter(vis).map(e => ({ i: +e.dataset.bet, b: box(e) }));
+        const board = [...oval.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(box);
+        return { seats, bets, board, felt };
+      });
+      const out = [], mine = [], d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y), gap = (a, b) => Math.max(a.l - b.r, b.l - a.r, a.t - b.b, b.t - a.b);
+      const logos = r.seats.map(s => ({ i: s.i, c: s.logo }));
+      const owner = pt => logos.reduce((a, b) => (d(pt, b.c) < d(pt, a.c) ? b : a));
+      const rx = (r.felt.r - r.felt.l) / 2, ry = (r.felt.b - r.felt.t) / 2, cx = r.felt.l + rx, cy = r.felt.t + ry;
+      const row = r.board.length ? { l: Math.min(...r.board.map(b => b.l)) - 12, r: Math.max(...r.board.map(b => b.r)) + 12, t: Math.min(...r.board.map(b => b.t)), b: Math.max(...r.board.map(b => b.b)) } : null;
+      for (const s of r.seats) {
+        if (s.cards.length !== 2) { out.push(`seat ${s.i} shows ${s.cards.length} cards`); continue; }
+        const mid = { x: (s.cards[0].x + s.cards[1].x) / 2, y: (s.cards[0].y + s.cards[1].y) / 2 };
+        if (owner(mid).i !== s.i) mine.push(`seat ${s.i}'s cards nearer seat ${owner(mid).i}`);
+        for (const c of s.cards) {
+          if (row && c.b > row.t && c.t < row.b && c.r > row.l && c.l < row.r) mine.push(`seat ${s.i}'s card on the board's row`);
+          for (const o of logos) if (o.i !== s.i && gap(c, o.c) < 8) mine.push(`seat ${s.i}'s card within 8px of seat ${o.i}'s logo`);
+          if ([[c.l, c.t], [c.r, c.t], [c.l, c.b], [c.r, c.b]].some(([x, y]) => ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 > 1.0001)) mine.push(`seat ${s.i}'s card off the felt`);
+        }
+      }
+      for (const b of r.bets) {
+        if (owner(b.b).i !== b.i) mine.push(`seat ${b.i}'s bet nearer seat ${owner(b.b).i}`);
+        for (const o of r.bets) if (o.i > b.i && gap(b.b, o.b) < 8) mine.push(`bets ${b.i} and ${o.i} within 8px`);
+      }
+      if (r.bets.length !== 9) out.push(`${r.bets.length} of 9 bets drawn`);
+      // Position chips: the name inside with 3px a side at least (the audit: UTG+1 squeezed into its chip).
+      const chips = await p.evaluate(() => [...document.querySelectorAll('[data-oval] [data-position]')].map(e => { const r = document.createRange(); r.selectNodeContents(e); return { t: e.textContent, room: (e.clientWidth - r.getBoundingClientRect().width) / 2, over: e.scrollWidth > e.clientWidth }; }));
+      for (const c of chips) if (c.over || c.room < 3) out.push(`chip ${c.t} has ${c.room.toFixed(1)}px a side`);
+      // The bubble: each seat acts in turn and its action shows over it for a moment.
+      for (const i of [1, 2, 3, 4, 5]) {
+        await p.evaluate(i => {
+          const s = window.__stream, name = s.last.players[i].name, turn = 100 + i;
+          s.feed({ type: 'llm_thinking', payload: { turn, playerIdx: i, playerName: name, budgetMs: 45000, elapsedMs: 0 } });
+          s.feed({ type: 'llm_action', payload: { turn, playerIdx: i, playerName: name, action: 'RAISE', amount: 632, reason: 'Raise.' } });
+        }, i);
+        await p.waitForFunction(() => document.querySelector('[data-oval] [data-bubble]'), { timeout: 8000 }).catch(() => {});
+        await sleep(300);
+        const hit = await p.evaluate(() => {
+          const b = document.querySelector('[data-oval] [data-bubble]'); if (!b) return null;
+          const seat = b.closest('[data-seat]'), r = b.getBoundingClientRect(), meet = e => { const o = e.getBoundingClientRect(); return o.width > 0 && Math.min(r.right, o.right) - Math.max(r.left, o.left) > 0.5 && Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top) > 0.5; };
+          return { seat: seat.dataset.seat, on: [...seat.querySelectorAll('[data-hole] > *, a[aria-label], [data-position], [data-chips]')].filter(meet).map(e => e.dataset.position !== undefined ? 'chip' : e.dataset.chips !== undefined ? 'stack' : e.tagName === 'A' ? 'logo' : 'cards') };
+        });
+        if (hit?.on.length) out.push(`seat ${hit.seat}'s bubble over its ${[...new Set(hit.on)].join(', ')}`);
+        if (!hit) out.push(`no bubble over seat ${i}`);
+        await p.waitForFunction(() => !document.querySelector('[data-oval] [data-bubble]'), { timeout: 5000 }).catch(() => {});
+      }
+      // Between hands: the deck over the pot, 8px clear.
+      await p.evaluate(() => window.__stream.end(6000));
+      await p.waitForFunction(() => [...document.querySelectorAll('[data-oval] [data-deck]')].some(e => e.getBoundingClientRect().width > 0), { timeout: 9000 }).catch(() => {}); await sleep(300);
+      const dk = await p.evaluate(() => { const d = [...document.querySelectorAll('[data-oval] [data-deck]')].find(e => e.getBoundingClientRect().width > 0), q = document.querySelector('[data-oval] [data-pot]'); if (!d || !q) return null; const a = d.getBoundingClientRect(), b = q.getBoundingClientRect(); return { gap: Math.max(b.top - a.bottom, a.top - b.bottom), apart: a.right < b.left || a.left > b.right }; });
+      if (!dk) out.push('no deck between hands');
+      else if (!dk.apart && dk.gap < 8) out.push(`the deck ${dk.gap.toFixed(1)}px from the pot`);
+      if (mine.length) own.push(`${size}: ${[...new Set(mine)].slice(0, 6).join(', ')}${mine.length > 6 ? ` and ${mine.length - 6} more` : ''}`);
+      else ownSeen.push(`${size}: every pair and bet in front of its seat, off the board's row and on the felt`);
+      if (out.length) bad.push(`${size}: ${[...new Set(out)].slice(0, 6).join(', ')}${out.length > 6 ? ` and ${out.length - 6} more` : ''}`);
+      else seen.push(`${size}: ${r.seats.length} seats, ${r.bets.length} bets in place${dk ? `, deck ${dk.gap.toFixed(0)}px from the pot` : ''}`);
+    } finally { await p.close(); }
+  }
+  await check('phone-table-places', 'At 360x640, 375x667, 390x844 and 430x932, with a bet in front of every seat and all cards showing: all hole cards one size face down or up, every seat\'s bet drawn, every position chip holding its name with 3px a side, between hands the deck at least 8px under the pot, an action\'s bubble never over its seat\'s cards, logo, chip or stack', async () => ({ pass: !bad.length && seen.length === 4, detail: bad.length ? bad.join(' | ') : seen.join(' | ') }));
+  // Not met yet (FIX-LAYOUT.md): on a 9-seat oval at 351x465 no placement found meets these with the stack and label under
+  // each logo; this fails until the phone seat's design changes, and fails again if a fix ever regresses.
+  await check('phone-table-ownership', 'At 360x640, 375x667, 390x844 and 430x932: each seat\'s hole cards and bet nearer its own logo than any other seat\'s, bets 8px apart, its cards 12px clear of the board\'s row sideways, 8px clear of other seats\' logos and with every corner on the felt', async () => ({ pass: !own.length && ownSeen.length === 4, detail: own.length ? own.join(' | ') : ownSeen.join(' | ') }));
+});
+// The audit's phone chrome, at a phone, phones held sideways and a laptop at 200%, 300% and 500% (the phone layout,
+// lib/layout): the phone layout shows (tab bar, no shrunk desktop page), no text under 11px, no sideways scroll; the bars
+// opaque and together at most 25% of the height; the bar names the site and labels its count; every seat can be scrolled
+// clear of both bars (the table never stuck under the tab bar); a seat's stats popup over a scrim (no seat fragments read
+// round it), wholly inside the window with its More stats in view.
+group(() => check('phone-chrome', 'At 375x667, 844x390, 932x430, 667x375 and 1440x900 at 200%, 300% and 500%: the phone layout with its tab bar, no text under 11px and no sideways scroll; the top and tab bars opaque and together at most 25% of the height; the top bar shows No-LLMit and a labelled watching count; every seat scrolls fully clear of both bars; a seat\'s stats popup sits over a scrim (at least 30% dark) that covers the seats around it, inside the window, its More stats button in view', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, z] of [[375, 667, 1], [844, 390, 1], [932, 430, 1], [667, 375, 1], [720, 450, 2], [480, 300, 3], [288, 180, 5]]) {
+    const size = `${w}x${h}${z > 1 ? `@${z}x` : ''}`, p = await newPage();
+    try {
+      await p.setViewport({ width: w, height: h, deviceScaleFactor: z });
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => document.querySelectorAll('[data-oval] [data-seat] a[aria-label]').length >= 6, { timeout: 60000 }).catch(() => {});
+      await sleep(2500);
+      const r = await p.evaluate(q => {
+        const vis = e => { const b = e?.getBoundingClientRect(); return !!b && b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
+        const alpha = c => { const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return 1; const v = m[1].split(/[ ,/]+/).filter(Boolean); return v.length > 3 ? parseFloat(v[3]) : 1; };
+        const nav = document.querySelector('[data-tab-bar]'), top = document.querySelector('[data-phone-bar]');
+        const out = [];
+        if (!matchMedia(q).matches) out.push('not the phone layout');
+        if (!vis(nav)) out.push('no tab bar');
+        if (document.querySelector('.stage-zoom')?.style.zoom) out.push(`the desktop stage at ${document.querySelector('.stage-zoom').style.zoom}`);
+        // Only the shown layout's tree is mounted (the audit: the phone page carried the whole desktop table behind it).
+        if (document.querySelector('table[role=presentation], [data-actor]')) out.push('the desktop table is mounted too');
+        if (document.documentElement.scrollWidth > innerWidth) out.push(`page ${document.documentElement.scrollWidth - innerWidth}px wider than the window`);
+        for (const [n, e] of [['tab bar', nav], ['top bar', top]]) if (vis(e)) { const cs = getComputedStyle(e), blur = parseFloat((cs.backdropFilter.match(/blur\(([\d.]+)px/) ?? [])[1] ?? 0); if (alpha(cs.backgroundColor) < 0.9 && blur < 20) out.push(`${n} see-through (${cs.backgroundColor})`); }
+        const pinned = e => ['fixed', 'sticky'].includes(getComputedStyle(e).position);
+        const fixed = [...document.querySelectorAll('body *')].filter(e => { if (!vis(e) || !pinned(e) || e.closest('[data-seat-stats], dialog')) return false; for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) if (pinned(a)) return false; return true; })
+          // In the window, drawn over the page (not a transparent layer for flying cards), and no sticky screen (a stats stage).
+          .filter(e => { const b = e.getBoundingClientRect(); return b.bottom > 0 && b.top < innerHeight && getComputedStyle(e).pointerEvents !== 'none' && (getComputedStyle(e).position === 'fixed' || b.height < innerHeight / 2); });
+        const share = fixed.reduce((a, e) => { const b = e.getBoundingClientRect(); return a + Math.max(0, Math.min(b.bottom, innerHeight) - Math.max(b.top, 0)); }, 0) / innerHeight;
+        if (share > 0.25) out.push(`fixed bars take ${(share * 100).toFixed(0)}% of the height`);
+        if (!/No-LLMit/.test(top?.querySelector('[data-brand]')?.textContent ?? '')) out.push('the top bar has no No-LLMit');
+        const watch = top?.querySelector('[data-watching]');
+        if (watch && /\d/.test(watch.textContent) && !/watching/.test(watch.getAttribute('aria-label') + watch.textContent)) out.push('the watching count has no label');
+        const shows = e => { for (let a = e; a; a = a.parentElement) if (+getComputedStyle(a).opacity === 0) return false; return true; };
+        const small = [...document.querySelectorAll('[data-oval] *, [data-tab-bar] *, [data-phone-bar] *, [data-caption] *')].filter(e => vis(e) && shows(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 11);
+        for (const e of small.slice(0, 3)) out.push(`"${e.textContent.trim().slice(0, 12)}" at ${getComputedStyle(e).fontSize}`);
+        return { out, n: document.querySelectorAll('[data-oval] [data-seat]').length, share };
+      }, PHONE_Q);
+      // Every seat (logo, chip, stack and label) can rest wholly between the bars: some scroll the table's screen allows
+      // (it scrolls freely where it is taller than the window; mandatory snapping overrides a scripted scroll, so this is
+      // worked out from the page's geometry, at the top of the page).
+      await p.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(300);
+      const stuck = await p.evaluate(() => {
+        const sec = document.querySelector('section[data-screen]').getBoundingClientRect(), nav = document.querySelector('[data-tab-bar]').getBoundingClientRect();
+        const bar = document.querySelector('[data-phone-bar]'), tb = getComputedStyle(bar).position === 'fixed' ? bar.getBoundingClientRect().bottom : 0, y0 = scrollY;
+        const lo = Math.max(0, sec.top + y0), hi = Math.max(lo, Math.min(document.documentElement.scrollHeight - innerHeight, sec.bottom + y0 - innerHeight));
+        return [...document.querySelectorAll('[data-oval] [data-seat]')].map(s => {
+          const bs = [...s.querySelectorAll('a[aria-label], [data-position], [data-chips], [data-label]')].map(e => e.getBoundingClientRect()).filter(b => b.width > 0);
+          if (!bs.length) return null;
+          const t = Math.min(...bs.map(b => b.top)) + y0, b = Math.max(...bs.map(b => b.bottom)) + y0;
+          // A scroll s shows it between the bars when t - s >= tb and b - s <= nav.top: s in [b - nav.top, t - tb].
+          const from = Math.max(lo, b - nav.top), to = Math.min(hi, t - tb);
+          return from <= to + 0.5 ? null : `${s.dataset.seat} (${Math.round(b - t)}px tall, room ${Math.round(nav.top - tb)}px, needs a scroll in ${Math.round(b - nav.top)}..${Math.round(t - tb)}, the screen allows ${Math.round(lo)}..${Math.round(hi)})`;
+        }).filter(Boolean);
+      });
+      if (stuck.length) r.out.push(`seats stuck under a bar: ${stuck.slice(0, 3).join(', ')}`);
+      // The popup: the seat nearest the window's middle.
+      await p.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(300);
+      const pick = await p.evaluate(() => { const ls = [...document.querySelectorAll('[data-oval] [data-seat] a[aria-label]')].map(e => e.getBoundingClientRect()).filter(b => b.top > 0 && b.bottom < innerHeight - 60); const b = ls.sort((a, c) => Math.abs(a.top - innerHeight / 2) - Math.abs(c.top - innerHeight / 2))[0]; return b && { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      if (pick) {
+        await p.mouse.click(pick.x, pick.y); await sleep(700);
+        const pop = await p.evaluate(() => {
+          const d = document.querySelector('[data-seat-stats]'); if (!d) return null;
+          const b = d.getBoundingClientRect(), more = [...d.querySelectorAll('button')].find(e => e.textContent.trim().startsWith('More stats'))?.getBoundingClientRect();
+          // A seat part outside the popup: what is on top there must be the scrim, and the scrim dark enough.
+          const outside = [...document.querySelectorAll('[data-oval] [data-seat] a[aria-label]')].map(e => e.getBoundingClientRect()).map(r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 })).filter(c => c.y > 0 && c.y < innerHeight && c.x > 0 && c.x < innerWidth && (c.x < b.left || c.x > b.right || c.y < b.top || c.y > b.bottom));
+          const tops = outside.map(c => document.elementFromPoint(c.x, c.y)).filter(Boolean);
+          const unscrimmed = tops.filter(e => { const m = getComputedStyle(e).backgroundColor.match(/rgba?\(([^)]+)\)/), v = m ? m[1].split(/[ ,/]+/) : []; return !(e.getAttribute('aria-label') === 'Close stats' && v.length > 3 && parseFloat(v[3]) >= 0.3); }).length;
+          return { inside: b.left >= -0.5 && b.top >= -0.5 && b.right <= innerWidth + 0.5 && b.bottom <= innerHeight + 0.5, more: !!more && more.top >= b.top - 0.5 && more.bottom <= b.bottom + 0.5 && more.bottom <= innerHeight + 0.5, unscrimmed, outside: outside.length };
+        });
+        if (!pop) r.out.push('a tap on a logo opened no popup');
+        else {
+          if (!pop.inside) r.out.push('the popup leaves the window');
+          if (!pop.more) r.out.push('More stats out of view');
+          if (pop.unscrimmed) r.out.push(`${pop.unscrimmed} of ${pop.outside} seats round the popup not under a 30% scrim`);
+        }
+        await p.keyboard.press('Escape');
+      }
+      if (r.out.length) bad.push(`${size}: ${r.out.slice(0, 5).join(', ')}${r.out.length > 5 ? ` and ${r.out.length - 5} more` : ''}`);
+      else seen.push(`${size} bars ${(r.share * 100).toFixed(0)}%`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// The audit's desktop table at laptop sizes: Profits & Losses and the seats show their models' whole names (they were cut
+// to about nine letters with room to spare), no text on the table screen under 11px (the seat's position badge was 8px:
+// it now fits UTG+1 at 11px inside the locked seat), and between turns the action bar names the hand's stage, never a
+// bare dash.
+group(() => check('desktop-table-text', 'At 1440x900, 1512x982 and 1728x1117: no model name cut short in Profits & Losses or on a seat, no text on the table screen under 11px (before the fit-to-screen scale), every position badge holding its name with 3px a side, and the action bar\'s name never a bare dash or empty', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117]]) {
+    const p = await newPage();
+    try {
+      await p.setViewport({ width: w, height: h });
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => document.querySelectorAll('td [data-seat] [data-position]').length >= 6 && document.querySelector('#table ol li'), { timeout: 60000 }).catch(() => {});
+      await sleep(2500);
+      const r = await p.evaluate(() => {
+        const vis = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+        const sec = document.querySelector('section[data-screen]'), out = [];
+        const cut = [...sec.querySelectorAll('#table ol [title], td [data-seat] [title]')].filter(e => vis(e) && e.scrollWidth > e.clientWidth + 1);
+        for (const e of cut.slice(0, 4)) out.push(`"${e.getAttribute('title')}" cut to ${e.clientWidth}px (needs ${e.scrollWidth})`);
+        const shows = e => { for (let a = e; a; a = a.parentElement) if (+getComputedStyle(a).opacity === 0) return false; return true; };
+        const small = [...sec.querySelectorAll('*')].filter(e => vis(e) && shows(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 11);
+        for (const e of small.slice(0, 4)) out.push(`"${e.textContent.trim().slice(0, 14)}" at ${getComputedStyle(e).fontSize}`);
+        for (const b of [...sec.querySelectorAll('td [data-position]')].filter(vis)) {
+          const r = document.createRange(); r.selectNodeContents(b); const t = r.getBoundingClientRect().width, z = b.getBoundingClientRect().width / b.offsetWidth;
+          if (b.scrollWidth > b.clientWidth || (b.clientWidth - t / z) / 2 < 3) out.push(`badge ${b.textContent} cramped (${b.clientWidth}px for ${Math.round(t / z)}px)`);
+        }
+        if (document.querySelector('[data-oval], [data-tab-bar], [data-phone-bar]')) out.push('the phone table or its bars are mounted too');
+        const actor = document.querySelector('[data-actor]');
+        if (!actor || !vis(actor) || /^[-–—\s]*$/.test(actor.textContent)) out.push(`the action bar's name reads "${actor?.textContent ?? ''}"`);
+        return { out, names: sec.querySelectorAll('#table ol [title]').length, actor: actor?.textContent };
+      });
+      if (r.out.length) bad.push(`${w}x${h}: ${r.out.slice(0, 6).join(', ')}`);
+      else seen.push(`${w}x${h}: ${r.names} names whole, action bar "${r.actor}"`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+}));
+
 // Owner, 2026-11-15: "for the stats page, we just had one window taking up the screen. For example, trends, and then if I
 // scroll a little bit down, I see profiles ... matchups", then About; and "when I click into trends, it actually kicks me
 // out a few times". On a phone (touch) every stats part is a window of its own, reached by a swipe, and no tap or small
@@ -696,7 +912,9 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
     const lines = e => { const r = document.createRange(); r.selectNodeContents(e); let n = 0, low = -Infinity; for (const c of [...r.getClientRects()].filter(c => c.width > 0).sort((a, b) => a.top - b.top)) { if (c.top >= low - 1) { n++; low = c.bottom; } else low = Math.max(low, c.bottom); } return n; };
     const clipped = e => { const r = e.getBoundingClientRect(); for (let a = e.parentElement; a && a !== sec; a = a.parentElement) { if (getComputedStyle(a).overflowX === 'visible') continue; const b = a.getBoundingClientRect(); if (r.left < b.left - 1 || r.right > b.right + 1) return true; } return false; };
     return {
-      ok: !!(btn('Chips') && btn('BB')) && !!group.parentElement.querySelector('button[aria-label="Sounds"]'),
+      // Beside the sound switch: the status row's on desktop, the phone bar's (its controls' row) on a phone, where only the
+      // phone bar is mounted now (lib/layout: one layout's tree).
+      ok: !!(btn('Chips') && btn('BB')) && !!group.parentElement.closest('div')?.querySelector('button[aria-label="Sounds"]'),
       pressed: group && btn('BB')?.getAttribute('aria-pressed') === 'true',
       amounts: [...sec.querySelectorAll('[data-chips]')].filter(vis).map(e => ({
         chips: +e.dataset.chips, text: (e.getAttribute('aria-label')?.replace(/^Pot /, '') ?? e.textContent).trim().replace(/^[+−-]/, ''),
@@ -706,7 +924,8 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
         lines: lines(e), clipped: clipped(e),
       })),
       unit: !!sec.querySelector('[data-unit]'),
-      words: [...sec.querySelectorAll('p')].map(e => e.textContent).find(t => t.includes('Raising to')) ?? '',
+      // The model's words: the desktop's reasoning panel, or a phone's caption (the only one mounted there now).
+      words: [...sec.querySelectorAll('p, [data-caption] > span:last-child')].map(e => e.textContent).find(t => t.includes('Raising to')) ?? '',
       seats: [...new Set([...sec.querySelectorAll('td.w-\\[200px\\]')].map(td => `${td.offsetWidth}x${td.offsetHeight}`))],
       cell: sec.querySelector('td.w-\\[200px\\]') && box(sec.querySelector('td.w-\\[200px\\]')), // desktop only: a phone mounts no grid
       table: sec.querySelector('table')?.offsetWidth,
@@ -4787,7 +5006,7 @@ group(() => check('leader-bb100', 'The Leader line is the best bb/100 among the 
 // card cut off names and its last column, the overview cut off its last row. The Trends plot is at least 200px
 // tall where the chart's 2.6:1 shape allows it at the card's full width (a 390px phone: about 129px; a taller
 // plot there needs a phone shape in CumulativeChart).
-group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'s plot fills its width (200px+ tall where the shape allows) and the card hugs it, table and matrix rows at least 24px and never overlapping, model names in Profiles and Matchups, nothing clipped without a way to scroll to it', async () => {
+group(() => check('small-screens', 'At 390x844, 720x450@2x and 844x390@2x: the Trends card\'s plot fills its width (200px+ tall where the shape allows) and the card hugs it, table and matrix rows at least 24px and never overlapping, model names in Profiles and Matchups, nothing clipped without a way to scroll to it', async () => {
   const bad = [], seen = [];
   // Rows of `sel`: each at least 24px, none overlapping the next; names (`names`) visible: 5+ at least 30px wide;
   // every element of `reach` inside every clipping ancestor, and never before a scroller's start.
@@ -4818,7 +5037,9 @@ group(() => check('small-screens', 'At 390x844 and 720x450@2x: the Trends card\'
     if (wantNames && m.named < 5) bad.push(`${where}: ${m.named} names visible`);
     if (m.cut.length) bad.push(`${where}: ${m.cut.slice(0, 4).join(', ')}`);
   };
-  for (const [w, h, d] of [[390, 844, 2], [720, 450, 2]]) {
+  // 844x390: a phone held sideways (the audit found its stats drawn as the desktop's, shrunk: tiles' names stacked on
+  // each other and the Trends plot a thin strip); it now has the phone windows, held to the same rules.
+  for (const [w, h, d] of [[390, 844, 2], [720, 450, 2], [844, 390, 2]]) {
     const size = `${w}x${h}${d > 1 ? `@${d}x` : ''}`;
     const p = await newPage(); await p.setViewport({ width: w, height: h, deviceScaleFactor: d });
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 }); await waitStats(p); await sleep(3000);

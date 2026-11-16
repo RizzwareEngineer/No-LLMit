@@ -13,6 +13,8 @@ import { DASH, MUTED, ModelStats, TEXT, BLUE, chips, ciHalf, netColor, signed } 
 // which closes it and goes to the Stats tab. A tap outside, the close button, Escape or a scroll closes it; focus moves
 // in and back. On the page's top layer (a portal, z-50: over TableMotion's flying chips and cards), centred on `at` (moved in to fit),
 // the table's middle in the window.
+// Over a dim scrim (the drawer's 30%), so the seats it covers read as background, not as fragments round its edges;
+// More stats stays in view at its foot when a short window (500% zoom) makes the card scroll.
 export default function SeatStats({ name, stats: m, at, onClose }: { name: string; stats?: ModelStats; at: { x: number; y: number }; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -40,7 +42,7 @@ export default function SeatStats({ name, stats: m, at, onClose }: { name: strin
   );
   return createPortal(
     <>
-      <button type="button" aria-label="Close stats" tabIndex={-1} className="fixed inset-0 z-50 cursor-default bg-[rgba(15,15,15,0.08)]" onClick={onClose} />
+      <button type="button" aria-label="Close stats" tabIndex={-1} className="fixed inset-0 z-50 cursor-default bg-[rgba(15,15,15,0.3)] motion-safe:animate-[fade-in_200ms_ease-out]" onClick={onClose} />
       <div
         ref={ref}
         data-seat-stats
@@ -58,7 +60,7 @@ export default function SeatStats({ name, stats: m, at, onClose }: { name: strin
           </button>
         </div>
         {m ? (
-          <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+          <dl className="mt-2 grid grid-cols-2 max-[260px]:grid-cols-1 gap-x-4 gap-y-2">
             {fact('bb/100', <>{signed(m.bb100)}{ciHalf(m) !== null && <span className="font-normal text-[12px]" style={{ color: MUTED }}> ±{ciHalf(m)!.toFixed(1)}</span>}</>, netColor(m.bb100))}
             {fact('Hands', m.hands.toLocaleString())}
             {fact('Net', chips(m.net_chips), netColor(m.net_chips))}
@@ -70,7 +72,7 @@ export default function SeatStats({ name, stats: m, at, onClose }: { name: strin
         <button
           type="button"
           onClick={() => { onClose(); pageTo('phone-stats'); }}
-          className="mt-3 w-full h-11 flex items-center justify-center gap-1.5 rounded text-[13px] font-bold"
+          className="sticky bottom-0 mt-3 w-full h-11 flex items-center justify-center gap-1.5 rounded bg-white text-[13px] font-bold"
           style={{ color: BLUE, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px inset' }}
         >
           More stats <ArrowRight size={14} weight="bold" aria-hidden />
