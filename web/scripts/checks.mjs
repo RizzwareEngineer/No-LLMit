@@ -30,7 +30,7 @@ const SRC = readFileSync(new URL(import.meta.url), 'utf8').split('\n');
 const CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/;
 const IDS = SRC.map(l => l.match(CHECK)?.[1]).filter(Boolean);
 const want = id => !SKIP.has(id) && (!ONLY.size || ONLY.has(id));
-// --query shape=rect&seat=beside: added to the URL of every scripted table (the phone table's drafts), unless a check sets that key itself.
+// --query shape=rect&seat=beside: added to the URL of every scripted table (the phone table's drafts), and of table-card-sizes and phone-chrome, unless a check sets that key itself.
 const QUERY = arg('--query', '') || '';
 const withQuery = q => { const u = new URLSearchParams((q || '').replace(/^\?/, '')); for (const [k, v] of new URLSearchParams(QUERY)) if (!u.has(k)) u.set(k, v); const t = u.toString(); return t ? `?${t}` : ''; };
 let lastEnd = Date.now();
@@ -146,14 +146,20 @@ const waitStats = async p => {
     const y = await p.evaluate(() => scrollY);
     await p.waitForFunction(() => document.getElementById('stats'), { timeout: 90000 });
     await p.evaluate(() => { const s = document.getElementById('stats'); window.scrollTo({ top: Math.max(scrollY, s.getBoundingClientRect().top + scrollY - 1.2 * innerHeight), behavior: 'instant' }); });
+    // A phone's page snaps (mandatory) and its table screen is taller than a window: the scroll above snapped back to the
+    // table, the stats never mounted, and every phone page waited out both 90 s timeouts here (zoom-tolerable ran past
+    // 400 s). A viewer's first gesture mounts them too (StatsScreens' useStatsMount): a wheel that moves nothing.
+    if (!(await p.waitForFunction(() => document.getElementById('race-panel'), { timeout: 3000 }).then(() => true, () => false))) await p.mouse.wheel({ deltaY: 0 });
     await p.waitForFunction(() => document.getElementById('race-panel'), { timeout: 90000 });
     await p.evaluate(y => { if (scrollY !== y) window.scrollTo({ top: y, behavior: 'instant' }); }, y);
   } catch {}
   await p.waitForFunction(() => document.querySelector('#pairwise-card td[data-cell]') && document.querySelector('#stats-panel tbody tr') && document.querySelector('#race-panel svg'), { timeout: 90000 }).catch(() => {});
 };
 // A fresh page at a window size, on the screen `id` once the stats have loaded.
-const pageAt = async (w, h, id = 'stats', ctx = lane.getStore() ?? browser) => {
+// `hold`: its stream scripted (scriptStream), so a check can hold it (__stream.scripted) while it films.
+const pageAt = async (w, h, id = 'stats', ctx = lane.getStore() ?? browser, hold = false) => {
   const p = watchStream(await ctx.newPage()); await p.setViewport({ width: w, height: h });
+  if (hold) await scriptStream(p);
   await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await waitStats(p);
   await sleep(3000); await goto(p, id); await sleep(2000);
@@ -601,23 +607,29 @@ async function ownershipDraft(draft) {
   for (const [w, h] of [[360, 640], [375, 667], [390, 844], [430, 932]]) {
     const size = `${w}x${h}`, p = await scriptedTable(w, h, false, `?seat=${draft}`);
     try {
-      await p.evaluate(() => {
-        const s = window.__stream, l = s.last;
-        s.scripted = true;
-        s.last = { ...l, street: 'river', communityCards: ['Kh', '7d', '2c', '9s', 'Ks'], peeked: l.players.map((_, i) => i), currentPlayerIdx: -1,
-          players: l.players.map((q, i) => ({ ...q, status: 'active', currentBet: 10 + 5 * i, lastAction: 'CALL', lastAmount: 10 + 5 * i })) };
-        s.feed({ type: 'game_state', payload: s.last });
-      });
-      await sleep(2500);
-      const { r, mine } = await ownership(p);
-      if (r.seats.some(s => s.cards.length !== 2) || r.bets.length !== 9) mine.push(`${r.seats.filter(s => s.cards.length === 2).length} pairs and ${r.bets.length} bets of 9 drawn`);
+      // Small bets (10-50), then bets as wide as real ones (fix-final #8): stacks start at 2,000 chips with a 10-chip big
+      // blind, so 120 and 1,250 are routine, and seats 0 and 2 (one row, 48px apart at 360x640) both bet.
+      const mine = [];
+      for (const [k, bets] of [['10-50', i => 10 + 5 * i], ['120 and 1,250', i => (i % 4 < 2 ? 120 : 1250)]]) {
+        await p.evaluate(src => {
+          const bet = new Function(`return ${src}`)(), s = window.__stream, l = s.last;
+          s.scripted = true;
+          s.last = { ...l, street: 'river', communityCards: ['Kh', '7d', '2c', '9s', 'Ks'], peeked: l.players.map((_, i) => i), currentPlayerIdx: -1,
+            players: l.players.map((q, i) => ({ ...q, status: 'active', currentBet: bet(i), lastAction: 'CALL', lastAmount: bet(i) })) };
+          s.feed({ type: 'game_state', payload: s.last });
+        }, bets.toString());
+        await sleep(2500);
+        const { r, mine: m } = await ownership(p);
+        if (r.seats.some(s => s.cards.length !== 2) || r.bets.length !== 9) m.push(`${r.seats.filter(s => s.cards.length === 2).length} pairs and ${r.bets.length} bets of 9 drawn`);
+        mine.push(...m.map(x => `${x} (bets ${k})`));
+      }
       if (mine.length) own.push(`${size}: ${[...new Set(mine)].slice(0, 6).join(', ')}${mine.length > 6 ? ` and ${mine.length - 6} more` : ''}`);
       else ownSeen.push(`${size}: every pair and bet in front of its seat, off the board's row and on the felt`);
     } finally { await p.close(); }
   }
   return { pass: !own.length && ownSeen.length === 4, detail: own.length ? own.join(' | ') : ownSeen.join(' | ') };
 }
-const OWN_RULE = draft => `With ?seat=${draft}, at 360x640, 375x667, 390x844 and 430x932: each seat's hole cards and bet nearer its own logo than any other seat's, bets 8px apart, its cards 12px clear of the board's row sideways, 8px clear of other seats' logos and with every corner on the felt`;
+const OWN_RULE = draft => `With ?seat=${draft}, at 360x640, 375x667, 390x844 and 430x932, with bets of 10-50 and of 120 and 1,250: each seat's hole cards and bet nearer its own logo than any other seat's, bets 8px apart, its cards 12px clear of the board's row sideways, 8px clear of other seats' logos and with every corner on the felt`;
 group(() => check('phone-table-ownership-beside', OWN_RULE('beside'), () => ownershipDraft('beside')));
 group(() => check('phone-table-ownership-tucked', OWN_RULE('tucked'), () => ownershipDraft('tucked')));
 // Crossing lib/layout's switch (a tablet rotated, a window resized across it, a zoom) mid-hand and between hands (the
@@ -743,7 +755,7 @@ group(() => check('phone-chrome', 'At 375x667, 844x390, 932x430, 667x375 and 144
     try {
       await p.setViewport({ width: w, height: h, deviceScaleFactor: z });
       await scriptStream(p); // only watched (never scripted here): the stream's player count
-      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.goto(`${BASE}/${withQuery('')}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
       // A table that never dealt (a blank placeholder oval) tests nothing: the size fails.
       const dealt = await p.waitForFunction(() => document.querySelectorAll('[data-oval] [data-seat] a[aria-label]').length >= 6, { timeout: 60000 }).then(() => true, () => false);
       await sleep(2500);
@@ -1113,17 +1125,27 @@ group(() => check('profiles-header-lines', 'At 1440x900 at 100%, 125%, 150% and 
 
 // A9: the Trends chart's text (ticks, axis titles, end labels, the clock) never under 11px on screen, however the chart
 // is scaled to its box.
-group(() => check('chart-text-11', 'At 1440x900 at 100%, 125%, 175%, 200% and 300%, on Trends (card or window), every chart svg text renders at 11px or more (font size times the chart\'s own scale to its box, before the wide stats\' fit-to-window zoom)', async () => {
+// The floor acts only where the chart is drawn under 0.56 of its design size: the overview's Trends tile on a short
+// desktop window (fix-final #6: the opened card and the phone window never get there, so the check could not fail).
+group(() => check('chart-text-11', 'At 1440x900 at 100%, 125%, 175%, 200% and 300%, on Trends (card or window), and on the overview\'s Trends tile at 1024x576 and 1280x600, every chart svg text, end label (pill) and the clock renders at 11px or more (font size times the chart\'s own scale to its box, before the wide stats\' fit-to-window zoom)', async () => {
   const bad = [], seen = [];
-  for (const z of [1, 1.25, 1.75, 2, 3]) {
-    const p = await polishPage(1440, 900, { z });
+  for (const [w, h, z, tile] of [[1440, 900, 1], [1440, 900, 1.25], [1440, 900, 1.75], [1440, 900, 2], [1440, 900, 3], [1024, 576, 1, true], [1280, 600, 1, true]]) {
+    const p = await polishPage(w, h, { z });
     try {
-      await polishGo(p, 'race');
+      if (tile) { await goto(p, 'stats'); await sleep(1500); } else await polishGo(p, 'race');
       await clickText(p, 'Skip'); await sleep(800);
-      const r = await p.evaluate(() => {
+      const r = await p.evaluate(tile => {
         const host = document.getElementById('race-panel') ?? document.getElementById('race');
         const small = [];
         let n = 0;
+        // The pills and the clock are HTML in the chart's scaled box: their size times every transform's scale above them.
+        for (const t of host.querySelectorAll('[data-pill-name], [data-pill-value], [data-pill-rank], [data-race-clock]')) {
+          if (!t.textContent.trim() || t.getBoundingClientRect().width === 0 || t.closest('.sr-only')) continue;
+          n++;
+          let k = 1; for (let a = t; a && a !== document.body; a = a.parentElement) { const tf = getComputedStyle(a).transform; if (tf && tf !== 'none') k *= Math.hypot(...new DOMMatrix(tf).toFloat64Array().slice(0, 2)); }
+          const px = parseFloat(getComputedStyle(t).fontSize) * k;
+          if (px < 10.95) small.push(`"${t.textContent.trim().slice(0, 10)}" ${px.toFixed(1)}px`);
+        }
         for (const t of host.querySelectorAll('svg text')) {
           if (!t.textContent.trim() || t.getBoundingClientRect().width === 0) continue;
           n++;
@@ -1134,8 +1156,8 @@ group(() => check('chart-text-11', 'At 1440x900 at 100%, 125%, 175%, 200% and 30
           if (px < 10.95) small.push(`"${t.textContent.trim().slice(0, 10)}" ${px.toFixed(1)}px`);
         }
         return { n, small };
-      });
-      const at = `${Math.round(z * 100)}%`;
+      }, !!tile);
+      const at = tile ? `${w}x${h} overview tile` : `${Math.round(z * 100)}%`;
       if (!r.n) bad.push(`${at}: no chart text`); else if (r.small.length) bad.push(`${at}: ${r.small.length} under 11px (${r.small.slice(0, 3).join(', ')})`); else seen.push(`${at}: ${r.n} texts`);
     } finally { await p.close(); }
   }
@@ -1702,7 +1724,7 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
       const p = await newPage(); await p.setViewport({ width: w, height: h });
       try {
         await scriptStream(p);
-        await p.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await p.goto(`${BASE}/${withQuery('')}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
         await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat]'), { timeout: 120000 });
         await sleep(1500);
         const tag = `${w}x${h}`;
@@ -2512,6 +2534,8 @@ main(() => check('history-starts-at-zero', 'At rest the Trends x axis starts at 
 let camSamples = null, camAnims = null;
 const camRun = async () => {
   if (camSamples) return camSamples;
+  // On Trends itself (a run of only these checks left the page at the table, where the pills are not drawn: "no tips").
+  await goto(pg, 'race'); await sleep(1500);
   await clickText(pg, 'Skip'); await sleep(300);
   await pg.evaluate(s => {
     window.__replaySpeed = s;
@@ -3234,10 +3258,18 @@ main(() => check('profiles-rows-slide', 'When the replay reorders Profiles, rows
   return { pass: r.mid >= 3 && r.reorders > 0, detail: `${r.reorders} reorders, ${r.mid} frames with a row mid-slide (of ${r.frames})` };
 }));
 
+// The Trends replay playing, started here if it is not (fix-final: matchups-cells-still and -together leaned on a check
+// before them having started it, and over 1,000 hands it had ended before they ran): the overview tile's Replay.
+const replaying = async p => {
+  await goto(p, 'stats'); await sleep(800);
+  if (await p.evaluate(() => !!document.querySelector('[data-race-clock]'))) return true;
+  await p.evaluate(() => document.querySelector('#race-panel [data-tile-replay]')?.click()); await sleep(1200);
+  return p.evaluate(() => !!document.querySelector('[data-race-clock]'));
+};
 // Owner, 2026-11-07: "I still see the cells jiggle a bit when a number changes". A changed Matchups
 // cell only changes colour and figure: every cell stays exactly in its grid slot, at its size.
 main(() => check('matchups-cells-still', 'Matchups cells never move or scale when a value changes', async () => {
-  await goto(pg, 'stats'); await sleep(800);
+  if (!(await replaying(pg))) return { pass: false, detail: 'the Trends replay did not start' };
   const r = await pg.evaluate(() => new Promise(res => {
     const sel = '#pairwise-panel [data-cell]';
     const box = c => c.getBoundingClientRect();
@@ -3265,7 +3297,7 @@ main(() => check('matchups-cells-still', 'Matchups cells never move or scale whe
 // Each changed cell's flash started 20 ms after the one before (a ripple), a frame after its figure changed. Every cell a
 // replay step changes shows its new figure and starts its flash in one frame, none delayed.
 main(() => check('matchups-cells-together', 'During the Trends replay, every Matchups cell a step changes shows its new figure and starts its flash in the same frame, none delayed (no ripple)', async () => {
-  await goto(pg, 'stats'); await sleep(800);
+  if (!(await replaying(pg))) return { pass: false, detail: 'the Trends replay did not start' };
   const r = await pg.evaluate(() => new Promise(res => {
     const fig = new Map(), seen = new WeakSet(); const t0 = performance.now();
     let steps = 0, cells = 0, late = 0, delayed = 0, flashes = 0;
@@ -3625,10 +3657,13 @@ let filmed;
 const films = () => (filmed ??= alone(async () => {
   const out = [];
   for (const [w, h] of [[1440, 900], [1512, 982], [1728, 1117]]) {
-    const p = await pageAt(w, h, 'race');
+    const p = await pageAt(w, h, 'race', undefined, true);
     // Puppeteer launches Chrome with --hide-scrollbars; the films show them, as a mouse user's browser does.
     await (p.__cdp ??= await p.createCDPSession()).send('Emulation.setScrollbarsHidden', { hidden: false });
     await clickText(p, 'Skip'); await sleep(1000); // the replay over, only the glides change pixels
+    // The stream held while filming (fix-final): a live hand landing at a swap changed the Leader and the rows between
+    // the frames compared, which no hand-over does. The figures stay as loaded; every comparison is the same.
+    await p.evaluate(() => { window.__stream.scripted = true; });
     await goto(p, 'stats'); await sleep(1500);
     await filmable(p);
     for (const [sec, [tile, card, screen]] of Object.entries(SECTIONS)) {
@@ -5711,7 +5746,7 @@ group(() => check('zoom-tolerable', `At 1440x900, 1512x982 and 1728x1117 zoomed 
   const bad = [], seen = [];
   const states = [...ZOOM_WINDOWS.flatMap(([W, H]) => ZOOM_SAMPLE.map(z => ({ W, H, z }))), ...[[375, 667], [390, 844], [430, 932], [844, 390]].map(([W, H]) => ({ W, H, z: 1, phone: true }))];
   for (const { W, H, z, phone } of states) {
-    const name = phone ? `${W}x${H} phone` : `${W}x${H}@${Math.round(z * 100)}%`;
+    const name = phone ? `${W}x${H} phone` : `${W}x${H}@${Math.round(z * 100)}%`, t0 = Date.now();
     const p = await newPage();
     try {
       if (phone) await p.emulate({ viewport: { width: W, height: H, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: await browser.userAgent() });
@@ -5760,7 +5795,9 @@ group(() => check('zoom-tolerable', `At 1440x900, 1512x982 and 1728x1117 zoomed 
         await sleep(600); await popup('prompt dialog', 'dialog[open]'); await p.keyboard.press('Escape'); await sleep(400);
       } else bad.push(`${name}: no prompt link on About`);
       const slug = await p.evaluate(() => document.querySelector('a[href^="#model="]')?.getAttribute('href'));
-      if (slug) { await p.evaluate(h => { location.hash = h.slice(1); }, slug); await sleep(900); await popup('model drawer', 'dialog[open]'); await p.keyboard.press('Escape'); await sleep(600); }
+      // The drawer slides in from the right edge (its code loads on the first open): judged once it has come to rest, 5 s
+      // at most (under load it was judged mid-slide, 460px past the edge, at 900 ms).
+      if (slug) { await p.evaluate(h => { location.hash = h.slice(1); }, slug); await sleep(900); await p.waitForFunction(() => { const d = document.querySelector('dialog[open]'); return d && getComputedStyle(d).transform === 'none'; }, { timeout: 5000 }).catch(() => {}); await popup('model drawer', 'dialog[open]'); await p.keyboard.press('Escape'); await sleep(600); }
       if (narrow) {
         await p.evaluate(() => scrollTo({ top: 0, behavior: 'instant' })); await sleep(600);
         const a = await p.evaluate(() => { const e = [...document.querySelectorAll('[data-oval] a[aria-haspopup=dialog]')].find(e => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().top > 0); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
@@ -5771,7 +5808,7 @@ group(() => check('zoom-tolerable', `At 1440x900, 1512x982 and 1728x1117 zoomed 
           await sleep(600); await popup('Trends filter sheet', 'dialog[open]'); await p.keyboard.press('Escape'); await sleep(300);
         } else bad.push(`${name}: no Filters button on Trends`);
       }
-      seen.push(`${name} ${t.vw}x${t.vh} bars ${t.chromePct}%`);
+      seen.push(`${name} ${t.vw}x${t.vh} bars ${t.chromePct}% (${Math.round((Date.now() - t0) / 1000)} s)`);
     } catch (e) { bad.push(`${name}: ${e.message.split('\n')[0]}`); }
     await p.close();
   }
@@ -5853,12 +5890,14 @@ const scanNumbers = (p, root = 'body') => p.evaluate(root => {
     const prose = !!e.closest('#about p, main p') && !e.closest('[data-cell], td, dd, b');
     for (const m of t.matchAll(/(?<![\d,.#$\w])[+\-−]?\d{4,}(?:\.\d+)?(?![\d\w])/g)) if (!(prose && /^(19|20)\d\d$/.test(m[0]))) out.push(`ungrouped ${m[0]}`);
     for (const m of t.matchAll(/(?<![\d,.\w])\d{1,3}(?:\.\d{3})+(?:,\d+)?(?![\d\w])/g)) out.push(`locale-grouped ${m[0]}`);
+    // A decimal comma under 1,000 (de-DE 23,4): an en-US group always has three digits after its comma (fix-final #11).
+    for (const m of t.matchAll(/(?<![\d,.\w])\d+(?:,\d{3})*,\d{1,2}(?![\d\w])/g)) out.push(`decimal comma ${m[0]}`);
     if (/\d(?:\.\d)?k\b/.test(t) && !e.closest('td[data-cell]')) out.push(`shortened ${t.trim().slice(0, 12)}`);
     if (/±\s\d/.test(t)) out.push('± with a space');
   }
   return [...new Set(out)];
 }, root);
-group(() => check('numbers-one-format', 'Every figure in the Stats windows and cards, About, the model drawer and the phone seat\'s stats popup uses one format, en-US even in a German browser: 1,000 and up grouped with commas (no 1306, 32000 or 1.306), ± written ±2,366.3 (no space), no shortened +1.3k outside a Matchups cell too narrow for the full figure; at 390x844 and 1440x900', async () => {
+group(() => check('numbers-one-format', 'Every figure in the Stats windows and cards, About, the model drawer and the phone seat\'s stats popup uses one format, en-US even in a German browser: 1,000 and up grouped with commas (no 1306, 32000 or 1.306), a decimal point (no 23,4), ± written ±2,366.3 (no space), no shortened +1.3k outside a Matchups cell too narrow for the full figure; at 390x844 and 1440x900', async () => {
   const bad = [], seen = [];
   for (const [w, h, phone] of [[390, 844, true], [1440, 900, false]]) {
     // A German browser: every figure must still be en-US (a bare toLocaleString() would print 1.306).
@@ -6000,13 +6039,15 @@ const SEG_WANT = { '390x844': ['Metric', 'Hands shown', 'Lineup', 'License', 'To
 group(() => check('segments-fill', 'At 390x844 in the Trends filter sheet (Metric, Hands shown, Lineup, License, Top models, All-in EV) and at 1440x900 under the Trends card (Metric, Hands shown, Lineup, License, Top models), each of those switches is found, and every segmented switch ([data-seg]) has 2 or more options and they take 90% or more of its track\'s inner width', async () => {
   const bad = [], seen = [];
   const missing = (size, rs) => { const got = new Set(rs.map(r => r.label)), miss = SEG_WANT[size].filter(l => !got.has(l)); if (miss.length) bad.push(`${size}: no ${miss.join(', ')} switch`); };
-  const read = p => p.evaluate(() => [...document.querySelectorAll('[data-seg]')].filter(e => e.getBoundingClientRect().width > 0).map(e => {
+  // Only the Trends switches (fix-final #12): the phone's Matchups window keeps a Lineup switch laid out under the open
+  // sheet, which met the sheet's own Lineup requirement whether or not the sheet had one.
+  const read = (p, scope) => p.evaluate(scope => [...document.querySelectorAll(`${scope} [data-seg]`)].filter(e => e.getBoundingClientRect().width > 0).map(e => {
     const s = getComputedStyle(e), inner = e.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
     const kids = [...e.children].filter(c => c.offsetWidth > 0); // layout px, as clientWidth (the wide stats are zoomed as one unit)
     const rows = new Set(kids.map(c => c.offsetTop)).size; // a wrapped switch: judge its widest row
     const sum = kids.reduce((a, c) => a + c.offsetWidth, 0) / rows;
     return { label: e.getAttribute('aria-label'), n: kids.length, ratio: sum / inner };
-  }));
+  }), scope);
   {
     const p = await polishPage(390, 844, { phone: true });
     try {
@@ -6014,14 +6055,14 @@ group(() => check('segments-fill', 'At 390x844 in the Trends filter sheet (Metri
       const opened = await p.evaluate(() => { const b = [...document.querySelectorAll('button')].find(e => /^Filters/.test(e.textContent.trim()) && e.getBoundingClientRect().width > 0); b?.click(); return !!b; });
       await sleep(800);
       if (!opened) bad.push('390x844: no Filters button');
-      const rs = await read(p); missing('390x844', rs);
+      const rs = await read(p, 'dialog[open]'); missing('390x844', rs);
       for (const r of rs) { if (r.n < 2) bad.push(`390x844 ${r.label}: ${r.n} option`); else if (r.ratio < 0.9) bad.push(`390x844 ${r.label}: options fill ${(r.ratio * 100).toFixed(0)}% of the track`); else seen.push(`${r.label} ${(r.ratio * 100).toFixed(0)}%`); }
     } finally { await p.close(); }
   }
   {
     const p = await polishPage(1440, 900);
     try {
-      await polishGo(p, 'race'); const rs = await read(p); missing('1440x900', rs);
+      await polishGo(p, 'race'); const rs = await read(p, '#race-panel'); missing('1440x900', rs);
       for (const r of rs) { if (r.n < 2) bad.push(`1440x900 ${r.label}: ${r.n} option`); else if (r.ratio < 0.9) bad.push(`1440x900 ${r.label}: options fill ${(r.ratio * 100).toFixed(0)}% of the track`); else seen.push(`1440 ${r.label} ${(r.ratio * 100).toFixed(0)}%`); }
     } finally { await p.close(); }
   }
