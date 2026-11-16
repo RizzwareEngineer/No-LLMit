@@ -667,7 +667,8 @@ group(() => check('desktop-table-text', 'At 1440x900, 1512x982 and 1728x1117: no
         for (const e of cut.slice(0, 4)) out.push(`"${e.getAttribute('title')}" cut to ${e.clientWidth}px (needs ${e.scrollWidth})`);
         // A name shown in a shorter form (FitName) is counted in the detail; one shown shorter although whole it fits in
         // the room it has now (a shortened name that never came back) fails: put the full name in and see it fit.
-        const shortened = [...sec.querySelectorAll('#table ol [title], td [data-seat] [title]')].filter(e => vis(e) && e.firstChild?.nodeType === 3 && e.firstChild.textContent.trim() !== e.getAttribute('title'));
+        const playing = new Set((window.__stream?.last?.players ?? []).map(q => q.name)); // model names only (a badge's title is its position's)
+        const shortened = [...sec.querySelectorAll('#table ol [title], td [data-seat] [title]')].filter(e => vis(e) && playing.has(e.getAttribute('title')) && e.firstChild?.nodeType === 3 && e.firstChild.textContent.trim() !== e.getAttribute('title'));
         const stuckShort = shortened.filter(e => { const t = e.firstChild, was = t.textContent; t.textContent = e.getAttribute('title'); const row = e.closest('.justify-between') ?? e.parentElement; const fits = e.scrollWidth <= e.clientWidth + 1 && row.scrollWidth <= row.clientWidth + 1; t.textContent = was; return fits; });
         for (const e of stuckShort.slice(0, 4)) out.push(`"${e.getAttribute('title')}" shown as "${e.firstChild.textContent.trim()}" although it fits whole`);
         const players = window.__stream?.last?.players?.length ?? 0;
@@ -781,6 +782,219 @@ group(() => check('matchups-cells-fit', 'At 390x844 and 375x667 (touch), with th
         else if (r.over.length) bad.push(`${w}x${h} ${lineup}: ${r.over.length} clipped (${r.over.slice(0, 3).join(', ')})`);
         else seen.push(`${w}x${h} ${lineup}: ${r.n} whole`);
       }
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// The audit's leftovers (FIX-REVIEW). A phone Stats card wider than its window: a scroll cue (its right edge fades while
+// more lies that way), never a column cut mid-text with nothing saying more is there (A1, A3).
+group(() => check('phone-tables-scroll-cue', 'At 375x667, 390x844 and 430x932 (touch), the Profiles table and the Matchups matrix, where wider than their box, fade at the right edge (data-more-right with a mask) while more lies that way, and the fade goes once scrolled to the end', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[375, 667], [390, 844], [430, 932]]) {
+    const p = await polishPage(w, h, { phone: true });
+    try {
+      for (const s of ['stats-table', 'pairwise']) {
+        await polishGo(p, s);
+        const r = await p.evaluate(s => {
+          const sc = [...document.getElementById(s).querySelectorAll('.panel-scroll, .panel-scroll *')].find(e => /auto|scroll/.test(getComputedStyle(e).overflowX) && e.scrollWidth > e.clientWidth + 1);
+          if (!sc) return { fits: true };
+          const cue = () => sc.hasAttribute('data-more-right') && /gradient/.test(getComputedStyle(sc).maskImage || getComputedStyle(sc).webkitMaskImage);
+          const at0 = cue();
+          sc.scrollLeft = sc.scrollWidth; return new Promise(res => setTimeout(() => res({ at0, atEnd: cue(), over: sc.scrollWidth - sc.clientWidth }), 300));
+        }, s);
+        if (r.fits) { seen.push(`${w}x${h} ${s}: fits`); continue; }
+        if (!r.at0) bad.push(`${w}x${h} ${s}: ${r.over}px more to the right with no fade at its edge`);
+        else if (r.atEnd) bad.push(`${w}x${h} ${s}: still fades when scrolled to the end`);
+        else seen.push(`${w}x${h} ${s}: cue`);
+      }
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// A4: the phone Profiles table shows whole rows at rest: none cut by the foot of its box (above "All models").
+group(() => check('phone-profiles-rows-whole', 'At 375x667, 390x844 and 430x932 (touch), at rest on the Profiles window, no table row is cut by the bottom of the box that clips it', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[375, 667], [390, 844], [430, 932]]) {
+    const p = await polishPage(w, h, { phone: true });
+    try {
+      await polishGo(p, 'stats-table');
+      const r = await p.evaluate(() => {
+        const rows = [...document.querySelectorAll('#stats-table tbody tr')].filter(e => e.getBoundingClientRect().height > 0);
+        const cut = [];
+        for (const tr of rows) {
+          const b = tr.getBoundingClientRect();
+          for (let a = tr.parentElement; a && a.id !== 'stats-table'; a = a.parentElement) {
+            const cs = getComputedStyle(a); if (cs.overflowY === 'visible') continue;
+            const c = a.getBoundingClientRect(), vis = Math.min(b.bottom, c.bottom) - Math.max(b.top, c.top);
+            if (vis > 0.5 && vis < b.height - 0.5) cut.push(`${tr.textContent.trim().slice(0, 16)} (${Math.round(vis)} of ${Math.round(b.height)}px)`);
+            break;
+          }
+        }
+        return { n: rows.length, cut };
+      });
+      if (!r.n) bad.push(`${w}x${h}: no rows`); else if (r.cut.length) bad.push(`${w}x${h}: ${r.cut.join(', ')}`); else seen.push(`${w}x${h}: ${r.n} rows whole`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// A5: a phone Profiles name shows a whole form that fits (Nemotron Super), never four dots after a version's point.
+group(() => check('profiles-names-fit', 'At 375x667, 390x844 and 430x932 (touch), with all models, no Profiles name reads ".…" or "...." and none is cut where a shorter form of it (lib/names) would fit', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[375, 667], [390, 844], [430, 932]]) {
+    const p = await polishPage(w, h, { phone: true });
+    try {
+      await polishGo(p, 'stats-table');
+      await p.evaluate(() => [...document.querySelectorAll('#stats-table button, #stats-table a')].find(b => /^All models/.test(b.textContent.trim()))?.click()); await sleep(1200);
+      const r = await p.evaluate(() => {
+        const names = [...document.querySelectorAll('#stats-table tbody th [translate=no]')].filter(e => e.getBoundingClientRect().width > 0);
+        const out = [];
+        for (const e of names) {
+          const cut = e.scrollWidth > e.clientWidth + 1, t = e.textContent;
+          if (/\.{4,}|\.…/.test(t)) out.push(`"${t}" ends in dots`);
+          if (cut) {
+            // A shorter form (versions dropped, then the maker's word) that would fit whole.
+            const full = e.closest('[title]')?.getAttribute('title') ?? t, w0 = full.split(' ');
+            // lib/names: versions dropped, then the maker's word where a name word is left (never a bare size: 120B).
+            const short = w0.filter((x, i) => i === 0 || !/^V?\d+(\.\d+)*$/.test(x)).join(' '), rest = short.split(' ').slice(1);
+            const forms = [short, rest.length && !rest.every(x => /^\d+(\.\d+)?[BMK]$/i.test(x)) ? rest.join(' ') : ''].filter(f => f && f !== t);
+            // Tried in place (the cell's own font and figures), the text put back.
+            const tn = [...e.querySelectorAll('*'), e].map(x => x.firstChild).find(n => n?.nodeType === 3), was = tn?.textContent;
+            const fit = tn && forms.find(f => { tn.textContent = f; return e.scrollWidth <= e.clientWidth; }); if (tn) tn.textContent = was;
+            out.push(fit ? `"${full}" cut although "${fit}" fits` : `"${full}" cut (no shorter form fits)`);
+          }
+        }
+        return { n: names.length, out };
+      });
+      const hard = r.out.filter(x => !/no shorter form fits/.test(x));
+      if (!r.n) bad.push(`${w}x${h}: no names`); else if (hard.length) bad.push(`${w}x${h}: ${hard.slice(0, 4).join(', ')}`); else seen.push(`${w}x${h}: ${r.n} names${r.out.length ? ` (${r.out.length} cut with no shorter form: ${r.out.slice(0, 2).join(', ')})` : ' whole'}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// A6: Profiles' column headers at most two lines at any zoom (a narrow zoomed card wrapped them a word a line).
+group(() => check('profiles-header-lines', 'At 1440x900 at 100%, 125%, 150% and 175%, on the Profiles card or window, no column header runs past two lines', async () => {
+  const bad = [], seen = [];
+  for (const z of [1, 1.25, 1.5, 1.75]) {
+    const p = await polishPage(1440, 900, { z });
+    try {
+      await polishGo(p, 'stats-table');
+      const r = await p.evaluate(() => {
+        const ths = [...document.querySelectorAll('#stats-card thead th[scope=col], #stats-table thead th[scope=col]')].filter(e => e.getBoundingClientRect().width > 0 && e.textContent.trim());
+        return { n: ths.length, tall: ths.map(th => { const b = th.querySelector('button') ?? th, lh = parseFloat(getComputedStyle(b).lineHeight) || parseFloat(getComputedStyle(b).fontSize) * 1.25; const r = document.createRange(); r.selectNodeContents(b); const lines = new Set([...r.getClientRects()].filter(q => q.width > 1).map(q => Math.round(q.top))).size; return { t: th.textContent.trim(), lines }; }).filter(x => x.lines > 2) };
+      });
+      const at = `${Math.round(z * 100)}%`;
+      if (!r.n) bad.push(`${at}: no column headers`); else if (r.tall.length) bad.push(`${at}: ${r.tall.map(x => `"${x.t}" ${x.lines} lines`).slice(0, 4).join(', ')}`); else seen.push(`${at}: ${r.n} headers`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// A9: the Trends chart's text (ticks, axis titles, end labels, the clock) never under 11px on screen, however the chart
+// is scaled to its box.
+group(() => check('chart-text-11', 'At 1440x900 at 100%, 125%, 175%, 200% and 300%, on Trends (card or window), every chart svg text renders at 11px or more (font size times the chart\'s own scale to its box, before the wide stats\' fit-to-window zoom)', async () => {
+  const bad = [], seen = [];
+  for (const z of [1, 1.25, 1.75, 2, 3]) {
+    const p = await polishPage(1440, 900, { z });
+    try {
+      await polishGo(p, 'race');
+      await clickText(p, 'Skip'); await sleep(800);
+      const r = await p.evaluate(() => {
+        const host = document.getElementById('race-panel') ?? document.getElementById('race');
+        const small = [];
+        let n = 0;
+        for (const t of host.querySelectorAll('svg text')) {
+          if (!t.textContent.trim() || t.getBoundingClientRect().width === 0) continue;
+          n++;
+          const svg = t.ownerSVGElement, k = svg.getBoundingClientRect().width / (svg.width.baseVal.value || svg.getBoundingClientRect().width);
+          // The chart's own scale (its transform to the box) counts; the wide stats' fit-to-window zoom (CSS zoom, in the
+          // rect too) does not, as everywhere else in these checks ("before the fit-to-screen scale").
+          const px = parseFloat(getComputedStyle(t).fontSize) * k / (t.currentCSSZoom ?? 1);
+          if (px < 10.95) small.push(`"${t.textContent.trim().slice(0, 10)}" ${px.toFixed(1)}px`);
+        }
+        return { n, small };
+      });
+      const at = `${Math.round(z * 100)}%`;
+      if (!r.n) bad.push(`${at}: no chart text`); else if (r.small.length) bad.push(`${at}: ${r.small.length} under 11px (${r.small.slice(0, 3).join(', ')})`); else seen.push(`${at}: ${r.n} texts`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// A10: an overview preview tile never shows a row cut through by its foot.
+group(() => check('preview-rows-whole', 'At 1440x900 at 100% and 125% and 1728x1117, on the stats overview, no row of the Profiles or Matchups preview tile is cut by the tile\'s bottom edge (inside its padding)', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, z] of [[1440, 900, 1], [1440, 900, 1.25], [1728, 1117, 1]]) {
+    const p = await polishPage(w, h, { z });
+    try {
+      await goto(p, 'stats'); await sleep(1500);
+      const r = await p.evaluate(() => {
+        const out = []; let n = 0;
+        for (const id of ['stats-panel', 'pairwise-panel']) {
+          const tile = document.getElementById(id); if (!tile || tile.getBoundingClientRect().height === 0) continue;
+          const sc = tile.querySelector('.panel-scroll'), b = sc.getBoundingClientRect(), pad = parseFloat(getComputedStyle(tile).paddingBottom) || 0;
+          for (const tr of tile.querySelectorAll('tbody tr, [data-row-name]')) {
+            const q = tr.getBoundingClientRect(); if (q.height === 0) continue; n++;
+            if (q.top < b.bottom - 0.5 && q.bottom > b.bottom + 0.5) out.push(`${id} "${tr.textContent.trim().slice(0, 14)}" cut (${Math.round(b.bottom - q.top)} of ${Math.round(q.height)}px)`);
+          }
+        }
+        return { n, out };
+      });
+      const at = `${w}x${h}@${Math.round(z * 100)}%`;
+      if (!r.n) bad.push(`${at}: no preview rows`); else if (r.out.length) bad.push(`${at}: ${r.out.slice(0, 3).join(', ')}`); else seen.push(`${at}: ${r.n} rows whole`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// A7: the Trends chart fills its card's width in the phone window on a zoomed laptop (it stopped two thirds across).
+group(() => check('trends-chart-fills', 'At 1440x900 at 200% and 300% (the phone layout), the Trends chart (plot and end labels) spans at least 90% of its card\'s content width', async () => {
+  const bad = [], seen = [];
+  for (const z of [2, 3]) {
+    const p = await polishPage(1440, 900, { z });
+    try {
+      await polishGo(p, 'race');
+      await clickText(p, 'Skip'); await sleep(1000);
+      const r = await p.evaluate(() => {
+        const card = document.querySelector('#race .card-chrome'); if (!card) return null;
+        const cs = getComputedStyle(card), cb = card.getBoundingClientRect(), inner = cb.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        const svg = [...card.querySelectorAll('svg')].sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+        const box = svg?.parentElement?.parentElement ?? svg; const sb = box.getBoundingClientRect();
+        const marks = [...card.querySelectorAll('svg, [data-pill]')].map(e => e.getBoundingClientRect()).filter(q => q.width > 0);
+        const right = Math.max(...marks.map(q => q.right)), left = Math.min(...marks.map(q => q.left));
+        return { share: (right - left) / inner, svg: svg && svg.getBoundingClientRect().width / inner };
+      });
+      const at = `${z * 100}%`;
+      if (!r) bad.push(`${at}: no Trends card`); else if (r.share < 0.9) bad.push(`${at}: the chart spans ${(r.share * 100).toFixed(0)}% of the card`); else seen.push(`${at}: ${(r.share * 100).toFixed(0)}%`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// A2, A8: the phone Matchups row names: no more than one in five cut on a phone, and none cut while the matrix leaves
+// room at the card's right (a zoomed laptop's 720px window).
+group(() => check('matchups-row-names', 'At 375x667 and 390x844 (touch), at most 20% of the Matchups row names are cut, and at 1440x900 at 200% and 300% none is cut while the grid ends more than 48px short of the card\'s right edge', async () => {
+  const bad = [], seen = [];
+  for (const [w, h, z] of [[375, 667, 1], [390, 844, 1], [1440, 900, 2], [1440, 900, 3]]) {
+    const p = await polishPage(w, h, { phone: z === 1, z });
+    try {
+      await polishGo(p, 'pairwise');
+      const r = await p.evaluate(() => {
+        const card = document.querySelector('#pairwise .card-chrome'); if (!card) return null;
+        const names = [...card.querySelectorAll('a[data-row-name] [translate=no]')].filter(e => e.getBoundingClientRect().width > 0);
+        const cut = names.filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.closest('a').title);
+        const cs = getComputedStyle(card), right = card.getBoundingClientRect().right - parseFloat(cs.paddingRight);
+        const grid = Math.max(...[...card.querySelectorAll('table, [data-cell]')].map(e => e.getBoundingClientRect().right));
+        return { n: names.length, cut, room: right - grid };
+      });
+      const at = `${w}x${h}${z > 1 ? `@${z * 100}%` : ''}`;
+      if (!r || !r.n) { bad.push(`${at}: no row names`); continue; }
+      if (z === 1 && r.cut.length > 0.2 * r.n) bad.push(`${at}: ${r.cut.length} of ${r.n} names cut (${r.cut.slice(0, 3).join(', ')})`);
+      else if (z > 1 && r.cut.length && r.room > 48) bad.push(`${at}: ${r.cut.length} names cut (${r.cut.slice(0, 3).join(', ')}) with ${Math.round(r.room)}px free at the right`);
+      else seen.push(`${at}: ${r.n - r.cut.length} of ${r.n} whole`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
