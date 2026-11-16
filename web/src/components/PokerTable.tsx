@@ -187,6 +187,7 @@ export default function PokerTable({
       notice={notice}
       deck={deck}
       blank={blank}
+      fillIn={!switched}
     />
   );
 

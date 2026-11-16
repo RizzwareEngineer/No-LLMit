@@ -42,6 +42,7 @@ interface TableFeltProps {
   deck?: DeckPhase | null; // the deck between hands, in the board's place (TableMotion)
   blank?: boolean; // no state yet: the felt at its size with nothing on it
   compact?: boolean; // the phone table's middle (PokerTable): only the pot and the board, no grid
+  fillIn?: boolean; // fade in as it fills; false for a felt mounted by a layout switch mid-hand (it shows the hand as it stands)
 }
 
 // Shown on the felt while the table is closed or at its daily call cap.
@@ -117,6 +118,7 @@ export default function TableFelt({
   deck,
   blank = false,
   compact = false,
+  fillIn = true,
 }: TableFeltProps) {
   const bb = useBigBlind();
   const potIn = amountParts(pot, bb);
@@ -124,7 +126,8 @@ export default function TableFelt({
   // Show button determination if in progress
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
   const ref = useRef<HTMLDivElement>(null);
-  useFillIn(ref, !blank);
+  const [fill] = useState(fillIn); // as it mounted: a switched felt never fades, however the hand goes on
+  useFillIn(ref, fill && !blank);
   // Cards dealt while watching rise into place; the ones already out when the felt fills fade in with it.
   const [live, setLive] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- after the commit that filled the felt

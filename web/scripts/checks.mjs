@@ -617,7 +617,7 @@ group(() => check('phone-table-ownership-tucked', OWN_RULE('tucked'), () => owne
 // review, 2026-11-16): the other layout's table mounts showing the hand as it stands. No hole card fades out or shows its
 // back again once face up, no second riffle or shuffle sound, and a seat's stats popup open before the switch does not
 // come back after it. Scripted at 1100x900 (the desktop table) and 900x900 (the phone table).
-group(() => check('table-switch-midhand', 'Resizing 1100x900 to 900x900 and back while the hole cards are out (two seats face up) and again while the deck riffles: no hole card fades out or turns face down and over again, no second riffle or shuffle sound, and a seat popup opened on the phone table does not come back after a round trip', async () => {
+group(() => check('table-switch-midhand', 'Resizing 1100x900 to 900x900 and back on the flop while the hole cards are out (two seats face up) and again while the deck riffles: no hole card fades out or turns face down and over again, the felt\'s pot and board show as they stand (no fade from nothing), no second riffle or shuffle sound, and a seat popup opened on the phone table does not come back after a round trip', async () => {
   const bad = [], notes = [];
   const p = await newPage(); await p.setViewport({ width: 1100, height: 900 });
   try {
@@ -636,7 +636,8 @@ group(() => check('table-switch-midhand', 'Resizing 1100x900 to 900x900 and back
     await p.mouse.click(4, 4); await sleep(300); // the first trusted click unlocks audio
     // A hand dealt while watching (not the first one seen), then two seats' turns: their cards face up.
     await p.evaluate(() => window.__stream.deal()); await sleep(4000);
-    await p.evaluate(() => { const s = window.__stream; s.last = { ...s.last, peeked: [1, 2] }; s.feed({ type: 'game_state', payload: s.last }); });
+    // On the flop (the review, table-fixes #5): the felt holds a pot and a board for the switch to show as they stand.
+    await p.evaluate(() => { const s = window.__stream; s.last = { ...s.last, peeked: [1, 2], street: 'flop', communityCards: ['Kh', '7d', '2c'] }; s.feed({ type: 'game_state', payload: s.last }); });
     await sleep(3500);
     // Every frame: each visible hole card's opacity (with its seat's and the table's) and whether its back shows.
     const sample = () => p.evaluate(() => {
@@ -650,7 +651,12 @@ group(() => check('table-switch-midhand', 'Resizing 1100x900 to 900x900 and back
         });
         const deck = [...document.querySelectorAll('[data-deck]')].find(e => e.getBoundingClientRect().width > 0);
         const spread = deck ? Math.max(0, ...[...deck.children].map(c => Math.abs(new DOMMatrix(getComputedStyle(c).transform).m41))) : null;
-        f.push({ t: performance.now(), phone: !!document.querySelector('[data-oval]'), cards, spread, popup: !!document.querySelector('[data-seat-stats]') });
+        // The shown felt's pot and board: how many board cards, and which of its parts runs a fade from nothing (an
+        // opacity animation starting at 0 on the felt or anything in it, lib/boxes' useFillIn).
+        const felt = [...document.querySelectorAll('[data-felt]')].find(e => e.getBoundingClientRect().width > 0);
+        const fading = felt ? [felt, ...felt.querySelectorAll('*')].filter(e => e.getAnimations().some(a => a.playState === 'running' && a.effect?.getKeyframes?.()[0]?.opacity === '0')).map(e => e.matches('[data-pot]') || e.querySelector('[data-pot]') ? 'pot' : e.matches('[data-felt-cards]') || e.querySelector('[data-felt-cards]') ? 'board' : e.tagName.toLowerCase()) : [];
+        const board = felt ? [...(felt.querySelector('[data-felt-cards]')?.children ?? [])].filter(e => e.getBoundingClientRect().width > 0).length : 0;
+        f.push({ t: performance.now(), phone: !!document.querySelector('[data-oval]'), cards, spread, popup: !!document.querySelector('[data-seat-stats]'), fading, board, pot: !!felt?.querySelector('[data-pot]') });
         if (!window.__stopSampling) requestAnimationFrame(look);
       };
       window.__stopSampling = false; requestAnimationFrame(look);
@@ -689,8 +695,11 @@ group(() => check('table-switch-midhand', 'Resizing 1100x900 to 900x900 and back
     if (faded.size) bad.push(`hole cards faded out on a switch (${[...faded].slice(0, 6).join(', ')})`);
     if (turned.size) bad.push(`face-up cards showed their backs again (${[...turned].slice(0, 6).join(', ')})`);
     if ([...counts].some(n => n !== 18)) bad.push(`frames with ${[...counts].filter(n => n !== 18).join('/')} hole cards`);
+    const feltFades = new Set(mid.flatMap(f => f.fading));
+    if (feltFades.size) bad.push(`the felt's ${[...feltFades].join(', ')} faded in from nothing on a switch`);
+    if (mid.some(f => f.board !== 3 || !f.pot)) bad.push(`frames without the pot and the three-card board (${[...new Set(mid.map(f => `${f.board} cards${f.pot ? '' : ', no pot'}`))].join('/')})`);
     const up = [...first.values()].filter(c => !c.back).length;
-    notes.push(`mid-hand: ${switches} switches over ${mid.length} frames, 18 cards (${up} face up) never faded or turned again, popup closed for good`);
+    notes.push(`mid-hand on the flop: ${switches} switches over ${mid.length} frames, 18 cards (${up} face up) never faded or turned again, the pot and board never faded, popup closed for good`);
 
     // Between hands: the deck riffles; switch while it riffles and again while it waits squared.
     await p.evaluate(() => window.__stream.end(6000));
