@@ -34,8 +34,8 @@ export interface Spot {
   chipTop?: boolean; // the position chip on the logo's top edge, not its lower one (tucked cards cover the lower one)
 }
 // The stack and the label: under the logo, `dx` across and `dy` down from the usual place (a tucked top seat's sit just
-// under its cards), or beside it, on the side with room.
-export type TextAt = { under: readonly [dx: number, dy: number] } | { beside: 'left' | 'right' };
+// under its cards), or beside it, on the side with room, `dy` down from level with its centre.
+export type TextAt = { under: readonly [dx: number, dy: number] } | { beside: 'left' | 'right'; dy?: number };
 // The phone seat's drafts (?seat=, tableSwitches; the owner has not picked one): today's (the stack and label under the
 // logo, the cards under them up top), 'beside' (the stack and label beside the logo, so the seat is short and its cards
 // and bet sit on its line to the middle) and 'tucked' (the cards against the logo, over its inner edge, as phone poker
@@ -118,12 +118,23 @@ const withHands = (p: Pick<Spot, 'x' | 'y'>): Spot => ({ ...p, ...toward(at(p.x,
 // own angles (seat 1 at the top), so the board's row has room between the side seats.
 type DraftSeat = { cards: readonly [number, number]; bet: readonly [number, number]; text: TextAt; chipTop?: boolean };
 const D = (cards: readonly [number, number], bet: readonly [number, number], text: TextAt, chipTop = false): DraftSeat => ({ cards, bet, text, chipTop });
-const ANGLES: Record<Exclude<SeatDraft, 'today'>, readonly number[]> = { beside: [37.94, 72.56, 126.92, 158.9], tucked: [37.94, 72.56, 126.92, 158.9] };
+const ANGLES: Record<Exclude<SeatDraft, 'today'>, readonly number[]> = { beside: [37.94, 72.56, 126.92, 158.9], tucked: [39.31, 86.33, 119.28, 156.1] };
 const U: TextAt = { under: [0, 0] };
 const TODAY = (shape: Shape) => NINE[shape].map(([, h]) => D(h.cards, h.bet, U));
 const DRAFTS: Record<Exclude<SeatDraft, 'today'>, Record<Shape, DraftSeat[]>> = {
   beside: { oval: TODAY('oval'), rect: TODAY('rect'), stadium: TODAY('stadium') },
-  tucked: { oval: TODAY('oval'), rect: TODAY('rect'), stadium: TODAY('stadium') },
+  // The top seats' cards cover the logo's lower edge, so their chip sits on its top edge and their stack and label under
+  // the cards (or beside them); lower down the cards sit over the logo's inner upper edge.
+  tucked: {
+    oval: [
+      D([2, 27], [1, 67], { under: [0, 54] }, true),
+      D([-26, 32], [-32, 68], { under: [24, 30] }, true),
+      D([-41, -10], [-100, -29], U),
+      D([-33, -19], [-90, -22], U),
+      D([-23, -28], [-19, -62], U),
+    ],
+    rect: TODAY('rect'), stadium: TODAY('stadium'),
+  },
 };
 
 export function seatSpots(n: number, shape: Shape = 'oval', draft: SeatDraft = 'today'): Spot[] {
@@ -132,7 +143,7 @@ export function seatSpots(n: number, shape: Shape = 'oval', draft: SeatDraft = '
     return Array.from({ length: 9 }, (_, i) => {
       const m = MIRROR[i], p = where[(m ?? i) - 1], d = DRAFTS[draft][shape][(m ?? i) - 1];
       if (m === undefined) return { ...p, cards: d.cards, bet: d.bet, text: d.text, chipTop: d.chipTop };
-      const text: TextAt = 'beside' in d.text ? { beside: d.text.beside === 'left' ? 'right' : 'left' } : { under: [-d.text.under[0], d.text.under[1]] };
+      const text: TextAt = 'beside' in d.text ? { beside: d.text.beside === 'left' ? 'right' : 'left', dy: d.text.dy } : { under: [-d.text.under[0], d.text.under[1]] };
       return { ...flip(p), cards: [-d.cards[0], d.cards[1]], bet: [-d.bet[0], d.bet[1]], text, chipTop: d.chipTop };
     });
   }
@@ -161,22 +172,24 @@ export function seatBox(spot: Spot) {
 // The stack and label's box (px from the logo's centre: left, top, right, bottom), and the position chip's.
 export function textBox(spot: Spot): [number, number, number, number] {
   const t = spot.text ?? { under: [0, 0] };
-  if ('beside' in t) return t.beside === 'right' ? [LOGO / 2 + 4, -TEXT_H / 2, LOGO / 2 + 4 + TEXT_W, TEXT_H / 2] : [-LOGO / 2 - 4 - TEXT_W, -TEXT_H / 2, -LOGO / 2 - 4, TEXT_H / 2];
+  if ('beside' in t) {
+    const y = (t.dy ?? 0) - TEXT_H / 2;
+    return t.beside === 'right' ? [LOGO / 2 + 4, y, LOGO / 2 + 4 + TEXT_W, y + TEXT_H] : [-LOGO / 2 - 4 - TEXT_W, y, -LOGO / 2 - 4, y + TEXT_H];
+  }
   const [dx, dy] = t.under;
   return [-28 + dx, LOGO / 2 + 4 + dy, 28 + dx, LOGO / 2 + 4 + TEXT_H + dy];
 }
 export const CHIP = { w: 44, h: 16 } as const;
 export const chipTop = (spot: Spot) => (spot.chipTop ? -LOGO / 2 - 3 : LOGO / 2 - 13);
-// The action's bubble (20px tall), px from the logo's centre: its top and its horizontal anchor. Away from the middle, where
-// the seat's cards never are: over the logo (and a top chip) in the table's top half, under the logo and everything under
-// it in the bottom half. The top seat's would leave the table (under the page's top bar), so it sits beside its logo, on
-// the side without its stack and label.
+// The action's bubble (20px tall), px from the logo's centre: its top and its horizontal anchor. On the logo's side away
+// from its cards, which are toward the middle: over the logo (and a chip on its top edge) when the cards are under it,
+// under the logo and its stack (over the label) when they are over it. The top seat's would leave the table (under the
+// page's top bar), so it sits beside its logo's upper half, on the side without its stack and label.
 export function bubbleAt(spot: Spot): { x: number; top: number; align: 'center' | 'left' | 'right' } {
-  const x = textBox(spot), right = 'beside' in (spot.text ?? {}) && x[0] > 0;
-  if (spot.y[0] === 0 && spot.y[1] < LOGO) return right ? { x: -LOGO / 2 - 6, top: -10, align: 'right' } : { x: LOGO / 2 + 6, top: -10, align: 'left' };
-  if (spot.y[0] < 0.5) return { x: 0, top: (spot.chipTop ? -LOGO / 2 - 3 : -LOGO / 2) - 24, align: 'center' };
-  const under = 'beside' in (spot.text ?? { under: 0 }) ? LOGO / 2 + 6 : LOGO / 2 + 18;
-  return { x: 0, top: under, align: 'center' };
+  const x = textBox(spot), beside = 'beside' in (spot.text ?? {});
+  if (spot.y[0] === 0 && spot.y[1] < LOGO) return beside && x[0] > 0 ? { x: -LOGO / 2 - 6, top: -20, align: 'right' } : { x: LOGO / 2 + 6, top: -20, align: 'left' };
+  if (spot.cards[1] >= 0) return { x: 0, top: (spot.chipTop ? -LOGO / 2 - 3 : -LOGO / 2) - 24, align: 'center' };
+  return { x: 0, top: beside ? LOGO / 2 + 6 : LOGO / 2 + 18, align: 'center' };
 }
 
 // One short label per seat, from the model's name: families share logos, so it is what tells two Gemmas apart. A size

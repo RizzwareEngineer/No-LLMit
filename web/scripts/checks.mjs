@@ -577,9 +577,7 @@ group(async () => {
 });
 // The same rules for the phone seat's drafts (?seat=beside, ?seat=tucked; phoneTable's SeatDraft), one check each, on the
 // oval (with --query shape=rect or shape=stadium, on that shape).
-for (const draft of ['beside', 'tucked']) group(async () => {
-  const id = `phone-table-ownership-${draft}`;
-  if (!want(id)) return;
+async function ownershipDraft(draft) {
   const own = [], ownSeen = [];
   for (const [w, h] of [[360, 640], [375, 667], [390, 844], [430, 932]]) {
     const size = `${w}x${h}`, p = await scriptedTable(w, h, false, `?seat=${draft}`);
@@ -598,8 +596,11 @@ for (const draft of ['beside', 'tucked']) group(async () => {
       else ownSeen.push(`${size}: every pair and bet in front of its seat, off the board's row and on the felt`);
     } finally { await p.close(); }
   }
-  await check(id, `With ?seat=${draft}, at 360x640, 375x667, 390x844 and 430x932: each seat's hole cards and bet nearer its own logo than any other seat's, bets 8px apart, its cards 12px clear of the board's row sideways, 8px clear of other seats' logos and with every corner on the felt`, async () => ({ pass: !own.length && ownSeen.length === 4, detail: own.length ? own.join(' | ') : ownSeen.join(' | ') }));
-});
+  return { pass: !own.length && ownSeen.length === 4, detail: own.length ? own.join(' | ') : ownSeen.join(' | ') };
+}
+const OWN_RULE = draft => `With ?seat=${draft}, at 360x640, 375x667, 390x844 and 430x932: each seat's hole cards and bet nearer its own logo than any other seat's, bets 8px apart, its cards 12px clear of the board's row sideways, 8px clear of other seats' logos and with every corner on the felt`;
+group(() => check('phone-table-ownership-beside', OWN_RULE('beside'), () => ownershipDraft('beside')));
+group(() => check('phone-table-ownership-tucked', OWN_RULE('tucked'), () => ownershipDraft('tucked')));
 // Crossing lib/layout's switch (a tablet rotated, a window resized across it, a zoom) mid-hand and between hands (the
 // review, 2026-11-16): the other layout's table mounts showing the hand as it stands. No hole card fades out or shows its
 // back again once face up, no second riffle or shuffle sound, and a seat's stats popup open before the switch does not
