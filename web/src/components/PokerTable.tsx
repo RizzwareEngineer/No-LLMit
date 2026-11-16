@@ -32,6 +32,7 @@ interface PokerTableProps {
   pot: number;
   winnersByIdx?: Record<number, WinnerInfo>;
   nextHandCountdown?: number | null;
+  dealAt?: number | null; // Date.now() of the next deal (stream's dealAt)
   thinkingPlayerIdx?: number;
   peeked?: number[]; // seats whose hole cards are face up this hand (the engine's peeked, and the turn on screen)
   buttonDetermination?: ButtonDetermination | null;
@@ -54,6 +55,7 @@ export default function PokerTable({
   pot,
   winnersByIdx = {},
   nextHandCountdown,
+  dealAt = null,
   thinkingPlayerIdx,
   peeked = [],
   buttonDetermination,
@@ -204,6 +206,7 @@ export default function PokerTable({
         boardCount={communityCards.length}
         winnerIdxs={Object.keys(winnersByIdx).map(Number)}
         nextHandCountdown={street === 'complete' ? nextHandCountdown ?? null : null}
+        dealAt={dealAt}
         onDeck={setDeck}
         notice={!!notice}
       />}

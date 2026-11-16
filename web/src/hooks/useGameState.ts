@@ -14,6 +14,7 @@ export type Connection = 'connecting' | 'open' | 'down';
 
 interface UseGameStateReturn {
   gameState: GameState | null;
+  dealAt: number | null; // Date.now() of the next deal (lib/stream)
   connection: Connection;
   gaveUp: boolean; // reconnect attempts exhausted
   tableNotice: TableNoticePayload | null; // table closed, capped, in an outage or saving
@@ -51,12 +52,10 @@ export function useGameState(): UseGameStateReturn {
     streamRef.current = stream;
     // Started now, so a first attempt that errors, or hangs, says down once, OFFLINE_AFTER_MS after load.
     let offlineTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => setConnection('down'), OFFLINE_AFTER_MS);
-    stream.onMessage = (m) => {
+    // Timed from its arrival (lib/api), not from now: a message that waited for hydration is that much older.
+    stream.onMessage = (m, at) => {
       if (m.type === 'stats') setStats(s => applyStats(s, m.payload as StatsResponse));
-      else {
-        const now = Date.now();
-        setTables(t => applyMessage(t, m, now));
-      }
+      else setTables(t => applyMessage(t, m, at));
     };
     // Nothing is cleared on open: the snapshot that follows replaces the tables.
     stream.onStatus = (status) => {
@@ -80,6 +79,7 @@ export function useGameState(): UseGameStateReturn {
 
   return {
     gameState: table.gameState,
+    dealAt: table.dealAt,
     connection,
     gaveUp,
     tableNotice: table.notice,

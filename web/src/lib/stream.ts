@@ -41,6 +41,7 @@ export interface TableView {
   display: DisplayState | null;
   clock: Clock | null; // the shot clock: llm_thinking starts it, the turn's llm_action stops it; null when the engine sent no budget
   buttonDetermination: ButtonDetermination | null;
+  dealAt: number | null; // Date.now() at which the engine deals the next hand: the arrival of its nextHandInMs plus it
 }
 
 // The turn's time as the engine sent it: budgetMs for the turn, elapsedMs already run when it was sent
@@ -60,7 +61,7 @@ export const clockShare = (left: number, budgetMs: number) => Math.min(1, (left 
 
 export type Tables = Record<string, TableView>;
 
-export const EMPTY_TABLE: TableView = { gameState: null, notice: null, display: null, clock: null, buttonDetermination: null };
+export const EMPTY_TABLE: TableView = { gameState: null, notice: null, display: null, clock: null, buttonDetermination: null, dealAt: null };
 
 type Turn = { type: 'llm_thinking' | 'llm_action'; payload: unknown };
 
@@ -100,6 +101,8 @@ function applyTurn(v: TableView, turn: Turn, now: number): TableView {
   };
 }
 
+const dealAt = (g: GameState, now: number) => (g.nextHandInMs ? now + g.nextHandInMs : null);
+
 const stopped = (c: Clock | null) => (c?.running ? { ...c, running: false } : c);
 
 // The action has been applied to the table: its reasoning is revealed and the shot clock stops, if it still runs.
@@ -114,7 +117,7 @@ function reveal(v: TableView): TableView {
 function applyTableMessage(v: TableView, m: ServerMessage, now: number): TableView {
   switch (m.type) {
     case 'game_state':
-      return reveal({ ...v, gameState: m.payload as GameState });
+      return reveal({ ...v, gameState: m.payload as GameState, dealAt: dealAt(m.payload as GameState, now) });
     case 'table_notice': {
       const notice = m.payload as TableNoticePayload;
       return { ...v, notice: notice.kind ? notice : null };
@@ -151,6 +154,7 @@ function fromSnapshot(prev: TableView | undefined, s: SnapshotTable, now: number
   const sameHand = prev?.gameState?.handNumber === s.state.handNumber;
   const base: TableView = {
     gameState: s.state,
+    dealAt: dealAt(s.state, now),
     notice: s.notice,
     display: null,
     clock: null,

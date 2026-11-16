@@ -7,9 +7,11 @@ const STREAM_URL = `${API_URL}/stream`;
 
 // The home page opens its stream from an inline script as the HTML is parsed (page.tsx), so the first snapshot is in
 // by the time the page has hydrated instead of being asked for only then: the table's first paint waits on it. Its
-// messages wait in `q` until GameStream adopts it (connect) and becomes their `sink`.
-type Early = { es: EventSource; q: MessageEvent[]; sink: ((e: MessageEvent) => void) | null };
-export const EARLY_STREAM = `(function(){if(/[?&]peellab/.test(location.search))return;try{var es=new EventSource(${JSON.stringify(STREAM_URL)}),s={es:es,q:[],sink:null};es.onmessage=function(e){s.sink?s.sink(e):s.q.push(e)};window.__earlyStream=s}catch(e){}})()`;
+// messages wait in `q`, each with the time it arrived, until GameStream adopts it (connect) and becomes their `sink`:
+// the engine's figures (a shot clock's elapsedMs, nextHandInMs) count from when it sent them, so a message is timed
+// from its arrival, not from when the page drained it after hydrating (seconds later on a slow phone).
+type Early = { es: EventSource; q: [MessageEvent, number][]; sink: ((e: MessageEvent, at: number) => void) | null };
+export const EARLY_STREAM = `(function(){if(/[?&]peellab/.test(location.search))return;try{var es=new EventSource(${JSON.stringify(STREAM_URL)}),s={es:es,q:[],sink:null};es.onmessage=function(e){var t=Date.now();s.sink?s.sink(e,t):s.q.push([e,t])};window.__earlyStream=s}catch(e){}})()`;
 const adoptEarly = (): Early | null => {
   if (typeof window === 'undefined') return null;
   const w = window as unknown as { __earlyStream?: Early };
@@ -107,7 +109,7 @@ export class GameStream {
   private reconnectDelay = 2000;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   onStatus?: (status: ConnectionStatus) => void;
-  onMessage?: (message: ServerMessage) => void;
+  onMessage?: (message: ServerMessage, receivedAt: number) => void; // receivedAt: Date.now() when it arrived
 
   // Resolves on the first open, rejects on the first error; later ones go to the reconnect loop.
   connect(): Promise<void> {
@@ -127,18 +129,18 @@ export class GameStream {
         this.es = null;
         this.handleReconnect();
       };
-      const onMessage = (event: MessageEvent) => {
+      const onMessage = (event: MessageEvent, at = Date.now()) => {
         this.reconnectAttempts = 0; // a message (the snapshot first) proves the stream healthy; an open alone does not
         try {
-          this.onMessage?.(JSON.parse(event.data) as ServerMessage);
+          this.onMessage?.(JSON.parse(event.data) as ServerMessage, at);
         } catch (e) {
           console.error('Failed to parse message:', e);
         }
       };
       if (early) {
         early.sink = onMessage;
-        early.q.splice(0).forEach(onMessage);
-      } else es.onmessage = onMessage;
+        early.q.splice(0).forEach(([e, at]) => onMessage(e, at));
+      } else es.onmessage = e => onMessage(e);
     });
   }
 
