@@ -1,6 +1,5 @@
 "use client";
 
-import { flushSync } from "react-dom";
 import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
@@ -142,8 +141,7 @@ function Table() {
     gaveUp,
     tableNotice,
     displayState,
-    shotClockRemaining,
-    shotClockBudgetMs,
+    clock,
     buttonDetermination,
     stats,
     retry,
@@ -157,7 +155,7 @@ function Table() {
   }, []);
 
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
-  const [nextHandCountdown, setNextHandCountdown] = useState<number | null>(null);
+  const [counting, setCounting] = useState(false); // the next-hand countdown shows (until dealAt)
   const { usage, error: usageError } = useUsage(connection !== 'connecting'); // the hub counts this page once its stream opens
   const watching = usageError ? undefined : usage?.table?.spectators;
   const isLive = connection === 'open' && !tableNotice;
@@ -416,24 +414,20 @@ function Table() {
   }, []);
 
   // Next hand countdown: the server deals the next hand and tells us how long is left (nextHandInMs, from when it sent
-  // it). Counted from the deal's time (dealAt: that message's arrival plus nextHandInMs), each step on the second it is
-  // due and before its frame is painted, so a message that waited for hydration, or a late timer, never shows more seconds than the engine has left.
+  // it). Counted from the deal's time (dealAt: that message's arrival plus nextHandInMs), so a message that waited for
+  // hydration never shows more seconds than the engine has left. This only says whether it shows (once, before paint,
+  // and once at dealAt); TableFelt draws its seconds (useSecondsDraw), so no render of the page each second.
   useLayoutEffect(() => {
-    if (!isHandComplete) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setNextHandCountdown(null);
-      return;
-    }
-    if (!dealAt) return;
-    let t: ReturnType<typeof setTimeout> | undefined;
-    // From the timer, rendered at once (flushSync), as the shot clock's (useGameState).
-    const step = (sync: boolean) => {
-      const left = dealAt - Date.now(), n = Math.max(0, Math.ceil(left / 1000));
-      if (sync) flushSync(() => setNextHandCountdown(n)); else setNextHandCountdown(n);
-      if (n > 0) t = setTimeout(() => step(true), left - (n - 1) * 1000 + 1);
+    const left = isHandComplete && dealAt ? dealAt - Date.now() : 0;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCounting(left > 0);
+    if (left <= 0) return;
+    let live = true;
+    const t = setTimeout(() => { if (live) setCounting(false); }, left + 1);
+    return () => {
+      live = false;
+      clearTimeout(t);
     };
-    step(false);
-    return () => clearTimeout(t);
   }, [isHandComplete, dealAt]);
 
   // Calculate winners by player index for display on player cards
@@ -518,8 +512,7 @@ function Table() {
                 communityCards={communityCards}
                 pot={pot}
                 winnersByIdx={winnersByIdx}
-                nextHandCountdown={nextHandCountdown}
-                dealAt={dealAt}
+                nextDealAt={counting ? dealAt : null}
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
                 peeked={displayState ? [...peeked, displayState.playerIdx] : peeked}
                 buttonDetermination={buttonDetermination}
@@ -528,8 +521,7 @@ function Table() {
                 handNumber={handNumber}
                 stats={seatStats}
                 display={displayState}
-                clockLeft={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? shotClockRemaining : null}
-                clockBudgetMs={shotClockBudgetMs}
+                clock={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? clock : null}
               />
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
@@ -549,7 +541,7 @@ function Table() {
             {desk && <div className="mt-4 w-full max-md:hidden">
               <ReasoningPanel
                 displayState={displayState}
-                shotClockRemaining={shotClockRemaining}
+                clock={clock}
                 blank={players.length === 0}
                 street={players.length ? street : undefined}
                 turnKey={turnKey}

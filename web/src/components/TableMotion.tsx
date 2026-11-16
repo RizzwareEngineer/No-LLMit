@@ -140,15 +140,14 @@ interface TableMotionProps {
   handNumber: number;
   boardCount: number;
   winnerIdxs: number[];
-  nextHandCountdown: number | null; // seconds to the next deal while the hand is over (page.tsx counts it down)
-  dealAt?: number | null; // Date.now() at which the next hand is dealt (the stream's dealAt)
+  nextDealAt: number | null; // Date.now() at which the next hand is dealt, while the hand is over and the countdown shows
   onDeck: (phase: DeckPhase | null) => void; // shows or hides the deck on the felt
   notice?: boolean; // a table notice is up: it is drawn where the deck would be, so no shuffle (deck or sound)
 }
 
 // Chips and cards flying across the table, the shuffle between hands, and the table sounds. Driven only by the
 // difference between consecutive game states and the next-hand countdown; it never holds up the server's timing.
-export default function TableMotion({ players, handNumber, boardCount, winnerIdxs, nextHandCountdown, dealAt = null, onDeck, notice = false }: TableMotionProps) {
+export default function TableMotion({ players, handNumber, boardCount, winnerIdxs, nextDealAt, onDeck, notice = false }: TableMotionProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const prev = useRef<Snapshot | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]); // deal sounds and the deck's steps
@@ -252,13 +251,12 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
   // Between hands, the shuffle. It is timed from the deal's own time (dealAt) and ends 1.1 s before it (as the countdown
   // timing did for a whole-second wait: a deal 4 s away riffled from 2 s to 2.9 s), so it never meets the deal, and the
   // deck waits squared, also when it starts late (a notice that cleared mid-second resumes it, and the
-  // whole-second countdown would then put the deal up to 1 s nearer than it reads). Too little time left: none. Without
-  // a deal time, the countdown's first value n puts the deal more than n - 1 s away, and the riffle ends 0.1 s before that.
+  // whole-second countdown would then put the deal up to 1 s nearer than it reads). Too little time left: none.
   // None while a table notice is up (an outage, a failed save): the notice hides the deck, and a notice that comes after
   // the timer is set cancels it through the effect's cleanup, the reduced-motion sound included.
-  const pauseOf = nextHandCountdown && !notice ? handNumber : 0;
+  const pauseOf = nextDealAt && !notice ? handNumber : 0;
   const shuffle = useEffectEvent(() => {
-    const wait = dealAt ? dealAt - Date.now() - RIFFLE.length * 1000 - 1100 : ((nextHandCountdown ?? 0) - 1 - RIFFLE.length) * 1000 - 100;
+    const wait = nextDealAt ? nextDealAt - Date.now() - RIFFLE.length * 1000 - 1100 : -1;
     if (wait < 0) return;
     const t = setTimeout(() => {
       if (!onScreen()) return;

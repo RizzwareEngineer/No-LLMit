@@ -122,11 +122,12 @@ test('a snapshot shows thinking, reasoning or revealed, and keeps the very displ
   const acted = applyMessage(t, snap({ turn: action }), 4000)[T];
   assert.equal(acted.display.phase, 'reasoning');
   assert.equal(acted.display.turn, 5);
-  assert.deepEqual(acted.clock, { ...think.clock, running: false }, 'the shot clock is kept, stopped: the move has arrived');
+  assert.deepEqual(acted.clock, { ...think.clock, running: false, stoppedAt: 4000 }, 'the shot clock is kept, stopped: the move has arrived');
+  assert.equal(clockLeft(acted.clock, 60000), 42, 'a stopped clock holds the time left when the move arrived, however late it is read');
 
   t = applyMessage(t, { seq: 3, table: T, ...action }, 3000);
   const reasoning = t[T];
-  assert.deepEqual(reasoning.clock, { ...think.clock, running: false }, 'a live llm_action stops the clock (owner, A24)');
+  assert.deepEqual(reasoning.clock, { ...think.clock, running: false, stoppedAt: 3000 }, 'a live llm_action stops the clock (owner, A24)');
   const same = applyMessage(t, snap({ turn: action }), 6000)[T];
   assert.equal(same.display, reasoning.display, 'the same turn keeps the very same display object');
   assert.equal(same.clock, reasoning.clock);

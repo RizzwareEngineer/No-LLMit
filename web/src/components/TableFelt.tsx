@@ -10,6 +10,7 @@ import { AnimatePresence } from "motion/react";
 import { Deck, DeckPhase } from "@/components/TableMotion";
 import { TableNoticePayload } from "@/lib/api";
 import type { ButtonDetermination } from "@/lib/stream";
+import { useSecondsDraw } from "@/hooks/useSecondsDraw";
 import { amountParts, formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE } from "@/lib/stats";
 import { formatDuration, formatLocalTime } from "@/lib/time";
@@ -36,7 +37,7 @@ interface TableFeltProps {
   betsOut?: number; // sum of those bets
   bets?: FeltBet[]; // placed on the felt's edges (desktop; the phone table places its own, BetStack)
   winners?: WinnerDisplay[];
-  nextHandCountdown?: number | null;
+  nextDealAt?: number | null; // Date.now() of the next deal while the next-hand countdown shows; null: none
   buttonDetermination?: ButtonDetermination | null;
   notice?: TableNoticePayload | null;
   deck?: DeckPhase | null; // the deck between hands, in the board's place (TableMotion)
@@ -112,7 +113,7 @@ export default function TableFelt({
   betsOut = 0,
   bets,
   winners = [],
-  nextHandCountdown,
+  nextDealAt = null,
   buttonDetermination,
   notice,
   deck,
@@ -132,6 +133,14 @@ export default function TableFelt({
   const [live, setLive] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- after the commit that filled the felt
   useEffect(() => { if (!blank) setLive(true); }, [blank]);
+  // "Next hand in Ns": its seconds drawn on each whole-second edge from the deal's time (useSecondsDraw), not rendered
+  // each second; the line goes at 0, before page.tsx's render that ends the countdown.
+  const countBox = useRef<HTMLElement>(null), countText = useRef<HTMLSpanElement>(null);
+  useSecondsDraw(nextDealAt ? now => nextDealAt - now : null, s => {
+    if (s === null || !countText.current || !countBox.current) return;
+    countText.current.textContent = `${s}s`;
+    countBox.current.style.visibility = s > 0 ? '' : 'hidden';
+  });
   return (
     <div 
       ref={ref}
@@ -229,18 +238,18 @@ export default function TableFelt({
         // The phone: two quiet lines under the board, clear of the seats around it: the winning hand, the next hand's time.
         <div className="h-[36px] mt-1 flex flex-col items-center text-[12px] leading-[18px] whitespace-nowrap" style={{ color: 'rgb(55, 53, 47)' }}>
           {winners[0]?.handDesc && <span className="max-w-[240px] truncate text-green-700">{winners[0].handDesc}</span>}
-          {nextHandCountdown !== null && nextHandCountdown !== undefined && nextHandCountdown > 0 && <span>Next hand in <span className="font-bold tabular-nums">{nextHandCountdown}s</span></span>}
+          {nextDealAt !== null && <span ref={countBox}>Next hand in <span ref={countText} className="font-bold tabular-nums" /></span>}
         </div>
       ) : (
       <div className="h-[32px] flex items-center">
-      {nextHandCountdown !== null && nextHandCountdown !== undefined && nextHandCountdown > 0 && (
-        <div 
+      {nextDealAt !== null && (
+        <div ref={el => { countBox.current = el; }}
           className="flex items-center gap-2 bg-white px-4 py-1.5 rounded"
           style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
         >
           <CircleNotch size={14} className="animate-spin" style={{ color: BLUE }} />
           <span className="text-[12px]" style={{ color: 'rgb(55, 53, 47)' }}>
-            Next hand in <span className="font-bold tabular-nums">{nextHandCountdown}s</span>
+            Next hand in <span ref={countText} className="font-bold tabular-nums" />
           </span>
         </div>
       )}

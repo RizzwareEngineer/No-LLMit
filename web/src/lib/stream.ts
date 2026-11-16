@@ -51,10 +51,14 @@ export interface Clock {
   elapsedMs: number;
   received: number;
   running: boolean;
+  stoppedAt?: number; // when this page received the move (llm_action) or the state that stopped it: the clock holds there
 }
 
+// Milliseconds left on the shot clock at `now`; a stopped clock's at the moment it stopped, which it then holds.
+export const clockMs = (c: Clock, now: number) => c.budgetMs - c.elapsedMs - ((c.running ? now : c.stoppedAt ?? now) - c.received);
+
 // Whole seconds left on the shot clock at `now`, never below 0.
-export const clockLeft = (c: Clock, now: number) => Math.max(0, Math.ceil((c.budgetMs - c.elapsedMs - (now - c.received)) / 1000));
+export const clockLeft = (c: Clock, now: number) => Math.max(0, Math.ceil(clockMs(c, now) / 1000));
 
 // The share of the turn's budget left, 0 to 1, for `left` seconds from clockLeft (rounded up, so capped at 1).
 export const clockShare = (left: number, budgetMs: number) => Math.min(1, (left * 1000) / budgetMs);
@@ -88,7 +92,7 @@ function applyTurn(v: TableView, turn: Turn, now: number): TableView {
   const p = turn.payload as LLMDecision;
   return {
     ...v,
-    clock: stopped(v.clock), // the move has arrived: the clock holds (owner, A24)
+    clock: stopped(v.clock, now), // the move has arrived: the clock holds (owner, A24)
     display: {
       phase: 'reasoning',
       turn: p.turn,
@@ -103,21 +107,21 @@ function applyTurn(v: TableView, turn: Turn, now: number): TableView {
 
 const dealAt = (g: GameState, now: number) => (g.nextHandInMs ? now + g.nextHandInMs : null);
 
-const stopped = (c: Clock | null) => (c?.running ? { ...c, running: false } : c);
+const stopped = (c: Clock | null, now: number) => (c?.running ? { ...c, running: false, stoppedAt: now } : c);
 
 // The action has been applied to the table: its reasoning is revealed and the shot clock stops, if it still runs.
-function reveal(v: TableView): TableView {
+function reveal(v: TableView, now: number): TableView {
   return {
     ...v,
     display: v.display?.phase === 'reasoning' ? { ...v.display, phase: 'revealed' } : v.display,
-    clock: stopped(v.clock),
+    clock: stopped(v.clock, now),
   };
 }
 
 function applyTableMessage(v: TableView, m: ServerMessage, now: number): TableView {
   switch (m.type) {
     case 'game_state':
-      return reveal({ ...v, gameState: m.payload as GameState, dealAt: dealAt(m.payload as GameState, now) });
+      return reveal({ ...v, gameState: m.payload as GameState, dealAt: dealAt(m.payload as GameState, now) }, now);
     case 'table_notice': {
       const notice = m.payload as TableNoticePayload;
       return { ...v, notice: notice.kind ? notice : null };
@@ -172,7 +176,7 @@ function fromSnapshot(prev: TableView | undefined, s: SnapshotTable, now: number
   const kept = { ...base, display: d, clock: d && prev!.clock }; // this turn as it is on screen
   const onScreen = s.turn.type === 'llm_thinking' ? d?.phase === 'thinking' : d?.phase === 'reasoning' || d?.phase === 'revealed';
   const v = onScreen ? kept : applyTurn(d?.phase === 'thinking' ? kept : base, s.turn, now);
-  return s.turnApplied ? reveal(v) : v;
+  return s.turnApplied ? reveal(v, now) : v;
 }
 
 // Applies one table message, or a snapshot, which replaces every table (tables absent from it are dropped).

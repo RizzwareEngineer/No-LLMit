@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { flushSync } from 'react-dom';
+import { useState, useEffect, useRef } from 'react';
 import { GameStream, GameState, TableNoticePayload } from '@/lib/api';
 import { StatsResponse } from '@/lib/stats';
-import { ButtonDetermination, DisplayState, EMPTY_TABLE, Tables, applyMessage, applyStats, clockLeft } from '@/lib/stream';
+import { ButtonDetermination, Clock, DisplayState, EMPTY_TABLE, Tables, applyMessage, applyStats } from '@/lib/stream';
 
 // How long the stream may be down before the page says Offline: the server ends every stream after 10 to 14 minutes,
 // and the reopen that follows should not flash the connection bar. A page load waits as long for its first open.
@@ -20,8 +19,7 @@ interface UseGameStateReturn {
   gaveUp: boolean; // reconnect attempts exhausted
   tableNotice: TableNoticePayload | null; // table closed, capped, in an outage or saving
   displayState: DisplayState | null;
-  shotClockRemaining: number | null; // seconds left on the shot clock; null: no clock (the engine sent no budget)
-  shotClockBudgetMs: number | null; // the turn's whole budget, for the phone's ring; null: no clock
+  clock: Clock | null; // the shot clock; null: no clock (the engine sent no budget)
   buttonDetermination: ButtonDetermination | null;
   stats: StatsResponse | null; // all-time stats, from the stream
   retry: () => void;
@@ -37,26 +35,9 @@ export function useGameState(): UseGameStateReturn {
 
   const table = Object.values(tables)[0] ?? EMPTY_TABLE;
 
-  // The shot clock ticks from llm_thinking until the move arrives (llm_action), then holds its last value.
+  // The shot clock runs from llm_thinking until the move arrives (llm_action), then holds the time left then. Its
+  // seconds are drawn by the components that show it (useSecondsDraw), not rendered here each second.
   const { clock } = table;
-  const [tick, setTick] = useState({ received: 0, left: 0 });
-  // Read at once (a clock from a message that waited for hydration has run since it arrived), then each time its whole
-  // seconds change, before the frame is painted: never a second more than the engine's.
-  useLayoutEffect(() => {
-    if (!clock?.running) return;
-    let t: ReturnType<typeof setTimeout> | undefined;
-    // From the timer, rendered at once (flushSync): a render left to the scheduler waited behind a slow phone's long
-    // tasks (the stats' mount) for most of a second, showing a second the engine no longer had.
-    const step = (sync: boolean) => {
-      const now = Date.now(), ms = clock.budgetMs - clock.elapsedMs - (now - clock.received);
-      const set = () => setTick({ received: clock.received, left: clockLeft(clock, now) });
-      if (sync) flushSync(set); else set();
-      if (ms > 0) t = setTimeout(() => step(true), (ms % 1000 || 1000) + 1);
-    };
-    step(false);
-    return () => clearTimeout(t);
-  }, [clock]);
-  const shotClockRemaining = !clock ? null : tick.received === clock.received ? tick.left : clockLeft(clock, clock.received);
 
   // One stream for the page's life, closed by the cleanup whenever it unmounts (Strict Mode's double mount leaves one).
   useEffect(() => {
@@ -96,8 +77,7 @@ export function useGameState(): UseGameStateReturn {
     gaveUp,
     tableNotice: table.notice,
     displayState: table.display,
-    shotClockRemaining,
-    shotClockBudgetMs: clock?.budgetMs ?? null,
+    clock,
     buttonDetermination: table.buttonDetermination,
     stats,
     retry: () => streamRef.current?.retry(),

@@ -5,12 +5,13 @@ import LLMLogo from "@/components/LLMLogo";
 import TypewriterText from "@/components/TypewriterText";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { MUTED, BLUE } from "@/lib/stats";
-import type { DisplayState } from "@/lib/stream";
+import { clockMs, type Clock, type DisplayState } from "@/lib/stream";
+import { useSecondsDraw } from "@/hooks/useSecondsDraw";
 import { useFillIn } from "@/lib/boxes";
 
 interface ReasoningPanelProps {
   displayState: DisplayState | null;
-  shotClockRemaining: number | null; // null: no clock
+  clock: Clock | null; // the shot clock; null: no clock
   blank?: boolean; // no table state yet: the bar at its size with nothing in it
   street?: string; // the hand's street, named in the name cell between turns
   turnKey: string; // the turn on screen (hand number and turn), so the typing resumes only for the same turn
@@ -20,7 +21,7 @@ const STAGE: Record<string, string> = { preflop: 'Preflop', flop: 'Flop', turn: 
 
 export default function ReasoningPanel({
   displayState,
-  shotClockRemaining,
+  clock,
   blank = false,
   street,
   turnKey,
@@ -40,7 +41,15 @@ export default function ReasoningPanel({
   const isReasoning = phase === 'reasoning';
   const isRevealed = phase === 'revealed';
   const showReason = isReasoning || isRevealed;
-  const showShotClock = (isThinking || isReasoning) && shotClockRemaining !== null; // Hide after action is revealed
+  const showShotClock = (isThinking || isReasoning) && clock !== null; // Hide after action is revealed
+  // Its seconds, drawn on each whole-second edge (useSecondsDraw); red for the last 5 s.
+  const clockRef = useRef<HTMLSpanElement>(null);
+  useSecondsDraw(showShotClock && clock ? now => clockMs(clock, now) : null, s => {
+    const e = clockRef.current;
+    if (!e || s === null) return;
+    e.textContent = `${s}s`;
+    e.style.color = s <= 5 ? 'rgb(235, 87, 87)' : BLUE;
+  }, !!clock?.running);
 
   // Dynamic font size based on reason length
   const getReasonFontSize = (text: string | null | undefined) => {
@@ -80,15 +89,7 @@ export default function ReasoningPanel({
               reserved, so the name does not jump when the clock goes. */}
           {(
             <div className={`flex items-center gap-1 mt-1 ${showShotClock ? '' : 'invisible'}`}>
-              <span 
-                data-clock
-                className="text-[20px] leading-7 font-bold tabular-nums"
-                style={{ 
-                  color: (shotClockRemaining ?? 0) <= 5 ? 'rgb(235, 87, 87)' : BLUE
-                }}
-              >
-                {shotClockRemaining ?? 0}s
-              </span>
+              <span ref={clockRef} data-clock className="h-7 text-[20px] leading-7 font-bold tabular-nums" />
             </div>
           )}
         </div>

@@ -6540,23 +6540,103 @@ group(() => check('clock-after-load', 'Loaded mid-turn and between hands at 1440
         };
         new MutationObserver(read).observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
       }, 2);
+      window.__long = [];
+      try { new PerformanceObserver(l => { for (const e of l.getEntries()) window.__long.push([Math.round(e.startTime + performance.timeOrigin), Math.round(e.duration)]); }).observe({ type: 'longtask', buffered: true }); } catch {}
     }, kind);
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await sleep(kind === 'clock' ? 8000 : 6000);
-    const r = await p.evaluate(() => ({ end: window.__engineEnd, shown: window.__shown ?? [] }));
+    // Read once more at the end, so the last value is judged for as long as it stayed on screen too.
+    const r = await p.evaluate(kind => {
+      const e = kind === 'clock' ? document.querySelector('[data-clock]') : [...document.querySelectorAll('span')].find(x => /^Next hand in \d+s$/.test(x.textContent.trim()) && x.getBoundingClientRect().width > 0);
+      const v = e && !(kind === 'clock' && e.closest('.invisible')) ? +e.textContent.replace(/\D/g, '') : null;
+      return { end: window.__engineEnd, shown: window.__shown ?? [], now: Date.now(), v };
+    }, kind);
     if (!r.end || !r.shown.length) { bad.push(`${kind}: ${r.end ? 'never shown' : 'the state never came in'}`); await p.close(); continue; }
     // Engine's whole seconds left at the moment shown. 300 ms of slack: the observer reads a change only once the task
     // that made it ends, and a 4x-throttled main thread's tasks (the hydration, the stats' mount) last that long.
     const off = r.shown.map(s => ({ v: s.v, eng: Math.ceil((r.end - s.at) / 1000), eng2: Math.ceil((r.end - s.at + 300) / 1000) }));
     const high = off.filter(o => o.v > o.eng2);
     const low = off.filter(o => o.v < o.eng - 1);
+    // And each value for as long as it stayed: when the next replaced it (or at the final read), the engine must still
+    // have had that second (300 ms of slack), and the next value is the following second, none skipped (review 4 #9).
+    const stay = r.shown.map((a, n) => ({ v: a.v, until: n + 1 < r.shown.length ? r.shown[n + 1].at : r.now, next: n + 1 < r.shown.length ? r.shown[n + 1].v : r.v }));
+    const stale = stay.filter(o => o.v > Math.ceil((r.end - o.until + 300) / 1000));
+    const skipped = stay.filter(o => o.next != null && o.next < o.v - 1 && o.v > 1);
     seen.push(`${kind} ${off.slice(0, 4).map(o => `${o.v}/${o.eng}`).join(' ')}`);
-    if (process.env.DEBUG_CLOCK) console.log(kind, r.end, JSON.stringify(r.shown.map(s => [s.v, r.end - s.at])));
+    if (process.env.DEBUG_CLOCK) console.log(kind, r.end, JSON.stringify(r.shown.map(s => [s.v, r.end - s.at])), JSON.stringify((await p.evaluate(() => window.__long)).map(([t, d]) => [r.end - t, d])));
     if (high.length) bad.push(`${kind} reads more than the engine: ${high.slice(0, 3).map(o => `${o.v}s shown, ${o.eng}s left`).join(', ')}`);
     if (low.length) bad.push(`${kind} reads far less than the engine: ${low.slice(0, 3).map(o => `${o.v}s shown, ${o.eng}s left`).join(', ')}`);
+    if (stale.length) bad.push(`${kind} stays past its second: ${stale.slice(0, 3).map(o => `${o.v}s still shown with ${Math.ceil((r.end - o.until) / 1000)}s left`).join(', ')}`);
+    if (skipped.length) bad.push(`${kind} skips a second: ${skipped.slice(0, 3).map(o => `${o.v}s then ${o.next}s`).join(', ')}`);
+    if (r.v == null) bad.push(`${kind}: not shown at the end of the window`);
     await p.close();
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `shown/engine: ${seen.join('; ')}` };
+}));
+
+// The shot clock stops at the move and holds the time left then; the next turn's clock then counts from its own
+// arrival and never jumps back up (review 4 #3: a tick timer outlived its effect and flickered the next turn's figure).
+// At 1440x900 on a 4x-throttled CPU, three turns, the first while the stats still mount after the load (their render
+// held stream updates back). Each move comes 40 ms before a whole-second edge of its clock and is followed by a 250 ms
+// task over that edge, so the clock's timer for that edge is due while the move's update still waits.
+group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the shot clock holds the time left at the move for as long as the move shows, and the next turn\'s clock counts its own seconds down without a flicker back up', async () => {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  const bad = [], seen = [];
+  try {
+    const cdp = await p.createCDPSession(); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+    await scriptStream(p);
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => window.__stream?.last?.players?.length && window.__stream.feed && document.querySelector('[data-clock]'), { timeout: 120000 });
+    await p.evaluate(() => {
+      window.__shown = [];
+      const read = () => {
+        const c = document.querySelector('[data-clock]'), v = c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null;
+        const last = window.__shown.at(-1);
+        if (!last || last.v !== v) window.__shown.push({ v, at: Date.now() });
+      };
+      new MutationObserver(read).observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+    });
+    for (let k = 0; k < 3; k++) {
+      // A turn: 45 s, none run. The move 40 ms before the clock's 3 s edge, then a long task over the edge.
+      const r = await p.evaluate(k => new Promise(done => {
+        const s = window.__stream, l = s.last, i = Math.max(0, l.players.findIndex(q => q.status === 'active'));
+        s.scripted = true;
+        const t0 = Date.now();
+        s.feed({ type: 'llm_thinking', payload: { turn: 100 + 2 * k, playerIdx: i, playerName: l.players[i].name, budgetMs: 45000, elapsedMs: 0 } });
+        setTimeout(() => {
+          const move = Date.now();
+          s.feed({ type: 'llm_action', payload: { turn: 100 + 2 * k, playerIdx: i, playerName: l.players[i].name, action: 'CALL', amount: 10, reason: 'Calling.' } });
+          while (Date.now() - move < 250);
+          setTimeout(() => {
+            // The next turn: 30 s, none run.
+            const t1 = Date.now(), j = (i + 1) % l.players.length;
+            s.feed({ type: 'llm_thinking', payload: { turn: 101 + 2 * k, playerIdx: j, playerName: l.players[j].name, budgetMs: 30000, elapsedMs: 0 } });
+            setTimeout(() => {
+              const c = document.querySelector('[data-clock]');
+              done({ t0, move, t1, end: Date.now(), last: c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null });
+            }, 3500);
+          }, 3000);
+        }, 2960 - (Date.now() - t0));
+      }), k);
+      const shown = await p.evaluate(() => window.__shown.splice(0));
+      const held = Math.ceil((45000 - (r.move - r.t0)) / 1000);
+      // After the move's commit (the long task, then 300 ms of slack on a 4x CPU) until the next turn: the held value only.
+      const during = shown.filter(x => x.at > r.move + 550 && x.at < r.t1);
+      const moved = during.filter(x => x.v !== held);
+      // The next turn: each value its engine's whole seconds left (300 ms slack), never back up.
+      const next = shown.filter(x => x.at >= r.t1 && x.v !== null);
+      const eng = at => Math.ceil((30000 - (at - r.t1)) / 1000);
+      const high = next.filter(x => x.v > Math.ceil((30000 - (x.at - r.t1) + 300) / 1000) || x.v < eng(x.at) - 1);
+      const up = next.filter((x, n) => n > 0 && x.v > next[n - 1].v);
+      const lastBad = r.last === null || r.last > Math.ceil((30000 - (r.end - r.t1) + 300) / 1000) || r.last < eng(r.end) - 1;
+      seen.push(`turn ${k + 1}: held ${held}, then ${next.map(x => x.v).join(' ')}`);
+      if (moved.length) bad.push(`turn ${k + 1}: after the move (${held}s left) the clock showed ${moved.slice(0, 4).map(x => `${x.v}s at +${x.at - r.move} ms`).join(', ')}`);
+      if (high.length) bad.push(`turn ${k + 2}: ${high.slice(0, 3).map(x => `${x.v}s shown with ${eng(x.at)}s left`).join(', ')}`);
+      if (up.length) bad.push(`turn ${k + 2}: the clock went back up (${next.map(x => x.v).join(' ')})`);
+      if (lastBad) bad.push(`turn ${k + 2}: ${r.last ?? 'no clock'} shown at the end with ${eng(r.end)}s left`);
+    }
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 
 // --lanes 1 runs one page at a time (the main page's steps, then each group, then each late): a timing check on the main

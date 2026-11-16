@@ -12,8 +12,10 @@ import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
 // stats mount in a transition, in the layout shown, over the same screens.
 // The chunk is loaded first and only then is the component put in state, in a transition: no React.lazy and no Suspense.
 // A lazy that suspends commits a fallback and finishes on a retry lane, which never expires and which every
-// default-lane update (each typed character of a reason, the 1 s clocks, each stream message) restarts, so the stats
-// stayed empty while a reason typed. A transition lane is not interrupted by those and expires after 5 s. And a chunk
+// default-lane update (each typed character of a reason, each stream message) restarts, so the stats stayed empty while
+// a reason typed. A transition lane is not interrupted by those and expires after 5 s. Nothing renders synchronously each
+// second (the shot clock and the countdown draw their seconds outside React, useSecondsDraw), which would throw away a
+// transition's half-built render. And a chunk
 // that fails to load (a deploy replaced it, the phone went offline) never reaches React: the stand-in stays, and the
 // next trigger tries again (a failed webpack chunk is requested anew).
 let StatsSections: typeof import('@/components/StatsSections').default | null = null; // once loaded

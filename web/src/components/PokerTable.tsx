@@ -11,7 +11,7 @@ import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { FELT, LOGO, MIDDLE, POT_TOP, RADIUS, type Spot, css, seatPlace, seatSpots } from "@/lib/phoneTable";
 import { useLayout, usePhoneShape, useSeatDraft } from "@/lib/tableSwitches";
 import SeatStats from "@/components/SeatStats";
-import { clockShare, type ButtonDetermination, type DisplayState } from "@/lib/stream";
+import type { ButtonDetermination, Clock, DisplayState } from "@/lib/stream";
 
 interface PlayerLayout {
   top: number[];
@@ -31,8 +31,7 @@ interface PokerTableProps {
   communityCards: string[];
   pot: number;
   winnersByIdx?: Record<number, WinnerInfo>;
-  nextHandCountdown?: number | null;
-  dealAt?: number | null; // Date.now() of the next deal (stream's dealAt)
+  nextDealAt?: number | null; // Date.now() of the next deal while the next-hand countdown shows (page.tsx); null: none
   thinkingPlayerIdx?: number;
   peeked?: number[]; // seats whose hole cards are face up this hand (the engine's peeked, and the turn on screen)
   buttonDetermination?: ButtonDetermination | null;
@@ -41,8 +40,7 @@ interface PokerTableProps {
   handNumber: number;
   stats?: Record<string, ModelStats>; // by model name, for the phone seat's stats popup (SeatStats)
   display?: DisplayState | null; // the turn on screen: the phone shows each action over its seat for a moment
-  clockLeft?: number | null; // seconds left on the shot clock (null: no clock): the phone's ring round the seat on the clock
-  clockBudgetMs?: number | null; // the turn's whole budget, the ring's full circle
+  clock?: Clock | null; // the shot clock while its turn is on screen (null: no clock): the phone's ring round the seat on the clock
 }
 
 // The phone's action bubble: "Raise 79", "Call 10", "Fold".
@@ -54,8 +52,7 @@ export default function PokerTable({
   communityCards,
   pot,
   winnersByIdx = {},
-  nextHandCountdown,
-  dealAt = null,
+  nextDealAt = null,
   thinkingPlayerIdx,
   peeked = [],
   buttonDetermination,
@@ -64,8 +61,7 @@ export default function PokerTable({
   handNumber,
   stats,
   display = null,
-  clockLeft = null,
-  clockBudgetMs = null,
+  clock = null,
 }: PokerTableProps) {
   const layout = getPlayerLayout(players.length || 9);
   const hidePositions = !!buttonDetermination; // the position badges wait for the button draw
@@ -119,7 +115,6 @@ export default function PokerTable({
     const t = setTimeout(() => setTurn(v => ({ ...v, bubble: null })), 2000);
     return () => clearTimeout(t);
   }, [turn.bubble]);
-  const ring = clockLeft !== null && clockBudgetMs ? { left: clockShare(clockLeft, clockBudgetMs), urgent: clockLeft <= 5 } : null;
 
   const shape = usePhoneShape(), draft = useSeatDraft();
   // The phone seat whose stats are open (SeatStats), and the table's middle in the window then, where they show. The
@@ -154,7 +149,7 @@ export default function PokerTable({
       peek={peeked.includes(idx)}
       compact={!!spot}
       spot={spot}
-      ring={spot && idx === currentPlayerIdx ? ring : undefined}
+      ring={spot && idx === currentPlayerIdx ? clock : undefined}
       onOpen={spot ? () => openStats(idx) : undefined}
       bubble={spot && turn.bubble?.seat === idx ? turn.bubble.text : undefined}
     />
@@ -184,7 +179,7 @@ export default function PokerTable({
         amount: info.amount,
         handDesc: info.handDesc,
       }))}
-      nextHandCountdown={nextHandCountdown}
+      nextDealAt={nextDealAt}
       buttonDetermination={buttonDetermination}
       notice={notice}
       deck={deck}
@@ -205,8 +200,7 @@ export default function PokerTable({
         handNumber={handNumber}
         boardCount={communityCards.length}
         winnerIdxs={Object.keys(winnersByIdx).map(Number)}
-        nextHandCountdown={street === 'complete' ? nextHandCountdown ?? null : null}
-        dealAt={dealAt}
+        nextDealAt={street === 'complete' ? nextDealAt : null}
         onDeck={setDeck}
         notice={!!notice}
       />}

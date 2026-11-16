@@ -13,6 +13,10 @@ import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE, MUTED, modelHref } from "@/lib/stats";
 import { CARD_CLASS, CARD_SIZES, useCardSize } from "@/lib/tableSwitches";
 import { useFillIn } from "@/lib/boxes";
+import { clockMs, clockShare, type Clock } from "@/lib/stream";
+import { useSecondsDraw } from "@/hooks/useSecondsDraw";
+
+const RING_R = 27, RING_C = 2 * Math.PI * RING_R; // the phone seat's shot clock ring round its logo
 
 interface PlayerProps {
   player: PlayerState;
@@ -29,7 +33,7 @@ interface PlayerProps {
   peek?: boolean; // they turn up by the peek (HoleCard): the seat's turn; otherwise (the hand's end) they just turn over
   compact?: boolean; // the phone table's seat (PokerTable), placed at `spot` (phoneTable.ts)
   spot?: Spot;
-  ring?: { left: number; urgent: boolean } | null; // the shot clock's share left, for the seat on the clock; null: no clock
+  ring?: Clock | null; // the shot clock, for the seat on the clock; null: no clock
   bubble?: string; // the action just taken, shown for a moment (phone)
   onOpen?: () => void; // phone: a tap on the logo opens its basic stats (PokerTable's SeatStats); without it, the drawer
   fillIn?: boolean; // fade in on mount (the table filling); false for a seat mounted by a layout switch mid-hand
@@ -86,6 +90,15 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   // A seat mounts where the blank one stood (PokerTable) when the table fills: its content fades in.
   // Not a seat mounted by a layout switch (PokerTable): it shows the table as it was. Only how it mounted counts.
   const ref = useRef<HTMLDivElement>(null);
+  // The phone seat's shot clock: the share of the turn left (ring), drawn on each whole-second edge (useSecondsDraw);
+  // the whole ring with no clock; red for the last 5 s.
+  const arc = useRef<SVGCircleElement>(null);
+  useSecondsDraw(ring ? now => clockMs(ring, now) : null, s => {
+    const e = arc.current;
+    if (!e) return;
+    e.setAttribute('stroke-dashoffset', String(RING_C * (1 - (s === null || !ring ? 1 : clockShare(s, ring.budgetMs)))));
+    e.setAttribute('stroke', s !== null && s <= 5 ? 'rgb(235, 87, 87)' : BLUE);
+  }, !!ring?.running);
   const [fill] = useState(fillIn);
   useFillIn(ref, fill);
 
@@ -129,15 +142,15 @@ export default function Player({ player, active, position, winAmount, winDesc, i
     // the clock has the shot clock as a ring round its logo; its action shows over the logo for a moment (`bubble`). The
     // box is the seat's whole extent (the cards' flights and the peek's bounds); only what it draws takes taps.
     const place = seatPlace(spot), [ox, oy] = place.logo, logo = logoFile(player.name);
-    const c = spot.cards, R = 27, C = 2 * Math.PI * R, tb = textBox(spot), say = bubbleAt(spot);
+    const c = spot.cards, R = RING_R, C = RING_C, tb = textBox(spot), say = bubbleAt(spot);
     return (
       <div ref={ref} data-seat={seatIdx} className={`absolute pointer-events-none transition-opacity ${folded && !isWinner ? 'opacity-40' : ''}`} style={place.style}>
         {active && (
-          // The shot clock: the share of the turn left (ring), the whole ring with no clock; red for the last 5 s.
+          // The shot clock (its arc drawn by useSecondsDraw, above).
           <svg data-clock-ring aria-hidden width={2 * R + 4} height={2 * R + 4} className="absolute -rotate-90" style={{ left: ox - R - 2, top: oy - R - 2 }}>
             <circle cx={R + 2} cy={R + 2} r={R} fill="none" stroke="rgba(31, 111, 196, 0.15)" strokeWidth={3} />
-            <circle cx={R + 2} cy={R + 2} r={R} fill="none" stroke={ring?.urgent ? 'rgb(235, 87, 87)' : BLUE} strokeWidth={3} strokeLinecap="round"
-              strokeDasharray={C} strokeDashoffset={C * (1 - (ring?.left ?? 1))} className="motion-safe:transition-[stroke-dashoffset] motion-safe:duration-1000 motion-safe:ease-linear" />
+            <circle ref={arc} cx={R + 2} cy={R + 2} r={R} fill="none" strokeWidth={3} strokeLinecap="round"
+              strokeDasharray={C} className="motion-safe:transition-[stroke-dashoffset] motion-safe:duration-1000 motion-safe:ease-linear" />
           </svg>
         )}
         <a href={modelHref(player.name)} aria-label={player.name} aria-haspopup={onOpen ? 'dialog' : undefined}
