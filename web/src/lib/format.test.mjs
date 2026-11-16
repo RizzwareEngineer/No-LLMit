@@ -27,12 +27,9 @@ test('no source file formats a number in the browser\'s locale', () => {
   assert.deepEqual(bad, []);
 });
 
-// PENDING: TableFelt.tsx (the phone pot) is held by the parallel seat-drafts run; its NumberFlow gets locales="en-US"
-// when that run lands. Remove this entry then: the test then holds every NumberFlow.
-const PENDING = new Set(['components/TableFelt.tsx']);
 test('every NumberFlow names the en-US locale', () => {
   const src = new URL('..', import.meta.url).pathname, bad = [];
-  const walk = d => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) walk(p); else if (/\.tsx$/.test(f)) readFileSync(p, 'utf8').split('\n').forEach((l, i) => { if (/<NumberFlow\b/.test(l) && !/locales="en-US"/.test(l) && !PENDING.has(p.slice(src.length))) bad.push(`${p.slice(src.length)}:${i + 1}`); }); } };
+  const walk = d => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) walk(p); else if (/\.tsx$/.test(f)) readFileSync(p, 'utf8').split('\n').forEach((l, i) => { if (/<NumberFlow\b/.test(l) && !/locales="en-US"/.test(l)) bad.push(`${p.slice(src.length)}:${i + 1}`); }); } };
   walk(src);
   assert.deepEqual(bad, []);
 });

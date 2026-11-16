@@ -169,7 +169,7 @@ export default function TableFelt({
             <div data-chips={pot} className={`flex flex-row items-center gap-2 bg-white border-2 border-gray-700 shadow-sm ${compact ? 'h-[30px] px-3' : 'p-2 px-4'}`} aria-label={`Pot ${formatAmount(pot, bb)}`}>
               <div className={`${compact ? 'text-[11px]' : 'text-xs'} uppercase tracking-wider text-gray-600`}>POT</div>
               <div className={`${compact ? 'text-[15px] leading-5' : 'text-[20px] leading-7'} text-gray-700 font-bold tabular-nums`}>
-                <NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} />
+                <NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} locales="en-US" />
               </div>
             </div>
             {/* data-pot: where TableMotion's chips land (the phone's: the pot itself; only the board is under it) */}

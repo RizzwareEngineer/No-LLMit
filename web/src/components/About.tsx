@@ -41,7 +41,7 @@ function Dial({ as, rest = false, className = '' }: { as: 'h2' | 'h3'; rest?: bo
   // `rest`: every topic but How it works (phone layout 3 shows that one open above the dial).
   const topics = rest ? TOPICS.slice(1) : TOPICS;
   const count = useRef(topics.length);
-  count.current = topics.length;
+  useLayoutEffect(() => { count.current = topics.length; }); // the wheel and swipe handlers read the latest count
   const [at, setAt] = useState(0);
   const atRef = useRef(0);
   const turn = (i: number) => { atRef.current = i; setAt(i); };
