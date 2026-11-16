@@ -249,15 +249,16 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [players, handNumber, boardCount, winners, reduce]);
 
-  // Between hands, the shuffle. It is timed from the deal's own time (dealAt) and ends 0.3 s before it, so it never meets
-  // the deal, and the deck waits squared, also when it starts late (a notice that cleared mid-second resumes it, and the
+  // Between hands, the shuffle. It is timed from the deal's own time (dealAt) and ends 1.1 s before it (as the countdown
+  // timing did for a whole-second wait: a deal 4 s away riffled from 2 s to 2.9 s), so it never meets the deal, and the
+  // deck waits squared, also when it starts late (a notice that cleared mid-second resumes it, and the
   // whole-second countdown would then put the deal up to 1 s nearer than it reads). Too little time left: none. Without
   // a deal time, the countdown's first value n puts the deal more than n - 1 s away, and the riffle ends 0.1 s before that.
   // None while a table notice is up (an outage, a failed save): the notice hides the deck, and a notice that comes after
   // the timer is set cancels it through the effect's cleanup, the reduced-motion sound included.
   const pauseOf = nextHandCountdown && !notice ? handNumber : 0;
   const shuffle = useEffectEvent(() => {
-    const wait = dealAt ? dealAt - Date.now() - RIFFLE.length * 1000 - 300 : ((nextHandCountdown ?? 0) - 1 - RIFFLE.length) * 1000 - 100;
+    const wait = dealAt ? dealAt - Date.now() - RIFFLE.length * 1000 - 1100 : ((nextHandCountdown ?? 0) - 1 - RIFFLE.length) * 1000 - 100;
     if (wait < 0) return;
     const t = setTimeout(() => {
       if (!onScreen()) return;
