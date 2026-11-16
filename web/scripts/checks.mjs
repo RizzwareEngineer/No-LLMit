@@ -463,8 +463,8 @@ group(async () => {
   for (const [w, h] of [[360, 640], [375, 667], [390, 844], [430, 932]]) {
     const size = `${w}x${h}`, p = await scriptedTable(w, h);
     try {
-      await p.evaluate(() => window.__stream.deal()); await sleep(3000); // a fresh hand, scripted from here: every seat's cards face down
-      // Face down first: one size whichever way up (the audit: face-down pairs drawn twice the face-up ones).
+      // As the live hand left them (face down but for the seats that have had their turn), then all face up: one size
+      // whichever way up (the audit: face-down pairs drawn twice the face-up ones).
       const sizes = async () => p.evaluate(() => [...document.querySelectorAll('[data-oval] [data-hole] > *')].filter(e => e.getBoundingClientRect().width > 0).map(e => `${e.offsetWidth}x${e.offsetHeight}`));
       const down = await sizes();
       await p.evaluate(() => {
@@ -516,6 +516,9 @@ group(async () => {
           s.feed({ type: 'llm_thinking', payload: { turn, playerIdx: i, playerName: name, budgetMs: 45000, elapsedMs: 0 } });
           s.feed({ type: 'llm_action', payload: { turn, playerIdx: i, playerName: name, action: 'RAISE', amount: 632, reason: 'Raise.' } });
         }, i);
+        // The table applies the action (the next state), which is when the bubble shows.
+        await sleep(1200);
+        await p.evaluate(i => { const s = window.__stream; s.last = { ...s.last, players: s.last.players.map((q, j) => (j === i ? { ...q, lastAction: 'RAISE', lastAmount: 632 } : q)) }; s.feed({ type: 'game_state', payload: s.last }); }, i);
         await p.waitForFunction(() => document.querySelector('[data-oval] [data-bubble]'), { timeout: 8000 }).catch(() => {});
         await sleep(300);
         const hit = await p.evaluate(() => {
