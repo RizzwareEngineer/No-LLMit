@@ -610,7 +610,9 @@ export default function CumulativeChart({
   const [lw, lh] = compact ? [Math.max(box.w, 200), Math.max(Math.min(200, (box.w * H) / W), box.h - (interactive ? legendH : 0))] : race ? [s > 0 ? Math.max(W, box.w / s) : W, H] : [Math.max(box.w, 200), box.h];
   // Text keeps the site's on-screen sizes (numbers at 14px, as the Profiles cells) however the chart
   // is scaled: design units are screen px times u.
-  const u = race && !compact ? Math.min(1.5, 1 / s) : 1;
+  // Never under 11px on screen (the owner's floor): a box under two thirds of the design size (a zoomed laptop) drew
+  // the ticks and labels at 7-9px when the factor stopped at 1.5.
+  const u = race && !compact && s > 0 ? Math.max(Math.min(1.5, 1 / s), 11.5 / (13 * s)) : 1;
   const fs = 14 * u; // the hover readout, as the Profiles cells
   const ts = 13 * u; // everything else in the chart: ticks, axis titles, pills, the clock
   const [pillH, pillRoom] = [PILL_H * u, compact ? Math.min(PILL_ROOM, Math.round(lw * 0.3)) : PILL_ROOM * u]; // a phone: a third of the plot at most

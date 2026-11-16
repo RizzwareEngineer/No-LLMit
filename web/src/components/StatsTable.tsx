@@ -4,6 +4,7 @@ import { Fragment, memo, useEffect, useId, useLayoutEffect, useRef, useState } f
 import { motion, type Transition } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
+import NameForm from '@/components/NameForm';
 import { isPhone } from '@/lib/layout';
 import { GLIDE, GLIDE_MS, NONE } from '@/components/Section';
 import { BLUE, MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
@@ -103,7 +104,10 @@ function HeaderCell({ col, sort, onSort, className, mini, move }: { col: { key: 
   }, [open]);
   const active = sort.key === col.key;
   const mark = { size: 12, className: 'inline ml-0.5 align-[-1px]', 'aria-hidden': true } as const;
-  const words = col.label.split(' ');
+  // At most two lines, each held whole (a narrow zoomed card wrapped "Fold when check free" a word a line: a four-line
+  // header band over the rows).
+  const all = col.label.split(' '), half = Math.ceil(all.length / 2);
+  const words = all.length > 2 ? [all.slice(0, half).join(' '), all.slice(half).join(' ')] : all;
   const label = (
     <>
       {onSort && (
@@ -237,7 +241,8 @@ function Bb100({ m }: { m: ModelStats }) {
 // the AF column on a 390px phone early in a replay, when rates read 100%; 9.5rem clipped it with any long name.
 const nameFit = (mini: boolean) => (mini ? '@max-2xs:sr-only max-w-[calc(100cqw-14rem)]' : '@max-md:max-w-[6.5rem]');
 function Name({ href, name, mini = false, children }: { href?: string; name: string; mini?: boolean; children?: React.ReactNode }) {
-  const inner = <><LLMLogo model={name} size={16} /><span translate="no" className={`truncate ${nameFit(mini)}`}>{name}</span>{children}</>;
+  // A phone's card caps the name (nameFit): the longest whole form of it that fits (NameForm).
+  const inner = <><LLMLogo model={name} size={16} /><span translate="no" className={`truncate ${nameFit(mini)}`}>{mini ? name : <NameForm name={name} />}</span>{children}</>;
   return href
     ? <a href={href} className="flex items-center gap-2 min-w-0 hover:underline" style={{ color: TEXT }} title={name}>{inner}</a>
     : <span className="flex items-center gap-2 min-w-0" style={{ color: TEXT }} title={name}>{inner}</span>;
@@ -252,11 +257,22 @@ function Name({ href, name, mini = false, children }: { href?: string; name: str
 const CARD_ROW = 40, CARD_ROW_MIN = 32;
 let fitObserved: Element | null = null, refit = () => {};
 function fitCardRows(t: HTMLTableElement | null, mini: boolean) {
-  const sc = t?.closest<HTMLElement>('#stats-card .panel-scroll'), card = sc?.parentElement, box = card?.parentElement;
+  const sc = t?.closest<HTMLElement>('#stats-card .panel-scroll, #stats-panel .panel-scroll'), card = sc?.parentElement, box = card?.parentElement;
   if (mini || !t || !sc || !card || !box) return;
   const fit = () => {
     const root = document.documentElement.style;
-    if (isPhone()) return root.removeProperty('--card-row');
+    if (isPhone()) {
+      // A phone's card: the table's own box (it scrolls sideways) shows whole rows at rest, never one cut by its foot
+      // (the audit's half row above "All models"): rows stretch from 40px so the ones that fit fill it exactly.
+      root.removeProperty('--card-row');
+      const wrap = t.parentElement, rows = t.querySelectorAll('tr.card-row').length;
+      if (!wrap || !rows) return;
+      const avail = wrap.clientHeight - (t.tHead?.offsetHeight ?? 0), k = Math.max(1, Math.floor(avail / CARD_ROW));
+      const per = rows > k ? avail / k : CARD_ROW; // exact: a rounded height left a sliver of the next row
+      if (root.getPropertyValue('--phone-row') !== `${per}px`) root.setProperty('--phone-row', `${per}px`);
+      return;
+    }
+    root.removeProperty('--phone-row');
     const rows = [...t.querySelectorAll<HTMLElement>('tr.card-row')], z = t.currentCSSZoom ?? 1;
     if (!rows.length) return;
     const now = rows.reduce((a, r) => a + r.getBoundingClientRect().height / z, 0);
@@ -335,7 +351,7 @@ function Grid({
   const head = `sticky top-0 z-10 bg-white text-[13px] ${mini ? 'px-1 @sm:px-2 py-0' : 'px-2 md:px-1.5 py-1.5'}`; // column headers: 13px muted, tile and card (from md 6px a side: every header on one line at the wide stats' reference width)
   // The card's rows breathe; the tile's split its height evenly from md (a phone's tile is as tall as its rows). From md
   // the card's rows give up to 8px each (--card-row, fitCardRows) so the card fits its block at every window shape.
-  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px] md:text-[13px]' : 'card-row h-10 md:h-[var(--card-row,40px)]';
+  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px] md:text-[13px]' : 'card-row h-[var(--phone-row,40px)] md:h-[var(--card-row,40px)]';
   // Columns the card adds to the tile's fade in as it opens.
   const added = (c: Column) => (!mini && !MINI[0].columns.includes(c) ? 'add-in' : '');
   // The tile pads by its own width (a narrow tile keeps every header whole).

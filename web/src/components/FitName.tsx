@@ -41,10 +41,16 @@ export default function FitName({ name, className = '', style }: { name: string;
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(parent);
-    // The row's other items (a badge whose text changes with the seat's position) change the room too.
-    for (let el: HTMLElement | null = parent, i = 0; el?.parentElement && i < 3; el = el.parentElement, i++)
+    // The row's other items (a badge whose text changes with the seat's position) change the room too, and React may
+    // replace them (a new badge element the observer above never saw): any change in the row outside the name refits.
+    let row: HTMLElement = parent;
+    for (let el: HTMLElement | null = parent, i = 0; el?.parentElement && i < 3; el = el.parentElement, i++) {
       for (const k of el.parentElement.children) if (k !== el) ro.observe(k);
-    return () => ro.disconnect();
+      row = el.parentElement;
+    }
+    const mo = new MutationObserver(ms => { if (ms.some(m => !box.current?.contains(m.target))) fit(); });
+    mo.observe(row, { childList: true, subtree: true, characterData: true });
+    return () => { ro.disconnect(); mo.disconnect(); };
   }, [name]);
   return (
     <div ref={box} className={`relative truncate ${className}`} style={style} title={name}>

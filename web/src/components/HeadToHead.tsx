@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 import { GLIDE, NONE } from '@/components/Section';
 import LLMLogo from '@/components/LLMLogo';
+import NameForm from '@/components/NameForm';
 import { DASH, MIN_HANDS, MIN_PAIR_HANDS, MUTED, ModelStats, TEXT, bb100Among, bb100Of, chips, modelHref, netColor, plural, signed, signedCompact, useChanges } from '@/lib/stats';
 
 // A cell's bb/100 at the grid's one font size, in full (+1234.5: a pair with few hands together reaches four
@@ -63,6 +64,7 @@ export default memo(function HeadToHead({
   hand = null,
   fitTo,
   leader,
+  shorten = false,
 }: {
   models: ModelStats[];
   bigBlind: number; // the big blind, for bb/100
@@ -71,6 +73,7 @@ export default memo(function HeadToHead({
   hand?: number | null; // the hand History is replaying, when `models` are as of then (null: now)
   fitTo?: string[]; // the seated lineup: the card's matrix box holds them; more keep that cell size and scroll, and fade in as the card adds them
   leader?: string | null; // the Leader line's model: its row, and the opponent it did best against, are marked
+  shorten?: boolean; // a phone's card: a row name too long for its capped column shows a shorter whole form (NameForm)
 }) {
   const outer = useRef<HTMLDivElement>(null);
   // The hovered cell, its box on screen, and the card's chrome the readout is drawn in (outside the card's scroller,
@@ -200,7 +203,7 @@ export default memo(function HeadToHead({
             // One element on the tile and in the card (no remount as the glide runs): a real link (never an anchor without an href).
             // On the tile it is no tab stop and lets a click through to the tile, which opens the card.
             <a key={row.name} data-row-name href={modelHref(row.name)} tabIndex={mini ? -1 : undefined} style={{ ...slot, color: TEXT }} title={row.name} className={`${mini ? 'pointer-events-none' : ''} flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[13px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
-              <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{row.name}</motion.span>
+              <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{shorten ? <NameForm name={row.name} /> : row.name}</motion.span>
             </a>
           ))}
         </div>
