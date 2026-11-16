@@ -3059,6 +3059,23 @@ group(() => check('trends-zoom', 'In the opened Trends card a pinch or ctrl+whee
     else if (band.dotsOut.length) bad.push(`zoomed: ${band.dotsOut.length} readout dots outside the plot band (${band.dotsOut.join(', ')})`);
     seen.push(`zoomed into ${ze.x0.toFixed(0)}–${ze.x1.toFixed(0)}: ${band.n} line points and ${band.dots} dots inside`);
     await p.mouse.click(ze.left + 0.5 * ze.w, ze.y, { count: 2 }); await sleep(900);
+    // Review 4, finding 12: at rest, unzoomed, an old hand's readout has values past the recent fit, so its dots are held
+    // at the plot's edge: at least one dot there (the clamp is used: without it that dot falls in the margin), all inside.
+    const rest = await zoomState(p);
+    let edge = null;
+    for (const f of [0.15, 0.1, 0.05, 0.2, 0.25]) {
+      await p.mouse.move(rest.left + f * rest.w, rest.y); await sleep(500);
+      const r = await p.evaluate(() => {
+        const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0), c = plot.querySelector('clipPath rect');
+        const top = +c.getAttribute('y') + 2, bot = top + +c.getAttribute('height') - 4;
+        const dots = [...plot.querySelectorAll('g[pointer-events="none"] circle')].map(e => +e.getAttribute('cy'));
+        return { n: dots.length, at: dots.filter(y => Math.abs(y - top) < 0.5 || Math.abs(y - bot) < 0.5).length, out: dots.filter(y => y < top - 0.5 || y > bot + 0.5).map(y => y.toFixed(1)) };
+      });
+      if (r.out.length) bad.push(`at rest, ${(f * 100).toFixed(0)}% across: ${r.out.length} readout dots outside the plot band (${r.out.join(', ')})`);
+      if (r.at) { edge = { f, ...r }; break; }
+    }
+    if (!edge) bad.push('at rest, no old hand\'s readout reached past the axis (the dot clamp not tested)');
+    else seen.push(`at rest ${(edge.f * 100).toFixed(0)}% across: ${edge.at} of ${edge.n} dots held at the edge`);
     // A plain wheel over the plot pages as everywhere (Trends to Profiles) and leaves the axis alone.
     const before = await zoomState(p);
     await p.mouse.move(before.left + 0.5 * before.w, before.y); await p.mouse.wheel({ deltaY: 100 }); await sleep(1800);
@@ -3068,6 +3085,32 @@ group(() => check('trends-zoom', 'In the opened Trends card a pinch or ctrl+whee
     seen.push(`plain wheel: page moved ${(axis.scrolled - before.scrolled).toFixed(0)}px`);
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+// Review 4, finding 8: the first small step of a pinch-in on the resting Trends card keeps the pack as tall as it was
+// (its recent quarter fitted, the window's early rate swings trimmed), not flattened by the early hands' extremes.
+group(() => check('trends-pinch-keeps-pack', 'At 1440x900 in the opened Trends card at rest, one small ctrl+wheel step in (a pinch\'s first event) keeps the lines\' recent quarter at least 60% as tall on the plot as before', async () => {
+  const p = await pageAt(1440, 900, 'race');
+  try {
+    await clickCenter(p, '#race-panel'); await sleep(1500);
+    await clickText(p, 'Skip'); await sleep(1500);
+    const spread = () => p.evaluate(() => {
+      const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0), c = plot.querySelector('clipPath rect');
+      const [cl, cw] = [+c.getAttribute('x'), +c.getAttribute('width')], ys = [];
+      for (const path of plot.querySelectorAll('g[clip-path] path[fill="none"]:not([stroke-dasharray])')) {
+        const v = (path.getAttribute('d') || '').match(/-?\d*\.?\d+(?:e-?\d+)?/g)?.map(Number) ?? [];
+        for (let i = 0; i + 1 < v.length; i += 2) if (v[i] >= cl + 0.75 * cw && v[i] <= cl + cw) ys.push(v[i + 1]);
+      }
+      return { n: ys.length, h: ys.length ? Math.max(...ys) - Math.min(...ys) : 0, plot: +c.getAttribute('height') };
+    });
+    const a = await spread(), s = await zoomState(p);
+    if (!a.n || a.h < 5) return { pass: false, detail: `at rest the recent quarter has ${a.n} points ${a.h.toFixed(0)} tall (nothing tested)` };
+    await ctrlWheel(p, s, 0.5, -3, 1); await sleep(1500);
+    const z = await zoomState(p), b = await spread();
+    if (!z.reset) return { pass: false, detail: 'one ctrl+wheel step did not zoom (nothing tested)' };
+    const ratio = b.h / a.h;
+    const detail = `hands ${s.x0.toFixed(0)}–${s.x1.toFixed(0)} → ${z.x0.toFixed(0)}–${z.x1.toFixed(0)}: the recent quarter ${a.h.toFixed(0)} → ${b.h.toFixed(0)} of ${a.plot.toFixed(0)} design px (${(ratio * 100).toFixed(0)}%)`;
+    return { pass: ratio >= 0.6, detail };
+  } finally { await p.close(); }
 }));
 // The same on a touch screen: two fingers pinch the plot's hands axis (never the page); one finger keeps scrolling the page.
 group(() => check('trends-zoom-touch', 'On a phone (390x844, touch) a two-finger pinch on the opened Trends plot zooms its hands axis, not the page; a one-finger swipe on it scrolls the page', async () => {

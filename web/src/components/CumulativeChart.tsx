@@ -587,14 +587,16 @@ export default function CumulativeChart({
     // The recent quarter itself and every tip are always inside: the leader's latest run is never clipped.
     const inView = [...[...lines.keys()].map(n => fitted(n, drawn.get(n) ?? [])), ...evDrawn.filter(e => evs.has(e.n)).map(e => fitted(e.n, e.p))].filter(p => p.length);
     const cut = lerp(X0, Math.min(X1, nowX), 0.75);
-    // A zoom (at rest only) is the viewer asking for that stretch: its own points are fitted, not its right quarter, so
-    // the stretch zoomed into is not clipped at the plot's edges (review 3, finding 9).
-    const recent = inView.flatMap(p => p.filter(q => zoom || q[0] >= cut).map(q => q[1]));
+    // A zoom (at rest only) is the viewer asking for that stretch: all its points are fitted, robustly (5th to 95th
+    // percentile, so the rates' early swings do not flatten the pack on a pinch's first step: review 4, finding 8), with
+    // its right quarter, the tips and what is ahead always inside; a point beyond is held at the plot's edge (path).
+    const recent = inView.flatMap(p => p.filter(q => q[0] >= cut).map(q => q[1]));
+    const all = zoom ? inView.flatMap(p => p.map(q => q[1])) : recent;
     const tips = [...lines.keys()].flatMap(n => fitted(n, drawn.get(n)?.slice(-1) ?? []).map(q => q[1]));
     // The replay is known ahead: the next LOOK_S of each line, so the eased axis is never caught out by a jump.
     const ahead = handNow === null ? [] : [...lines].flatMap(([n, p]) => fitted(n, trace(p, nowX, nowX + (LOOK_S * 1000 / PLAY_MS) * timeline!.hands, Infinity)).map(q => q[1]));
     want = inView.length
-      ? robustRange(recent, tips, [...recent, ...tips, ...ahead])
+      ? robustRange(all, tips, [...recent, ...tips, ...ahead])
       : robustRange([...lines].flatMap(([n, p]) => fitted(n, trace(p, from, lastHand)).map(q => q[1])));
   } else {
     const ys = [...drawn.values()].flatMap(p => p.map(q => q[1]));
@@ -631,8 +633,8 @@ export default function CumulativeChart({
   const x = (n: number) => left + ((n - X0) / (X1 - X0 || 1)) * leadW;
   const y = (v: number) => padTop + ((Y1 - v) / (Y1 - Y0 || 1)) * plotH;
   const line = (p: [number, number][]) => p.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
-  // A line's path, its early swings (before fitAt) held at the plot's edge.
-  const path = (n: string, p: Pts) => line(fitAt.size ? p.map(([h, v]) => [h, h < (fitAt.get(n) ?? Infinity) ? Math.min(Math.max(v, Math.min(Y0, Y1)), Math.max(Y0, Y1)) : v]) : p);
+  // A line's path, its early swings (before fitAt) held at the plot's edge, and in a zoom any point beyond the axis.
+  const path = (n: string, p: Pts) => line(fitAt.size || zoom ? p.map(([h, v]) => [h, zoom || h < (fitAt.get(n) ?? Infinity) ? Math.min(Math.max(v, Math.min(Y0, Y1)), Math.max(Y0, Y1)) : v]) : p);
 
   const shown = [...drawn.keys()].flatMap(n => (drawn.get(n)!.length && byName.has(n) ? [byName.get(n)!] : []));
   const hot = shown.find(m => m.name === (hover?.name ?? highlight)); // the hovered line
