@@ -45,7 +45,7 @@ const noop = () => () => {};
 const useNativeTimeline = () =>
   useSyncExternalStore(noop, () => CSS.supports('animation-timeline: view()') && CSS.supports('timeline-scope: --a'), () => true);
 
-// Phones (under 768px) get their own stats: one full-screen window per part (PhoneStats); wider windows the overview and
+// Phones (lib/layout's PHONE) get their own stats: one full-screen window per part (PhoneStats); wider windows the overview and
 // its cards' loop. The prerender is the wide one (stats sit below the table screen, out of sight when a phone swaps them).
 import { PHONE } from '@/lib/layout';
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
@@ -781,7 +781,7 @@ const BLOCK_VARS = {
 const WIDE_ROOM = `((100svh - 44px - var(--bar-h, 0px) - ${MARGIN} - ${BELOW}) / var(--sz, 1))`;
 const WIDE_VARS = { ...BLOCK_VARS, '--block-w': 'calc(var(--stage-w, 1264px) / var(--sz, 1))', '--rows': `calc(${WIDE_ROOM} - 12px)` } as React.CSSProperties;
 const WIDE = `pt-[calc(44px+var(--top))] pb-[calc(var(--below)+var(--bar-h,0px))] md:[zoom:var(--sz,1)] md:pt-[calc((44px+var(--top))/var(--sz,1))] md:pb-[calc((var(--below)+var(--bar-h,0px))/var(--sz,1))]`;
-// Phones (under md, 768px: a phone, or a laptop at 200% zoom) stack the tiles at their content's size: Trends
+// Phones (under md, lib/layout's PHONE: a phone, or a laptop past about 145% zoom) stack the tiles at their content's size: Trends
 // at its chart's shape (raceTile), Profiles at its rows, Matchups at a square that leaves its names 140px; the
 // overview scrolls inside its stage. An opened card takes the window's box under the sticky bar (PHONE_BOX), as
 // the Profiles and Matchups cards do, and scrolls inside itself; Trends' card is as tall as its content.

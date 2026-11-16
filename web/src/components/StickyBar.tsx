@@ -98,8 +98,8 @@ const TAP = "[&_button]:relative [&_button]:after:absolute [&_button]:after:-ins
 
 // Phones: one slim bar always at the top, under the notch: live and how many watch, the hand (not the pot: the table shows
 // it right under the bar, owner 2026-11-15: "there's no need to repeat the pot again"), the Chips/BB and
-// sound switches (the sound's as its icon alone; the status row's SoundToggle, mounted though hidden, starts the sound on
-// the first gesture), and on a stats card the way back to the overview.
+// sound switches (the sound's as its icon alone; page.tsx starts the sound on the first gesture, since a phone does not mount
+// the desktop status row), and on a stats card the way back to the overview.
 export function PhoneBar({ blank = false, live, watching, handNumber, bigBlind }: { blank?: boolean; live: boolean; watching?: number; handNumber: number; pot?: number; bigBlind: number }) {
   const screen = useScreen();
   const detail = screen === 'race' || screen === 'stats-table' || screen === 'pairwise';
@@ -125,7 +125,7 @@ export function PhoneBar({ blank = false, live, watching, handNumber, bigBlind }
         )}
         <div className="ml-auto shrink-0 flex items-center gap-1">
           {!detail && <span className={TAP}><UnitToggle bigBlind={bigBlind} /></span>}
-          <button type="button" onClick={() => setSoundOn(!sound)} aria-pressed={sound} aria-label="Sounds" className="flex items-center justify-center w-11 h-11 -mr-2" style={{ color: sound ? TEXT : MUTED }}>
+          <button type="button" onClick={() => setSoundOn(!sound)} aria-pressed={sound} aria-label="Sounds" data-sound className="flex items-center justify-center w-11 h-11 -mr-2" style={{ color: sound ? TEXT : MUTED }}>
             {sound ? <SpeakerHigh size={18} weight="bold" aria-hidden /> : <SpeakerSlash size={18} weight="bold" aria-hidden />}
           </button>
         </div>

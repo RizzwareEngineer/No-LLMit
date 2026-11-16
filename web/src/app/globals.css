@@ -371,7 +371,7 @@ html:has([data-screen]) {
    and bottom of the page ... keep enlarging? It doesn't need to"). There the top bar scrolls with the page (data-bar
    rides at the page's top, --top-h 0: the windows below no longer leave room for it) and the tab bar compacts to at most
    40px and under 15% of the height (its icons beside the labels, gone under 34px), so the table, the cards and About
-   get the window. The floating back-to-the-table button goes too: the tab bar's Table is right there. */
+   get the window. */
 @media not all and (min-width: 992px) and (min-height: 501px) {
 @media (max-height: 649px) {
   [data-page] {
@@ -384,7 +384,6 @@ html:has([data-screen]) {
   [data-phone-bar] { position: absolute; }
   [data-tab-bar] button { height: min(40px, 15svh - 4px); flex-direction: row; gap: 6px; font-size: 12px; }
   [data-tab-bar] svg { width: 18px; height: 18px; }
-  [data-back-top] { display: none !important; }
 }
 @media (max-height: 226px) {
   [data-tab-bar] svg { display: none; }

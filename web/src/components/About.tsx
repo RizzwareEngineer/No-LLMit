@@ -178,7 +178,7 @@ function Dial({ as, rest = false, className = '' }: { as: 'h2' | 'h3'; rest?: bo
 // The About content: the /about page, and the home page's last screen (where the page's own h1 is the table's title, so
 // About's first heading is an h2). Its parent sets the width (the stats overview's block on the home page). Memoized: the
 // stats re-render as each hand lands and as screens change; only its Race reads them, through PageStats (about/content).
-// Phones (under 768px) order About by the layout the URL picks (?about=1, 2 or 3; 1 by default), each with How it works
+// Phones (lib/layout's PHONE) order About by the layout the URL picks (?about=1, 2 or 3; 1 by default), each with How it works
 // early (owner, 2026-11-15: "There's got to be a way to fit 'How it works' first"). The header (No-LLMit, the benchmark for
 // LLMs) stays on top in all three; wider windows keep their one layout.
 //   1: How it works (the dial, opening on it), then the race graphic, then the ask.
