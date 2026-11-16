@@ -3981,7 +3981,7 @@ group(() => check('about-support-prominent', 'The donate button is visible witho
 // best first by bb/100, the LLMs with 500+ hands (MIN_HANDS) ahead of the rest, as the stats the page loaded say; the caption
 // names the leader, the best of those with 500+ hands, with its bb/100, and nothing in the figure says chips.
 group(() => check('about-bb100', 'The race on About draws running bb/100: its rows in bb/100 order (500+ hands first) from the stats the page loaded, and its caption names the leader among the LLMs with 500+ hands with its bb/100, never chips', async () => {
-  const fmt = v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(0)}`;
+  const fmt = v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v)).toLocaleString('en-US')}`; // grouped (fix-polish: one number format)
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   let stats = null;
   p.on('response', r => { const u = new URL(r.url()); if (u.pathname === '/api/stats' && !u.search && r.ok()) r.json().then(j => { stats = j; }, () => {}); });
@@ -4799,7 +4799,11 @@ const engineStats = async p => {
   return url ? { url, stats: await (await fetch(url)).json() } : null;
 };
 // bb/100 as the cards print it (lib/stats signedBrief): +12.3 below a thousand, +1.2k above.
-const bbText = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n) < 1000 ? Math.abs(n).toFixed(1) : Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase()}`;
+// The site's one number format (fix-polish: thousands separators everywhere, owner): one decimal under 100, whole from 100 up.
+const grp = (n, d) => Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const bbText = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${grp(n, Math.abs(n) < 100 ? 1 : 0)}`;
+// A Matchups cell too narrow for the grouped figure: the last resort, shortened (+1.3k), so it never goes blank.
+const bbCompact = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase()}`;
 const bb100 = (v, bb) => (v.net_chips / bb / v.hands) * 100;
 // The models the Seated now lineup shows (lib/stats seatedModels): the seated with stats when two or more have them, else all.
 const seatedOf = stats => { const at = stats.models.filter(m => stats.seated?.includes(m.name)); return at.length >= 2 ? at : stats.models; };
@@ -4827,7 +4831,7 @@ group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/
     if (!v?.hands) { if (c.text) bad.push(`${c.key}: "${c.text}" for a pair without hands together`); continue; }
     if (col) n++;
     // The figure in full where it fits (owner, 2026-11-09: not "+1k", "+2.4k"; HeadToHead's fitFigure), else a whole, else short.
-    const x = bb100(v, bb), want = bbText(x), sign = x > 0 ? '+' : x < 0 ? '−' : '', full = `${sign}${Math.abs(x).toFixed(1)}`, whole = `${sign}${Math.round(Math.abs(x))}`;
+    const x = bb100(v, bb), want = bbCompact(x), sign = x > 0 ? '+' : x < 0 ? '−' : '', full = `${sign}${grp(x, 1)}`, whole = `${sign}${grp(Math.round(x), 0)}`; // grouped (fix-polish)
     if (![full, whole, want].includes(c.text)) bad.push(`${c.key}: shows "${c.text}", engine ${v.net_chips} chips over ${v.hands} hands = ${full}`);
     if (+c.hands !== v.hands) bad.push(`${c.key}: data-hands ${c.hands}, engine ${v.hands}`);
   }
