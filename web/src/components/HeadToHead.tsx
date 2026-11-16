@@ -91,24 +91,31 @@ export default memo(function HeadToHead({
     const bb = v ? bb100Of(v.net_chips, bigBlind, hands) : null;
     return { v, hands, bb };
   };
-  // Every figure in the grid as shown, keyed row|column (row| for the Total); a pair that never met counts as 0.
-  const shown: Record<string, number> = {};
-  for (const row of sorted) {
-    for (const col of sorted) if (col !== row) shown[`${row.name}|${col.name}`] = Math.round((cellOf(row, col.name).bb ?? 0) * 10) / 10;
-    shown[`${row.name}|`] = Math.round(among.get(row.name)!.bb100 * 10) / 10;
-  }
-  // The cells whose figure changed (a hand History replays, or a new hand) flash once each, all together, in the
-  // frame their figures change (a layout effect: before that frame is painted).
-  const { deltas, seq } = useChanges(shown);
-  useLayoutEffect(() => {
-    if (!deltas.size || !outer.current) return;
-    for (const el of outer.current.querySelectorAll<HTMLElement>('[data-cell]')) if (deltas.has(el.dataset.cell!)) flash(el);
-  }, [seq, deltas]);
   // A cell's width, for the figures that fit it (layout size: a glide's transform does not change it).
   // A callback ref (state): the grid can mount after this component (first drawn on "No shared pots yet."), and the
   // observer attaches when it does.
   const [square, setSquare] = useState<HTMLDivElement | null>(null);
   const [cell, setCell] = useState(0);
+  const px = mini ? TILE_PX : 14;
+  const totals = mini ? 0 : TOTALS;
+  const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
+  // Every figure in the grid exactly as drawn (fitFigure's text), keyed row|column (row| for the Total); a pair that never
+  // met, or a row with no hands together, has none. Compared as text: a rounded number missed changes the text shows
+  // (+12 to +13 across 12.5, a sign at zero, a negative half rounded the other way), which then drew a frame before their flash.
+  const shown: Record<string, string> = {};
+  for (const row of sorted) {
+    for (const col of sorted) { const bb = col !== row ? cellOf(row, col.name).bb : null; if (bb !== null) shown[`${row.name}|${col.name}`] = fitFigure(bb, room, px); }
+    const t = among.get(row.name)!;
+    if (!mini && row.hands > 0 && t.hands > 0) shown[`${row.name}|`] = fitFigure(t.bb100, totals - 8, px);
+  }
+  // The cells whose figure changed (a hand History replays, or a new hand) flash once each, all together, in the
+  // frame their figures change (a layout effect: before that frame is painted). A new cell size (the glide, a resize)
+  // redraws figures without a change of value: no flash.
+  const { deltas, seq } = useChanges(shown, `${room}|${px}`);
+  useLayoutEffect(() => {
+    if (!deltas.size || !outer.current) return;
+    for (const el of outer.current.querySelectorAll<HTMLElement>('[data-cell]')) if (deltas.has(el.dataset.cell!)) flash(el);
+  }, [seq, deltas]);
   useEffect(() => {
     const el = square;
     if (!el) return;
@@ -174,15 +181,12 @@ export default memo(function HeadToHead({
   // Its parts move when a re-sort does: their fade runs once, on `outer` (globals.css' .adds), from when they first show.
   const adds = (name: string) => (!mini && fitTo?.includes(name) === false ? 'add-in add-moves' : '');
   const extras = sorted.some(m => adds(m.name));
-  const px = mini ? TILE_PX : 14;
   const strip = mini ? STRIP : 28;
-  const totals = mini ? 0 : TOTALS;
   const namesW = mini ? `clamp(0px, 100cqw - (100cqh - ${strip}px), var(--names, ${NAMES}px))` : 'auto';
   const Mw = mini ? `calc(100cqw - ${namesW})` : `calc(var(--card-m-phone, var(--card-m)) * ${grow})`;
   const Mh = mini ? `min(100cqh - ${strip}px, 100cqw - ${namesW})` : `calc(var(--card-m-phone, var(--card-mh)) * ${grow})`; // never taller than wide
   const slot = { height: `calc(${Mh} / ${n})` }; // a side column's row
   const rowH = { height: `calc((${Mh} - ${n + 2}px) / ${n})` }; // a matrix row: a cell inside the 1px spacing (n + 2 of them down, with the logos' row)
-  const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
   const pin = mini ? '' : 'sticky bg-white'; // the card scrolls a grid bigger than its box: headers pinned
   // Tile↔card: the matrix grows as one piece; the names, logos and figures inside it travel with it at their own
   // size (motion layout corrects them for the matrix's scale), like Profiles' cells; the Total column fades in.

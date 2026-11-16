@@ -128,24 +128,35 @@ export function useStats(enabled = true): StatsState {
 
 // Figures that changed between two snapshots: key -> new minus old, for keys in both. Callers pass
 // figures as displayed (rounded), so a change too small to show never flashes.
-export function diffValues(prev: Record<string, number>, next: Record<string, number>) {
+// Figures as drawn text (a matrix's cells) compare as text; their delta is NaN.
+type Figures = Record<string, number | string>;
+export function diffValues(prev: Figures, next: Figures) {
   const out = new Map<string, number>();
-  for (const k in next) if (k in prev && next[k] !== prev[k]) out.set(k, next[k] - prev[k]);
+  for (const k in next) {
+    const a = prev[k], b = next[k];
+    if (k in prev && b !== a) out.set(k, typeof a === 'number' && typeof b === 'number' ? b - a : NaN);
+  }
   return out;
 }
 
-export const sameValues = (a: Record<string, number>, b: Record<string, number>) =>
+export const sameValues = (a: Figures, b: Figures) =>
   Object.keys(a).length === Object.keys(b).length && Object.keys(b).every(k => a[k] === b[k]);
 
 // What changed in `values` at the last change: `deltas` (see diffValues) and `seq`, which counts
 // the changes so far. It starts at 0 with no deltas, so nothing plays on first load; effects key
-// on `seq` so each plays once per change, never on a re-render with the same data.
-export function useChanges(values: Record<string, number>) {
-  const [s, setS] = useState({ prev: values, deltas: new Map<string, number>(), seq: 0 });
+// on `seq` so each plays once per change, never on a re-render with the same data. A new `basis` (what the figures are
+// drawn for, such as a cell's size) takes the figures as they are, with no change.
+export function useChanges(values: Figures, basis?: string) {
+  const [s, setS] = useState({ prev: values, deltas: new Map<string, number>(), seq: 0, basis });
+  if (s.basis !== basis) {
+    const next = { ...s, prev: values, basis };
+    setS(next);
+    return next;
+  }
   if (!sameValues(s.prev, values)) {
     // Adjusting state while rendering (React's "storing information from previous renders").
     const deltas = diffValues(s.prev, values);
-    const next = deltas.size ? { prev: values, deltas, seq: s.seq + 1 } : { ...s, prev: values };
+    const next = deltas.size ? { prev: values, deltas, seq: s.seq + 1, basis } : { ...s, prev: values };
     setS(next);
     return next;
   }
