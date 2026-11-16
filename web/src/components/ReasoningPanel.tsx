@@ -12,19 +12,24 @@ interface ReasoningPanelProps {
   displayState: DisplayState | null;
   shotClockRemaining: number | null; // null: no clock
   blank?: boolean; // no table state yet: the bar at its size with nothing in it
+  street?: string; // the hand's street, named in the name cell between turns
 }
+
+const STAGE: Record<string, string> = { preflop: 'Preflop', flop: 'Flop', turn: 'Turn', river: 'River', complete: 'Hand over' };
 
 export default function ReasoningPanel({
   displayState,
   shotClockRemaining,
   blank = false,
+  street,
 }: ReasoningPanelProps) {
   const bb = useBigBlind(); // the action's amount follows the Chips/BB switch; the model's own words stay as written
   const ref = useRef<HTMLDivElement>(null);
   useFillIn(ref, !blank);
 
   const phase = displayState?.phase;
-  const playerName = displayState?.playerName || '—';
+  // Between turns the name cell says where the hand is (never a bare dash, which read as a broken placeholder).
+  const playerName = displayState?.playerName || STAGE[street ?? ''] || 'Next action';
   const reason = displayState?.reason;
   const action = displayState?.action;
   const amount = displayState?.amount || 0;
@@ -66,7 +71,7 @@ export default function ReasoningPanel({
         >
           <div className="flex items-center justify-center gap-2 w-full px-2">
             {!isIdle && <LLMLogo model={playerName} size={18} />}
-            <span className="text-sm font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }}>{playerName}</span>
+            <span data-actor className="text-sm font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }}>{playerName}</span>
           </div>
           
           {/* Shot clock countdown - visible during thinking and reasoning only. Its line is always

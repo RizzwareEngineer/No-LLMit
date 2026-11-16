@@ -7,6 +7,7 @@ import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED } from "@/lib/stats";
+import FitName from "@/components/FitName";
 
 interface WinningsPanelProps {
   players: PlayerState[];
@@ -44,15 +45,16 @@ function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
   const color = winnings > 0 ? 'rgb(15, 123, 108)' : winnings < 0 ? 'rgb(200, 50, 50)' : MUTED;
 
   return (
-    <div className="flex flex-row items-center gap-2 p-2 px-3">
-      <span className="text-[13px] w-5 font-bold tabular-nums" style={{ color: MUTED }}>{rank}.</span>
-      <LLMLogo model={player.name} size={20} />
+    // The name takes all the row the rank, logo and number leave it (owner's audit: names were cut while there was room).
+    <div className="flex flex-row items-center gap-1.5 p-2 px-2">
+      <span className="text-[13px] min-w-3.5 font-bold tabular-nums shrink-0" style={{ color: MUTED }}>{rank}.</span>
+      <LLMLogo model={player.name} size={18} />
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
+        <FitName name={player.name} className="text-[13px] font-bold" style={{ color: 'rgb(55, 53, 47)' }} />
       </div>
-      <div className="flex flex-row items-center gap-1 text-[13px] font-bold tabular-nums" style={{ color }}>
-        {winnings > 0 && <CaretUp size={11} weight="bold" aria-hidden />}
-        {winnings < 0 && <CaretDown size={11} weight="bold" aria-hidden />}
+      <div className="flex flex-row items-center gap-0.5 shrink-0 text-[13px] font-bold tabular-nums" style={{ color }}>
+        {winnings > 0 && <CaretUp size={10} weight="bold" aria-hidden />}
+        {winnings < 0 && <CaretDown size={10} weight="bold" aria-hidden />}
         <span data-chips={Math.abs(winnings)}>{winnings > 0 ? '+' : winnings < 0 ? '−' : ''}{formatAmount(Math.abs(winnings), bb, false)}</span>
       </div>
     </div>

@@ -550,6 +550,7 @@ function Table() {
                 displayState={displayState}
                 shotClockRemaining={shotClockRemaining}
                 blank={players.length === 0}
+                street={players.length ? street : undefined}
               />
             </div>}
             {phone && <div className="md:hidden mt-1.5 w-full" style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>

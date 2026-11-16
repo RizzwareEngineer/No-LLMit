@@ -2,6 +2,7 @@
 
 import Card from "@/components/Card";
 import HoleCard from "@/components/HoleCard";
+import FitName from "@/components/FitName";
 import LLMLogo from "@/components/LLMLogo";
 import { logoFile } from "@/lib/families";
 import { LOGO, type Spot, seatLabel, seatPlace } from "@/lib/phoneTable";
@@ -111,7 +112,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const badge = position && (
     <div
       data-position
-      className={`w-8 py-0.5 text-[8px] rounded font-bold shrink-0 text-center ${positionColor}`}
+      className={`min-w-8 px-1 text-[11px] leading-4 rounded font-bold shrink-0 text-center whitespace-nowrap ${positionColor}`}
       title={getPositionFullName(position)}
     >
       {position}
@@ -189,7 +190,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           <div className="flex items-center gap-2 min-w-0">
             <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
-              <div className="text-[11px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }} title={player.name}>{player.name}</div>
+              <FitName name={player.name} className="text-[11px] font-bold" style={{ color: 'rgb(55, 53, 47)' }} />
               <div data-chips={player.stack} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
             </div>
           </div>
