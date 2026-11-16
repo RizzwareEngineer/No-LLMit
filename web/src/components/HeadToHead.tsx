@@ -180,8 +180,6 @@ export default memo(function HeadToHead({
   // Tile↔card: the matrix grows as one piece; the names, logos and figures inside it travel with it at their own
   // size (motion layout corrects them for the matrix's scale), like Profiles' cells; the Total column fades in.
   const move = snap ? NONE : GLIDE;
-  // The tile's names open nothing of their own (the tile does): plain text, not an anchor without an href.
-  const Name = mini ? 'span' : 'a';
   return (
     // `adds`: All models' rows and columns fade in once, from here, as they first show (globals.css).
     <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : 'w-max'} ${extras ? 'adds' : ''}`}>{/* w-max: as wide as the grid, so the pinned names can follow a sideways scroll */}
@@ -195,9 +193,11 @@ export default memo(function HeadToHead({
           {/* Model names as in Profiles (14px bold; from md 500, 12px on the tile and 13px in the card: owner 2026-11-15, not
               bigger or bolder than at 67% zoom); the Leader on the highlight. */}
           {sorted.map(row => (
-            <Name key={row.name} data-row-name href={mini ? undefined : modelHref(row.name)} style={{ ...slot, color: TEXT }} title={row.name} className={`flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[13px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
+            // One element on the tile and in the card (no remount as the glide runs): a real link (never an anchor without an href).
+            // On the tile it is no tab stop and lets a click through to the tile, which opens the card.
+            <a key={row.name} data-row-name href={modelHref(row.name)} tabIndex={mini ? -1 : undefined} style={{ ...slot, color: TEXT }} title={row.name} className={`${mini ? 'pointer-events-none' : ''} flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[13px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
               <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{row.name}</motion.span>
-            </Name>
+            </a>
           ))}
         </div>
         <motion.div ref={square} layout layoutDependency={mini} transition={move} className="shrink-0" style={{ width: Mw, height: `calc(${Mh} + ${strip}px)` }}>

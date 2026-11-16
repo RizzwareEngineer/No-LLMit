@@ -140,7 +140,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
         if (w) room.current?.style.setProperty(v, `${w}px`);
       };
       widest('#stats-panel tbody th [translate=no]', MINI_CHROME, '--prof-w');
-      widest('#pairwise-panel a [translate=no]', 5, '--mu-names');
+      widest('#pairwise-panel [data-row-name] [translate=no]', 5, '--mu-names');
     };
     measure();
     document.fonts?.ready.then(measure);
