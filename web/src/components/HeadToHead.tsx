@@ -8,12 +8,14 @@ import LLMLogo from '@/components/LLMLogo';
 import { DASH, MIN_HANDS, MIN_PAIR_HANDS, MUTED, ModelStats, TEXT, bb100Among, bb100Of, chips, modelHref, netColor, plural, signed, signedCompact, useChanges } from '@/lib/stats';
 
 // A cell's bb/100 at the grid's one font size, in full (+1234.5: a pair with few hands together reaches four
-// digits) where it fits, else rounded to a whole, else shortened (+1.2k, a phone's narrow cells), else none (the
-// tint and the tooltip carry it). Never clipped. Screen readers get the full figure.
+// digits) where it fits, else rounded to a whole, else shortened (+1.2k, a phone's narrow cells); where none fits, the
+// narrowest of the whole and the short form (+486, +1.2k), never the widest (+485.9 in a 34px cell clipped to "+485.").
+// Screen readers get the full figure.
 // Its width in em, tabular figures (calibrated in the browser: a figure or sign 0.62em, a comma or point 0.29, k 0.53).
 const ems = (t: string) => [...t].reduce((w, c) => w + (c === ',' || c === '.' ? 0.29 : c === 'k' ? 0.53 : 0.62), 0);
 function fitFigure(n: number, room: number, px: number) {
-  return [signed(n), signed(n, 0), signedCompact(n)].find(t => ems(t) * px <= room) ?? signedCompact(n);
+  return [signed(n), signed(n, 0), signedCompact(n)].find(t => ems(t) * px <= room)
+    ?? [signed(n, 0), signedCompact(n)].reduce((a, b) => (ems(b) < ems(a) ? b : a));
 }
 // On the tile↔card glide the figure travels with the matrix and grows from the tile's size to the card's (motion
 // layout, measured only when `at` changes), never shrinking first.
@@ -100,15 +102,17 @@ export default memo(function HeadToHead({
     for (const el of outer.current.querySelectorAll<HTMLElement>('[data-cell]')) if (deltas.has(el.dataset.cell!)) flash(el);
   }, [seq, deltas]);
   // A cell's width, for the figures that fit it (layout size: a glide's transform does not change it).
-  const square = useRef<HTMLDivElement>(null);
+  // A callback ref (state): the grid can mount after this component (first drawn on "No shared pots yet."), and the
+  // observer attaches when it does.
+  const [square, setSquare] = useState<HTMLDivElement | null>(null);
   const [cell, setCell] = useState(0);
   useEffect(() => {
-    const el = square.current;
+    const el = square;
     if (!el) return;
     const ro = new ResizeObserver(() => setCell(el.offsetWidth / models.length));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [models.length]);
+  }, [square, models.length]);
   // The readout goes above its cell, else below, else beside it (right, then left): the first place where it lies
   // whole inside the card and the window, never over the cell. Placed before it is painted, at its own size.
   useLayoutEffect(() => {
@@ -200,7 +204,7 @@ export default memo(function HeadToHead({
             </a>
           ))}
         </div>
-        <motion.div ref={square} layout layoutDependency={mini} transition={move} className="shrink-0" style={{ width: Mw, height: `calc(${Mh} + ${strip}px)` }}>
+        <motion.div ref={setSquare} layout layoutDependency={mini} transition={move} className="shrink-0" style={{ width: Mw, height: `calc(${Mh} + ${strip}px)` }}>
           <table className="w-full h-full table-fixed border-separate border-spacing-px">
             <caption className="sr-only">Matchups: big blinds each row model won from each column model per 100 hands they were dealt in together, in bb/100 rank order</caption>
             {/* A zero-width first column holds each row's header for screen readers (the names column shows it). */}

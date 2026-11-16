@@ -555,10 +555,13 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
 // scrolls inside it only where it is taller or wider than the window (Profiles' columns, Matchups' matrix).
 // The DOM ids are the wide layout's screens and cards, so links and checks find the same parts; the screen it reports
 // (setScreen) is phone-*, which the sticky bars read as no card of the loop (no "Back to overview").
-// content-visibility: auto: a window off screen is neither laid out nor painted until it nears the window (its box keeps
-// its fixed height, so the snap points never move), which keeps a phone's first load to the table's work.
+// content-visibility: auto: a card body off screen is neither laid out nor painted until it nears the window (the
+// window keeps its fixed height, so the snap points never move), which keeps a phone's first load to the table's work.
+// On the card's body (which clips already), not the window: its paint containment would clip the card's ring and side
+// shadow at the window's edges (WINDOW has no side padding).
 const LAZY = '[content-visibility:auto] [contain-intrinsic-size:auto_100svh]';
-const WINDOW = `relative h-[max(100svh,var(--win-min,0px))] snap-start snap-always flex flex-col px-0 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+8px)] ${LAZY}`;
+const LAZY_BODY = '[content-visibility:auto] [contain-intrinsic-size:auto_0px]';
+const WINDOW = `relative h-[max(100svh,var(--win-min,0px))] snap-start snap-always flex flex-col px-0 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+8px)]`;
 function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
   const ready = !!data;
   const blank = !ready && !error;
@@ -602,7 +605,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
         <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
         {aside && <div className={ASIDE}>{aside}</div>}
       </div>
-      <div className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto">{body}</div>
+      <div className={`panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto ${LAZY_BODY}`}>{body}</div>
     </div>
     </div>
   );
@@ -678,7 +681,7 @@ function leaderAt(tl: Timeline | null, models: ModelStats[], hand: number | null
 // skipped; the same words on every card (one shared clock). `data-scope` carries it for the checks.
 function Leader({ tl, models }: { tl: Timeline | null; models: ModelStats[] }) {
   const hand = useReplayHand(tl);
-  const scope = hand === null ? 'all time' : `at hand ${hand.toLocaleString()}`;
+  const scope = hand === null ? 'all time' : `at hand ${hand.toLocaleString('en-US')}`;
   const top = leaderAt(tl, models, hand);
   return (
     // One line: on a phone the name truncates rather than wrapping, so the header keeps its height as the leader changes.
