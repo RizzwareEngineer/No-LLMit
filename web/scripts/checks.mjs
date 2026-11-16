@@ -540,11 +540,12 @@ group(async () => {
       const chips = await p.evaluate(() => [...document.querySelectorAll('[data-oval] [data-position]')].map(e => { const r = document.createRange(); r.selectNodeContents(e); return { t: e.textContent, room: (e.clientWidth - r.getBoundingClientRect().width) / 2, over: e.scrollWidth > e.clientWidth }; }));
       for (const c of chips) if (c.over || c.room < 3) out.push(`chip ${c.t} has ${c.room.toFixed(1)}px a side`);
       // The bubble: each seat acts in turn and its action shows over it for a moment.
-      // Each seat acts; a turn the page missed (a busy machine) is played once more under a new number.
-      for (let k = 0; k < 10; k++) {
-        const i = 1 + (k % 5), missed = out.indexOf(`no bubble over seat ${i}`);
-        if (k >= 5 && missed < 0) continue;
-        if (k >= 5) out.splice(missed, 1);
+      // Each seat acts, all nine (the review, table-fixes #4: seat 0's bubble in the beside draft covered the top seat's
+      // label, and only seats 1 to 5 were played); a turn the page missed (a busy machine) is played once more under a new number.
+      for (let k = 0; k < 18; k++) {
+        const i = k % 9, missed = out.indexOf(`no bubble over seat ${i}`);
+        if (k >= 9 && missed < 0) continue;
+        if (k >= 9) out.splice(missed, 1);
         await p.evaluate(([i, k]) => {
           const s = window.__stream, name = s.last.players[i].name, turn = 100 + 10 * k + i;
           s.feed({ type: 'llm_thinking', payload: { turn, playerIdx: i, playerName: name, budgetMs: 45000, elapsedMs: 0 } });
@@ -560,10 +561,15 @@ group(async () => {
           const seat = b.closest('[data-seat]'), r = b.getBoundingClientRect(), meet = e => { const o = e?.getBoundingClientRect(); return !!o && o.width > 0 && Math.min(r.right, o.right) - Math.max(r.left, o.left) > 0.5 && Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top) > 0.5; };
           // The page's bars (the review: the top seat's bubble sat 8px over the table, under the top bar on short windows).
           const top = [...document.querySelectorAll('div.fixed.top-0')].find(e => e.getBoundingClientRect().width > 0), nav = document.querySelector('nav[aria-label=Sections]');
-          return { seat: seat.dataset.seat, bars: [meet(top) && 'top bar', meet(nav) && 'tab bar'].filter(Boolean),
-            on: [...seat.querySelectorAll('[data-hole] > *, a[aria-label], [data-position], [data-chips]')].filter(meet).map(e => e.dataset.position !== undefined ? 'chip' : e.dataset.chips !== undefined ? 'stack' : e.tagName === 'A' ? 'logo' : 'cards') };
+          // Every other seat's logo, label, stack and cards too (the review, table-fixes #4).
+          const kind = e => e.dataset.label !== undefined ? 'label' : e.dataset.position !== undefined ? 'chip' : e.dataset.chips !== undefined ? 'stack' : e.tagName === 'A' ? 'logo' : 'cards';
+          const others = [...document.querySelectorAll('[data-oval] [data-seat]')].filter(e => e !== seat && e.getBoundingClientRect().width > 0)
+            .flatMap(o => [...o.querySelectorAll('[data-hole] > *, a[aria-label], [data-label], [data-chips]')].filter(meet).map(e => `seat ${o.dataset.seat}'s ${kind(e)}`));
+          return { seat: seat.dataset.seat, bars: [meet(top) && 'top bar', meet(nav) && 'tab bar'].filter(Boolean), others,
+            on: [...seat.querySelectorAll('[data-hole] > *, a[aria-label], [data-position], [data-chips]:not([data-label])')].filter(meet).map(kind) };
         });
         if (hit?.on.length) out.push(`seat ${hit.seat}'s bubble over its ${[...new Set(hit.on)].join(', ')}`);
+        if (hit?.others.length) out.push(`seat ${hit.seat}'s bubble over ${[...new Set(hit.others)].join(', ')}`);
         if (hit?.bars.length) out.push(`seat ${hit.seat}'s bubble under the ${hit.bars.join(' and ')}`);
         // The bubble is over the seat that acted (the review: a mix-up of seat and spot would pass unseen).
         if (hit && hit.seat !== String(i)) out.push(`seat ${i}'s action shown over seat ${hit.seat}`);
@@ -582,7 +588,7 @@ group(async () => {
       else seen.push(`${size}: ${r.seats.length} seats, ${r.bets.length} bets in place${dk ? `, deck ${dk.gap.toFixed(0)}px from the pot` : ''}`);
     } finally { await p.close(); }
   }
-  await check('phone-table-places', 'At 360x640, 375x667, 390x844 and 430x932, with a bet in front of every seat and all cards showing: all hole cards one size face down or up, every seat\'s bet drawn, every position chip holding its name with 3px a side, between hands the deck at least 8px under the pot, an action\'s bubble over the seat that acted and never over its seat\'s cards, logo, chip or stack or under the top or tab bar', async () => ({ pass: !bad.length && seen.length === 4, detail: bad.length ? bad.join(' | ') : seen.join(' | ') }));
+  await check('phone-table-places', 'At 360x640, 375x667, 390x844 and 430x932, with a bet in front of every seat and all cards showing: all hole cards one size face down or up, every seat\'s bet drawn, every position chip holding its name with 3px a side, between hands the deck at least 8px under the pot, an action\'s bubble (each of the nine seats acting) over the seat that acted and never over its seat\'s cards, logo, chip or stack, any other seat\'s logo, label, stack or cards, or under the top or tab bar', async () => ({ pass: !bad.length && seen.length === 4, detail: bad.length ? bad.join(' | ') : seen.join(' | ') }));
   // Not met yet (FIX-LAYOUT.md): on a 9-seat oval at 351x465 no placement found meets these with the stack and label under
   // each logo; this fails until the phone seat's design changes, and fails again if a fix ever regresses.
   await check('phone-table-ownership', 'At 360x640, 375x667, 390x844 and 430x932: each seat\'s hole cards and bet nearer its own logo than any other seat\'s, bets 8px apart, its cards 12px clear of the board\'s row sideways, 8px clear of other seats\' logos and with every corner on the felt', async () => ({ pass: !own.length && ownSeen.length === 4, detail: own.length ? own.join(' | ') : ownSeen.join(' | ') }));

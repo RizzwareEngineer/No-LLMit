@@ -4,7 +4,7 @@
 // Run from web/: node --experimental-strip-types --test src/lib/phoneTable.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CHIP, DECK, LOGO, MIDDLE, POT_TOP, at, chipTop, seatBox, seatLabel, seatSpots, textBox } from './phoneTable.ts';
+import { CHIP, DECK, LOGO, MIDDLE, POT_TOP, at, bubbleAt, chipTop, seatBox, seatLabel, seatSpots, textBox } from './phoneTable.ts';
 
 const SHAPES = ['oval', 'rect', 'stadium'];
 
@@ -47,6 +47,23 @@ for (const [shape, draft, tables] of RUNS) for (const [W, H] of tables) {
       }
     }
     assert.deepEqual(bad, []);
+  });
+}
+
+// The action's bubble (20px tall) of each of the nine draft seats keeps off every other seat's stack and label (the
+// review: with ?seat=beside at 360x640 and 375x667 seat 0's bubble covered the top seat's label). Its widths: 'Fold',
+// 'Call 20' and 'Raise 632' (44, 58 and 76px at 12px bold).
+for (const draft of ['beside', 'tucked']) for (const [W, H] of [...TABLES, [326, 460], [341, 465], [356, 642], [396, 730]]) {
+  test(`no ${draft} seat's action bubble covers another seat's stack or label on a ${W}x${H} oval table`, () => {
+    const spots = seatSpots(9, 'oval', draft).map(s => ({ s, x: at(s.x, W), y: at(s.y, H) })), bad = [];
+    spots.forEach(({ s, x, y }, i) => {
+      const b = bubbleAt(s);
+      for (const w of [44, 58, 76]) {
+        const l = x + b.x - (b.align === 'center' ? w / 2 : b.align === 'right' ? w : 0), box = [l, y + b.top, l + w, y + b.top + 20];
+        spots.forEach((o, j) => { if (j !== i && meet(box, textBox(o.s).map((v, k) => v + (k % 2 ? o.y : o.x)))) bad.push(`seat ${i}'s ${w}px bubble on seat ${j}'s stack and label`); });
+      }
+    });
+    assert.deepEqual([...new Set(bad)], []);
   });
 }
 

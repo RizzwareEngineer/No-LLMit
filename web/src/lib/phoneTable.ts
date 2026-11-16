@@ -32,7 +32,9 @@ export interface Spot {
   cards: readonly [number, number]; bet: readonly [number, number]; // centres, px from the logo's centre
   text?: TextAt; // where the stack and the label sit (default: under the logo)
   chipTop?: boolean; // the position chip on the logo's top edge, not its lower one (tucked cards cover the lower one)
+  bubble?: Bubble; // a draft seat's action bubble where bubbleAt's rule would cover a neighbour (the review, 2026-11-16)
 }
+export type Bubble = { x: number; top: number; align: 'center' | 'left' | 'right' };
 // The stack and the label: under the logo, `dx` across and `dy` down from the usual place (a tucked top seat's sit just
 // under its cards), or beside it, on the side with room, `dy` down from level with its centre.
 export type TextAt = { under: readonly [dx: number, dy: number] } | { beside: 'left' | 'right'; dy?: number };
@@ -116,31 +118,35 @@ const withHands = (p: Pick<Spot, 'x' | 'y'>): Spot => ({ ...p, ...toward(at(p.x,
 // 844x390 against the audit's rules (phone-table-ownership): each pair and bet nearer its own logo than any other, off
 // the board's row, on the felt, 8px clear of other logos and bets. On the oval the beside and tucked seats sit at their
 // own angles (seat 1 at the top), so the board's row has room between the side seats.
-type DraftSeat = { cards: readonly [number, number]; bet: readonly [number, number]; text: TextAt; chipTop?: boolean };
-const D = (cards: readonly [number, number], bet: readonly [number, number], text: TextAt, chipTop = false): DraftSeat => ({ cards, bet, text, chipTop });
+type DraftSeat = { cards: readonly [number, number]; bet: readonly [number, number]; text: TextAt; chipTop?: boolean; bubble?: Bubble };
+const D = (cards: readonly [number, number], bet: readonly [number, number], text: TextAt, chipTop = false, bubble?: Bubble): DraftSeat => ({ cards, bet, text, chipTop, bubble });
 const ANGLES: Record<Exclude<SeatDraft, 'today'>, readonly number[]> = { beside: [34.86, 68.84, 118.63, 153.87], tucked: [39.31, 86.33, 119.28, 156.1] };
 const U: TextAt = { under: [0, 0] };
 const DRAFTS: Record<Exclude<SeatDraft, 'today'>, Record<Shape, DraftSeat[]>> = {
   // The stack and label beside the logo, on the side with room (outward up top and at the foot, inward on the side
   // seats, whose outer side is off the table); at the widest part of the oval neither side has room under the seat
-  // below, so that seat keeps them under its logo.
+  // below, so that seat keeps them under its logo. Three action bubbles placed by hand (the review, 2026-11-16: at
+  // 360x640 and 375x667 bubbleAt's rule put them over a neighbour; phone-table-places plays all nine): seat 2's leans
+  // out, clear of the top seat's stack and label; seat 3's sits left of its logo over its own label, clear of seat 2's
+  // cards; seat 4's 2px lower and 6px out, clear of seat 5's logo.
   beside: {
     oval: [
       D([0, 47], [-1, 81], { beside: 'left', dy: -14 }),
-      D([-14, 48], [-52, 78], { beside: 'right', dy: -14 }),
-      D([-27, 47], [-90, 24], { beside: 'left' }),
-      D([-33, -18], [-92, -23], { under: [4, 0] }),
+      D([-14, 48], [-52, 78], { beside: 'right', dy: -14 }, false, { x: 4, top: -50, align: 'left' }),
+      D([-27, 47], [-90, 24], { beside: 'left' }, false, { x: -62, top: 2, align: 'right' }),
+      D([-33, -18], [-92, -23], { under: [4, 0] }, false, { x: 6, top: 44, align: 'center' }),
       D([-28, -26], [-6, -61], { beside: 'right', dy: 8 }),
     ],
     rect: [], stadium: [],
   },
   // The top seats' cards cover the logo's lower edge, so their chip sits on its top edge and their stack and label under
-  // the cards (or beside them); lower down the cards sit over the logo's inner upper edge.
+  // the cards (or beside them); lower down the cards sit over the logo's inner upper edge. Seat 3's action bubble placed
+  // by hand under its logo's inner half (the review, 2026-11-16: centred, it covered seat 4's cards on short tables).
   tucked: {
     oval: [
       D([2, 27], [1, 67], { under: [0, 54] }, true),
       D([-26, 32], [-32, 68], { under: [24, 30] }, true),
-      D([-41, -10], [-100, -29], U),
+      D([-41, -10], [-100, -29], U, false, { x: -28, top: 40, align: 'right' }),
       D([-33, -19], [-90, -22], U),
       D([-23, -28], [-19, -62], U),
     ],
@@ -154,9 +160,10 @@ export function seatSpots(n: number, shape: Shape = 'oval', draft: SeatDraft = '
     return Array.from({ length: 9 }, (_, i) => {
       // Not tuned for the other shapes yet: the oval's seats at their places (phone-table-ownership measures how they fare).
       const m = MIRROR[i], p = where[(m ?? i) - 1], d = (DRAFTS[draft][shape].length ? DRAFTS[draft][shape] : DRAFTS[draft].oval)[(m ?? i) - 1];
-      if (m === undefined) return { ...p, cards: d.cards, bet: d.bet, text: d.text, chipTop: d.chipTop };
+      if (m === undefined) return { ...p, cards: d.cards, bet: d.bet, text: d.text, chipTop: d.chipTop, bubble: d.bubble };
       const text: TextAt = 'beside' in d.text ? { beside: d.text.beside === 'left' ? 'right' : 'left', dy: d.text.dy } : { under: [-d.text.under[0], d.text.under[1]] };
-      return { ...flip(p), cards: [-d.cards[0], d.cards[1]], bet: [-d.bet[0], d.bet[1]], text, chipTop: d.chipTop };
+      const b = d.bubble, bubble: Bubble | undefined = b && { x: -b.x, top: b.top, align: b.align === 'left' ? 'right' : b.align === 'right' ? 'left' : 'center' };
+      return { ...flip(p), cards: [-d.cards[0], d.cards[1]], bet: [-d.bet[0], d.bet[1]], text, chipTop: d.chipTop, bubble };
     });
   }
   if (n !== 9) {
@@ -197,7 +204,8 @@ export const chipTop = (spot: Spot) => (spot.chipTop ? -LOGO / 2 - 3 : LOGO / 2 
 // from its cards, which are toward the middle: over the logo (and a chip on its top edge) when the cards are under it,
 // under the logo and its stack (over the label) when they are over it. The top seat's would leave the table (under the
 // page's top bar), so it sits beside its logo's upper half, on the side without its stack and label.
-export function bubbleAt(spot: Spot): { x: number; top: number; align: 'center' | 'left' | 'right' } {
+export function bubbleAt(spot: Spot): Bubble {
+  if (spot.bubble) return spot.bubble;
   const x = textBox(spot), beside = 'beside' in (spot.text ?? {});
   if (spot.y[0] === 0 && spot.y[1] < LOGO) return beside && x[0] > 0 ? { x: -LOGO / 2 - 6, top: -20, align: 'right' } : { x: LOGO / 2 + 6, top: -20, align: 'left' };
   if (spot.cards[1] >= 0) return { x: 0, top: (spot.chipTop ? -LOGO / 2 - 3 : -LOGO / 2) - 24, align: 'center' };
