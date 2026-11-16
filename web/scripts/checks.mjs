@@ -865,9 +865,9 @@ group(() => check('profiles-names-fit', 'At 375x667, 390x844 and 430x932 (touch)
           if (cut) {
             // A shorter form (versions dropped, then the maker's word) that would fit whole.
             const full = e.closest('[title]')?.getAttribute('title') ?? t, w0 = full.split(' ');
-            // lib/names: versions dropped, then the maker's word where a name word is left (never a bare size: 120B).
+            // lib/names: versions dropped, then the maker's word where two words are left, not all sizes (never 120B or Flash).
             const short = w0.filter((x, i) => i === 0 || !/^V?\d+(\.\d+)*$/.test(x)).join(' '), rest = short.split(' ').slice(1);
-            const forms = [short, rest.length && !rest.every(x => /^\d+(\.\d+)?[BMK]$/i.test(x)) ? rest.join(' ') : ''].filter(f => f && f !== t);
+            const forms = [short, rest.length >= 2 && !rest.every(x => /^[A-Z]?\d+(\.\d+)?[BMK]$/i.test(x)) ? rest.join(' ') : ''].filter(f => f && f !== t);
             // Tried in place (the cell's own font and figures), the text put back.
             const tn = [...e.querySelectorAll('*'), e].map(x => x.firstChild).find(n => n?.nodeType === 3), was = tn?.textContent;
             const fit = tn && forms.find(f => { tn.textContent = f; return e.scrollWidth <= e.clientWidth; }); if (tn) tn.textContent = was;
