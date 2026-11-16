@@ -50,17 +50,27 @@ for (const [shape, draft, tables] of RUNS) for (const [W, H] of tables) {
   });
 }
 
-// The action's bubble (20px tall) of each of the nine draft seats keeps off every other seat's stack and label (the
-// review: with ?seat=beside at 360x640 and 375x667 seat 0's bubble covered the top seat's label). Its widths: 'Fold',
-// 'Call 20' and 'Raise 632' (44, 58 and 76px at 12px bold).
+// The action's bubble (20px tall) of each of the nine draft seats keeps off every other seat's stack, label, logo and
+// cards, and off the pot and the board (the review: with ?seat=beside at 360x640 and 375x667 seat 0's bubble covered the
+// top seat's label; review 3: ?seat=tucked's seat 3 and 8 bubbles covered the river and the first flop card). Its
+// widths: 'Fold', 'Call 20' and 'Raise 632' (44, 58 and 76px at 12px bold).
 for (const draft of ['beside', 'tucked']) for (const [W, H] of [...TABLES, [326, 460], [341, 465], [356, 642], [396, 730]]) {
-  test(`no ${draft} seat's action bubble covers another seat's stack or label on a ${W}x${H} oval table`, () => {
+  test(`no ${draft} seat's action bubble covers another seat, the pot or the board on a ${W}x${H} oval table`, () => {
     const spots = seatSpots(9, 'oval', draft).map(s => ({ s, x: at(s.x, W), y: at(s.y, H) })), bad = [];
+    const my = at(MIDDLE, H), cx = W / 2, pot = [cx - 50, my + POT_TOP, cx + 50, my + POT_TOP + 30], board = [cx - 84, my - 2, cx + 84, my + 42];
     spots.forEach(({ s, x, y }, i) => {
       const b = bubbleAt(s);
       for (const w of [44, 58, 76]) {
         const l = x + b.x - (b.align === 'center' ? w / 2 : b.align === 'right' ? w : 0), box = [l, y + b.top, l + w, y + b.top + 20];
-        spots.forEach((o, j) => { if (j !== i && meet(box, textBox(o.s).map((v, k) => v + (k % 2 ? o.y : o.x)))) bad.push(`seat ${i}'s ${w}px bubble on seat ${j}'s stack and label`); });
+        if (meet(box, pot)) bad.push(`seat ${i}'s ${w}px bubble on the pot`);
+        if (meet(box, board)) bad.push(`seat ${i}'s ${w}px bubble on the board`);
+        spots.forEach((o, j) => {
+          if (j === i) return;
+          const c = [o.x + o.s.cards[0], o.y + o.s.cards[1]];
+          if (meet(box, textBox(o.s).map((v, k) => v + (k % 2 ? o.y : o.x)))) bad.push(`seat ${i}'s ${w}px bubble on seat ${j}'s stack and label`);
+          if (meet(box, [o.x - LOGO / 2, o.y - LOGO / 2, o.x + LOGO / 2, o.y + LOGO / 2])) bad.push(`seat ${i}'s ${w}px bubble on seat ${j}'s logo`);
+          if (meet(box, [c[0] - 30, c[1] - 20, c[0] + 30, c[1] + 20])) bad.push(`seat ${i}'s ${w}px bubble on seat ${j}'s cards`);
+        });
       }
     });
     assert.deepEqual([...new Set(bad)], []);

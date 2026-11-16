@@ -575,7 +575,9 @@ group(async () => {
           // Every other seat's logo, label, stack and cards too (the review, table-fixes #4).
           const kind = e => e.dataset.label !== undefined ? 'label' : e.dataset.position !== undefined ? 'chip' : e.dataset.chips !== undefined ? 'stack' : e.tagName === 'A' ? 'logo' : 'cards';
           const others = [...document.querySelectorAll('[data-oval] [data-seat]')].filter(e => e !== seat && e.getBoundingClientRect().width > 0)
-            .flatMap(o => [...o.querySelectorAll('[data-hole] > *, a[aria-label], [data-label], [data-chips]')].filter(meet).map(e => `seat ${o.dataset.seat}'s ${kind(e)}`));
+            .flatMap(o => [...o.querySelectorAll('[data-hole] > *, a[aria-label], [data-label], [data-chips]')].filter(meet).map(e => `seat ${o.dataset.seat}'s ${kind(e)}`))
+            // The pot and the board's cards (review 3: ?seat=tucked's seat 3 bubble covered the river card).
+            .concat([...document.querySelectorAll('[data-oval] [data-felt-cards] [role=img], [data-oval] [data-pot]')].filter(meet).map(e => (e.matches('[data-pot]') ? 'the pot' : 'a board card')));
           return { seat: seat.dataset.seat, bars: [meet(top) && 'top bar', meet(nav) && 'tab bar'].filter(Boolean), others,
             on: [...seat.querySelectorAll('[data-hole] > *, a[aria-label], [data-position], [data-chips]:not([data-label])')].filter(meet).map(kind) };
         });
@@ -599,7 +601,7 @@ group(async () => {
       else seen.push(`${size}: ${r.seats.length} seats, ${r.bets.length} bets in place${dk ? `, deck ${dk.gap.toFixed(0)}px from the pot` : ''}`);
     } finally { await p.close(); }
   }
-  await check('phone-table-places', 'At 360x640, 375x667, 390x844 and 430x932, with a bet in front of every seat and all cards showing: all hole cards one size face down or up, every seat\'s bet drawn, every position chip holding its name with 3px a side, between hands the deck at least 8px under the pot, an action\'s bubble (each of the nine seats acting) over the seat that acted and never over its seat\'s cards, logo, chip or stack, any other seat\'s logo, label, stack or cards, or under the top or tab bar', async () => ({ pass: !bad.length && seen.length === 4, detail: bad.length ? bad.join(' | ') : seen.join(' | ') }));
+  await check('phone-table-places', 'At 360x640, 375x667, 390x844 and 430x932, with a bet in front of every seat and all cards showing: all hole cards one size face down or up, every seat\'s bet drawn, every position chip holding its name with 3px a side, between hands the deck at least 8px under the pot, an action\'s bubble (each of the nine seats acting) over the seat that acted and never over its seat\'s cards, logo, chip or stack, any other seat\'s logo, label, stack or cards, the pot or a board card, or under the top or tab bar', async () => ({ pass: !bad.length && seen.length === 4, detail: bad.length ? bad.join(' | ') : seen.join(' | ') }));
   // Not met yet (FIX-LAYOUT.md): on a 9-seat oval at 351x465 no placement found meets these with the stack and label under
   // each logo; this fails until the phone seat's design changes, and fails again if a fix ever regresses.
   await check('phone-table-ownership', 'At 360x640, 375x667, 390x844 and 430x932: each seat\'s hole cards and bet nearer its own logo than any other seat\'s, bets 8px apart, its cards 12px clear of the board\'s row sideways, 8px clear of other seats\' logos and with every corner on the felt', async () => ({ pass: !own.length && ownSeen.length === 4, detail: own.length ? own.join(' | ') : ownSeen.join(' | ') }));
@@ -1094,7 +1096,9 @@ group(() => check('profiles-names-fit', 'At 375x667, 390x844 and 430x932 (touch)
             // The dots as drawn (fix-final #10): text-overflow's ellipsis is never in textContent, so find the last character
             // drawn whole before it (each character's box against the box's right edge, less the ellipsis's width).
             if (tn) {
-              const cs = getComputedStyle(e), m = document.createElement('span'); m.textContent = '…'; m.style.font = cs.font; m.style.position = 'absolute'; document.body.append(m);
+              // The ellipsis measured inside the name's own box, in its font (review 3, finding 15: cs.font is '' for a
+              // tabular-nums cell, so a probe on <body> took the body's 16px and the room came out about 2px short).
+              const cs = getComputedStyle(e), m = document.createElement('span'); m.textContent = '…'; m.style.position = 'absolute'; m.style.visibility = 'hidden'; e.append(m);
               const room = e.getBoundingClientRect().right - parseFloat(cs.paddingRight) - m.getBoundingClientRect().width; m.remove();
               let last = '';
               for (let i = 0; i < tn.textContent.length; i++) { const r = document.createRange(); r.setStart(tn, i); r.setEnd(tn, i + 1); if (r.getBoundingClientRect().right <= room + 0.5) last = tn.textContent[i]; else break; }
@@ -3745,6 +3749,26 @@ const films = () => (filmed ??= alone(async () => {
       const back = () => clickPrefix(p, 'Back to overview'), esc = () => p.keyboard.press('Escape');
       await take('open', 'default', open); await take('close by Back', 'default', back);
       await take('open', 'default', open); await take('close by Escape', 'default', esc);
+      // A hand landing mid-glide (review 3, finding 11: with the stream held, nothing covered it): a stats message 100 ms
+      // after the press, one more hand for the last model, which then leads (a re-sort), and one of its pairs changed.
+      // Judged by handover-no-blank and glide-clean only: the figures change at the swap by design.
+      const st = (await engineStats(p))?.stats;
+      for (const how of st?.models?.length > 1 ? ['open', 'close by Back'] : []) {
+        const act = async () => {
+          await (how === 'open' ? open() : back()); await sleep(100);
+          await p.evaluate((st, n) => {
+            const s = structuredClone(st), ms = [...s.models].sort((a, b) => b.bb100 - a.bb100), top = ms[0], last = ms.at(-1);
+            last.hands += n; last.net_chips += 1000 * n; last.bb100 = top.bb100 + 5 * n;
+            const v = last.vs?.[top.name]; if (v) { v.hands += n; v.net_chips += 100 * n; }
+            window.__stream.feed({ type: 'stats', payload: s });
+          }, st, how === 'open' ? 1 : 2);
+        };
+        await sleep(800);
+        const fr = await film(p, { tile, card, screen }, act, how === 'open' ? screen : 'stats');
+        const r = judge(fr, `${sec} ${how} ${w}x${h} (a hand landing)`, how, 'default');
+        out.push({ ...r, same: [], missed: false });
+      }
+      if (st) await p.evaluate(st => window.__stream.feed({ type: 'stats', payload: st }), st); // the figures as loaded again
       if (sec === 'Trends') continue;
       // The viewer changes the card, then closes and opens it again.
       await open(); await sleep(3000);
@@ -6120,14 +6144,17 @@ group(() => check('segments-fill', 'At 390x844 in the Trends filter sheet (Metri
       const opened = await p.evaluate(() => { const b = [...document.querySelectorAll('button')].find(e => /^Filters/.test(e.textContent.trim()) && e.getBoundingClientRect().width > 0); b?.click(); return !!b; });
       await sleep(800);
       if (!opened) bad.push('390x844: no Filters button');
-      const rs = await read(p, 'dialog[open]'); missing('390x844', rs);
+      // Only missing() is scoped to the sheet; the fill test takes every switch on the page, the Matchups window's Lineup
+      // included (review 3, finding 14: scoping it dropped that switch's fill check in both layouts).
+      missing('390x844', await read(p, 'dialog[open]'));
+      const rs = await read(p, 'body');
       for (const r of rs) { if (r.n < 2) bad.push(`390x844 ${r.label}: ${r.n} option`); else if (r.ratio < 0.9) bad.push(`390x844 ${r.label}: options fill ${(r.ratio * 100).toFixed(0)}% of the track`); else seen.push(`${r.label} ${(r.ratio * 100).toFixed(0)}%`); }
     } finally { await p.close(); }
   }
   {
     const p = await polishPage(1440, 900);
     try {
-      await polishGo(p, 'race'); const rs = await read(p, '#race-panel'); missing('1440x900', rs);
+      await polishGo(p, 'race'); missing('1440x900', await read(p, '#race-panel')); const rs = await read(p, 'body');
       for (const r of rs) { if (r.n < 2) bad.push(`1440x900 ${r.label}: ${r.n} option`); else if (r.ratio < 0.9) bad.push(`1440x900 ${r.label}: options fill ${(r.ratio * 100).toFixed(0)}% of the track`); else seen.push(`1440 ${r.label} ${(r.ratio * 100).toFixed(0)}%`); }
     } finally { await p.close(); }
   }
@@ -6393,6 +6420,73 @@ group(() => check('stats-while-typing', 'While a long reason types (pace 1, from
   } else bad.push('1440x900: the reason never started typing');
   await p.close();
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(', ') };
+}));
+
+// Review 3, findings 2 and 17: the stats and the model drawer load their code on demand; a chunk that fails (a deploy
+// replaced it, the phone went offline) must never replace the page. Every script requested after the page has loaded
+// fails; the viewer swipes to Trends and taps a model: the table stays, nothing says the page failed. Then the network
+// is back, and the next gesture loads the stats, the next model tap opens its drawer.
+group(() => check('chunk-fail-keeps-table', 'At 390x844 (touch), with every script after load failing: a swipe to Trends and a model link leave the live table in place (no error screen); once the network is back, the next gesture shows the stats and the next model link its drawer', async () => {
+  const p = await newPage(), bad = [];
+  try {
+    await p.emulate({ viewport: { width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: '' });
+    let block = false, failed = 0;
+    await p.setRequestInterception(true);
+    p.on('request', r => { if (block && /\/_next\/static\/chunks\/.*\.js/.test(r.url())) { failed++; r.abort('internetdisconnected').catch(() => {}); } else r.continue().catch(() => {}); });
+    await p.goto(BASE, { waitUntil: 'load', timeout: 120000 });
+    await p.waitForFunction(() => document.querySelector('[data-oval] [data-seat]'), { timeout: 60000 });
+    await sleep(2000);
+    if (await p.evaluate(() => !!document.getElementById('race-panel'))) return { pass: false, detail: 'the stats mounted before any gesture (nothing tested)' };
+    block = true;
+    const hash = await p.evaluate(() => document.querySelector('a[href^="#model="]')?.getAttribute('href').slice(1) ?? null);
+    const toRace = () => p.evaluate(() => { const e = document.getElementById('race'); if (e) window.scrollTo({ top: e.getBoundingClientRect().top + scrollY, behavior: 'instant' }); return !!e; });
+    await toRace(); await sleep(3000);
+    if (hash) { await p.evaluate(h => { location.hash = h; }, hash); await sleep(3000); }
+    const r = await p.evaluate(() => ({
+      seats: [...document.querySelectorAll('[data-oval] [data-seat]')].filter(e => e.getBoundingClientRect().width > 0).length,
+      error: /client-side exception|couldn.t load|Application error/i.test(document.body.innerText),
+      stats: !!document.getElementById('race-panel'), drawer: !!document.querySelector('dialog[open]'),
+    }));
+    if (!failed) bad.push('no script was asked for while blocked (nothing tested)');
+    if (r.error) bad.push('an error screen replaced the page');
+    if (!r.seats) bad.push('the table is gone');
+    if (r.stats || r.drawer) bad.push(`the ${r.stats ? 'stats' : 'drawer'} showed with its script failing`);
+    block = false;
+    if (r.error || !r.seats) return { pass: false, detail: bad.join('; ') };
+    await p.mouse.wheel({ deltaY: 0 }); await toRace();
+    const back = await p.waitForFunction(() => document.getElementById('race-panel'), { timeout: 10000 }).then(() => true, () => false);
+    if (!back) bad.push('the stats never showed once the network was back');
+    if (hash) {
+      await p.evaluate(() => { if (location.hash) history.replaceState(null, '', location.pathname); });
+      await p.evaluate(h => { location.hash = h; }, hash);
+      if (!(await p.waitForFunction(() => document.querySelector('dialog[open]'), { timeout: 10000 }).then(() => true, () => false))) bad.push('the drawer never opened once the network was back');
+    } else bad.push('no model link');
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${failed} scripts failed: the table stayed (${r.seats} seats), no error screen; then the stats and the drawer showed` };
+  } finally { await p.close(); }
+}));
+
+// Review 3, finding 3: a viewer who scrolled before the page's scripts ran (a slow load, or a restored scroll) stays
+// where they are when the stats mount; KeepScroll's last position started at 0 and put them back on the table.
+group(() => check('early-scroll-kept', 'At 390x844 (touch), a viewer who scrolls to Profits & Losses before the scripts run is still there after the page hydrates and the stats mount', async () => {
+  const p = await newPage();
+  try {
+    await p.emulate({ viewport: { width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: '' });
+    let hold = true;
+    await p.setRequestInterception(true);
+    p.on('request', r => { if (hold && /\/_next\/static\/chunks\/.*\.js/.test(r.url())) { const t = setInterval(() => { if (!hold) { clearInterval(t); r.continue().catch(() => {}); } }, 50); } else r.continue().catch(() => {}); });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await sleep(1500);
+    const y0 = await p.evaluate(() => { const e = document.getElementById('phone-stats') ?? document.getElementById('race'); window.scrollTo({ top: e.getBoundingClientRect().top + scrollY, behavior: 'instant' }); return scrollY; });
+    await sleep(300);
+    const y1 = await p.evaluate(() => scrollY);
+    hold = false;
+    const mounted = await p.waitForFunction(() => document.getElementById('race-panel'), { timeout: 30000 }).then(() => true, () => false);
+    await sleep(1500);
+    const y2 = await p.evaluate(() => scrollY);
+    if (y1 < 300) return { pass: false, detail: `the early scroll did not hold (${y0} asked, ${y1})` };
+    if (!mounted) return { pass: false, detail: 'the stats never mounted' };
+    return { pass: Math.abs(y2 - y1) < 50, detail: `scrolled to ${y1}px before the scripts ran; ${y2}px once the stats mounted` };
+  } finally { await p.close(); }
 }));
 
 // The engine's clock and next-hand countdown, against the page's, after a load on a 4x-throttled CPU: the state comes in

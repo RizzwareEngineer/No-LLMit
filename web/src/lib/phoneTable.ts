@@ -141,12 +141,14 @@ const DRAFTS: Record<Exclude<SeatDraft, 'today'>, Record<Shape, DraftSeat[]>> = 
   },
   // The top seats' cards cover the logo's lower edge, so their chip sits on its top edge and their stack and label under
   // the cards (or beside them); lower down the cards sit over the logo's inner upper edge. Seat 3's action bubble placed
-  // by hand under its logo's inner half (the review, 2026-11-16: centred, it covered seat 4's cards on short tables).
+  // by hand over its own cards, its right edge 60px in from the logo's centre (the review, 2026-11-16: centred, it covered
+  // seat 4's cards on short tables; under the logo's inner half, review 3: it covered the river card, and seat 8's the
+  // first flop card). phoneTable.test.mjs finds it clear of every seat's logo, cards, stack and label, the pot and the board.
   tucked: {
     oval: [
       D([2, 27], [1, 67], { under: [0, 54] }, true),
       D([-26, 32], [-32, 68], { under: [24, 30] }, true),
-      D([-41, -10], [-100, -29], U, false, { x: -28, top: 40, align: 'right' }),
+      D([-41, -10], [-100, -29], U, false, { x: -60, top: -50, align: 'right' }),
       D([-33, -19], [-90, -22], U),
       D([-23, -28], [-19, -62], U),
     ],
