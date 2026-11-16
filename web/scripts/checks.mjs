@@ -64,13 +64,13 @@ const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { wh
 // --changed: only the checks tied to the files changed against $BASE_REF (committed, uncommitted, untracked).
 // A web file no rule names, or a change to this script outside a check's own block, selects every check.
 const COVERS = [
-  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle|TabBar|StickyBar)\.tsx|hooks\/|lib\/(sound|amounts|phoneTable)\./, /^(seat-size|table-|phone-|no-currency|main-scroll|stats-type-scale)/],
-  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges|handover-|glide-clean)/],
+  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle|TabBar|StickyBar)\.tsx|hooks\/|lib\/(sound|amounts|phoneTable)\./, /^(seat-size|table-|phone-|no-currency|main-scroll|stats-type-scale|desktop-table-text|numbers-one-format|history-overtake-sound|a11y-axe)/],
+  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges|handover-|glide-clean|numbers-one-format|a11y-axe|cards-top-aligned|segments-fill|no-stub-ellipsis)/],
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
-  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges)/],
-  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges)/],
-  [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|page-edges|main-scroll|no-stats-hash|scroll-consistency)/],
-  [/components\/StickyBar\.tsx|lib\/amounts\./, /^(sticky-|table-bb-toggle)/],
+  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges|numbers-one-format|a11y-axe|cards-top-aligned)/],
+  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges|numbers-one-format|a11y-axe|cards-top-aligned)/],
+  [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|page-edges|main-scroll|no-stats-hash|scroll-consistency|dialogs-close-and-captions|focus-ring-keyboard-only|numbers-one-format|a11y-axe|cards-top-aligned|no-stub-ellipsis)/],
+  [/components\/StickyBar\.tsx|lib\/amounts\./, /^(sticky-|table-bb-toggle|history-overtake-sound|a11y-axe)/],
   [/components\/(PokerTable|Player|TableFelt|WinningsPanel|UsageIndicator|ReasoningPanel|StickyBar|StatsTable|HeadToHead|CumulativeChart|About)\.tsx|lib\/boxes\./, /^skeleton-/],
   [/(^|\/)AGENTS\.md$/, /(?!)/], // the file next dev writes: no check covers it
 ];
@@ -563,8 +563,10 @@ group(() => check('phone-chrome', 'At 375x667, 844x390, 932x430, 667x375 and 144
     const size = `${w}x${h}${z > 1 ? `@${z}x` : ''}`, p = await newPage();
     try {
       await p.setViewport({ width: w, height: h, deviceScaleFactor: z });
+      await scriptStream(p); // only watched (never scripted here): the stream's player count
       await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-      await p.waitForFunction(() => document.querySelectorAll('[data-oval] [data-seat] a[aria-label]').length >= 6, { timeout: 60000 }).catch(() => {});
+      // A table that never dealt (a blank placeholder oval) tests nothing: the size fails.
+      const dealt = await p.waitForFunction(() => document.querySelectorAll('[data-oval] [data-seat] a[aria-label]').length >= 6, { timeout: 60000 }).then(() => true, () => false);
       await sleep(2500);
       const r = await p.evaluate(q => {
         const vis = e => { const b = e?.getBoundingClientRect(); return !!b && b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
@@ -590,8 +592,12 @@ group(() => check('phone-chrome', 'At 375x667, 844x390, 932x430, 667x375 and 144
         const shows = e => { for (let a = e; a; a = a.parentElement) if (+getComputedStyle(a).opacity === 0) return false; return true; };
         const small = [...document.querySelectorAll('[data-oval] *, [data-tab-bar] *, [data-phone-bar] *, [data-caption] *')].filter(e => vis(e) && shows(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 11);
         for (const e of small.slice(0, 3)) out.push(`"${e.textContent.trim().slice(0, 12)}" at ${getComputedStyle(e).fontSize}`);
-        return { out, n: document.querySelectorAll('[data-oval] [data-seat]').length, share };
+        const logos = [...document.querySelectorAll('[data-oval] [data-seat] a[aria-label]')].filter(vis).length;
+        return { out, n: document.querySelectorAll('[data-oval] [data-seat]').length, logos, players: window.__stream?.last?.players?.length ?? 0, share };
       }, PHONE_Q);
+      if (!dealt) r.out.push('the table never dealt in 60s (no six seat logos)');
+      if (!r.players) r.out.push('no game state on the stream');
+      else if (r.logos < r.players) r.out.push(`${r.logos} seat logos shown for ${r.players} players`);
       // Every seat (logo, chip, stack and label) can rest wholly between the bars: some scroll the table's screen allows
       // (it scrolls freely where it is taller than the window; mandatory snapping overrides a scripted scroll, so this is
       // worked out from the page's geometry, at the top of the page).
@@ -602,7 +608,7 @@ group(() => check('phone-chrome', 'At 375x667, 844x390, 932x430, 667x375 and 144
         const lo = Math.max(0, sec.top + y0), hi = Math.max(lo, Math.min(document.documentElement.scrollHeight - innerHeight, sec.bottom + y0 - innerHeight));
         return [...document.querySelectorAll('[data-oval] [data-seat]')].map(s => {
           const bs = [...s.querySelectorAll('a[aria-label], [data-position], [data-chips], [data-label]')].map(e => e.getBoundingClientRect()).filter(b => b.width > 0);
-          if (!bs.length) return null;
+          if (!bs.length) return `${s.dataset.seat} (no visible part)`;
           const t = Math.min(...bs.map(b => b.top)) + y0, b = Math.max(...bs.map(b => b.bottom)) + y0;
           // A scroll s shows it between the bars when t - s >= tb and b - s <= nav.top: s in [b - nav.top, t - tb].
           const from = Math.max(lo, b - nav.top), to = Math.min(hi, t - tb);
@@ -631,7 +637,7 @@ group(() => check('phone-chrome', 'At 375x667, 844x390, 932x430, 667x375 and 144
           if (pop.unscrimmed) r.out.push(`${pop.unscrimmed} of ${pop.outside} seats round the popup not under a 30% scrim`);
         }
         await p.keyboard.press('Escape');
-      }
+      } else r.out.push('no seat logo to tap');
       if (r.out.length) bad.push(`${size}: ${r.out.slice(0, 5).join(', ')}${r.out.length > 5 ? ` and ${r.out.length - 5} more` : ''}`);
       else seen.push(`${size} bars ${(r.share * 100).toFixed(0)}%`);
     } finally { await p.close(); }
@@ -649,14 +655,26 @@ group(() => check('desktop-table-text', 'At 1440x900, 1512x982 and 1728x1117: no
     const p = await newPage();
     try {
       await p.setViewport({ width: w, height: h });
+      await scriptStream(p); // only watched (never scripted here): the stream's player count
       await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
-      await p.waitForFunction(() => document.querySelectorAll('td [data-seat] [data-position]').length >= 6 && document.querySelector('#table ol li'), { timeout: 60000 }).catch(() => {});
+      // A table that never dealt (blank seats, an empty Profits & Losses) tests nothing: the size fails.
+      const dealt = await p.waitForFunction(() => document.querySelectorAll('td [data-seat] [data-position]').length >= 6 && document.querySelector('#table ol li'), { timeout: 60000 }).then(() => true, () => false);
       await sleep(2500);
       const r = await p.evaluate(() => {
         const vis = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
         const sec = document.querySelector('section[data-screen]'), out = [];
         const cut = [...sec.querySelectorAll('#table ol [title], td [data-seat] [title]')].filter(e => vis(e) && e.scrollWidth > e.clientWidth + 1);
         for (const e of cut.slice(0, 4)) out.push(`"${e.getAttribute('title')}" cut to ${e.clientWidth}px (needs ${e.scrollWidth})`);
+        // A name shown in a shorter form (FitName) is counted in the detail; one shown shorter although whole it fits in
+        // the room it has now (a shortened name that never came back) fails: put the full name in and see it fit.
+        const shortened = [...sec.querySelectorAll('#table ol [title], td [data-seat] [title]')].filter(e => vis(e) && e.firstChild?.nodeType === 3 && e.firstChild.textContent.trim() !== e.getAttribute('title'));
+        const stuckShort = shortened.filter(e => { const t = e.firstChild, was = t.textContent; t.textContent = e.getAttribute('title'); const row = e.closest('.justify-between') ?? e.parentElement; const fits = e.scrollWidth <= e.clientWidth + 1 && row.scrollWidth <= row.clientWidth + 1; t.textContent = was; return fits; });
+        for (const e of stuckShort.slice(0, 4)) out.push(`"${e.getAttribute('title')}" shown as "${e.firstChild.textContent.trim()}" although it fits whole`);
+        const players = window.__stream?.last?.players?.length ?? 0;
+        if (!players) out.push('no game state on the stream');
+        const pnl = [...sec.querySelectorAll('#table ol [title]')].filter(vis).length, badges = [...sec.querySelectorAll('td [data-position]')].filter(vis).length;
+        if (pnl < players) out.push(`${pnl} Profits & Losses names for ${players} players`);
+        if (badges < players) out.push(`${badges} position badges for ${players} players`);
         const shows = e => { for (let a = e; a; a = a.parentElement) if (+getComputedStyle(a).opacity === 0) return false; return true; };
         const small = [...sec.querySelectorAll('*')].filter(e => vis(e) && shows(e) && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 11);
         for (const e of small.slice(0, 4)) out.push(`"${e.textContent.trim().slice(0, 14)}" at ${getComputedStyle(e).fontSize}`);
@@ -667,13 +685,105 @@ group(() => check('desktop-table-text', 'At 1440x900, 1512x982 and 1728x1117: no
         if (document.querySelector('[data-oval], [data-tab-bar], [data-phone-bar]')) out.push('the phone table or its bars are mounted too');
         const actor = document.querySelector('[data-actor]');
         if (!actor || !vis(actor) || /^[-–—\s]*$/.test(actor.textContent)) out.push(`the action bar's name reads "${actor?.textContent ?? ''}"`);
-        return { out, names: sec.querySelectorAll('#table ol [title]').length, actor: actor?.textContent };
+        return { out, names: sec.querySelectorAll('#table ol [title]').length, actor: actor?.textContent, short: shortened.map(e => `${e.getAttribute('title')} as ${e.firstChild.textContent.trim()}`) };
       });
+      if (!dealt) r.out.unshift('the table never dealt in 60s');
       if (r.out.length) bad.push(`${w}x${h}: ${r.out.slice(0, 6).join(', ')}`);
-      else seen.push(`${w}x${h}: ${r.names} names whole, action bar "${r.actor}"`);
+      else seen.push(`${w}x${h}: ${r.names} names (${r.short.length ? `shortened to fit: ${[...new Set(r.short)].join(', ')}` : 'all whole'}), action bar "${r.actor}"`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(' | ') };
+}));
+
+// R2: the desktop status row's remembered boxes (the status label, the hand number) are recorded even when the page
+// loaded in the phone layout and the window then widened past the switch (the row mounts late; its hooks must too).
+group(() => check('status-boxes-remembered', 'Loaded at 900x800 (phone layout) and widened to 1300x800, the status label and hand number boxes are remembered for 1300x800', async () => {
+  const p = await newPage();
+  try {
+    await p.setViewport({ width: 900, height: 800 });
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.evaluate(() => { try { localStorage.removeItem('nollmit:boxes:2'); } catch {} });
+    await p.waitForFunction(() => document.querySelector('[data-oval] [data-seat] a[aria-label]'), { timeout: 60000 }).catch(() => {});
+    await sleep(2000);
+    await p.setViewport({ width: 1300, height: 800 });
+    await p.waitForFunction(() => /Hand #[1-9]/.test(document.querySelector('[data-box="hand-no"]')?.textContent ?? ''), { timeout: 60000 }).catch(() => {});
+    await sleep(1500);
+    const r = await p.evaluate(() => { try { return JSON.parse(localStorage.getItem('nollmit:boxes:2') || 'null'); } catch { return null; } });
+    const miss = ['status-label', 'hand-no'].filter(k => !(r && r.size === '1300x800' && r.boxes?.[k]?.[0] > 0));
+    return { pass: !miss.length, detail: miss.length ? `not remembered at 1300x800: ${miss.join(', ')} (stored for ${r?.size ?? 'nothing'})` : `remembered: status-label ${r.boxes['status-label'].join('x')}, hand-no ${r.boxes['hand-no'].join('x')}` };
+  } finally { await p.close(); }
+}));
+
+// R5/R20: each sound switch keeps one name whatever its state (aria-pressed carries the state), and both layouts' switches
+// share that name.
+group(() => check('sound-switch-name', 'At 1440x900 and 390x844 the sound switch ([data-sound]) has the same accessible name on and off, aria-pressed following its state, and the same name in both layouts', async () => {
+  const bad = [], names = new Set();
+  for (const [w, h] of [[1440, 900], [390, 844]]) {
+    const p = await newPage();
+    try {
+      await p.setViewport({ width: w, height: h });
+      await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForSelector('[data-sound]', { visible: true, timeout: 60000 }).catch(() => {});
+      await sleep(1000);
+      const read = () => p.evaluate(() => { const b = [...document.querySelectorAll('[data-sound]')].find(e => e.getBoundingClientRect().width > 0); return b && { name: (b.getAttribute('aria-label') || b.textContent).trim(), pressed: b.getAttribute('aria-pressed') }; });
+      const a = await read();
+      if (!a) { bad.push(`${w}x${h}: no sound switch`); continue; }
+      await p.click('[data-sound]').catch(() => p.evaluate(() => [...document.querySelectorAll('[data-sound]')].find(e => e.getBoundingClientRect().width > 0).click()));
+      await sleep(400);
+      const b = await read();
+      if (a.name !== b.name) bad.push(`${w}x${h}: named "${a.name}" ${a.pressed === 'true' ? 'on' : 'off'}, "${b.name}" ${b.pressed === 'true' ? 'on' : 'off'}`);
+      if (a.pressed === b.pressed) bad.push(`${w}x${h}: aria-pressed stays ${a.pressed}`);
+      names.add(a.name);
+    } finally { await p.close(); }
+  }
+  if (names.size > 1) bad.push(`two names across layouts: ${[...names].join(', ')}`);
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : `one name "${[...names][0]}" on and off, both layouts` };
+}));
+
+// R3: a phone Stats window's card keeps its whole ring and side shadow: nothing between the card and the page clips it
+// (paint containment, content-visibility, overflow) where the card touches that box's edge.
+group(() => check('phone-card-ring', 'At 390x844 and 375x667 (touch), no ancestor of the Trends, Profiles or Matchups card clips it (overflow, contain: paint or content-visibility: auto) within 2px of the card\'s sides, so its 1px ring and side shadow show', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[390, 844], [375, 667]]) {
+    const p = await polishPage(w, h, { phone: true });
+    try {
+      for (const s of ['race', 'stats-table', 'pairwise']) {
+        await polishGo(p, s);
+        const r = await p.evaluate(s => {
+          const c = document.getElementById(s)?.querySelector('.card-chrome'); if (!c) return 'no card';
+          const b = c.getBoundingClientRect();
+          for (let a = c.parentElement; a && a !== document.body; a = a.parentElement) {
+            const cs = getComputedStyle(a), clips = cs.overflowX !== 'visible' || /paint|strict|content/.test(cs.contain) || cs.contentVisibility === 'auto';
+            if (!clips) continue;
+            const r = a.getBoundingClientRect();
+            if (b.left - r.left < 2 || r.right - b.right < 2) return `${a.tagName.toLowerCase()}#${a.id || ''}.${[...a.classList].slice(0, 2).join('.')} clips it (${cs.contentVisibility === 'auto' ? 'content-visibility' : cs.contain !== 'none' ? `contain ${cs.contain}` : `overflow ${cs.overflowX}`}) ${Math.round(b.left - r.left)}px/${Math.round(r.right - b.right)}px from its sides`;
+          }
+          return '';
+        }, s);
+        if (r) bad.push(`${w}x${h} ${s}: ${r}`); else seen.push(`${w}x${h} ${s}`);
+      }
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
+}));
+
+// R18: a phone Matchups cell never clips its figure (a 3-digit bb/100 drawn in its widest form read "+485.").
+group(() => check('matchups-cells-fit', 'At 390x844 and 375x667 (touch), with the seated and with all models, no Matchups cell\'s figure is wider than its cell', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[390, 844], [375, 667]]) {
+    const p = await polishPage(w, h, { phone: true });
+    try {
+      await polishGo(p, 'pairwise');
+      for (const lineup of ['Seated now', 'All models']) {
+        await p.evaluate(l => [...document.querySelectorAll('#pairwise button')].find(b => b.textContent.trim() === l && b.getBoundingClientRect().width > 0)?.click(), lineup); await sleep(1200);
+        const r = await p.evaluate(() => { const cells = [...document.querySelectorAll('#pairwise td[data-cell]')].filter(c => c.getBoundingClientRect().width > 0 && c.textContent.trim()); return { n: cells.length, over: cells.filter(c => c.scrollWidth > c.clientWidth + 0.5 || [...c.querySelectorAll('span')].some(s => s.getBoundingClientRect().width > c.getBoundingClientRect().width + 0.5)).map(c => `${c.textContent.trim()} in ${c.clientWidth}px`) }; });
+        if (!r.n) bad.push(`${w}x${h} ${lineup}: no figures`);
+        else if (r.over.length) bad.push(`${w}x${h} ${lineup}: ${r.over.length} clipped (${r.over.slice(0, 3).join(', ')})`);
+        else seen.push(`${w}x${h} ${lineup}: ${r.n} whole`);
+      }
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
 }));
 
 // Owner, 2026-11-15: "for the stats page, we just had one window taking up the screen. For example, trends, and then if I
@@ -1150,14 +1260,20 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
         const box = s => { const e = [...document.querySelectorAll(s)].find(x => x.getBoundingClientRect().width > 0); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, w: b.width, h: b.height }; };
         const cells = await p.evaluate(() => { const c = document.querySelector('td.w-\\[200px\\]'); return [c?.offsetWidth, c?.offsetHeight, document.querySelector('table')?.offsetWidth]; });
         // The 200x128 cells and the 1000px table are the desktop layout's (phones show a grid of their own).
-        if (w === 1440 && (Math.abs(cells[0] - 200) > 1 || Math.abs(cells[1] - 128) > 2)) bad.push(`${tag}: seat cell ${cells[0]}x${cells[1]}`);
-        if (w === 1440 && Math.abs(cells[2] - 1000) > 1) bad.push(`${tag}: table ${cells[2]}px`);
+        // A missing grid fails (undefined - 200 compares false, which passed without a check).
+        if (!phoneAt(w, h) && (cells[0] == null || cells[2] == null)) bad.push(`${tag}: no desktop seat grid (cell ${cells[0]}, table ${cells[2]})`);
+        else if (!phoneAt(w, h) && (Math.abs(cells[0] - 200) > 1 || Math.abs(cells[1] - 128) > 2)) bad.push(`${tag}: seat cell ${cells[0]}x${cells[1]}`);
+        if (!phoneAt(w, h) && cells[2] != null && Math.abs(cells[2] - 1000) > 1) bad.push(`${tag}: table ${cells[2]}px`);
         // Each frame, every flying card's box: the last one painted before it is removed is the box it lands at.
         await p.evaluate(() => { const last = window.__fl = new Map(); const tick = () => { for (const e of document.querySelectorAll('[data-flight=card]')) { const b = e.getBoundingClientRect(); last.set(e, { w: b.width, h: b.height, o: +getComputedStyle(e).opacity }); } requestAnimationFrame(tick); }; requestAnimationFrame(tick); });
-        await p.evaluate(() => window.__stream.end(4000)); await sleep(3300);
-        const deck = await p.evaluate(box, '[data-deck]'), hole = await p.evaluate(box, '[data-seat] [data-hole] > *'), board = await p.evaluate(box, '[data-felt-cards] > *');
+        await p.evaluate(() => window.__stream.end(4000));
+        // A board card, read while the hand's five show and before the deck takes their place (the phone hides the board
+        // while the deck shows, and the deck's own wrapper is then the first thing in [data-felt-cards]).
+        await sleep(500); const board = await p.evaluate(box, '[data-felt-cards] [role=img]');
+        await sleep(2800);
+        const deck = await p.evaluate(box, '[data-deck]'), hole = await p.evaluate(box, '[data-seat] [data-hole] > *');
         // Desktop: the deck is the hole cards' 40x56; phones: 28x40 hole cards and the deck the board's cards as drawn (the
-        // phone oval's board is 30x42 since the phone table round 2), the hand's five board cards showing at its end.
+        // phone oval's board is 30x42 since the phone table round 2). No board card measured fails.
         const want = !phoneAt(w, h) ? hole : board;
         if (!deck || !hole || !want || Math.abs(deck.w - want.w) > 1 || Math.abs(deck.h - want.h) > 1) bad.push(`${tag}: deck ${deck ? `${deck.w.toFixed(1)}x${deck.h.toFixed(1)}` : 'none'}, hole card ${hole ? `${hole.w.toFixed(1)}x${hole.h.toFixed(1)}` : 'none'}${w < 768 ? `, board card ${board ? `${board.w.toFixed(1)}x${board.h.toFixed(1)}` : 'none'}` : ''}`);
         await sleep(700); await p.evaluate(() => window.__stream.deal()); await sleep(3500);
@@ -4801,7 +4917,7 @@ const engineStats = async p => {
 // bb/100 as the cards print it (lib/stats signedBrief): +12.3 below a thousand, +1.2k above.
 // The site's one number format (fix-polish: thousands separators everywhere, owner): one decimal under 100, whole from 100 up.
 const grp = (n, d) => Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
-const bbText = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${grp(n, Math.abs(n) < 100 ? 1 : 0)}`;
+const bbText = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${grp(n, Math.abs(n) < 99.95 ? 1 : 0)}`;
 // A Matchups cell too narrow for the grouped figure: the last resort, shortened (+1.3k), so it never goes blank.
 const bbCompact = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase()}`;
 const bb100 = (v, bb) => (v.net_chips / bb / v.hands) * 100;
@@ -5168,8 +5284,9 @@ group(() => check('zoom-tolerable', `At 1440x900, 1512x982 and 1728x1117 zoomed 
 // --- fix-polish (the 2026-11-15 visual and accessibility audit, .cloud-out/AUDIT.json): one check per class of finding,
 // so none needs the owner's eyes again. ---
 // A phone page (touch) or a desktop one (browser zoom z: a W/z x H/z viewport at ratio z), loaded with its stats in.
-const polishPage = async (w, h, { phone = false, z = 1, path = '' } = {}) => {
+const polishPage = async (w, h, { phone = false, z = 1, path = '', locale = '' } = {}) => {
   const p = await newPage();
+  if (locale) await (await p.createCDPSession()).send('Emulation.setLocaleOverride', { locale });
   if (phone) await p.emulate({ viewport: { width: w, height: h, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: await browser.userAgent() });
   else await p.setViewport({ width: Math.round(w / z), height: Math.round(h / z), deviceScaleFactor: z });
   await p.goto(BASE + path, { waitUntil: 'domcontentloaded', timeout: 120000 });
@@ -5194,9 +5311,9 @@ const openPrompt = async (p, which) => {
 // that take focus, 24px targets (the Trends legend's). Colour contrast is reported, not asserted: the About dial's rows behind are faded by the
 // owner's rule (about-dial).
 const AXE_RULES = ['nested-interactive', 'label-content-name-mismatch', 'link-in-text-block', 'page-has-heading-one', 'region', 'landmark-unique', 'scrollable-region-focusable', 'target-size', 'button-name', 'aria-allowed-role', 'aria-prohibited-attr'];
-group(() => check('a11y-axe', `axe-core finds no ${AXE_RULES.join(', ')} violation at 390x844 (table, Stats windows, About, the user prompt dialog) and 1440x900 (table, the Trends, Profiles and Matchups cards, About) and on /about; no <a> without an href anywhere`, async () => {
+group(() => check('a11y-axe', `axe-core finds no ${AXE_RULES.join(', ')} violation (target-size: in the Trends legend; elsewhere counted and reported) at 390x844 (table, Stats windows, About, the user prompt dialog) and 1440x900 (table, the Trends, Profiles and Matchups cards, About) and on /about; no <a> without an href anywhere`, async () => {
   let src; try { src = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8'); } catch { return { pass: false, detail: 'axe-core is not installed (it comes with eslint-config-next)' }; }
-  const bad = [], seen = [], contrast = new Set();
+  const bad = [], seen = [], contrast = new Set(), targets = new Set();
   const run = async (p, at) => {
     await p.evaluate(src); 
     // target-size is asserted for the Trends legend's toggles (the audit's T11). The chart's end labels and About's race
@@ -5204,10 +5321,14 @@ group(() => check('a11y-axe', `axe-core finds no ${AXE_RULES.join(', ')} violati
     const r = await p.evaluate(async rules => {
       const res = await axe.run(document, { runOnly: { type: 'rule', values: [...rules, 'color-contrast'] }, resultTypes: ['violations'] });
       const mine = n => { const e = document.querySelector(n.target[0]); return !!e?.closest('[aria-label="Lines shown"]'); };
-      return res.violations.map(v => { const nodes = v.id === 'target-size' ? v.nodes.filter(mine) : v.nodes; return { id: v.id, n: nodes.length, t: nodes.slice(0, 2).map(n => n.target.join(' ')).join(' ; ') }; }).filter(v => v.n);
+      // target-size outside the legend is not dropped: it comes back as its own entry, reported in the detail.
+      return res.violations.flatMap(v => {
+        const part = (id, nodes) => ({ id, n: nodes.length, t: nodes.slice(0, 2).map(n => n.target.join(' ')).join(' ; ') });
+        return v.id === 'target-size' ? [part('target-size', v.nodes.filter(mine)), part('target-size-elsewhere', v.nodes.filter(n => !mine(n)))] : [part(v.id, v.nodes)];
+      }).filter(v => v.n);
     }, AXE_RULES);
     const anchors = await p.evaluate(() => [...document.querySelectorAll('a:not([href])')].filter(e => e.getBoundingClientRect().width > 0).map(e => e.textContent.trim().slice(0, 20)));
-    for (const v of r) (v.id === 'color-contrast' ? contrast.add(`${at} ${v.n}`) : bad.push(`${at}: ${v.id} x${v.n} (${v.t.slice(0, 160)})`));
+    for (const v of r) (v.id === 'color-contrast' ? contrast.add(`${at} ${v.n}`) : v.id === 'target-size-elsewhere' ? targets.add(`${at} ${v.n} (${v.t.slice(0, 60)})`) : bad.push(`${at}: ${v.id} x${v.n} (${v.t.slice(0, 160)})`));
     if (anchors.length) bad.push(`${at}: <a> without href: ${anchors.slice(0, 4).join(', ')}`);
     seen.push(at);
   };
@@ -5219,27 +5340,45 @@ group(() => check('a11y-axe', `axe-core finds no ${AXE_RULES.join(', ')} violati
     } finally { await p.close(); }
   }
   for (const [w, h, phone] of [[390, 844, true], [1440, 900, false]]) { const p = await polishPage(w, h, { phone, path: '/about' }); try { await sleep(1500); await run(p, `/about ${w}x${h}`); } finally { await p.close(); } }
-  return { pass: !bad.length, detail: (bad.length ? bad.join(' | ') : `clean: ${seen.join(', ')}`) + (contrast.size ? ` (contrast, reported only: ${[...contrast].join(', ')})` : '') };
+  return { pass: !bad.length, detail: (bad.length ? bad.join(' | ') : `clean: ${seen.join(', ')}`) + (contrast.size ? ` (contrast, reported only: ${[...contrast].join(', ')})` : '') + (targets.size ? ` (target-size outside the Trends legend, reported only: ${[...targets].join(', ')})` : '') };
 }));
 
 // One number format (owner: thousands separators, as Profits & Losses): no figure of 1,000 or more without its separator in
 // the stats, About or a dialog; one ± form; a shortened figure (+1.3k) only inside a Matchups cell too narrow for the full one.
-const scanNumbers = p => p.evaluate(() => {
-  const out = [], walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+// A year is exempt only where it can be one: in About's prose (a <p>), never by its value alone (a hands count of 2048).
+// The page may run in a German locale (numbers-one-format sets one): a figure grouped with points (1.306) is the
+// browser's locale leaking past the one en-US format.
+const scanNumbers = (p, root = 'body') => p.evaluate(root => {
+  const out = [], walk = document.createTreeWalker(document.querySelector(root) ?? document.body, NodeFilter.SHOW_TEXT);
   const vis = e => { const r = e.getBoundingClientRect(); if (r.width === 0 || r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) return false; for (let a = e; a; a = a.parentElement) { const s = getComputedStyle(a); if (s.visibility === 'hidden' || +s.opacity === 0 || s.display === 'none') return false; } return true; };
   for (let n; (n = walk.nextNode());) {
-    const e = n.parentElement, t = n.textContent; if (!e || !t.trim() || e.closest('script, style, pre, code, [data-table-screen], #table, .sr-only') || !vis(e)) continue;
-    for (const m of t.matchAll(/(?<![\d,.#$\w])[+\-−]?\d{4,}(?:\.\d+)?(?![\d\w])/g)) if (!/^(19|20)\d\d$/.test(m[0])) out.push(`ungrouped ${m[0]}`);
+    const e = n.parentElement, t = n.textContent; if (!e || !t.trim() || e.closest('script, style, pre, code, .sr-only') || (root === 'body' && e.closest('[data-table-screen], #table')) || !vis(e)) continue;
+    const prose = !!e.closest('#about p, main p') && !e.closest('[data-cell], td, dd, b');
+    for (const m of t.matchAll(/(?<![\d,.#$\w])[+\-−]?\d{4,}(?:\.\d+)?(?![\d\w])/g)) if (!(prose && /^(19|20)\d\d$/.test(m[0]))) out.push(`ungrouped ${m[0]}`);
+    for (const m of t.matchAll(/(?<![\d,.\w])\d{1,3}(?:\.\d{3})+(?:,\d+)?(?![\d\w])/g)) out.push(`locale-grouped ${m[0]}`);
     if (/\d(?:\.\d)?k\b/.test(t) && !e.closest('td[data-cell]')) out.push(`shortened ${t.trim().slice(0, 12)}`);
     if (/±\s\d/.test(t)) out.push('± with a space');
   }
   return [...new Set(out)];
-});
-group(() => check('numbers-one-format', 'Every figure in the Stats windows and cards, About and the model drawer uses one format: 1,000 and up grouped with commas (no 1306 or 32000), ± written ±2,366.3 (no space), no shortened +1.3k outside a Matchups cell too narrow for the full figure; at 390x844 and 1440x900', async () => {
+}, root);
+group(() => check('numbers-one-format', 'Every figure in the Stats windows and cards, About, the model drawer and the phone seat\'s stats popup uses one format, en-US even in a German browser: 1,000 and up grouped with commas (no 1306, 32000 or 1.306), ± written ±2,366.3 (no space), no shortened +1.3k outside a Matchups cell too narrow for the full figure; at 390x844 and 1440x900', async () => {
   const bad = [], seen = [];
   for (const [w, h, phone] of [[390, 844, true], [1440, 900, false]]) {
-    const p = await polishPage(w, h, { phone });
+    // A German browser: every figure must still be en-US (a bare toLocaleString() would print 1.306).
+    const p = await polishPage(w, h, { phone, locale: 'de-DE' });
     try {
+      if (phone) {
+        // The seat stats popup: a tap on a seated model's logo.
+        await p.evaluate(() => scrollTo({ top: 0, behavior: 'instant' })); await sleep(800);
+        const pt = await p.evaluate(() => { const b = [...document.querySelectorAll('[data-oval] [data-seat] a[aria-label]')].map(e => e.getBoundingClientRect()).find(b => b.width > 0 && b.top > 60 && b.bottom < innerHeight - 80); return b && [b.left + b.width / 2, b.top + b.height / 2]; });
+        if (!pt) bad.push(`${w}x${h}: no seat logo to tap`);
+        else {
+          await p.mouse.click(pt[0], pt[1]); await sleep(800);
+          if (!(await p.$('[data-seat-stats]'))) bad.push(`${w}x${h}: a tap on a seat logo opened no stats popup`);
+          else { const r = await scanNumbers(p, '[data-seat-stats]'); if (r.length) bad.push(`${w}x${h} seat popup: ${r.slice(0, 5).join(', ')}`); else seen.push(`${w}x${h} seat popup`); }
+          await p.keyboard.press('Escape'); await sleep(400);
+        }
+      }
       for (const s of ['race', 'stats-table', 'pairwise', 'about']) {
         await polishGo(p, s);
         const r = await scanNumbers(p); if (r.length) bad.push(`${w}x${h} ${s}: ${r.slice(0, 5).join(', ')}`); else seen.push(`${w}x${h} ${s}`);
@@ -5265,14 +5404,24 @@ group(() => check('phone-no-floating-cover', 'At 390x844 and 375x667 (touch), sc
         for (let i = 0; i < 6; i++) {
           const hits = await p.evaluate(() => {
             const bars = [document.querySelector('[data-tab-bar]'), document.querySelector('[data-phone-bar]')].filter(Boolean);
-            const floaters = [...document.querySelectorAll('body *')].filter(e => getComputedStyle(e).position === 'fixed' && !bars.some(b => b.contains(e) || e.contains(b)) && !e.closest('dialog') && e.matches('button, a, [role=button]') && +getComputedStyle(e).opacity > 0.1 && e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== 'hidden');
+            // Fixed, or sticky to the window or a scroller, and a control or holding one (a wrapped back-to-top button).
+            const pinned = e => { const p = getComputedStyle(e).position; return p === 'fixed' || p === 'sticky'; };
+            const control = e => e.matches('button, a, [role=button]') || !!e.querySelector('button, a, [role=button]');
+            const floaters = [...document.querySelectorAll('body *')].filter(e => pinned(e) && !bars.some(b => b.contains(e) || e.contains(b)) && !e.closest('dialog, [data-seat-stats], thead, th, td') && control(e) && +getComputedStyle(e).opacity > 0.1 && e.getBoundingClientRect().width > 0 && getComputedStyle(e).visibility !== 'hidden');
             const out = [];
             for (const f of floaters) { const r = f.getBoundingClientRect(); for (const [x, y] of [[r.left + 2, r.top + 2], [r.right - 2, r.top + 2], [r.left + 2, r.bottom - 2], [r.right - 2, r.bottom - 2], [(r.left + r.right) / 2, (r.top + r.bottom) / 2]]) { const under = document.elementsFromPoint(x, y).filter(e => !f.contains(e) && e !== f); const hit = under.find(e => e.matches('svg, svg *, img') || [...e.childNodes].some(c => c.nodeType === 3 && c.textContent.trim())); if (hit) { out.push(`${f.getAttribute('aria-label') || f.textContent.trim().slice(0, 12) || f.tagName} over ${hit.tagName.toLowerCase()} "${(hit.textContent || '').trim().slice(0, 12)}"`); break; } } }
             return out;
           });
           if (hits.length) { bad.push(`${w}x${h} ${s}: ${hits[0]}`); break; }
           steps++;
-          const sc = await p.evaluate(() => { const a = document.getElementById('about'); const box = a && a.getBoundingClientRect().top < 5 ? a.querySelector('.panel-scroll') : null; if (box) { box.scrollBy({ top: 150, behavior: 'instant' }); return true; } return false; });
+          // Step the window's own scroller (a card's body, About's), or the page on Profits & Losses, 150px; stop at its end.
+          const sc = await p.evaluate(s => {
+            const sec = document.getElementById(s);
+            const box = [...(sec?.querySelectorAll('.panel-scroll') ?? [])].find(b => b.scrollHeight > b.clientHeight + 1 && b.getBoundingClientRect().height > 0);
+            const el = box ?? document.scrollingElement, before = el.scrollTop;
+            el.scrollBy({ top: 150, behavior: 'instant' });
+            return el.scrollTop > before;
+          }, s);
           if (!sc) break; await sleep(250);
         }
       }
@@ -5348,8 +5497,12 @@ group(() => check('dialogs-close-and-captions', 'In the system and user prompt d
 }));
 
 // Switches: every segmented switch fills its track or hugs it (no grey band beside its options), and has 2 options or more.
-group(() => check('segments-fill', 'At 390x844 in the Trends filter sheet and at 1440x900 under the Trends card, every segmented switch ([data-seg]) has 2 or more options and they take 90% or more of its track\'s inner width', async () => {
+// Each size must show the switches it is meant to test (by name): a sheet that did not open, or switches without
+// data-seg, measured nothing and passed.
+const SEG_WANT = { '390x844': ['Metric', 'Hands shown', 'Lineup', 'License', 'Top models', 'All-in EV'], '1440x900': ['Metric', 'Hands shown', 'Lineup', 'License', 'Top models'] };
+group(() => check('segments-fill', 'At 390x844 in the Trends filter sheet (Metric, Hands shown, Lineup, License, Top models, All-in EV) and at 1440x900 under the Trends card (Metric, Hands shown, Lineup, License, Top models), each of those switches is found, and every segmented switch ([data-seg]) has 2 or more options and they take 90% or more of its track\'s inner width', async () => {
   const bad = [], seen = [];
+  const missing = (size, rs) => { const got = new Set(rs.map(r => r.label)), miss = SEG_WANT[size].filter(l => !got.has(l)); if (miss.length) bad.push(`${size}: no ${miss.join(', ')} switch`); };
   const read = p => p.evaluate(() => [...document.querySelectorAll('[data-seg]')].filter(e => e.getBoundingClientRect().width > 0).map(e => {
     const s = getComputedStyle(e), inner = e.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
     const kids = [...e.children].filter(c => c.offsetWidth > 0); // layout px, as clientWidth (the wide stats are zoomed as one unit)
@@ -5364,12 +5517,16 @@ group(() => check('segments-fill', 'At 390x844 in the Trends filter sheet and at
       const opened = await p.evaluate(() => { const b = [...document.querySelectorAll('button')].find(e => /^Filters/.test(e.textContent.trim()) && e.getBoundingClientRect().width > 0); b?.click(); return !!b; });
       await sleep(800);
       if (!opened) bad.push('390x844: no Filters button');
-      for (const r of await read(p)) { if (r.n < 2) bad.push(`390x844 ${r.label}: ${r.n} option`); else if (r.ratio < 0.9) bad.push(`390x844 ${r.label}: options fill ${(r.ratio * 100).toFixed(0)}% of the track`); else seen.push(`${r.label} ${(r.ratio * 100).toFixed(0)}%`); }
+      const rs = await read(p); missing('390x844', rs);
+      for (const r of rs) { if (r.n < 2) bad.push(`390x844 ${r.label}: ${r.n} option`); else if (r.ratio < 0.9) bad.push(`390x844 ${r.label}: options fill ${(r.ratio * 100).toFixed(0)}% of the track`); else seen.push(`${r.label} ${(r.ratio * 100).toFixed(0)}%`); }
     } finally { await p.close(); }
   }
   {
     const p = await polishPage(1440, 900);
-    try { await polishGo(p, 'race'); for (const r of await read(p)) { if (r.n < 2) bad.push(`1440x900 ${r.label}: ${r.n} option`); else if (r.ratio < 0.9) bad.push(`1440x900 ${r.label}: options fill ${(r.ratio * 100).toFixed(0)}% of the track`); } } finally { await p.close(); }
+    try {
+      await polishGo(p, 'race'); const rs = await read(p); missing('1440x900', rs);
+      for (const r of rs) { if (r.n < 2) bad.push(`1440x900 ${r.label}: ${r.n} option`); else if (r.ratio < 0.9) bad.push(`1440x900 ${r.label}: options fill ${(r.ratio * 100).toFixed(0)}% of the track`); else seen.push(`1440 ${r.label} ${(r.ratio * 100).toFixed(0)}%`); }
+    } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
 }));
