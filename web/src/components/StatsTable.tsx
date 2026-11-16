@@ -257,7 +257,9 @@ function Name({ href, name, mini = false, children }: { href?: string; name: str
 const CARD_ROW = 40, CARD_ROW_MIN = 32;
 let fitObserved: Element | null = null, refit = () => {};
 function fitCardRows(t: HTMLTableElement | null, mini: boolean) {
-  const sc = t?.closest<HTMLElement>('#stats-card .panel-scroll, #stats-panel .panel-scroll'), card = sc?.parentElement, box = card?.parentElement;
+  // The card only: on a phone it is #stats-panel; on a desktop #stats-panel is the Profiles tile, whose focused table
+  // (non-mini) would write the card's --card-row fitted to the tile's overview cell.
+  const sc = t?.closest<HTMLElement>(isPhone() ? '#stats-panel .panel-scroll' : '#stats-card .panel-scroll'), card = sc?.parentElement, box = card?.parentElement;
   if (mini || !t || !sc || !card || !box) return;
   const fit = () => {
     const root = document.documentElement.style;
@@ -267,7 +269,20 @@ function fitCardRows(t: HTMLTableElement | null, mini: boolean) {
       root.removeProperty('--card-row');
       const wrap = t.parentElement, rows = t.querySelectorAll('tr.card-row').length;
       if (!wrap || !rows) return;
-      const avail = wrap.clientHeight - (t.tHead?.offsetHeight ?? 0), k = Math.max(1, Math.floor(avail / CARD_ROW));
+      // The rows that are not card rows (All models' "Not at the table" divider, the waiting row) keep their own height,
+      // and so do the borders between bodies: whichever of them fall among the rows in view are taken out of the room
+      // before it is shared, or they push the last row in view down to a sliver.
+      const top = t.tBodies[0]?.rows[0]?.getBoundingClientRect().top ?? 0, room = wrap.clientHeight - (t.tHead?.offsetHeight ?? 0);
+      let used = 0, k = 0, other = 0, prev = top;
+      for (const r of [...t.tBodies].flatMap(b => [...b.rows])) {
+        const b = r.getBoundingClientRect(), gap = Math.max(0, b.top - prev), card = r.classList.contains('card-row'), h = gap + (card ? CARD_ROW : b.height);
+        prev = b.bottom;
+        if (used + h > room + 0.5) break;
+        used += h;
+        if (card) { k++; other += gap; } else other += h;
+      }
+      k = Math.max(1, k);
+      const avail = room - other;
       const per = rows > k ? avail / k : CARD_ROW; // exact: a rounded height left a sliver of the next row
       if (root.getPropertyValue('--phone-row') !== `${per}px`) root.setProperty('--phone-row', `${per}px`);
       return;

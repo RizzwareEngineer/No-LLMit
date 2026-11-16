@@ -6,18 +6,10 @@ import { motion } from 'motion/react';
 import { GLIDE, NONE } from '@/components/Section';
 import LLMLogo from '@/components/LLMLogo';
 import NameForm from '@/components/NameForm';
-import { DASH, MIN_HANDS, MIN_PAIR_HANDS, MUTED, ModelStats, TEXT, bb100Among, bb100Of, chips, modelHref, netColor, plural, signed, signedCompact, useChanges } from '@/lib/stats';
+import { DASH, MIN_HANDS, MIN_PAIR_HANDS, MUTED, ModelStats, TEXT, bb100Among, bb100Of, chips, modelHref, netColor, plural, signed, useChanges } from '@/lib/stats';
+import { fitFigure } from '@/lib/format';
 
-// A cell's bb/100 at the grid's one font size, in full (+1234.5: a pair with few hands together reaches four
-// digits) where it fits, else rounded to a whole, else shortened (+1.2k, a phone's narrow cells); where none fits, the
-// narrowest of the whole and the short form (+486, +1.2k), never the widest (+485.9 in a 34px cell clipped to "+485.").
-// Screen readers get the full figure.
-// Its width in em, tabular figures (calibrated in the browser: a figure or sign 0.62em, a comma or point 0.29, k 0.53).
-const ems = (t: string) => [...t].reduce((w, c) => w + (c === ',' || c === '.' ? 0.29 : c === 'k' ? 0.53 : 0.62), 0);
-function fitFigure(n: number, room: number, px: number) {
-  return [signed(n), signed(n, 0), signedCompact(n)].find(t => ems(t) * px <= room)
-    ?? [signed(n, 0), signedCompact(n)].reduce((a, b) => (ems(b) < ems(a) ? b : a));
-}
+// A cell's figure: lib/format's fitFigure (in full where it fits, never a form the cell clips). Screen readers get the full figure.
 // On the tile↔card glide the figure travels with the matrix and grows from the tile's size to the card's (motion
 // layout, measured only when `at` changes), never shrinking first.
 const Fit = memo(function Fit({ n, room, px, at, move }: { n: number; room: number; px: number; at: boolean; move: typeof GLIDE | typeof NONE }) {

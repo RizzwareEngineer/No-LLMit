@@ -8,16 +8,16 @@ test('a name without a version number still has a shorter form (the default line
   assert.deepEqual(nameForms('Cohere Command R7B'), ['Cohere Command R7B', 'Command R7B']);
   assert.deepEqual(nameForms('Nemotron 3.5 Super'), ['Nemotron 3.5 Super', 'Nemotron Super']); // never a lone "Super"
   assert.deepEqual(nameForms('Claude Haiku 5.5'), ['Claude Haiku 5.5', 'Claude Haiku']);
-  assert.deepEqual(nameForms('Qwen3 235B A22B'), ['Qwen3 235B A22B']); // never "235B A22B"
+  assert.deepEqual(nameForms('Qwen3 235B A22B'), ['Qwen3 235B A22B', 'Qwen3 235B']); // never "235B A22B" or a bare "235B"
   assert.deepEqual(nameForms('Phi-4'), ['Phi-4']);
   assert.deepEqual(nameForms('GPT-OSS 120B'), ['GPT-OSS 120B']); // never a bare size
   assert.deepEqual(nameForms('Llama 3.1 8B'), ['Llama 3.1 8B', 'Llama 8B']);
 });
 
-test('every roster name with a version number, or of three words or more, has a form shorter than itself', () => {
+test('every roster name with a version number, or of three words or more (Qwen3 235B A22B too), has a form shorter than itself', () => {
   const roster = [...readFileSync(new URL('../../../llm/registry.py', import.meta.url), 'utf8').matchAll(/^\s+"([^"]+)": "[^"]+\/[^"]+",/gm)].map(m => m[1]);
   assert.ok(roster.length >= 9, `roster read: ${roster.length}`);
-  for (const n of roster.filter(n => / V?\d+(\.\d+)+( |$)| V\d+( |$)/.test(n) || (n.split(' ').length >= 3 && !n.split(' ').slice(1).every(x => /^[A-Z]?\d+(\.\d+)?[BMK]$/i.test(x))))) {
+  for (const n of roster.filter(n => / V?\d+(\.\d+)+( |$)| V\d+( |$)/.test(n) || n.split(' ').length >= 3)) {
     const forms = nameForms(n);
     assert.ok(forms.length > 1 && forms.at(-1).length < n.length, n);
   }

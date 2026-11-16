@@ -634,18 +634,6 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     const names = [...document.querySelectorAll<HTMLElement>('#pairwise-card a [translate=no]')];
     if (names.length) room.current?.style.setProperty('--mu-names', `${Math.max(...names.map(e => e.scrollWidth)) + 5}px`);
   }, [data, muLineup]);
-  // The row names' cap: 96px, or up to 40% of the card where it is wider (a zoomed laptop's 720px window cut names to
-  // nine letters beside an empty fifth of the card).
-  useLayoutEffect(() => {
-    const body = document.querySelector<HTMLElement>('#pairwise-card .panel-scroll');
-    if (!body) return;
-    const cap = () => room.current?.style.setProperty('--mu-cap', `${Math.max(96, Math.round(0.4 * body.clientWidth))}px`);
-    cap();
-    const ro = new ResizeObserver(cap);
-    ro.observe(body);
-    return () => ro.disconnect();
-  }, [ready]);
-
   const card = (id: string, title: string, aside: React.ReactNode, body: React.ReactNode, cls = '') => (
     <div id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className="flex-1 min-h-0 flex flex-col outline-none">
     {/* relative: the card holds what is placed in its coordinates (Matchups' readout), as the wide cards do. */}
@@ -700,7 +688,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
               </div>
             )}
           </AtHand>
-        ), '[&_a_[translate=no]]:max-w-[var(--mu-cap,96px)]')}
+        ), '[&_.panel-scroll]:[container-type:inline-size] [&_a_[translate=no]]:max-w-[max(96px,40cqw)]')}
       </section>
       {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
       <section id="about" data-screen data-end aria-label="About" className={`${ABOUT_WINDOW} ${LAZY}`}>

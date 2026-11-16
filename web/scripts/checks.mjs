@@ -67,14 +67,15 @@ const drain = (fns, n) => Promise.all(Array.from({ length: n }, async () => { wh
 // --changed: only the checks tied to the files changed against $BASE_REF (committed, uncommitted, untracked).
 // A web file no rule names, or a change to this script outside a check's own block, selects every check.
 const COVERS = [
-  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle|TabBar|StickyBar)\.tsx|hooks\/|lib\/(sound|amounts|phoneTable)\./, /^(seat-size|table-|phone-|no-currency|main-scroll|stats-type-scale|desktop-table-text|numbers-one-format|history-overtake-sound|a11y-axe)/],
-  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges|handover-|glide-clean|numbers-one-format|a11y-axe|cards-top-aligned|segments-fill|no-stub-ellipsis)/],
+  [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle|TabBar|StickyBar)\.tsx|hooks\/|lib\/(sound|amounts|phoneTable)\./, /^(seat-size|table-|phone-|no-currency|main-scroll|stats-type-scale|desktop-table-text|numbers-one-format|history-overtake-sound|a11y-axe|sound-switch-name)/],
+  [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges|handover-|glide-clean|numbers-one-format|a11y-axe|cards-top-aligned|segments-fill|no-stub-ellipsis|chart-text-11)/],
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
-  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges|numbers-one-format|a11y-axe|cards-top-aligned)/],
-  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges|numbers-one-format|a11y-axe|cards-top-aligned)/],
+  [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges|numbers-one-format|a11y-axe|cards-top-aligned|phone-profiles-rows-whole|phone-tables-scroll-cue|preview-rows-whole|no-stub-ellipsis)/],
+  [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges|numbers-one-format|a11y-axe|cards-top-aligned|phone-tables-scroll-cue|preview-rows-whole|no-stub-ellipsis)/],
   [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|page-edges|main-scroll|no-stats-hash|scroll-consistency|dialogs-close-and-captions|focus-ring-keyboard-only|numbers-one-format|a11y-axe|cards-top-aligned|no-stub-ellipsis)/],
-  [/components\/StickyBar\.tsx|lib\/amounts\./, /^(sticky-|table-bb-toggle|history-overtake-sound|a11y-axe)/],
+  [/components\/StickyBar\.tsx|lib\/amounts\./, /^(sticky-|table-bb-toggle|history-overtake-sound|a11y-axe|sound-switch-name)/],
   [/components\/(PokerTable|Player|TableFelt|WinningsPanel|UsageIndicator|ReasoningPanel|StickyBar|StatsTable|HeadToHead|CumulativeChart|About)\.tsx|lib\/boxes\./, /^skeleton-/],
+  [/lib\/boxes\./, /^status-boxes-remembered$/], // useRememberedBox
   [/(^|\/)AGENTS\.md$/, /(?!)/], // the file next dev writes: no check covers it
 ];
 function changedChecks() { // a Set of ids, or null for every check
@@ -955,12 +956,26 @@ group(() => check('phone-card-ring', 'At 390x844 and 375x667 (touch), no ancesto
 }));
 
 // R18: a phone Matchups cell never clips its figure (a 3-digit bb/100 drawn in its widest form read "+485.").
-group(() => check('matchups-cells-fit', 'At 390x844 and 375x667 (touch), with the seated and with all models, no Matchups cell\'s figure is wider than its cell', async () => {
+// Two seated pairs are given the widest figures a pair reaches (fix-final #0): one hand together where the row model
+// won a 185bb all-in (+18,500 bb/100: +18.5k was clipped to "+18.5"), and +999.6 bb/100 over 50 hands (+1,000 was
+// clipped to "+1,00"). The stream is held from then on, so a live hand cannot replace them while the check reads.
+group(() => check('matchups-cells-fit', 'At 390x844 and 375x667 (touch), with the seated and with all models, and with pairs at +18,500 and +999.6 bb/100, no Matchups cell\'s figure is wider than its cell', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[390, 844], [375, 667]]) {
-    const p = await polishPage(w, h, { phone: true });
+    const p = await polishPage(w, h, { phone: true, script: true });
     try {
       await polishGo(p, 'pairwise');
+      const e = await engineStats(p);
+      if (!e) { bad.push(`${w}x${h}: the page never opened the engine stream`); continue; }
+      const st = e.stats, at = seatedOf(st), bb = st.scope?.big_blind ?? 10;
+      if (at.length < 3) { bad.push(`${w}x${h}: fewer than 3 seated models`); continue; }
+      const pair = (a, b, hands, net) => { a.vs = { ...a.vs, [b.name]: { ...(a.vs?.[b.name] ?? {}), hands, net_chips: net } }; b.vs = { ...b.vs, [a.name]: { ...(b.vs?.[a.name] ?? {}), hands, net_chips: -net } }; };
+      pair(at[0], at[1], 1, 185 * bb); pair(at[2], at[0], 50, 4998 * bb / 10);
+      const keys = [`${at[0].name}|${at[1].name}`, `${at[1].name}|${at[0].name}`, `${at[2].name}|${at[0].name}`, `${at[0].name}|${at[2].name}`];
+      await p.evaluate(st => { window.__stream.scripted = true; window.__stream.feed({ type: 'stats', payload: st }); }, st); await sleep(1500);
+      const drawn = await p.evaluate(keys => keys.map(k => document.querySelector(`#pairwise td[data-cell="${CSS.escape(k)}"] [aria-hidden]`)?.textContent ?? null), keys);
+      if (drawn.some(d => d === null)) bad.push(`${w}x${h}: a fixture pair is not drawn (${drawn.join(', ')})`);
+      else seen.push(`${w}x${h} fixture ${drawn.join(' ')}`);
       for (const lineup of ['Seated now', 'All models']) {
         await p.evaluate(l => [...document.querySelectorAll('#pairwise button')].find(b => b.textContent.trim() === l && b.getBoundingClientRect().width > 0)?.click(), lineup); await sleep(1200);
         const r = await p.evaluate(() => { const cells = [...document.querySelectorAll('#pairwise td[data-cell]')].filter(c => c.getBoundingClientRect().width > 0 && c.textContent.trim()); return { n: cells.length, over: cells.filter(c => c.scrollWidth > c.clientWidth + 0.5 || [...c.querySelectorAll('span')].some(s => s.getBoundingClientRect().width > c.getBoundingClientRect().width + 0.5)).map(c => `${c.textContent.trim()} in ${c.clientWidth}px`) }; });
@@ -1000,12 +1015,18 @@ group(() => check('phone-tables-scroll-cue', 'At 375x667, 390x844 and 430x932 (t
 }));
 
 // A4: the phone Profiles table shows whole rows at rest: none cut by the foot of its box (above "All models").
-group(() => check('phone-profiles-rows-whole', 'At 375x667, 390x844 and 430x932 (touch), at rest on the Profiles window, no table row is cut by the bottom of the box that clips it', async () => {
+// With All models on too (fix-final #3): its "Not at the table" divider among the rows in view cut the last one to a sliver.
+group(() => check('phone-profiles-rows-whole', 'At 375x667, 390x844 and 430x932 (touch), at rest on the Profiles window, with the seated and with all models, no table row is cut by the bottom of the box that clips it', async () => {
   const bad = [], seen = [];
-  for (const [w, h] of [[375, 667], [390, 844], [430, 932]]) {
+  for (const [w, h, lineup] of [[375, 667], [390, 844], [430, 932]].flatMap(s => [[...s, 'seated'], [...s, 'all']])) {
     const p = await polishPage(w, h, { phone: true });
     try {
       await polishGo(p, 'stats-table');
+      if (lineup === 'all') {
+        const on = await p.evaluate(() => { const b = [...document.querySelectorAll('#stats-table button, #stats-table a')].find(b => /^All models/.test(b.textContent.trim())); b?.click(); return !!b; });
+        if (!on) { bad.push(`${w}x${h}: no All models switch`); continue; }
+        await sleep(1200); await polishGo(p, 'stats-table');
+      }
       const r = await p.evaluate(() => {
         const rows = [...document.querySelectorAll('#stats-table tbody tr')].filter(e => e.getBoundingClientRect().height > 0);
         const cut = [];
@@ -1020,7 +1041,7 @@ group(() => check('phone-profiles-rows-whole', 'At 375x667, 390x844 and 430x932 
         }
         return { n: rows.length, cut };
       });
-      if (!r.n) bad.push(`${w}x${h}: no rows`); else if (r.cut.length) bad.push(`${w}x${h}: ${r.cut.join(', ')}`); else seen.push(`${w}x${h}: ${r.n} rows whole`);
+      if (!r.n) bad.push(`${w}x${h} ${lineup}: no rows`); else if (r.cut.length) bad.push(`${w}x${h} ${lineup}: ${r.cut.join(', ')}`); else seen.push(`${w}x${h} ${lineup}: ${r.n} rows whole`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
@@ -1045,9 +1066,20 @@ group(() => check('profiles-names-fit', 'At 375x667, 390x844 and 430x932 (touch)
             const full = e.closest('[title]')?.getAttribute('title') ?? t, w0 = full.split(' ');
             // lib/names: versions dropped, then the maker's word where two words are left, not all sizes (never 120B or Flash).
             const short = w0.filter((x, i) => i === 0 || !/^V?\d+(\.\d+)*$/.test(x)).join(' '), rest = short.split(' ').slice(1);
-            const forms = [short, rest.length >= 2 && !rest.every(x => /^[A-Z]?\d+(\.\d+)?[BMK]$/i.test(x)) ? rest.join(' ') : ''].filter(f => f && f !== t);
+            // And a size after a size dropped (Qwen3 235B A22B → Qwen3 235B).
+            const SZ = /^[A-Z]?\d+(\.\d+)?[BMK]$/i, sw = short.split(' '), fewer = sw.length >= 3 && SZ.test(sw.at(-1)) && SZ.test(sw.at(-2)) ? sw.slice(0, -1).join(' ') : '';
+            const forms = [short, rest.length >= 2 && !rest.every(x => SZ.test(x)) ? rest.join(' ') : '', fewer].filter(f => f && f !== t);
             // Tried in place (the cell's own font and figures), the text put back.
             const tn = [...e.querySelectorAll('*'), e].map(x => x.firstChild).find(n => n?.nodeType === 3), was = tn?.textContent;
+            // The dots as drawn (fix-final #10): text-overflow's ellipsis is never in textContent, so find the last character
+            // drawn whole before it (each character's box against the box's right edge, less the ellipsis's width).
+            if (tn) {
+              const cs = getComputedStyle(e), m = document.createElement('span'); m.textContent = '…'; m.style.font = cs.font; m.style.position = 'absolute'; document.body.append(m);
+              const room = e.getBoundingClientRect().right - parseFloat(cs.paddingRight) - m.getBoundingClientRect().width; m.remove();
+              let last = '';
+              for (let i = 0; i < tn.textContent.length; i++) { const r = document.createRange(); r.setStart(tn, i); r.setEnd(tn, i + 1); if (r.getBoundingClientRect().right <= room + 0.5) last = tn.textContent[i]; else break; }
+              if (last === '.') out.push(`"${full}" reads ".…" (a point before the ellipsis)`);
+            }
             const fit = tn && forms.find(f => { tn.textContent = f; return e.scrollWidth <= e.clientWidth; }); if (tn) tn.textContent = was;
             out.push(fit ? `"${full}" cut although "${fit}" fits` : `"${full}" cut (no shorter form fits)`);
           }
@@ -1182,6 +1214,23 @@ group(() => check('matchups-row-names', 'At 375x667 and 390x844 (touch), at most
       else if (z > 1 && r.cut.length && r.room > 48) bad.push(`${at}: ${r.cut.length} names cut (${r.cut.slice(0, 3).join(', ')}) with ${Math.round(r.room)}px free at the right`);
       else seen.push(`${at}: ${r.n - r.cut.length} of ${r.n} whole`);
     } finally { await p.close(); }
+  }
+  // A phone turned (fix-final #1): the names refit against the new window's cap, not the one before the turn, so each row
+  // shows the form a page loaded at that size shows ('Cohere Comman…' after a turn upright where 'Command R7B' fits).
+  const forms = p => p.evaluate(() => Object.fromEntries([...document.querySelectorAll('#pairwise a[data-row-name]')].filter(a => a.getBoundingClientRect().width > 0).map(a => [a.title, a.querySelector('[translate=no]').textContent])));
+  for (const [[w0, h0], [w1, h1]] of [[[844, 390], [390, 844]], [[390, 844], [844, 390]]]) {
+    const fresh = await polishPage(w1, h1, { phone: true, script: true }), turned = await polishPage(w0, h0, { phone: true, script: true });
+    try {
+      for (const q of [fresh, turned]) await q.evaluate(() => { window.__stream.scripted = true; }); // one set of names on both
+      await polishGo(fresh, 'pairwise'); await polishGo(turned, 'pairwise');
+      await turned.setViewport({ width: w1, height: h1, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }); await sleep(1500);
+      await polishGo(turned, 'pairwise');
+      const [a, b] = [await forms(fresh), await forms(turned)];
+      const diff = Object.keys(a).filter(k => k in b && a[k] !== b[k]).map(k => `${k}: "${b[k]}", fresh "${a[k]}"`);
+      if (!Object.keys(a).length) bad.push(`${w0}x${h0}→${w1}x${h1}: no row names`);
+      else if (diff.length) bad.push(`${w0}x${h0}→${w1}x${h1}: ${diff.slice(0, 3).join('; ')}`);
+      else seen.push(`${w0}x${h0}→${w1}x${h1}: ${Object.keys(a).length} names as fresh`);
+    } finally { await fresh.close(); await turned.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
 }));
@@ -5363,7 +5412,8 @@ const engineStats = async p => {
 const grp = (n, d) => Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 const bbText = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${grp(n, Math.abs(n) < 99.95 ? 1 : 0)}`;
 // A Matchups cell too narrow for the grouped figure: the last resort, shortened (+1.3k), so it never goes blank.
-const bbCompact = n => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n)).toLowerCase()}`;
+// Then to whole thousands (+19k: lib/format fitFigure, a 34px phone cell where +18.5k is clipped to "+18.5").
+const bbCompact = (n, d = 1) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: d }).format(Math.abs(n)).toLowerCase()}`;
 const bb100 = (v, bb) => (v.net_chips / bb / v.hands) * 100;
 // The models the Seated now lineup shows (lib/stats seatedModels): the seated with stats when two or more have them, else all.
 const seatedOf = stats => { const at = stats.models.filter(m => stats.seated?.includes(m.name)); return at.length >= 2 ? at : stats.models; };
@@ -5392,7 +5442,7 @@ group(() => check('matchups-bb100', 'Every Matchups card cell is the pair\'s bb/
     if (col) n++;
     // The figure in full where it fits (owner, 2026-11-09: not "+1k", "+2.4k"; HeadToHead's fitFigure), else a whole, else short.
     const x = bb100(v, bb), want = bbCompact(x), sign = x > 0 ? '+' : x < 0 ? '−' : '', full = `${sign}${grp(x, 1)}`, whole = `${sign}${grp(Math.round(x), 0)}`; // grouped (fix-polish)
-    if (![full, whole, want].includes(c.text)) bad.push(`${c.key}: shows "${c.text}", engine ${v.net_chips} chips over ${v.hands} hands = ${full}`);
+    if (![full, whole, want, bbCompact(x, 0)].includes(c.text)) bad.push(`${c.key}: shows "${c.text}", engine ${v.net_chips} chips over ${v.hands} hands = ${full}`);
     if (+c.hands !== v.hands) bad.push(`${c.key}: data-hands ${c.hands}, engine ${v.hands}`);
   }
   if (n < 20) bad.push(`only ${n} pairs with hands together`);
@@ -5730,8 +5780,9 @@ group(() => check('zoom-tolerable', `At 1440x900, 1512x982 and 1728x1117 zoomed 
 // --- fix-polish (the 2026-11-15 visual and accessibility audit, .cloud-out/AUDIT.json): one check per class of finding,
 // so none needs the owner's eyes again. ---
 // A phone page (touch) or a desktop one (browser zoom z: a W/z x H/z viewport at ratio z), loaded with its stats in.
-const polishPage = async (w, h, { phone = false, z = 1, path = '', locale = '' } = {}) => {
+const polishPage = async (w, h, { phone = false, z = 1, path = '', locale = '', script = false } = {}) => {
   const p = await newPage();
+  if (script) await scriptStream(p);
   if (locale) await (await p.createCDPSession()).send('Emulation.setLocaleOverride', { locale });
   if (phone) await p.emulate({ viewport: { width: w, height: h, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: await browser.userAgent() });
   else await p.setViewport({ width: Math.round(w / z), height: Math.round(h / z), deviceScaleFactor: z });
