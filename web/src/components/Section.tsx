@@ -148,7 +148,6 @@ export const NONE = { duration: 0 } as const;
 // What a card adds to its tile (and the header extras) fades in just after the glide starts, and out quickly.
 // OUT and IN are globals.css' add-out and add-in, which must keep their times.
 export const OUT = { duration: 0.12, ease: 'easeOut' } as const;
-const IN = { duration: 0.3, delay: 0.08, ease: 'easeOut' } as const;
 
 // A tile of the overview: a title, a teaser and an "Open ↓" affordance. A click (or Enter or
 // Space with the tile focused: it is a tab stop) calls onOpen, except on links and controls inside it.
@@ -287,10 +286,35 @@ const OPEN = <span aria-hidden className="text-[14px] font-medium whitespace-now
 // Each fade starts once the frame that draws its cause (the glide's first step, the overview back) has been painted, two
 // frames on: started in that frame, one a busy machine held past the fade drew it whole, and it came or went at once.
 // One there from the first render, or snapped in, shows at once.
+// A fade of the CSS variable --fade on `el`, stepped once per drawn frame (ease-out), not over a time: a busy machine that
+// held a frame past a time-based fade drew it whole at once (glide-clean: the Leader 0.09 → 1.00 between two frames), as
+// the closing card's scroll steps per frame (StatsSections' back). IN: 18 frames after 5 (300 ms after 80 ms at 60 fps);
+// OUT: 7 frames (120 ms). Returns a cancel.
+const IN_STEPS = [18, 5] as const, OUT_STEPS = [7, 0] as const;
+function stepFade(el: HTMLElement, to: number, [frames, wait]: readonly [number, number], done?: () => void) {
+  const was = parseFloat(el.style.getPropertyValue('--fade')), from = Number.isNaN(was) ? 1 - to : was;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || from === to) { el.style.setProperty('--fade', String(to)); done?.(); return () => {}; }
+  let k = -wait, id = 0;
+  const tick = () => {
+    k++;
+    if (k > 0) {
+      const t = Math.min(1, k / frames);
+      el.style.setProperty('--fade', String(from + (to - from) * (1 - (1 - t) ** 2)));
+      if (t >= 1) { done?.(); return; }
+    }
+    id = requestAnimationFrame(tick);
+  };
+  id = requestAnimationFrame(tick);
+  return () => cancelAnimationFrame(id);
+}
+
 function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean; children: React.ReactNode }) {
   const [present, safeToRemove] = usePresence();
   const first = useContext(PresenceContext)?.initial === false;
   const [shown, setShown] = useState<boolean | null>(snap || first || null); // null: not yet shown
+  const [start] = useState(shown ? 1 : 0); // the first value of --fade (React never sets it again)
+  const live = useRef(present);
+  useLayoutEffect(() => { live.current = present; });
   useEffect(() => {
     if (!present && shown === null) return safeToRemove?.(); // gone before it came in: nothing to fade
     let id = requestAnimationFrame(() => (id = requestAnimationFrame(() => setShown(present))));
@@ -304,17 +328,26 @@ function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean;
     if (present) at.current = el.offsetLeft + box.offsetLeft;
     else if (at.current !== null) el.style.left = `${at.current - box.offsetLeft}px`;
   });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || shown === null) return;
+    if (shown && snap) { el.style.setProperty('--fade', '1'); return; }
+    return stepFade(el, shown ? 1 : 0, shown ? IN_STEPS : OUT_STEPS, () => { if (!live.current) safeToRemove?.(); });
+  }, [shown]); // eslint-disable-line react-hooks/exhaustive-deps -- once per change of shown
   return (
     // A variable, not opacity, fades (globals.css' add-in): an opacity fade leaves its text in a layer of its own a while after.
-    <motion.div ref={ref} initial={false} animate={shown ? { '--fade': 1, transition: snap ? NONE : IN } : { '--fade': 0, transition: OUT }} onAnimationComplete={() => !present && safeToRemove?.()} className={present ? '' : `absolute ${stay ? '' : 'right-0'} inset-y-0 flex items-center`} style={{ opacity: 'var(--fade)' }}>
+    <div ref={ref} className={present ? '' : `absolute ${stay ? '' : 'right-0'} inset-y-0 flex items-center`} style={{ '--fade': start, opacity: 'var(--fade)' } as React.CSSProperties}>
       {children}
-    </motion.div>
+    </div>
   );
 }
 
 // Something the card adds around its tile's content: fades in as the tile glides open (nothing when `still`).
 export function Added({ still = false, className, style, children }: { still?: boolean; className?: string; style?: React.CSSProperties; children: React.ReactNode }) {
-  return <motion.div initial={still ? false : { '--fade': 0 }} animate={{ '--fade': 1, transition: IN }} className={`added ${className ?? ''}`} style={{ ...style, opacity: 'var(--fade)' }}>{children}</motion.div>;
+  const ref = useRef<HTMLDivElement>(null);
+  const [start] = useState(still ? 1 : 0);
+  useLayoutEffect(() => (still || !ref.current ? undefined : stepFade(ref.current, 1, IN_STEPS)), []); // eslint-disable-line react-hooks/exhaustive-deps -- on mount
+  return <div ref={ref} className={`added ${className ?? ''}`} style={{ ...style, '--fade': start, opacity: 'var(--fade)' } as React.CSSProperties}>{children}</div>;
 }
 
 
