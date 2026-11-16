@@ -13,6 +13,7 @@ interface ReasoningPanelProps {
   shotClockRemaining: number | null; // null: no clock
   blank?: boolean; // no table state yet: the bar at its size with nothing in it
   street?: string; // the hand's street, named in the name cell between turns
+  turnKey: string; // the turn on screen (hand number and turn), so the typing resumes only for the same turn
 }
 
 const STAGE: Record<string, string> = { preflop: 'Preflop', flop: 'Flop', turn: 'Turn', river: 'River', complete: 'Hand over' };
@@ -22,6 +23,7 @@ export default function ReasoningPanel({
   shotClockRemaining,
   blank = false,
   street,
+  turnKey,
 }: ReasoningPanelProps) {
   const bb = useBigBlind(); // the action's amount follows the Chips/BB switch; the model's own words stay as written
   const ref = useRef<HTMLDivElement>(null);
@@ -119,7 +121,7 @@ export default function ReasoningPanel({
               </div>
               {reason && (
                 <p className={`${reasonFontSize} italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
-                  <TypewriterText key={reason} text={reason} />
+                  <TypewriterText key={`${turnKey}|${reason}`} text={reason} turn={turnKey} />
                 </p>
               )}
             </>
@@ -139,7 +141,7 @@ export default function ReasoningPanel({
 // Phones: the caption under the table (page.tsx), in place of the bar above. The model on the clock and what it is doing,
 // then its reasoning typing out on two lines, the second fading out where a longer text is cut; a tap shows it all (a new
 // reason folds it again). It is always there: "Waiting for the next action" between turns.
-export function Caption({ displayState, blank = false }: { displayState: DisplayState | null; blank?: boolean }) {
+export function Caption({ displayState, blank = false, turnKey }: { displayState: DisplayState | null; blank?: boolean; turnKey: string }) {
   const bb = useBigBlind();
   const ref = useRef<HTMLButtonElement>(null);
   useFillIn(ref, !blank);
@@ -147,14 +149,14 @@ export function Caption({ displayState, blank = false }: { displayState: Display
   const d = displayState, shown = d && d.phase !== 'thinking';
   const reason = shown ? d.reason?.trim() || null : null;
   const action = shown ? d.action : null, amount = d?.amount ?? 0;
-  const expanded = !!reason && open === reason;
+  const expanded = !!reason && open === `${turnKey}|${reason}`;
   const said = action ? `${action.toLowerCase().replace('_', '-')}${amount > 0 ? ` ${formatAmount(amount, bb)}` : ''}` : '';
   return (
     <button
       ref={ref}
       type="button"
       data-caption
-      onClick={() => reason && setOpen(expanded ? null : reason)}
+      onClick={() => reason && setOpen(expanded ? null : `${turnKey}|${reason}`)}
       aria-expanded={reason ? expanded : undefined}
       className={`w-full min-h-[76px] text-left bg-white rounded px-3 py-2 ${blank ? '[&>*]:invisible' : ''}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', color: 'rgb(55, 53, 47)' }}
@@ -175,7 +177,7 @@ export function Caption({ displayState, blank = false }: { displayState: Display
         className={`block mt-1 text-[13px] leading-[18px] italic ${expanded ? '' : 'line-clamp-2'}`}
         style={!expanded && reason && reason.length > 70 ? { maskImage: 'linear-gradient(#000, #000) top / 100% calc(100% - 18px) no-repeat, linear-gradient(to right, #000 55%, transparent) bottom / 100% 18px no-repeat' } : undefined}
       >
-        {d?.phase === 'thinking' ? <span style={{ color: MUTED }}>Thinking…</span> : reason ? <TypewriterText key={reason} text={reason} /> : null}
+        {d?.phase === 'thinking' ? <span style={{ color: MUTED }}>Thinking…</span> : reason ? <TypewriterText key={`${turnKey}|${reason}`} text={reason} turn={turnKey} /> : null}
       </span>
     </button>
   );

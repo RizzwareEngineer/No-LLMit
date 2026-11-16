@@ -198,6 +198,7 @@ function Table() {
   const currentPlayerIdx = displayState?.playerIdx ?? (gameState?.currentPlayerIdx ?? -1);
   const stakes = gameState?.stakes || { smallBlind: 5, bigBlind: 10 };
   const handNumber = gameState?.handNumber || 0;
+  const turnKey = displayState ? `${handNumber}:${displayState.turn}` : ''; // the typing record's key: turns restart each hand
   const winners = gameState?.winners || [];
   // Seats whose cards are face up: the engine's list, and the turn on screen until a game_state carries it.
   const peeked = gameState?.peeked ?? [];
@@ -537,10 +538,11 @@ function Table() {
                 shotClockRemaining={shotClockRemaining}
                 blank={players.length === 0}
                 street={players.length ? street : undefined}
+                turnKey={turnKey}
               />
             </div>}
             {phone && <div className="md:hidden mt-1.5 w-full" style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
-              <Caption displayState={displayState} blank={players.length === 0} />
+              <Caption displayState={displayState} blank={players.length === 0} turnKey={turnKey} />
             </div>}
           </div>
         </div>
