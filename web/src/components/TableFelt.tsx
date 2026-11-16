@@ -14,7 +14,7 @@ import { amountParts, formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE } from "@/lib/stats";
 import { formatDuration, formatLocalTime } from "@/lib/time";
 import { useFillIn } from "@/lib/boxes";
-import { DECK, POT_TOP } from "@/lib/phoneTable";
+import { DECK } from "@/lib/phoneTable";
 
 interface WinnerDisplay {
   name: string;
@@ -138,11 +138,6 @@ export default function TableFelt({
     >
       {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} />)}
 
-      {/* The phone: the deck between hands just over the pot, in the middle and clear of the pot and the board (owner
-          2026-11-15: "the shuffle deck should not be in front of the pot count"; phoneTable's DECK). */}
-      {compact && <div className="absolute left-1/2 -translate-x-1/2" style={{ top: DECK.top - POT_TOP, width: DECK.w, height: DECK.h }}>
-        <AnimatePresence>{deck && <Deck key="deck" phase={deck} />}</AnimatePresence>
-      </div>}
 
       {/* Winner announcement or Pot */}
       <div className={`${compact ? 'h-[30px]' : 'h-[74px]'} w-full flex items-start justify-center`}>
@@ -211,10 +206,14 @@ export default function TableFelt({
           </div>
         ) : (
           <>
-            {(!deck || compact) && cards.map((card, i) => (
+            {!deck && cards.map((card, i) => (
               <Card key={`${card}-${i}`} value={card} className={compact ? 'w-[30px] h-[42px]' : 'w-11 h-16'} rise={live} />
             ))}
-            {!compact && <AnimatePresence>{deck && <Deck key="deck" phase={deck} />}</AnimatePresence>}
+            {/* The phone's deck between hands takes the board's place too, as the desktop's does, 8px under the pot
+                (phoneTable's DECK; owner 2026-11-15: "the shuffle deck should not be in front of the pot count"; the audit:
+                over the pot it covered the P of POT at 375). */}
+            {compact ? <AnimatePresence>{deck && <div key="deck" className="relative" style={{ top: DECK.top + 2, width: DECK.w, height: DECK.h }}><Deck phase={deck} /></div>}</AnimatePresence>
+              : <AnimatePresence>{deck && <Deck key="deck" phase={deck} />}</AnimatePresence>}
           </>
         )}
       </div>

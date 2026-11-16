@@ -48,8 +48,9 @@ const POSITION_COLORS: Record<string, string> = {
 
 // The phone seat's logo: a dark rim, the desktop seat's border drawn darker (owner 2026-11-15: "the same sort of dark
 // borders that we see on the rectangles"), and its shadow. PokerTable's blank logo has the same.
-// The phone's position chip: one size for every name, as the desktop badges (w-8), wide enough for UTG+1 at 11px.
-const CHIP_W = 42;
+// The phone's position chip: one size for every name, as the desktop badges (w-8), wide enough for UTG+1 at 11px with
+// 4px a side (the audit: at 42px it had almost none).
+const CHIP_W = 44;
 export const LOGO_RIM = { border: '2px solid rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.1) 0px 2px 4px' } as const;
 
 // Full position names for tooltips
@@ -155,9 +156,13 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             : <div data-label className="text-[11px] leading-[14px]" style={{ color: MUTED }}>{seatLabel(player.name)}</div>}
         </div>
         <div className="absolute pointer-events-auto" style={{ left: ox + c[0] - 30, top: oy + c[1] - 20 }}>{hole}</div>
+        {/* The action, for a moment, on the seat's side away from the middle, where its cards never are: over the logo
+            for a seat in the table's top half (its cards are under it), under its stack, over its label, for one in the
+            bottom half (its cards are over it). Never over its cards, logo, chip or stack (the audit: 'Raise 632' hid the
+            seat's own face-up cards). */}
         {bubble && (
           <div data-bubble className="absolute z-10 rounded-full bg-white px-2 text-[12px] leading-5 font-bold whitespace-nowrap -translate-x-1/2 motion-safe:animate-[bubble_2s_ease-out_both]"
-            style={{ left: ox, top: oy - LOGO / 2 - 14, color: 'rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.12) 0px 0px 0px 1px, rgba(15, 15, 15, 0.12) 0px 2px 6px' }}>
+            style={{ left: ox, top: spot.y[0] < 0.5 ? oy - LOGO / 2 - 24 : oy + LOGO / 2 + 18, color: 'rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.12) 0px 0px 0px 1px, rgba(15, 15, 15, 0.12) 0px 2px 6px' }}>
             {bubble}
           </div>
         )}

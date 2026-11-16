@@ -34,7 +34,7 @@ for (const shape of SHAPES) for (const [W, H] of TABLES) {
     for (const [i, a] of boxes.entries()) {
       if (a.r[0] < 0 || a.r[1] < 0 || a.r[2] > W || a.r[3] > H) bad.push(`${a.k} outside`);
       for (const b of boxes.slice(i + 1)) {
-        if ((a.between || b.between) && [a.k, b.k].some(k => k.endsWith('bet'))) continue; // the deck shows between hands, with no bets out
+        if ((a.between || b.between) && [a.k, b.k].some(k => k.endsWith('bet') || k === 'board')) continue; // the deck shows between hands, in the board's place, with no bets out
         const own = a.seat !== undefined && a.seat === b.seat, kinds = [a.k, b.k].map(k => k.split(' ')[1]).sort().join('+');
         if (own && kinds === 'cards+text' ? meet((a.askew ?? b.askew), (a.askew ? b : a).r) : !own || kinds.includes('bet') ? meet(a.r, b.r) : false) bad.push(`${a.k} on ${b.k}`);
         // Room between players (owner 2026-11-15: "more spacing between each of these players"): two seats' logos and
@@ -57,4 +57,8 @@ test('the seat label tells a family\'s models apart', () => {
   const got = ['GPT-OSS 120B', 'GPT-OSS 20B', 'Gemma 3 27B', 'Gemma 3 12B', 'Qwen3 235B A22B', 'Qwen3 32B', 'DeepSeek V3.2', 'DeepSeek V4 Flash',
     'Claude Haiku 5.5', 'Llama 4 Maverick', 'Mistral Large 3', 'Cohere Command R7B', 'Qwen 3.7 Flash', 'Phi-4', 'Kimi K2'].map(seatLabel);
   assert.deepEqual(got, ['120B', '20B', '27B', '12B', '235B', '32B', 'V3.2', 'V4 Flash', 'Haiku', 'Maverick', 'Large', 'R7B', 'Flash', 'Phi-4', 'K2']);
+});
+
+test('between hands the deck sits at least 8px under the pot (the audit: over the pot it covered the P of POT)', () => {
+  assert.ok(DECK.top - (POT_TOP + 30) >= 8, `${DECK.top - (POT_TOP + 30)}px`);
 });

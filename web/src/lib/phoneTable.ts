@@ -13,9 +13,11 @@ export const FELT = { side: 30, top: 40, bottom: 60 } as const;
 export const LOGO = 48;
 // The pot's top from the felt's middle (px): the pot (30px), then the board (42px cards) from 2px over the middle.
 export const POT_TOP = -36;
-// The deck between hands (TableMotion's shuffle), board-card size: over the pot, never over it or the board (owner
-// 2026-11-15: "the shuffle deck should not be in front of the pot count"). Its top from the felt's middle (px).
-export const DECK = { w: 30, h: 42, top: POT_TOP - 2 - 42 } as const;
+// The deck between hands (TableMotion's shuffle), board-card size, in the board's place as on the desktop, 4px lower so
+// it is 8px under the pot (owner 2026-11-15: "the shuffle deck should not be in front of the pot count"; the audit found
+// it over the pot's label at 375, and the top seat's cards leave no room over the pot on a short table). Its top from the
+// felt's middle (px): the board's row starts 2px over it.
+export const DECK = { w: 30, h: 42, top: 2 } as const;
 
 // The table's shape (?shape=, tableSwitches; drafts besides the oval, owner 2026-11-15: "some other layouts that we should
 // consider such that it still feels like it fits with the no-limit version"): the oval (the default), a rounded rectangle
