@@ -580,10 +580,11 @@ export default function CumulativeChart({
   const fitted = (n: string, p: Pts) => (fitAt.size ? p.filter(q => q[0] >= (fitAt.get(n) ?? Infinity)) : p);
   let want: [number, number];
   if (race) {
-    // While the replay plays, the lines (and all-in EV lines) over the recent quarter of the window's
-    // drawn part (a rate's early hands are noise that would flatten the pack); at rest, the whole
-    // window; before any line is in view, the whole race's.
-    // Either way the recent quarter itself and every tip are always inside: the leader's latest run is never clipped.
+    // The lines (and all-in EV lines) over the recent quarter of the window's drawn part (a rate's early hands are
+    // noise that would flatten the pack), while the replay plays and at rest alike (owner 2026-11-08: a dynamic y axis
+    // so "the true diff between each model" is apparent, and only older history may be clamped at the edge, never the
+    // recent stretch: history-y-dynamic, history-no-recent-clip); before any line is in view, the whole race's.
+    // The recent quarter itself and every tip are always inside: the leader's latest run is never clipped.
     const inView = [...[...lines.keys()].map(n => fitted(n, drawn.get(n) ?? [])), ...evDrawn.filter(e => evs.has(e.n)).map(e => fitted(e.n, e.p))].filter(p => p.length);
     const cut = lerp(X0, Math.min(X1, nowX), 0.75);
     const recent = inView.flatMap(p => p.filter(q => q[0] >= cut).map(q => q[1]));
@@ -591,7 +592,7 @@ export default function CumulativeChart({
     // The replay is known ahead: the next LOOK_S of each line, so the eased axis is never caught out by a jump.
     const ahead = handNow === null ? [] : [...lines].flatMap(([n, p]) => fitted(n, trace(p, nowX, nowX + (LOOK_S * 1000 / PLAY_MS) * timeline!.hands, Infinity)).map(q => q[1]));
     want = inView.length
-      ? robustRange(playing ? recent : inView.flatMap(p => p.map(q => q[1])), tips, [...recent, ...tips, ...ahead])
+      ? robustRange(recent, tips, [...recent, ...tips, ...ahead])
       : robustRange([...lines].flatMap(([n, p]) => fitted(n, trace(p, from, lastHand)).map(q => q[1])));
   } else {
     const ys = [...drawn.values()].flatMap(p => p.map(q => q[1]));
