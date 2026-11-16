@@ -669,7 +669,15 @@ group(() => check('desktop-table-text', 'At 1440x900, 1512x982 and 1728x1117: no
         // the room it has now (a shortened name that never came back) fails: put the full name in and see it fit.
         const playing = new Set((window.__stream?.last?.players ?? []).map(q => q.name)); // model names only (a badge's title is its position's)
         const shortened = [...sec.querySelectorAll('#table ol [title], td [data-seat] [title]')].filter(e => vis(e) && playing.has(e.getAttribute('title')) && e.firstChild?.nodeType === 3 && e.firstChild.textContent.trim() !== e.getAttribute('title'));
-        const stuckShort = shortened.filter(e => { const t = e.firstChild, was = t.textContent; t.textContent = e.getAttribute('title'); const row = e.closest('.justify-between') ?? e.parentElement; const fits = e.scrollWidth <= e.clientWidth + 1 && row.scrollWidth <= row.clientWidth + 1; t.textContent = was; return fits; });
+        // Fits: no overflow at all (an ellipsis shows from a fraction of a pixel), and nothing beside it in its row
+        // squeezed to make room (the seat's badge gives way before it overflows).
+        const stuckShort = shortened.filter(e => {
+          const t = e.firstChild, was = t.textContent, row = e.closest('.justify-between') ?? e.parentElement;
+          const others = [...row.querySelectorAll('*')].filter(x => !x.contains(e) && !e.contains(x)), w0 = others.map(x => x.getBoundingClientRect().width);
+          t.textContent = e.getAttribute('title');
+          const fits = e.scrollWidth <= e.clientWidth && row.scrollWidth <= row.clientWidth && others.every((x, i) => x.getBoundingClientRect().width >= w0[i] - 0.5);
+          t.textContent = was; return fits;
+        });
         for (const e of stuckShort.slice(0, 4)) out.push(`"${e.getAttribute('title')}" shown as "${e.firstChild.textContent.trim()}" although it fits whole`);
         const players = window.__stream?.last?.players?.length ?? 0;
         if (!players) out.push('no game state on the stream');
