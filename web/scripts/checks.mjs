@@ -123,10 +123,11 @@ const clickText = (pg, t) => pg.evaluate(t => { const b = [...document.querySele
 // A button whose text starts with `t` (a label that carries a short form for narrow screens, e.g. "Back to overviewOverview").
 const clickPrefix = (pg, t) => pg.evaluate(t => { const b = [...document.querySelectorAll('button, a')].find(e => e.textContent.trim().startsWith(t) && e.getBoundingClientRect().width > 0); if (b) b.click(); return !!b; }, t);
 const clickCenter = async (pg, sel) => { const r = await pg.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, sel); if (!r) throw new Error(`no ${sel}`); await pg.mouse.click(r[0], r[1]); };
-// The biggest visible chart svg on screen: the Trends plot.
+// The biggest visible chart svg on screen: the Trends plot's, inside its [data-plot] box (the line labels' logos are far
+// under 300px). Not "an svg with over 3 paths": while a replay shows one or two lines (a lineup whose models joined late), that found no chart and the tile/card checks threw.
 const chartBox = pg => pg.evaluate(() => {
-  const s = [...document.querySelectorAll('svg')].map(e => ({ e, r: e.getBoundingClientRect() }))
-    .filter(({ e, r }) => r.width > 300 && r.bottom > 0 && r.top < innerHeight && e.querySelectorAll('path').length > 3)
+  const s = [...document.querySelectorAll('[data-plot] svg')].map(e => ({ e, r: e.getBoundingClientRect() }))
+    .filter(({ r }) => r.width > 300 && r.bottom > 0 && r.top < innerHeight)
     .sort((a, b) => b.r.width * b.r.height - a.r.width * a.r.height)[0];
   return s && { w: s.r.width, h: s.r.height, x: s.r.left, y: s.r.top };
 });
@@ -2611,7 +2612,7 @@ const camRun = async () => {
   // Sample times are replay time (real ms x SPEED), so every window below is the same at any speed.
   await pg.evaluate(S => {
     const t0 = (window.__t0 = performance.now()), out = (window.__cam = []);
-    const f = () => {
+    const f = ft => {
       const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0);
       if (plot) {
         const [top, h] = plot.dataset.plot.split(',').map(Number), [y0, y1] = plot.dataset.yRange.split(',').map(Number);
@@ -2620,7 +2621,9 @@ const camRun = async () => {
         const ticks = [...plot.querySelectorAll('[data-y-tick]')].map(e => e.textContent);
         const name = e => e.querySelector('[data-pill-name]')?.textContent;
         out.push({
-          t: (performance.now() - t0) * S, y0, y1, fit: plot.dataset.yFit, fill: tys.length > 1 ? (Math.max(...tys) - Math.min(...tys)) / h : null,
+          // ft: the frame's own time (the rAF stamp every animation steps on), in replay ms. t is read after the frame's
+          // render, which takes a varying share of a slow frame, so t's gaps are not the frame's.
+          t: (performance.now() - t0) * S, ft: (ft - t0) * S, y0, y1, fit: plot.dataset.yFit, fill: tys.length > 1 ? (Math.max(...tys) - Math.min(...tys)) / h : null,
           out: tys.length ? Math.max(0, top - Math.min(...tys), Math.max(...tys) - top - h) : 0, labels: ticks.join(' '), nTicks: ticks.length,
           // The worst vertical overlap (px) between two y labels that show at all (fading ones too), and which.
           ylab: (() => {
@@ -2697,7 +2700,9 @@ main(() => check('history-y-dynamic', 'The y axis follows the lines in view: it 
     if (r > r0 + eps) wider++;
     if (r < r0 - eps) narrower++;
     // Per 60 Hz frame: a slow frame (a loaded machine), or the one after it, may carry more motion without being a jump.
-    const k = 16.7 / Math.max(16.7, ss[i].t - ss[i - 1].t, ss[i - 1].t - ss[i - 2].t);
+    // Timed by the frames' own stamps (ft), as the axis steps: a sample read late in a slow frame's render and the next
+    // read early made a full frame's step look like 1.6 of one (5.3-6.4% "per frame" at a steady 3.3%).
+    const k = 16.7 / Math.max(16.7, ss[i].ft - ss[i - 1].ft, ss[i - 1].ft - ss[i - 2].ft);
     worst = Math.max(worst, (Math.abs(ss[i].y0 - ss[i - 1].y0) / r) * k, (Math.abs(ss[i].y1 - ss[i - 1].y1) / r) * k);
   }
   const outs = ss.filter(s => s.out > 2);
@@ -3402,7 +3407,7 @@ main(() => check('matchups-cells-still', 'Matchups cells never move or scale whe
     const size = new Map(first.map(c => [c.dataset.cell, [box(c).width, box(c).height]]));
     const text0 = new Map(first.map(c => [c.dataset.cell, c.textContent]));
     const near = (set, v) => [...set].some(x => Math.abs(x - v) <= 0.5);
-    let worst = 0, off = 0, changed = 0; const t0 = performance.now();
+    let worst = 0, off = 0, changed = 0, firstAt = 0; const t0 = performance.now();
     const loop = () => {
       for (const c of document.querySelectorAll(sel)) {
         const b = box(c), s = size.get(c.dataset.cell);
@@ -3410,11 +3415,13 @@ main(() => check('matchups-cells-still', 'Matchups cells never move or scale whe
         if (s) worst = Math.max(worst, Math.abs(b.width - s[0]), Math.abs(b.height - s[1]));
         if (text0.has(c.dataset.cell) && text0.get(c.dataset.cell) !== c.textContent) { changed++; text0.set(c.dataset.cell, c.textContent); }
       }
-      if (performance.now() - t0 < 4000) requestAnimationFrame(loop); else res({ worst, off, changed });
+      // 4 s from the first change (up to 30 s for it: a lineup that joined late meets no pair in the replay's first seconds).
+      if (changed && !firstAt) firstAt = performance.now();
+      if (performance.now() - (firstAt || t0) < (firstAt ? 4000 : 30000)) requestAnimationFrame(loop); else res({ worst, off, changed });
     };
     requestAnimationFrame(loop);
   }));
-  return { pass: r.changed > 0 && r.off === 0 && r.worst <= 0.5, detail: r.changed ? `${r.changed} value changes; ${r.off} cell frames off their grid slot, worst size change ${r.worst.toFixed(1)}px` : 'no value changed in 4s (is the replay running?)' };
+  return { pass: r.changed > 0 && r.off === 0 && r.worst <= 0.5, detail: r.changed ? `${r.changed} value changes; ${r.off} cell frames off their grid slot, worst size change ${r.worst.toFixed(1)}px` : 'no value changed in 30s (is the replay running?)' };
 }));
 
 // Owner, 2026-11-09: "It looks like we for-loop over each cell rather than update each cell at once" (the Trends replay).
@@ -3424,7 +3431,7 @@ main(() => check('matchups-cells-together', 'During the Trends replay, every Mat
   if (!(await replaying(pg))) return { pass: false, detail: 'the Trends replay did not start' };
   const r = await pg.evaluate(() => new Promise(res => {
     const fig = new Map(), seen = new WeakSet(); const t0 = performance.now();
-    let steps = 0, cells = 0, late = 0, delayed = 0, flashes = 0;
+    let steps = 0, cells = 0, late = 0, delayed = 0, flashes = 0, first = 0;
     const loop = () => {
       let changed = 0;
       for (const c of document.querySelectorAll('#pairwise-panel td[data-cell]')) {
@@ -3437,11 +3444,14 @@ main(() => check('matchups-cells-together', 'During the Trends replay, every Mat
         changed++; if (!fresh.length) late++; // its figure changed this frame, its flash did not start with it
       }
       if (changed) { steps++; cells += changed; }
-      if (performance.now() - t0 < 4000) requestAnimationFrame(loop); else res({ steps, cells, late, delayed, flashes });
+      // 4 s from the first step that changes a figure (up to 30 s for it: a lineup that joined late meets no pair in the
+      // replay's first seconds, so nothing changes there and nothing was tested).
+      if (steps && !first) first = performance.now();
+      if (performance.now() - (first || t0) < (first ? 4000 : 30000)) requestAnimationFrame(loop); else res({ steps, cells, late, delayed, flashes });
     };
     requestAnimationFrame(loop);
   }));
-  return { pass: r.steps > 0 && !r.late && !r.delayed, detail: r.steps ? `${r.steps} steps, ${r.cells} cell changes, ${r.flashes} flashes: ${r.late} flashes a frame late, ${r.delayed} delayed` : 'no figure changed in 4s (is the replay running?)' };
+  return { pass: r.steps > 0 && !r.late && !r.delayed, detail: r.steps ? `${r.steps} steps, ${r.cells} cell changes, ${r.flashes} flashes: ${r.late} flashes a frame late, ${r.delayed} delayed` : 'no figure changed in 30s (is the replay running?)' };
 }));
 
 // Owner, 2026-11-07: "Trends ... pretty smooth. For profiles, it's not as smooth" (the tile's text
