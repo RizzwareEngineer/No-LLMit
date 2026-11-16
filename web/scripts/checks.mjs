@@ -137,17 +137,16 @@ const replayHand = async pg => {
 };
 
 // The stats cards have their data (a loaded machine can take far longer than a fixed wait). The stats mount only once
-// their screens near the window (StatsScreens), so this goes there as a viewer would, scrolling down to them, and comes
-// back to where the page was once they have mounted.
+// their screens come within half a window of it (StatsScreens: at once on a desktop, whose table screen is one window
+// tall), so this scrolls down as a viewer would until they are that near, never into view (Trends' replay starts when
+// it is first seen), and back to where the page was once they have mounted.
 const waitStats = async p => {
   try {
     const y = await p.evaluate(() => scrollY);
-    if (!(await p.evaluate(() => !!document.getElementById('race-panel')))) {
-      await p.waitForFunction(() => document.getElementById('stats'), { timeout: 90000 });
-      await p.evaluate(() => window.scrollTo({ top: document.getElementById('stats').getBoundingClientRect().top + scrollY, behavior: 'instant' }));
-      await p.waitForFunction(() => document.getElementById('race-panel'), { timeout: 90000 });
-      await p.evaluate(y => window.scrollTo({ top: y, behavior: 'instant' }), y);
-    }
+    await p.waitForFunction(() => document.getElementById('stats'), { timeout: 90000 });
+    await p.evaluate(() => { const s = document.getElementById('stats'); window.scrollTo({ top: Math.max(scrollY, s.getBoundingClientRect().top + scrollY - 1.4 * innerHeight), behavior: 'instant' }); });
+    await p.waitForFunction(() => document.getElementById('race-panel'), { timeout: 90000 });
+    await p.evaluate(y => { if (scrollY !== y) window.scrollTo({ top: y, behavior: 'instant' }); }, y);
   } catch {}
   await p.waitForFunction(() => document.querySelector('#pairwise-card td[data-cell]') && document.querySelector('#stats-panel tbody tr') && document.querySelector('#race-panel svg'), { timeout: 90000 }).catch(() => {});
 };
@@ -5929,7 +5928,9 @@ group(() => check('cards-top-aligned', 'At 1440x900, 1728x1117 and 1440x900 at 9
         gaps[s] = await p.evaluate(s => {
           const bar = [...document.querySelectorAll('div.fixed.top-0, [data-sticky-bar]')].map(e => e.getBoundingClientRect()).filter(b => b.height > 0 && b.top <= 1).reduce((m, b) => Math.max(m, b.bottom), 0);
           if (s === 'about') { const a = [...document.querySelectorAll('[data-about]')].map(e => e.getBoundingClientRect()).find(b => b.width > 0 && b.top > -5 && b.top < innerHeight); return a ? a.top - bar : null; }
-          const cards = [...document.querySelectorAll('.card-chrome')].map(e => ({ e, b: e.getBoundingClientRect() })).filter(({ e, b }) => b.width > 400 && b.top >= -1 && b.top < innerHeight && +getComputedStyle(e).opacity > 0.5).sort((a, b) => b.b.width * b.b.height - a.b.width * a.b.height);
+          // Shown: its opacity with every ancestor's (a card receded under the next one is hidden by its wrapper, not itself).
+          const shown = e => { let o = 1; for (let n = e; n; n = n.parentElement) o *= +getComputedStyle(n).opacity; return o; };
+          const cards = [...document.querySelectorAll('.card-chrome')].map(e => ({ e, b: e.getBoundingClientRect() })).filter(({ e, b }) => b.width > 400 && b.top >= -1 && b.top < innerHeight && shown(e) > 0.5).sort((a, b) => b.b.width * b.b.height - a.b.width * a.b.height);
           return cards[0] ? cards[0].b.top - bar : null;
         }, s);
       }
