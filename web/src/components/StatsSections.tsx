@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { flushSync } from 'react-dom';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
@@ -68,6 +68,16 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
   // The Matchups card shows the seated lineup while it hands over to its tile (which glides with that lineup): with
   // "All models", the other models' rows and columns fade in once it has landed and out before it glides back.
   const [muFold, setMuFold] = useState(false);
+  // The stats mount in parts, each its own task (clock-after-load): the overview's tiles, then the Trends chart in its tile,
+  // then About, then the Profiles card's body, then the Matchups card's. All in one commit was a task of about a second on a 4x-throttled CPU, which held every timer
+  // back (the shot clock's figure stayed up to a second past its second). Until its part is in, a card stands in blank at
+  // the size it last had (as while the stats load) and About's screen is empty; neither is on screen at the overview.
+  const [part, setPart] = useState(0);
+  useEffect(() => {
+    if (part >= 4) return;
+    const t = setTimeout(() => startTransition(() => setPart(n => n + 1)), 0);
+    return () => clearTimeout(t);
+  }, [part]);
   const stage = useRef<HTMLDivElement>(null);
   const statsCard = useRef<HTMLElement>(null);
   const statsScreen = useRef<HTMLDivElement>(null);
@@ -492,7 +502,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
               <Panel id="race-panel" title="Trends" away={{ y: -1 }} className="row-start-1 md:col-span-2 max-md:h-(--race-tile)" aside={lead} fit={raceFit} blank={blank} {...tile('race')}>
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
-                  <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
+                  part >= 1 && <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
                 ) : message}
               </Panel>
 
@@ -547,7 +557,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
           <div className="panel-scroll h-full overflow-auto">
             {/* At the top, the gap under the top bar the opened cards keep (not centred: no empty band above it). */}
             <div className={`min-h-full flex flex-col justify-start px-3 lg:px-4 ${PAD}`}>
-              <div className="w-full md:max-w-(--block-w) mx-auto" style={BLOCK_VARS}><PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider></div>
+              <div className="w-full md:max-w-(--block-w) mx-auto" style={BLOCK_VARS}>{part >= 2 && <PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider>}</div>
             </div>
           </div>
         </section>
@@ -555,12 +565,12 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
         {/* The History screen's scroll range: the stage stays as it is. */}
         <div className="h-svh" aria-hidden />
 
-        <Card id="stats-card" title="Profiles" aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit blank={blank}>
-          {statsBody(true)}
+        <Card id="stats-card" title="Profiles" aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit blank={blank || part < 3}>
+          {part >= 3 && statsBody(true)}
         </Card>
 
-        <Card id="pairwise-card" title="Matchups" aside={muAside} z="z-20" fit="hug" blank={blank} record={muLineup === 'seated'}>
-          {pairwiseBody(true, muFold ? field : muModels)}
+        <Card id="pairwise-card" title="Matchups" aside={muAside} z="z-20" fit="hug" blank={blank || part < 4} record={muLineup === 'seated'}>
+          {part >= 4 && pairwiseBody(true, muFold ? field : muModels)}
         </Card>
       </div>
     </div>
