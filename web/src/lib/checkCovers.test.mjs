@@ -48,9 +48,9 @@ test('--changed selects the checks that guard each named file', () => {
 });
 // A check no row selects runs only when a file outside every row changes: that is fine for whole-page checks, but each
 // such check is named here, so a new one has to be placed in a row (or here) on purpose.
-// chunk-fail-keeps-table and early-scroll-kept guard StatsScreens.tsx and app/page.tsx, which no row names: an edit to
+// chunk-fail-keeps-table, chunk-fail-says-so and early-scroll-kept guard StatsScreens.tsx and app/page.tsx, which no row names: an edit to
 // either runs every check.
-const PAGE_WIDE = ['card-adds-after-close', 'chunk-fail-keeps-table', 'early-scroll-kept'];
+const PAGE_WIDE = ['card-adds-after-close', 'chunk-fail-keeps-table', 'early-scroll-kept', 'chunk-fail-says-so'];
 test('the page-wide checks guard only files no row names', () => {
   for (const f of ['web/src/components/StatsScreens.tsx', 'web/src/app/page.tsx']) assert.equal(selected(f), null, `${f} is named by a row`);
 });

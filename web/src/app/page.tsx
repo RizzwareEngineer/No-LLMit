@@ -15,7 +15,8 @@ import PlaySoonButton from "@/components/PlaySoonButton";
 // starts it), or as a pointer or a touch comes to a model's link, so it opens at once; a link opened before then waits for it.
 // Loaded on the first pointer near a model link, or the first model opened, and mounted only once loaded (StatsScreens
 // says why: a lazy would finish on a retry lane that a typing reason restarts). A failed load never reaches React: the
-// drawer stays closed and the next open tries again.
+// drawer stays closed, one line says it did not load (a chunk a deploy replaced does not come back: reload), and the next
+// open tries again.
 let drawerChunk: Promise<typeof import("@/components/ModelDrawer")> | null = null;
 let ModelDrawer: typeof import("@/components/ModelDrawer").default | null = null; // once loaded
 const loadDrawer = () => drawerChunk ??= import("@/components/ModelDrawer").catch(() => import("@/components/ModelDrawer"))
@@ -228,12 +229,13 @@ function Table() {
   const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
   // Mounted from the first time a model opens, then kept (it closes as a dialog does).
   const [drawerEver, setDrawerEver] = useState(false);
+  const [drawerFailed, setDrawerFailed] = useState(false); // its last load failed, both tries
   useEffect(() => {
     if (!drawerSlug || drawerEver) return;
     let live = true;
     // Not a transition: a model was asked for, and the Trends replay's frames (sync updates) would restart a transition's
     // render of the page until the replay ended (8 s on a phone). A default update renders in one go, and is not lazy.
-    loadDrawer().then(() => { if (live) setDrawerEver(true); }, () => { if (live) closeModel(); });
+    loadDrawer().then(() => { if (live) { setDrawerFailed(false); setDrawerEver(true); } }, () => { if (live) { setDrawerFailed(true); closeModel(); } });
     return () => { live = false; };
   }, [drawerSlug, drawerEver]);
   useEffect(() => {
@@ -573,6 +575,11 @@ function Table() {
       {/* No floating back-to-top button on phones: it covered text, logos and chart marks. The tab bar's Table tab is the way
           back to the table's top, as a native tab bar's. */}
       {drawerEver && ModelDrawer && <ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} />}
+      {drawerFailed && !drawerEver && (
+        <p role="status" className="fixed left-1/2 -translate-x-1/2 z-50 rounded bg-white px-3 py-1.5 text-[13px] leading-5 whitespace-nowrap" style={{ top: 'calc(var(--top-h, 0px) + 8px)', color: 'rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}>
+          Model page did not load. Reload the page.
+        </p>
+      )}
 
       {/* Fixed notification bar for connection status */}
       {bar && (

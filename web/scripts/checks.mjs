@@ -6462,7 +6462,9 @@ group(() => check('chunk-fail-keeps-table', 'At 390x844 (touch), with every scri
       seats: [...document.querySelectorAll('[data-oval] [data-seat]')].filter(e => e.getBoundingClientRect().width > 0).length,
       error: /client-side exception|couldn.t load|Application error/i.test(document.body.innerText),
       stats: !!document.getElementById('race-panel'), drawer: !!document.querySelector('dialog[open]'),
+      note: [...document.querySelectorAll('p')].some(e => e.textContent.trim() === 'Stats did not load. Reload the page.' && e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().top < innerHeight && e.getBoundingClientRect().bottom > 0),
     }));
+    if (!r.note) bad.push('Trends shows no line saying the stats did not load (review 4 #1)');
     if (!failed) bad.push('no script was asked for while blocked (nothing tested)');
     if (r.error) bad.push('an error screen replaced the page');
     if (!r.seats) bad.push('the table is gone');
@@ -6478,6 +6480,60 @@ group(() => check('chunk-fail-keeps-table', 'At 390x844 (touch), with every scri
       if (!(await p.waitForFunction(() => document.querySelector('dialog[open]'), { timeout: 10000 }).then(() => true, () => false))) bad.push('the drawer never opened once the network was back');
     } else bad.push('no model link');
     return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${failed} scripts failed: the table stayed (${r.seats} seats), no error screen; then the stats and the drawer showed` };
+  } finally { await p.close(); }
+}));
+
+// Review 4, findings 1 and 2: a stats or drawer chunk that fails (a deploy replaced it) says so in one line, at least
+// 11px, and on a desktop (no touch, no wheel, no key) a click on "Stats ↓" retries a stats load that failed at hydration.
+group(() => check('chunk-fail-says-so', 'At 1440x900 with the stats and drawer scripts failing: the overview says "Stats did not load. Reload the page." and a model link "Model page did not load. Reload the page.", each one line of at least 11px; once the network is back, a click on Stats ↓ alone shows the stats', async () => {
+  const p = await newPage(), bad = [];
+  try {
+    await p.setViewport({ width: 1440, height: 900 });
+    let first = null, failed = 0;
+    await p.setRequestInterception(true);
+    // The page's own scripts (those its HTML names) load; every chunk asked for later fails until `first` is cleared.
+    p.on('request', r => {
+      const u = r.url();
+      if (first && /\/_next\/static\/chunks\/.*\.js/.test(u) && !first.has(new URL(u).pathname)) { failed++; r.abort('internetdisconnected').catch(() => {}); }
+      else r.continue().catch(() => {});
+    });
+    p.on('response', async r => { if (r.url() === `${BASE}/` && !first) { const html = await r.text().catch(() => ''); first = new Set([...html.matchAll(/\/_next\/static\/chunks\/[^"' ]+\.js/g)].map(m => m[0])); } });
+    first = null;
+    await p.goto(BASE, { waitUntil: 'load', timeout: 120000 });
+    await p.waitForFunction(() => document.querySelector('[data-seat]'), { timeout: 60000 });
+    await sleep(4000);
+    const line = text => p.evaluate(t => {
+      const e = [...document.querySelectorAll('p')].find(x => x.textContent.trim() === t && x.getBoundingClientRect().width > 0 && x.getBoundingClientRect().bottom > 0 && x.getBoundingClientRect().top < innerHeight);
+      if (!e) return null;
+      const b = e.getBoundingClientRect(), cs = getComputedStyle(e), lh = parseFloat(cs.lineHeight);
+      return { px: parseFloat(cs.fontSize), lines: Math.round((b.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lh), inside: b.left >= 0 && b.right <= innerWidth };
+    }, text);
+    if (await p.evaluate(() => !!document.getElementById('race-panel'))) return { pass: false, detail: 'the stats mounted with their script failing (nothing tested)' };
+    const pill = () => p.evaluate(() => { const b = [...document.querySelectorAll('button')].find(e => /^Stats\s*↓?$/.test(e.textContent.trim()) && e.getBoundingClientRect().width > 0)?.getBoundingClientRect(); return b && [b.left + b.width / 2, b.top + b.height / 2]; });
+    const at = await pill();
+    if (!at) return { pass: false, detail: 'no Stats ↓ button' };
+    await p.mouse.click(at[0], at[1]); await sleep(2500);
+    const statsLine = await line('Stats did not load. Reload the page.');
+    if (!statsLine) bad.push('the overview shows no line saying the stats did not load');
+    else if (statsLine.px < 11 || statsLine.lines !== 1 || !statsLine.inside) bad.push(`the stats line is ${statsLine.px}px, ${statsLine.lines} lines${statsLine.inside ? '' : ', cut by the window'}`);
+    // A desktop table has no model links before the stats load: a seat's model, opened as its link would.
+    const hash = await p.evaluate(() => { const n = [...document.querySelectorAll('[data-seat] img[alt$=" logo"]')].find(e => e.getBoundingClientRect().width > 0)?.alt.replace(/ logo$/, ''); return n ? `model=${n.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}` : null; });
+    if (!hash) bad.push('no seat model on the page (the drawer line not tested)');
+    if (hash) {
+      await p.evaluate(h => { location.hash = h; }, hash); await sleep(2500);
+      const drawerLine = await line('Model page did not load. Reload the page.');
+      if (!drawerLine) bad.push('a model link that failed to load says nothing');
+      else if (drawerLine.px < 11 || drawerLine.lines !== 1 || !drawerLine.inside) bad.push(`the drawer line is ${drawerLine.px}px, ${drawerLine.lines} lines`);
+    }
+    if (!failed) bad.push('no script was asked for while blocked (nothing tested)');
+    // The network is back: back to the table by script, then one click on Stats ↓ (a pointerdown, no wheel or key).
+    first = null; await p.setRequestInterception(false);
+    await p.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await sleep(1500);
+    const at2 = await pill();
+    if (at2) await p.mouse.click(at2[0], at2[1]);
+    const back = await p.waitForFunction(() => document.getElementById('race-panel'), { timeout: 10000 }).then(() => true, () => false);
+    if (!back) bad.push('a click on Stats ↓ never loaded the stats once the network was back');
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${failed} scripts failed: both lines showed (${statsLine.px}px, one line); a click then loaded the stats` };
   } finally { await p.close(); }
 }));
 

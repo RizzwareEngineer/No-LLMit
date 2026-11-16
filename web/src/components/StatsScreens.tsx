@@ -16,8 +16,9 @@ import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
 // a reason typed. A transition lane is not interrupted by those and expires after 5 s. Nothing renders synchronously each
 // second (the shot clock and the countdown draw their seconds outside React, useSecondsDraw), which would throw away a
 // transition's half-built render. And a chunk
-// that fails to load (a deploy replaced it, the phone went offline) never reaches React: the stand-in stays, and the
-// next trigger tries again (a failed webpack chunk is requested anew).
+// that fails to load (a deploy replaced it, the phone went offline) never reaches React: the stand-in stays and says so in
+// one line (a chunk a deploy replaced does not come back, so it asks for a reload), and the next trigger, a click
+// included, tries again (a blip recovers).
 let StatsSections: typeof import('@/components/StatsSections').default | null = null; // once loaded
 const loadStats = () => import('@/components/StatsSections').catch(() => import('@/components/StatsSections')).then(m => { StatsSections = m.default; });
 
@@ -27,9 +28,9 @@ const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHON
 export default memo(function StatsScreens(props: { stats: StatsResponse | null; error: string | null }) {
   const phone = usePhone();
   const hold = useRef<HTMLDivElement>(null);
-  const on = useStatsMount(hold);
+  const [on, failed] = useStatsMount(hold);
   // One swap, from the stand-in to the stats (a screen reader on a stand-in's section loses it once, not twice).
-  return on && StatsSections ? <KeepScroll><StatsSections {...props} /></KeepScroll> : <StatsHold ref={hold} phone={phone} />;
+  return on && StatsSections ? <KeepScroll><StatsSections {...props} /></KeepScroll> : <StatsHold ref={hold} phone={phone} failed={failed} />;
 });
 
 // Where the page was scrolled to before the stats mounted. Their screens replace the hold's (new elements), and the
@@ -59,11 +60,12 @@ function KeepScroll({ children }: { children: React.ReactNode }) {
 
 // When the stats mount: as their screens come within a quarter of a window of it (a scroll, a page key, the tab bar, a
 // link to About; at once on a desktop, whose table screen is one window tall), or on the
-// first gesture that could scroll there (a key, the wheel, a touch). Never in the hydration or the first state's render,
+// first gesture that could scroll there (a key, the wheel, a touch, a click: the Stats and About buttons scroll by script). Never in the hydration or the first state's render,
 // which the table's first paint waits on, nor on a timer while the viewer watches the table (their mount is a long task
 // on a slow phone).
-function useStatsMount(hold: React.RefObject<HTMLDivElement | null>) {
+function useStatsMount(hold: React.RefObject<HTMLDivElement | null>): [boolean, boolean] {
   const [on, setOn] = useState(false);
+  const [failed, setFailed] = useState(false); // the load failed, both tries (loadStats)
   useEffect(() => {
     if (on) return;
     let done = false, live = true;
@@ -71,12 +73,12 @@ function useStatsMount(hold: React.RefObject<HTMLDivElement | null>) {
       if (done) return;
       done = true;
       lastY = window.scrollY;
-      loadStats().then(() => { if (live) startTransition(() => setOn(true)); }, () => { done = false; });
+      loadStats().then(() => { if (live) startTransition(() => setOn(true)); }, () => { done = false; if (live) setFailed(true); });
     };
     // The hold itself (the same element in both layouts: its screens change when a phone swaps the wide ones after hydrating).
     const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) go(); }, { rootMargin: '25% 0px' });
     if (hold.current) io.observe(hold.current);
-    const gestures = ['keydown', 'wheel', 'touchstart'] as const;
+    const gestures = ['keydown', 'wheel', 'touchstart', 'pointerdown'] as const;
     gestures.forEach(g => window.addEventListener(g, go, { passive: true, capture: true }));
     return () => {
       live = false;
@@ -84,24 +86,26 @@ function useStatsMount(hold: React.RefObject<HTMLDivElement | null>) {
       gestures.forEach(g => window.removeEventListener(g, go, { capture: true }));
     };
   }, [on, hold]);
-  return on;
+  return [on, failed];
 }
 
 // The stats' screens before they mount: the same snap points, ids and heights as StatsSections' (so paging, the tab bar
 // and the snap points work at once, and nothing moves when they mount), empty.
-function StatsHold({ phone, ref }: { phone: boolean; ref: React.Ref<HTMLDivElement> }) {
+function StatsHold({ phone, failed, ref }: { phone: boolean; failed: boolean; ref: React.Ref<HTMLDivElement> }) {
+  // A failed load says so on every screen, one line in the middle (a reload fetches the page's current code).
+  const note = failed ? <p role="status" className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[13px] leading-5 whitespace-nowrap" style={{ color: 'rgb(55, 53, 47)' }}>Stats did not load. Reload the page.</p> : null;
   if (phone) return (
     <div ref={ref} className="stats-room relative w-full">
-      <section id="race" data-screen aria-label="Trends" className={WINDOW}><div id="stats" aria-hidden className="absolute top-0" /></section>
-      <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW} />
-      <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW} />
-      <section id="about" data-screen data-end aria-label="About" className={ABOUT_WINDOW} />
+      <section id="race" data-screen aria-label="Trends" className={WINDOW}><div id="stats" aria-hidden className="absolute top-0" />{note}</section>
+      <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW}>{note}</section>
+      <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW}>{note}</section>
+      <section id="about" data-screen data-end aria-label="About" className={ABOUT_WINDOW}>{note}</section>
     </div>
   );
   return (
     <div ref={ref} className="stats-room relative isolate w-full">
       {SCREENS.map(id => (
-        <div key={id} id={id} data-screen data-end={id === 'about' || undefined} data-back={id === 'race' ? 'up' : id === 'pairwise' ? 'down' : undefined} aria-hidden className="h-svh snap-start snap-always" />
+        <div key={id} id={id} data-screen data-end={id === 'about' || undefined} data-back={id === 'race' ? 'up' : id === 'pairwise' ? 'down' : undefined} aria-hidden={!failed || undefined} className="relative h-svh snap-start snap-always">{note}</div>
       ))}
     </div>
   );
