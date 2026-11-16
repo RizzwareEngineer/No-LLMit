@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { Suspense, lazy, useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
@@ -9,9 +9,10 @@ import WinningsPanel from "@/components/WinningsPanel";
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
-import StatsSections from "@/components/StatsSections";
+import StatsSections from "@/components/StatsScreens";
 import PlaySoonButton from "@/components/PlaySoonButton";
-import ModelDrawer from "@/components/ModelDrawer";
+// The model drawer's code (its chart, its tables) loads the first time a model is opened.
+const ModelDrawer = lazy(() => import("@/components/ModelDrawer"));
 import StickyBar, { PhoneBar } from "@/components/StickyBar";
 import TabBar, { type Tab } from "@/components/TabBar";
 import SessionProgress from "@/components/SessionProgress";
@@ -20,6 +21,7 @@ import PeelLab from "@/components/PeelLab";
 import { setTypingPace } from "@/components/TypewriterText";
 import { isSoundOn, unlockOnFirstGesture } from "@/lib/sound";
 import { useGameState } from "@/hooks/useGameState";
+import { EARLY_STREAM } from "@/lib/api";
 import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
@@ -216,6 +218,9 @@ function Table() {
     if (document.readyState !== "complete") window.addEventListener("load", top, { once: true });
   }, []);
   const drawerSlug = hash.startsWith('#model=') ? hash.slice('#model='.length) : null;
+  // Mounted from the first time a model opens, then kept (it closes as a dialog does).
+  const [drawerEver, setDrawerEver] = useState(false);
+  if (drawerSlug && !drawerEver) setDrawerEver(true);
 
   // Phones: the tab bar's part is where the page is (the table while it shows, else About or the stats); a tap goes to
   // the top of that part: the table, Profits & Losses over the stats (#phone-stats), About. On an opened stats card,
@@ -436,6 +441,8 @@ function Table() {
     {/* --bar-h: room the connection bar (and a phone's tab bar, --tab-h in globals.css) takes at the bottom, so it never
         covers a screen's edge. data-page: the page's one background (globals.css) behind every screen. */}
     <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: bar ? 'calc(40px + var(--tab-h))' : 'var(--tab-h)' }}>
+      {/* The stream opens as this is parsed (lib/api's EARLY_STREAM), not once the page has hydrated. */}
+      <script dangerouslySetInnerHTML={{ __html: EARLY_STREAM }} />
       <main className="flex flex-col items-center-safe">
       {/* Phones: the page's top heading (the desktop one sits in the header phones hide; the phone bar shows the name). */}
       <h1 className="sr-only md:hidden">No-LLMit</h1>
@@ -548,7 +555,7 @@ function Table() {
       {phone && <TabBar tab={tab} onTab={onTab} />}
       {/* No floating back-to-top button on phones: it covered text, logos and chart marks. The tab bar's Table tab is the way
           back to the table's top, as a native tab bar's. */}
-      <ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} />
+      {drawerEver && <Suspense fallback={null}><ModelDrawer models={stats?.models ?? []} error={statsError} slug={drawerSlug} onClose={closeModel} /></Suspense>}
 
       {/* Fixed notification bar for connection status */}
       {bar && (

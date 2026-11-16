@@ -5,6 +5,20 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 const STREAM_URL = `${API_URL}/stream`;
 
+// The home page opens its stream from an inline script as the HTML is parsed (page.tsx), so the first snapshot is in
+// by the time the page has hydrated instead of being asked for only then: the table's first paint waits on it. Its
+// messages wait in `q` until GameStream adopts it (connect) and becomes their `sink`.
+type Early = { es: EventSource; q: MessageEvent[]; sink: ((e: MessageEvent) => void) | null };
+export const EARLY_STREAM = `(function(){if(/[?&]peellab/.test(location.search))return;try{var es=new EventSource(${JSON.stringify(STREAM_URL)}),s={es:es,q:[],sink:null};es.onmessage=function(e){s.sink?s.sink(e):s.q.push(e)};window.__earlyStream=s}catch(e){}})()`;
+const adoptEarly = (): Early | null => {
+  if (typeof window === 'undefined') return null;
+  const w = window as unknown as { __earlyStream?: Early };
+  const s = w.__earlyStream ?? null;
+  w.__earlyStream = undefined; // once: a reconnect opens a stream of its own
+  if (!s || s.es.readyState === EventSource.CLOSED) { s?.es.close(); return null; }
+  return s;
+};
+
 type MessageType =
   | 'snapshot'
   | 'stats'
@@ -98,12 +112,14 @@ export class GameStream {
   // Resolves on the first open, rejects on the first error; later ones go to the reconnect loop.
   connect(): Promise<void> {
     this.es?.close();
-    const es = (this.es = new EventSource(STREAM_URL));
+    const early = adoptEarly();
+    const es = (this.es = early?.es ?? new EventSource(STREAM_URL));
     return new Promise((resolve, reject) => {
       es.onopen = () => {
         this.onStatus?.('open');
         resolve();
       };
+      if (early && es.readyState === 1) es.onopen(new Event('open')); // the early stream opened already (1: OPEN)
       es.onerror = () => {
         es.close();
         reject(new Error('stream error'));
@@ -111,7 +127,7 @@ export class GameStream {
         this.es = null;
         this.handleReconnect();
       };
-      es.onmessage = (event) => {
+      const onMessage = (event: MessageEvent) => {
         this.reconnectAttempts = 0; // a message (the snapshot first) proves the stream healthy; an open alone does not
         try {
           this.onMessage?.(JSON.parse(event.data) as ServerMessage);
@@ -119,6 +135,10 @@ export class GameStream {
           console.error('Failed to parse message:', e);
         }
       };
+      if (early) {
+        early.sink = onMessage;
+        early.q.splice(0).forEach(onMessage);
+      } else es.onmessage = onMessage;
     });
   }
 

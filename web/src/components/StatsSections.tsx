@@ -14,6 +14,7 @@ import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
 import { StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, StatsResponse } from '@/lib/stats';
 import { remember, remembered, useRememberedBox } from '@/lib/boxes';
+import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
 
 // Screens 2-6, each an empty full-height snap point in the page flow. Over them sits one layer:
@@ -24,7 +25,6 @@ import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, u
 // Main scroll: table, overview, About. The cards are a loop entered from the overview's tiles: paging
 // moves History, Profiles, Matchups, and up on History or down on Matchups goes back to the overview
 // (data-back, read by pageBy). The URL never names a screen (only the model drawer's #model=).
-const SCREENS = ['stats', 'about', 'race', 'stats-table', 'pairwise'] as const;
 type Screen = (typeof SCREENS)[number];
 type Tile = Exclude<Screen, 'stats' | 'about'>;
 // Each detail screen's overview tile, and the element that takes focus on landing there.
@@ -53,6 +53,7 @@ const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHON
 
 // The three panels under the live table, all time. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
+// The stats in the layout shown: loaded and mounted only once the page needs them (StatsScreens).
 export default memo(function StatsSections(props: { stats: StatsResponse | null; error: string | null }) {
   return usePhone() ? <PhoneStats {...props} /> : <WideStats {...props} />;
 });
@@ -575,7 +576,6 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
 // shadow at the window's edges (WINDOW has no side padding).
 const LAZY = '[content-visibility:auto] [contain-intrinsic-size:auto_100svh]';
 const LAZY_BODY = '[content-visibility:auto] [contain-intrinsic-size:auto_0px]';
-const WINDOW = `relative h-[max(100svh,var(--win-min,0px))] snap-start snap-always flex flex-col px-0 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+8px)]`;
 function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
   const ready = !!data;
   const blank = !ready && !error;
@@ -700,7 +700,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
         ), '[&_a_[translate=no]]:max-w-[var(--mu-cap,96px)]')}
       </section>
       {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
-      <section id="about" data-screen data-end aria-label="About" className={`relative h-svh snap-start snap-always -mx-3 bg-(--page) ${LAZY}`}>
+      <section id="about" data-screen data-end aria-label="About" className={`${ABOUT_WINDOW} ${LAZY}`}>
         <div className="panel-scroll h-full overflow-auto">
           <div className="px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+16px)]">
             <PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider>

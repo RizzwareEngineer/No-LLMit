@@ -136,8 +136,21 @@ const replayHand = async pg => {
   return h;
 };
 
-// The stats cards have their data (a loaded machine can take far longer than a fixed wait).
-const waitStats = p => p.waitForFunction(() => document.querySelector('#pairwise-card td[data-cell]') && document.querySelector('#stats-panel tbody tr') && document.querySelector('#race-panel svg'), { timeout: 90000 }).catch(() => {});
+// The stats cards have their data (a loaded machine can take far longer than a fixed wait). The stats mount only once
+// their screens near the window (StatsScreens), so this goes there as a viewer would, scrolling down to them, and comes
+// back to where the page was once they have mounted.
+const waitStats = async p => {
+  try {
+    const y = await p.evaluate(() => scrollY);
+    if (!(await p.evaluate(() => !!document.getElementById('race-panel')))) {
+      await p.waitForFunction(() => document.getElementById('stats'), { timeout: 90000 });
+      await p.evaluate(() => window.scrollTo({ top: document.getElementById('stats').getBoundingClientRect().top + scrollY, behavior: 'instant' }));
+      await p.waitForFunction(() => document.getElementById('race-panel'), { timeout: 90000 });
+      await p.evaluate(y => window.scrollTo({ top: y, behavior: 'instant' }), y);
+    }
+  } catch {}
+  await p.waitForFunction(() => document.querySelector('#pairwise-card td[data-cell]') && document.querySelector('#stats-panel tbody tr') && document.querySelector('#race-panel svg'), { timeout: 90000 }).catch(() => {});
+};
 // A fresh page at a window size, on the screen `id` once the stats have loaded.
 const pageAt = async (w, h, id = 'stats', ctx = lane.getStore() ?? browser) => {
   const p = watchStream(await ctx.newPage()); await p.setViewport({ width: w, height: h });
