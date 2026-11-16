@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { animate, motion, useReducedMotion } from 'motion/react';
 import { GLIDE_MS, SHADOW, Segmented } from '@/components/Section';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
@@ -162,8 +162,10 @@ function crossing(a: Pts, b: Pts, ns: number[]): [number, number] | null {
 // to each new fit with no overshoot, no jump when the target moves and no per-frame jitter.
 const CAM_W = 7; // the spring's rate, 1/s: a step settles in about 0.8 s, trailing a moving target by 2/CAM_W
 // Never faster than this share of the span shown per second: a zoom into a pack several times narrower than the
-// view still eases (a spring step that large crossed over 4% of the span in one 60 Hz frame, history-y-dynamic).
-const CAM_MAX = 2;
+// view still eases (a spring step that large crossed over 4% of the span in one 60 Hz frame, history-y-dynamic). 1.6, not 2
+// (2.7% a frame): the axis drawn trails its step by up to a frame where frames are slow and uneven, and 2 (3.3%) then
+// showed up to 4.3% in one frame.
+const CAM_MAX = 1.6;
 const LOOK_S = 0.6; // while the replay plays, the axis also fits the next this-many seconds of the lines, so the spring is there before a jump
 // And a jump far out of the fit sooner: the capped camera widens its span at most e^(CAM_MAX t) (one edge moving), so a value
 // that needs the span F times wider is taken in ln(F) / CAM_MAX + LOOK_S seconds before the line gets there, up to this far
@@ -476,7 +478,12 @@ export default function CumulativeChart({
   // until then (and in the model drawer) against the model's own hands played.
   const table = race && timeline ? timeline : null;
   const curveOf = (m: ModelStats, ev = false) => { const p = series(m, metric, bigBlind, ev); return table ? onTable(table, m.name, p, m.hands) : p; };
-  const line$ = new Map([...byName.values()].map(m => [m.name, curveOf(m)]));
+  // Every model's line, built once per data and metric, not on every render (the replay renders each frame, and the
+  // stats' mount several times: rebuilding 19 lines over ~2,000 hands each time was most of a 0.8 s task on a 4x CPU).
+  const line$ = useMemo(() => new Map([...(everyone ?? []), ...models].map(m => {
+    const p = series(m, metric, bigBlind, false);
+    return [m.name, table ? onTable(table, m.name, p, m.hands) : p] as const;
+  })), [everyone, models, metric, bigBlind, table]);
   const pts = (m: ModelStats) => line$.get(m.name)!;
   const finalOf = (m: ModelStats) => pts(m).at(-1)?.[1] ?? 0;
   const pool = race && lineup === 'all' && everyone?.length ? everyone : models;
