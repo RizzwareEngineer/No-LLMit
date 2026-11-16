@@ -286,22 +286,23 @@ const OPEN = <span aria-hidden className="text-[14px] font-medium whitespace-now
 // Each fade starts once the frame that draws its cause (the glide's first step, the overview back) has been painted, two
 // frames on: started in that frame, one a busy machine held past the fade drew it whole, and it came or went at once.
 // One there from the first render, or snapped in, shows at once.
-// A fade of the CSS variable --fade on `el`, stepped once per drawn frame (ease-out), not over a time: a busy machine that
-// held a frame past a time-based fade drew it whole at once (glide-clean: the Leader 0.09 → 1.00 between two frames), as
-// the closing card's scroll steps per frame (StatsSections' back). IN: 18 frames after 5 (300 ms after 80 ms at 60 fps);
-// OUT: 7 frames (120 ms). Returns a cancel.
-const IN_STEPS = [18, 5] as const, OUT_STEPS = [7, 0] as const;
-function stepFade(el: HTMLElement, to: number, [frames, wait]: readonly [number, number], done?: () => void) {
-  const was = parseFloat(el.style.getPropertyValue('--fade')), from = Number.isNaN(was) ? 1 - to : was;
+// A fade of the CSS variable --fade on `el`: over its time (ease-out), but never more than MAX_STEP in one drawn frame. A
+// busy machine that held a frame past a purely time-based fade drew it whole at once (glide-clean: the Leader 0.09 →
+// 1.00 between two frames); a purely per-frame one ran several times its length at a low frame rate and held the
+// hand-over (matchups-wraps). IN: 300 ms after 80 ms; OUT: 120 ms. Returns a cancel.
+const IN_FADE = [300, 80] as const, OUT_FADE = [120, 0] as const, MAX_STEP = 0.34;
+function stepFade(el: HTMLElement, to: number, [ms, delay]: readonly [number, number], done?: () => void) {
+  const was = parseFloat(el.style.getPropertyValue('--fade'));
+  let v = Number.isNaN(was) ? 1 - to : was;
+  const from = v;
   if (matchMedia('(prefers-reduced-motion: reduce)').matches || from === to) { el.style.setProperty('--fade', String(to)); done?.(); return () => {}; }
-  let k = -wait, id = 0;
-  const tick = () => {
-    k++;
-    if (k > 0) {
-      const t = Math.min(1, k / frames);
-      el.style.setProperty('--fade', String(from + (to - from) * (1 - (1 - t) ** 2)));
-      if (t >= 1) { done?.(); return; }
-    }
+  let t0 = 0, id = 0;
+  const tick = (now: number) => {
+    t0 ||= now;
+    const t = Math.min(1, Math.max(0, (now - t0 - delay) / ms)), want = t >= 1 ? to : from + (to - from) * (1 - (1 - t) ** 2);
+    v = to > from ? Math.min(want, v + MAX_STEP) : Math.max(want, v - MAX_STEP);
+    el.style.setProperty('--fade', String(v));
+    if (v === to) { done?.(); return; }
     id = requestAnimationFrame(tick);
   };
   id = requestAnimationFrame(tick);
@@ -332,7 +333,7 @@ function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean;
     const el = ref.current;
     if (!el || shown === null) return;
     if (shown && snap) { el.style.setProperty('--fade', '1'); return; }
-    return stepFade(el, shown ? 1 : 0, shown ? IN_STEPS : OUT_STEPS, () => { if (!live.current) safeToRemove?.(); });
+    return stepFade(el, shown ? 1 : 0, shown ? IN_FADE : OUT_FADE, () => { if (!live.current) safeToRemove?.(); });
   }, [shown]); // eslint-disable-line react-hooks/exhaustive-deps -- once per change of shown
   return (
     // A variable, not opacity, fades (globals.css' add-in): an opacity fade leaves its text in a layer of its own a while after.
@@ -346,7 +347,7 @@ function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean;
 export function Added({ still = false, className, style, children }: { still?: boolean; className?: string; style?: React.CSSProperties; children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [start] = useState(still ? 1 : 0);
-  useLayoutEffect(() => (still || !ref.current ? undefined : stepFade(ref.current, 1, IN_STEPS)), []); // eslint-disable-line react-hooks/exhaustive-deps -- on mount
+  useLayoutEffect(() => (still || !ref.current ? undefined : stepFade(ref.current, 1, IN_FADE)), []); // eslint-disable-line react-hooks/exhaustive-deps -- on mount
   return <div ref={ref} className={`added ${className ?? ''}`} style={{ ...style, '--fade': start, opacity: 'var(--fade)' } as React.CSSProperties}>{children}</div>;
 }
 
