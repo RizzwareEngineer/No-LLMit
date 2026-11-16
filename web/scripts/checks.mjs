@@ -2576,7 +2576,7 @@ main(() => check('history-starts-at-zero', 'At rest the Trends x axis starts at 
 }));
 // One replay from the start, sampled every frame until it has ended and settled: how much of the
 // plot's height the visible tips span, and how far the y axis moves per frame.
-let camSamples = null, camAnims = null, camShakeSeen = {};
+let camSamples = null, camAnims = null;
 const camRun = async () => {
   if (camSamples) return camSamples;
   // On Trends itself (a run of only these checks left the page at the table, where the pills are not drawn: "no tips").
@@ -2595,19 +2595,7 @@ const camRun = async () => {
         const amp = Math.max(0, ...(Array.isArray(kf) ? kf : []).map(k => /pop/.test(opts?.id) ? +(String(k.transform).match(/scale\(([\d.]+)/)?.[1] ?? 1) : len(k.translate ?? String(k.transform ?? '').match(/translateX\(([^)]+)\)/)?.[1])));
         window.__anims.push({ at: performance.now(), id: opts?.id, amp, lead: splash && this.parentElement?.dataset.lead != null, name: splash ? this.parentElement?.dataset.burst : pill ? this.querySelector('[data-pill-name]')?.textContent : tip });
       }
-      const anim = orig.apply(this, arguments);
-      // A shake is also read eight times through its run, off the frame clock: on a slow, software-rendered machine a
-      // frame lasts longer than a 4x lead shake (75 ms), and no frame sample landed in it (seen 0.0px while it ran). The
-      // same reading as the frames' (how far the pill sits off its place across x), only at more moments.
-      if (pill && /shake/.test(opts?.id ?? '')) {
-        const el = this, d = +opts.duration || 0, seen = (window.__shakeSeen ??= {});
-        for (let i = 1; i <= 8; i++) setTimeout(() => {
-          if (anim.playState !== 'running') return;
-          const cs = getComputedStyle(el), m = cs.transform.match(/matrix\(([^)]+)\)/), dx = Math.abs((parseFloat(cs.translate) || 0) + (m ? +m[1].split(',')[4] : 0));
-          seen[opts.id] = Math.max(seen[opts.id] ?? 0, dx);
-        }, (i * d) / 9);
-      }
-      return anim;
+      return orig.apply(this, arguments);
     };
   }, SPEED);
   const clicked = await clickText(pg, 'Replay');
@@ -2682,7 +2670,6 @@ const camRun = async () => {
   }, SPEED);
   await sleep(63_500 / SPEED);
   camAnims = await pg.evaluate(S => window.__anims.map(a => ({ ...a, t: (a.at - window.__t0) * S })), SPEED);
-  camShakeSeen = await pg.evaluate(() => window.__shakeSeen ?? {});
   return (camSamples = await pg.evaluate(() => window.__cam));
 };
 const near = (ss, s) => ss.reduce((a, b) => (Math.abs(b.t - s * 1000) < Math.abs(a.t - s * 1000) ? b : a));
@@ -2865,12 +2852,14 @@ main(() => check('history-overtake-shake', 'Every overtake in the replay with a 
   const amps = id => an.filter(a => a.id === id).map(a => a.amp);
   const [norm, lead] = [amps('pill-shake'), amps('pill-shake-lead')];
   const harder = !leads.length || (lead.length && Math.min(...lead) > Math.max(...norm) * 1.4);
-  const seen = id => Math.max(camShakeSeen[id] ?? 0, ...ss.flatMap(s => s.shakes.filter(k => k.id === id).map(k => Math.abs(k.dx))));
+  const seen = id => Math.max(0, ...ss.flatMap(s => s.shakes.filter(k => k.id === id).map(k => Math.abs(k.dx))));
   const moves = seen('pill-shake') >= 1 && (!leads.length || seen('pill-shake-lead') >= 1);
   const list = bad.slice(0, 3).map(o => `${o.a} past ${o.b} at ${(o.t / 1000).toFixed(1)} s: ${why(o).join(', ')}`).join('; ');
+  // How long the machine's frames last (real ms): a shake shorter than a frame is never drawn moved.
+  const gaps = ss.slice(1).map((x, i) => (x.t - ss[i].t) / SPEED).sort((a, b) => a - b), frameMs = gaps[gaps.length >> 1] ?? 0;
   return {
     pass: ots.length >= 1 && !bad.length && harder && moves,
-    detail: `${((ss.at(-1).t - eff(ss.at(-1).t)) / 1000).toFixed(1)} s of stalls taken out; ${ots.length} overtakes with a pill on screen (${leads.length} lead changes); ${an.filter(a => /shake/.test(a.id)).length} shakes, ${an.filter(a => /pop/.test(a.id)).length} tip pops; ${bad.length} without both shakes and the pop${list ? ` (${list})` : ''}; shakes reach ${Math.max(0, ...norm).toFixed(1)}px, lead ${lead.length ? Math.min(...lead).toFixed(1) : '-'}px; seen in frames up to ${seen('pill-shake').toFixed(1)}px and ${seen('pill-shake-lead').toFixed(1)}px`,
+    detail: `frames ${frameMs.toFixed(0)} ms (median, the lead shake ${(380 / SPEED).toFixed(0)} ms at ${SPEED}x (CumulativeChart's LEAD_SHAKE)); ${((ss.at(-1).t - eff(ss.at(-1).t)) / 1000).toFixed(1)} s of stalls taken out; ${ots.length} overtakes with a pill on screen (${leads.length} lead changes); ${an.filter(a => /shake/.test(a.id)).length} shakes, ${an.filter(a => /pop/.test(a.id)).length} tip pops; ${bad.length} without both shakes and the pop${list ? ` (${list})` : ''}; shakes reach ${Math.max(0, ...norm).toFixed(1)}px, lead ${lead.length ? Math.min(...lead).toFixed(1) : '-'}px; seen in frames up to ${seen('pill-shake').toFixed(1)}px and ${seen('pill-shake-lead').toFixed(1)}px`,
   };
 }));
 // The y axis never clips the lines' recent stretch (owner 2026-11-08: "the end graph at the end cuts off part
