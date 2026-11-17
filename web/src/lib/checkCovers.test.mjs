@@ -61,13 +61,16 @@ test('every check is selected by a --changed row, or named as page-wide', () => 
 // Review 3, finding 13: an edit to a line of this script belongs to the check whose block holds it (changedChecks walks
 // up to the nearest check line, or a block's end, which means every check). skeleton-matches' SKELETON sat under two
 // one-line checks, so its edits ran only table-shuffle-notice-reduced.
-const walk = (lines, n) => { // as changedChecks: the check whose block holds line n, or null (every check)
-  const CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/, ONE_LINE = /\)\);\s*$/;
-  let i = n; while (i >= 0 && !CHECK.test(lines[i]) && !(i < n && END.test(lines[i]))) i--;
-  return (i >= 0 && !(i < n && ONE_LINE.test(lines[i])) && lines[i].match(CHECK)?.[1]) || null;
-};
-test('changedChecks and this test walk the same way', () => {
-  assert.ok(src.includes('const id = i >= 0 && !(i < n && ONE_LINE.test(src[i])) && src[i].match(CHECK)?.[1];'), 'changedChecks\' walk changed: update walk() here');
+// Review 5, finding 8: walk() is changedChecks' own code, cut from checks.mjs (its CHECK, END and ONE_LINE, and its two
+// walk lines), so an edit there changes what these tests run; a copy here could never fail.
+const srcLines = src.split('\n');
+const declLine = srcLines.find(l => l.startsWith('const CHECK = /^'));
+const stepLine = srcLines.find(l => l.trim().startsWith('let i = n; while (i >= 0 && !CHECK.test(src[i])'));
+const idLine = srcLines.find(l => l.trim().startsWith('const id = i >= 0'));
+const walk = new Function('src', 'n', `${declLine}\n${stepLine}\n${idLine}\nreturn id || null;`);
+test('walk() is changedChecks\' code', () => {
+  assert.ok(declLine && /ONE_LINE = /.test(declLine) && /END = /.test(declLine), 'no CHECK, END and ONE_LINE line in checks.mjs');
+  assert.ok(stepLine && idLine, 'changedChecks\' walk lines not found');
 });
 // Review 4, finding 10: a line under a one-line check is outside its block (the Trends main step sat under two).
 test('no line resolves to a one-line check above it', () => {
