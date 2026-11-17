@@ -120,10 +120,52 @@ no-stats-hash, history-timeline-fetches), --lanes 2:
   28x40 -> 40x56 at hydration), FAIL skeleton-matches (the first frame is not blank: expected, the draft changes the
   load sequence and this spec needs the owner's yes; plus the same stats-table card resize), FAIL clock-after-load
   (shot clock 35 s shown with 34 s left).
-  The first two table-refresh-fades faults were real draft bugs, fixed in 1e-commit "Fix two ?ssr=1 hydration
-  faults": the fade guard was re-armed on every render, and desktop seats were server-rendered with the phone's card
+  The first two table-refresh-fades faults were real draft bugs, fixed in 7fba592 ("Fix two ?ssr=1 hydration
+  faults"): the fade guard was re-armed on every render, and desktop seats were server-rendered with the phone's card
   size (lib/tableSwitches `useCardSize` server snapshot now follows the seat's layout; `/` has no cards in its HTML,
   so it is unchanged: verified identical again).
 
-## Status
-(full suite with ?ssr=1 in progress, started 14:56)
+Full suite once, with ?ssr=1 on every home-page load (proxy :3302 plus `--query ssr=1`), --lanes 2, after 7fba592:
+FULL_RESULT
+
+Reading the full-suite failures:
+- phone-table-places, phone-table-ownership: expected red until the owner picks the seat (RUN-RULES).
+- phone-table-ownership-beside / -tucked: the open seat drafts (?seat=), with bets of 120 and 1,250; untouched here.
+- skeleton-matches: "placeholders not blank" is the draft's intent (the first frame is real data); this spec changes
+  only with the owner's yes. Its stats-table card resize also failed without the flag (1.8 px), so it is not the draft.
+- table-refresh-fades: two kinds. (a) Real, open: desktop seat names that need a shorter form (FitName measures after
+  mount) are server-rendered whole, then shortened at hydration: seat0/seat1 106 -> 88 px wide at -2.45 s, i.e. as
+  the page hydrates. Not fixed (FitName would need a pre-paint inline pass like BEFORE_PAINT). (b) The moves and
+  pops at +1 ms / +79 ms come from the check's own method: it holds the stream and then injects a doctored snapshot
+  (all seats active, a flop) that differs from the real frame the server already painted, so data changes on screen.
+  Under ?ssr=1 the check's premise (blank until the snapshot) does not hold; it needs the owner's yes and a variant
+  that injects the same state the server rendered.
+- history-overtake-burst, history-overtake-shake, trends-zoom: Trends chart checks; the draft does not touch the
+  Trends code or its data path (the stats arrive in the same body, one stream frame earlier). Not rerun on the base
+  in the time left: judge them against the frozen red list (H2).
+- clock-after-load failed in the targeted runs with and without the flag (default page = base code), passed in the
+  full suite run.
+
+## Open
+- FitName's hydration shortening on desktop seats under ?ssr=1 (above).
+- table-refresh-fades and skeleton-matches need ?ssr-aware variants with the owner's yes before this could become the
+  default.
+- HTML weight: ~250 KB of the ~315 KB raw page is the all-time stats body in the RSC payload (gzip 9.7 KB -> ~63.5 KB).
+  It is not rendered as text (StatsScreens mounts the stats on the client), so for the first paint it is pure cost;
+  dropping it from the first frame (stats from the stream as today) is the obvious next variant to measure, together
+  with the FCP cost (+98 ms) it mostly explains.
+- Server reads: each read is one short-lived engine stream (closed within ~100 ms of the snapshot), at most one per
+  second per server instance; it counts against the engine's per-address stream limit (50) from the host's address
+  for that moment, and briefly in "watching" if the hub counts open streams.
+- No network throttling in the paint runs (localhost); on a phone network the gain should be larger (the base waits
+  for JS and a stream round trip, the draft for the HTML only), but that was not measured. No WebKit, no Vercel Preview.
+- The paint runs were on the build before 7fba592; that fix touches only the fade guard (later fades) and the desktop
+  card size, not the phone first paint, so the metric should be unchanged; not re-measured.
+
+## Honest read
+The lever works as predicted on its mechanism: with ?ssr=1 real data is on the first paint, about 1.0 s sooner on a
+4x phone (1,314 -> 304 ms, interval [-1,045, -963] ms), the browser's LCP agrees (-1.24 s), and the stream resumes on
+the frame without retyping, a clock reset or a second fade (planted-fault test shows the fade count works). It costs
+~50 ms TTFB, ~100 ms FCP and ~54 KB gzip of HTML, mostly the stats body that is not rendered. It is a draft, not
+ready to flip: one real hydration jump remains on desktop (FitName), and two load-sequence specs need the owner's
+yes. The default page is byte-identical to the base apart from one minifier name.
