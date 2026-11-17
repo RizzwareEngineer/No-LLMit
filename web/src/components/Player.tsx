@@ -13,7 +13,7 @@ import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE, MUTED, modelHref } from "@/lib/stats";
 import { CARD_CLASS, CARD_SIZES, useCardSize } from "@/lib/tableSwitches";
 import { useFillIn } from "@/lib/boxes";
-import { clockMs, clockShare, type Clock } from "@/lib/stream";
+import { arrivedClock, clockMs, clockShare, type Clock } from "@/lib/stream";
 import { useSecondsDraw } from "@/hooks/useSecondsDraw";
 
 const RING_R = 27, RING_C = 2 * Math.PI * RING_R; // the phone seat's shot clock ring round its logo
@@ -93,12 +93,12 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   // The phone seat's shot clock: the share of the turn left (ring), drawn on each whole-second edge (useSecondsDraw);
   // the whole ring with no clock; red for the last 5 s.
   const arc = useRef<SVGCircleElement>(null);
-  useSecondsDraw(ring ? now => clockMs(ring, now) : null, s => {
+  useSecondsDraw(ring ? now => clockMs(arrivedClock(ring), now) : null, s => {
     const e = arc.current;
     if (!e) return;
     e.setAttribute('stroke-dashoffset', String(RING_C * (1 - (s === null || !ring ? 1 : clockShare(s, ring.budgetMs)))));
     e.setAttribute('stroke', s !== null && s <= 5 ? 'rgb(235, 87, 87)' : BLUE);
-  }, !!ring?.running);
+  }, () => !!ring && arrivedClock(ring).running);
   const [fill] = useState(fillIn);
   useFillIn(ref, fill);
 

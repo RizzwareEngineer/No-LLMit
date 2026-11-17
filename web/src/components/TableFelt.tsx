@@ -16,6 +16,7 @@ import { BLUE } from "@/lib/stats";
 import { formatDuration, formatLocalTime } from "@/lib/time";
 import { useFillIn } from "@/lib/boxes";
 import { DECK } from "@/lib/phoneTable";
+import { arrivedDealAt } from "@/lib/stream";
 
 interface WinnerDisplay {
   name: string;
@@ -136,7 +137,7 @@ export default function TableFelt({
   // "Next hand in Ns": its seconds drawn on each whole-second edge from the deal's time (useSecondsDraw), not rendered
   // each second; the line goes at 0, before page.tsx's render that ends the countdown.
   const countBox = useRef<HTMLElement>(null), countText = useRef<HTMLSpanElement>(null);
-  useSecondsDraw(nextDealAt ? now => nextDealAt - now : null, s => {
+  useSecondsDraw(nextDealAt ? now => arrivedDealAt(nextDealAt) - now : null, s => {
     if (s === null || !countText.current || !countBox.current) return;
     countText.current.textContent = `${s}s`;
     countBox.current.style.visibility = s > 0 ? '' : 'hidden';

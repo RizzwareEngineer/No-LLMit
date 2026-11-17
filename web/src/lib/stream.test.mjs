@@ -192,3 +192,24 @@ test('the ring is the share of the budget left, even for a viewer who joins mid-
   assert.equal(clockShare(clockLeft(c, 19_000), c.budgetMs), 0);
   assert.equal(clockShare(clockLeft({ ...c, budgetMs: 29_500, elapsedMs: 0 }, 1000), 29_500), 1); // rounded-up seconds never pass a full ring
 });
+
+// Review 5, finding 0: the seconds drawn outside React read the clock and the deal time as they arrived, not as last
+// committed: a move waiting behind a transition render has already stopped its turn's clock for them.
+test('arrivedClock and arrivedDealAt give the state as it arrived, ahead of the commit', async () => {
+  const { arrive, arrivedClock, arrivedDealAt } = await import('./stream.ts');
+  const T = 'main', go = (t, m, at) => { t = applyMessage(t, { table: T, ...m }, at); arrive(t); return t; };
+  let t = go({}, { type: 'game_state', payload: { players: [], street: 'flop', pot: 0, nextHandInMs: 0 } }, 0);
+  t = go(t, { type: 'llm_thinking', payload: { turn: 1, playerIdx: 0, playerName: 'A', budgetMs: 45000, elapsedMs: 0 } }, 1000);
+  const committed = t[T].clock; // what React last committed: running
+  t = go(t, { type: 'llm_action', payload: { turn: 1, playerIdx: 0, playerName: 'A', action: 'CALL', amount: 1, reason: 'r' } }, 15500);
+  assert.equal(arrivedClock(committed).running, false, 'the move has arrived: the clock is stopped for the draw');
+  assert.equal(clockLeft(arrivedClock(committed), 16000), 31, 'and holds the time left at the move, not the 30 the committed clock reads');
+  assert.equal(clockLeft(committed, 16000), 30);
+  t = go(t, { type: 'llm_thinking', payload: { turn: 2, playerIdx: 1, playerName: 'B', budgetMs: 30000, elapsedMs: 0 } }, 17000);
+  assert.equal(arrivedClock(committed).running, false, 'the next turn arriving too leaves the old turn stopped');
+  assert.equal(arrivedClock(t[T].clock), t[T].clock);
+  const other = { budgetMs: 1, elapsedMs: 0, received: 5, running: true };
+  assert.equal(arrivedClock(other), other, 'a clock never seen is its own');
+  go(t, { type: 'game_state', payload: { players: [], street: 'complete', pot: 0, nextHandInMs: 180000 } }, 20000);
+  assert.equal(arrivedDealAt(27000), 200000, 'an outage state that moved the deal counts to the new time at once');
+});

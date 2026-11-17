@@ -5,7 +5,7 @@ import LLMLogo from "@/components/LLMLogo";
 import TypewriterText from "@/components/TypewriterText";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { MUTED, BLUE } from "@/lib/stats";
-import { clockMs, type Clock, type DisplayState } from "@/lib/stream";
+import { arrivedClock, clockMs, type Clock, type DisplayState } from "@/lib/stream";
 import { useSecondsDraw } from "@/hooks/useSecondsDraw";
 import { useFillIn } from "@/lib/boxes";
 
@@ -44,12 +44,12 @@ export default function ReasoningPanel({
   const showShotClock = (isThinking || isReasoning) && clock !== null; // Hide after action is revealed
   // Its seconds, drawn on each whole-second edge (useSecondsDraw); red for the last 5 s.
   const clockRef = useRef<HTMLSpanElement>(null);
-  useSecondsDraw(showShotClock && clock ? now => clockMs(clock, now) : null, s => {
+  useSecondsDraw(showShotClock && clock ? now => clockMs(arrivedClock(clock), now) : null, s => {
     const e = clockRef.current;
     if (!e || s === null) return;
     e.textContent = `${s}s`;
     e.style.color = s <= 5 ? 'rgb(235, 87, 87)' : BLUE;
-  }, !!clock?.running);
+  }, () => !!clock && arrivedClock(clock).running);
 
   // Dynamic font size based on reason length
   const getReasonFontSize = (text: string | null | undefined) => {

@@ -215,3 +215,26 @@ export const typedSoFar = (text: string, key: string, began: { key: string; at: 
   if (!key || !began || began.key !== key) return 0;
   return Math.min(text.length + 1, Math.floor((now - began.at) / typingMs(text.length, pace)));
 };
+
+// The tables as their messages arrived, ahead of React's commit of them (useGameState sets it on each message). A
+// transition render (the stats' mount) keeps a stream update waiting until it commits, up to a second on a slow phone;
+// the figures drawn each second (useSecondsDraw) read the time from here, so a move that has arrived holds its clock at
+// once and a new deal time counts at once, whatever React is still rendering (review 5, finding 0).
+let arrived: Tables = {};
+const arrivedClocks: Clock[] = []; // the last few turns' clocks as they arrived, newest last
+export function arrive(t: Tables) {
+  arrived = t;
+  const c = (Object.values(t)[0] ?? EMPTY_TABLE).clock;
+  if (c && arrivedClocks.at(-1) !== c) {
+    arrivedClocks.push(c);
+    if (arrivedClocks.length > 8) arrivedClocks.shift();
+  }
+}
+const sameTurn = (a: Clock, b: Clock) => a.received === b.received && a.budgetMs === b.budgetMs && a.elapsedMs === b.elapsedMs;
+// The newest state of the committed clock `c`'s turn that has arrived (its move may have stopped it), else `c`.
+export function arrivedClock(c: Clock): Clock {
+  for (let i = arrivedClocks.length - 1; i >= 0; i--) if (sameTurn(arrivedClocks[i], c)) return arrivedClocks[i];
+  return c;
+}
+// The next deal's time as it last arrived (an outage's state may have moved it), else the committed `d`.
+export const arrivedDealAt = (d: number) => (Object.values(arrived)[0] ?? EMPTY_TABLE).dealAt ?? d;
