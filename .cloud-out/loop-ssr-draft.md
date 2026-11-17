@@ -62,5 +62,10 @@ Costs (run 3 medians): TTFB 6 -> 55 ms (+49: the engine read plus a dynamic rend
 228 -> 326 ms (+98 ms: later and bigger HTML), HTML transfer 9.7 KB -> ~63.5 KB (gzip; ~315 KB raw, of which ~250 KB is
 the all-time stats body carried in the RSC payload), long-task blocking past 50 ms in the first 10 s 758 -> 580 ms.
 
+No second fade: ssr-paint.mjs counts opacity 0->1 animations started on a box that already shows a model's name after
+the first real-data frame. Run 3: 0 on B (and 0 on A). Shown to catch the fault: a validation build with the hydration
+fade guard removed (lib/boxes.ts `if (preFilled) return;` deleted, not committed) gave 60 such re-fades in 4 loads
+(15 boxes per load: seats, felt, panels) against 0 for this branch.
+
 ## Status
 (checks in progress)
