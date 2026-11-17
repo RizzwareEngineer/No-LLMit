@@ -139,8 +139,8 @@ export default function Home({ initial }: { initial?: InitialFrame }) {
 
 function Table({ initial }: { initial?: InitialFrame }) {
   // Boxes hydrated with the first frame's data were painted filled: they do not fade in again (lib/boxes).
-  const [preFilled] = useState(() => !!initial?.frames.length);
-  if (preFilled && typeof window !== 'undefined') setPreFilled(true);
+  // Set in the first render only (a later render must not turn it back on), cleared once hydrated.
+  useState(() => { if (initial?.frames.length && typeof window !== 'undefined') setPreFilled(true); });
   useLayoutEffect(() => setPreFilled(false), []);
   const {
     gameState,

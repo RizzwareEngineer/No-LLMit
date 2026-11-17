@@ -80,7 +80,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const folded = player.status === 'folded';
   const isWinner = winAmount !== undefined && winAmount > 0;
-  const size = useCardSize();
+  const size = useCardSize(!compact);
   const cardClass = CARD_CLASS[size];
   // The hand whose dealt cards have both landed: until then they stay face down, so the first seat to act (its turn
   // comes during the deal) peeks once its cards are in place, not unseen in flight.

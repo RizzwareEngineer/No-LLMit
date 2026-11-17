@@ -14,7 +14,10 @@ export function deckSize(size = cardSizeNow()) {
   return size ? CARD_SIZES[size] : { w: 30, h: 42 }; // phones: the board's cards (phoneTable's DECK)
 }
 
-export const useCardSize = () => useSyncExternalStore(onLayoutChange, cardSizeNow, () => 0);
+// `desk`: a desktop seat. The server renders both layouts' seats (CSS shows one), each at its own layout's size, so a
+// page rendered with cards in it (the ?ssr=1 draft) shows the desktop's at their size before it hydrates; the default
+// page is prerendered with no cards, so it is unchanged.
+export const useCardSize = (desk = false) => useSyncExternalStore(onLayoutChange, cardSizeNow, () => (desk ? 1 : 0));
 
 // The phone table's drafts, by query (owner 2026-11-15: "some other layouts"): ?shape=rect or ?shape=stadium for the
 // other table shapes (the oval is the default). The pot is the desktop's rectangle on phones too (the owner picked it,
