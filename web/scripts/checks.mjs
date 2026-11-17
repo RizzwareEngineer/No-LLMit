@@ -6474,7 +6474,15 @@ group(() => check('stats-while-typing', 'While a long reason types (pace 1, from
     if (r.ms === null || r.ms > 2000) bad.push(`${what}: ${r.ms === null ? 'not shown in 2 s' : `${r.ms}ms`}`);
     else if (!r.typing) bad.push(`${what}: the reason had stopped typing (nothing tested)`);
   };
-  const statsShown = () => !!document.querySelector('#race-panel svg, #race-panel [data-box]') || !!document.getElementById('race-panel');
+  // The stats show once the Trends chart has drawn a line, in a plot at least 100x50 that nothing hides (display, visibility,
+  // opacity under 0.5 on it or an ancestor). Not #race-panel alone: that is also the blank tile or card standing in until
+  // the chart's part is in, so the check passed with no stats on screen.
+  const statsShown = () => [...document.querySelectorAll('#race-panel [data-plot] svg')].some(s => {
+    const r = s.getBoundingClientRect();
+    if (r.width < 100 || r.height < 50) return false;
+    for (let e = s; e; e = e.parentElement) { const c = getComputedStyle(e); if (c.display === 'none' || c.visibility === 'hidden' || +c.opacity < 0.5) return false; }
+    return [...s.querySelectorAll('path')].some(q => (q.getAttribute('d') || '').length > 20);
+  });
   const aboutShown = () => (document.getElementById('about')?.innerText ?? '').length > 200;
   const drawerShown = () => !!document.querySelector('dialog[open]');
   const modelHash = p => p.evaluate(() => document.querySelector('a[href^="#model="]')?.getAttribute('href').slice(1) ?? null);
