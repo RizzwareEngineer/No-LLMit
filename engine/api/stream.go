@@ -28,8 +28,9 @@ const (
 )
 
 type frame struct {
-	seq  uint64
-	data []byte // the whole SSE frame: "data: {...}\n\n"
+	seq    uint64
+	data   []byte // the whole SSE frame: "data: {...}\n\n"
+	packed []byte // the same frame deflated, for a gzipped stream (streamgz.go)
 }
 
 // tableSnap is one table as a joiner needs it. It is never changed once published.
@@ -49,6 +50,7 @@ type hub struct {
 	ring   [ringSize]frame
 	tables map[string]*tableSnap
 	stats  []byte        // the all-time GET /api/stats body as one stats frame, sent after every snapshot; nil until loaded
+	statsZ []byte        // stats deflated, for a gzipped stream
 	wake   chan struct{} // closed and replaced on every publish
 	open   atomic.Int64  // streams open now
 
@@ -70,28 +72,32 @@ type envelope struct {
 // (if statsFull is set) change in the same locked step, then every writer is woken.
 func (h *hub) publish(table string, snap *tableSnap, statsFull []byte, msgs ...ServerMessage) {
 	bodies := make([][]byte, len(msgs))
+	packs := make([]packedBody, len(msgs))
 	for i, m := range msgs {
 		b, err := json.Marshal(envelope{table, m.Type, m.Payload})
 		if err != nil {
 			log.Printf("!!! Encoding %s: %v", m.Type, err)
 			return
 		}
-		bodies[i] = b
+		bodies[i], packs[i] = b, packBody(b)
 	}
 	var stats []byte
+	var statsPack packedBody
 	if statsFull != nil {
 		stats = append(append([]byte(`{"type":"stats","payload":`), statsFull...), '}')
+		statsPack = packBody(stats) // deflated once, before the lock
 	}
 	h.mu.Lock()
-	for _, b := range bodies {
+	for i, b := range bodies {
 		h.seq++
-		h.ring[h.seq%ringSize] = frame{h.seq, sseFrame(h.seq, b)}
+		h.ring[h.seq%ringSize] = frame{h.seq, sseFrame(h.seq, b), packs[i].frame(h.seq)}
 	}
 	if snap != nil {
 		h.tables[table] = snap
 	}
 	if stats != nil {
 		h.stats = sseFrame(h.seq, stats) // framed once here; every stream shares the bytes
+		h.statsZ = statsPack.frame(h.seq)
 	}
 	old := h.wake
 	h.wake = make(chan struct{})
@@ -115,9 +121,11 @@ func sseFrame(seq uint64, body []byte) []byte {
 type view struct {
 	seq    uint64
 	frames [][]byte
+	packed [][]byte // frames deflated, in step
 	snap   bool
 	tables map[string]*tableSnap
 	stats  []byte
+	statsZ []byte
 	wake   <-chan struct{}
 }
 
@@ -129,16 +137,16 @@ func (h *hub) since(last uint64, first bool) view {
 		for s := last + 1; s <= v.seq; s++ {
 			f := h.ring[s%ringSize]
 			if f.seq != s {
-				v.frames = nil
+				v.frames, v.packed = nil, nil
 				break
 			}
-			v.frames = append(v.frames, f.data)
+			v.frames, v.packed = append(v.frames, f.data), append(v.packed, f.packed)
 		}
 		if len(v.frames) == int(v.seq-last) {
 			return v
 		}
 	}
-	v.snap, v.tables, v.stats = true, maps.Clone(h.tables), h.stats
+	v.snap, v.tables, v.stats, v.statsZ = true, maps.Clone(h.tables), h.stats, h.statsZ
 	return v
 }
 
@@ -205,10 +213,18 @@ func (h *hub) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer h.open.Add(-1)
 
+	o := &out{w: w, rc: http.NewResponseController(w), gz: acceptsGzip(r)}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Vary", "Accept-Encoding")
+	if o.gz {
+		w.Header().Set("Content-Encoding", "gzip")
+	}
 	w.WriteHeader(http.StatusOK)
-	rc := http.NewResponseController(w)
+	rc := o.rc
+	if o.gz && send(w, rc, gzipHeader, eventWriteWait) != nil {
+		return
+	}
 	if rc.Flush() != nil {
 		return
 	}
@@ -221,7 +237,7 @@ func (h *hub) handleStream(w http.ResponseWriter, r *http.Request) {
 	for first := true; ; first = false {
 		v := h.since(last, first)
 		if v.snap || len(v.frames) > 0 {
-			if err := v.write(w, rc); err != nil {
+			if err := v.write(o); err != nil {
 				return
 			}
 		}
@@ -229,10 +245,11 @@ func (h *hub) handleStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-v.wake:
 		case <-beat.C:
-			if send(w, rc, heartbeat, eventWriteWait) != nil || rc.Flush() != nil {
+			if o.send(heartbeat, packedHeartbeat, eventWriteWait) != nil || rc.Flush() != nil {
 				return
 			}
 		case <-life.C:
+			o.end()
 			return
 		case <-r.Context().Done():
 			return
@@ -240,27 +257,27 @@ func (h *hub) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (v view) write(w http.ResponseWriter, rc *http.ResponseController) error {
+func (v view) write(o *out) error {
 	if v.snap {
 		b, err := v.snapshotFrame()
 		if err != nil {
 			return err
 		}
-		if err := send(w, rc, b, snapshotWriteWait); err != nil {
+		if err := o.send(b, nil, snapshotWriteWait); err != nil { // per stream (its clocks), so deflated here
 			return err
 		}
 		if v.stats != nil {
-			if err := send(w, rc, v.stats, snapshotWriteWait); err != nil {
+			if err := o.send(v.stats, v.statsZ, snapshotWriteWait); err != nil {
 				return err
 			}
 		}
 	}
-	for _, f := range v.frames {
-		if err := send(w, rc, f, eventWriteWait); err != nil {
+	for i, f := range v.frames {
+		if err := o.send(f, v.packed[i], eventWriteWait); err != nil {
 			return err
 		}
 	}
-	return rc.Flush()
+	return o.rc.Flush()
 }
 
 func send(w http.ResponseWriter, rc *http.ResponseController, b []byte, wait time.Duration) error {
