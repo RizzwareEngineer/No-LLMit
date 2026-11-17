@@ -1,0 +1,35 @@
+diff --git a/web/src/components/CumulativeChart.tsx b/web/src/components/CumulativeChart.tsx
+index 30e6322..bbf4e43 100644
+--- a/web/src/components/CumulativeChart.tsx
++++ b/web/src/components/CumulativeChart.tsx
+@@ -183,7 +183,7 @@ function useCamera(lo: number, hi: number, snap: boolean): [number, number] {
+     if (c.raf) return; // the running loop picks up the new target
+     c.t = performance.now();
+     const step = (t: number) => {
+-      const dt = Math.min(0.25, Math.max(0, (t - c.t) / 1000)) * replaySpeed(), span = Math.abs(c.tgt[1] - c.tgt[0]) || 1;
++      const dt = Math.min(0.25, Math.max(0, ((t - c.t) / 1000) * replaySpeed())), span = Math.abs(c.tgt[1] - c.tgt[0]) || 1;
+       c.t = t;
+       if (!dt) { c.raf = requestAnimationFrame(step); return; } // a frame stamped before the effect: no time passed, and the speed cap would divide by 0
+       let still = true;
+@@ -622,19 +622,8 @@ export default function CumulativeChart({
+     // Farther ahead, each value the axis could not widen to in time if it waited (see LOOK_MAX_S); and the view the replay
+     // ends on (the last quarter of every hand, and the tips), due when it ends: else that one widened the axis only once
+     // the replay had stopped, its recent stretch out of the plot for a few frames.
+-    if (perS && inView.length) {
+-      const [lo, hi] = want, far: number[] = [], end = timeline!.hands, rest = lerp(from, lastHand, 0.75);
+-      const take = (h: number, v: number) => {
+-        if (v >= lo && v <= hi) return;
+-        const f = (Math.max(hi, v) - Math.min(lo, v)) / (hi - lo || 1);
+-        if ((h - nowX) / perS <= Math.log(f) / CAM_MAX + look) far.push(v);
+-      };
+-      for (const [n, p] of lines) {
+-        for (const [h, v] of fitted(n, trace(p, nowX + look * perS, nowX + LOOK_MAX_S * perS, Infinity))) take(h, v);
+-        if ((end - nowX) / perS <= LOOK_MAX_S) for (const [, v] of fitted(n, trace(p, rest, lastHand))) take(end, v);
+-      }
+-      if (far.length) want = robustRange(all, tips, [...must, ...far]);
+-    }
++    // Corpus plant (trends-15000px-clip): no look-ahead past the next LOOK_S seconds, as before the fix.
++    void LOOK_MAX_S; void lerp; void from; void lastHand;
+   } else {
+     const ys = [...drawn.values()].flatMap(p => p.map(q => q[1]));
+     if (sel) trace(pts(sel), X0, X1, nowX).forEach(([n, v]) => ys.push(v + bandAt(sel, n), v - bandAt(sel, n)));

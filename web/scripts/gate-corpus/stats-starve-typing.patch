@@ -1,0 +1,35 @@
+diff --git a/web/src/components/StatsScreens.tsx b/web/src/components/StatsScreens.tsx
+index 0945057..d00c7c2 100644
+--- a/web/src/components/StatsScreens.tsx
++++ b/web/src/components/StatsScreens.tsx
+@@ -1,6 +1,6 @@
+ 'use client';
+ 
+-import { memo, startTransition, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
++import { Suspense, lazy, memo, startTransition, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+ import type { StatsResponse } from '@/lib/stats';
+ import { PHONE } from '@/lib/layout';
+ import { isPaging } from '@/components/Section';
+@@ -19,8 +19,10 @@ import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
+ // that fails to load (a deploy replaced it, the phone went offline) never reaches React: the stand-in stays and says so in
+ // one line (a chunk a deploy replaced does not come back, so it asks for a reload), and the next trigger, a click
+ // included, tries again (a blip recovers).
+-let StatsSections: typeof import('@/components/StatsSections').default | null = null; // once loaded
+-const loadStats = () => import('@/components/StatsSections').catch(() => import('@/components/StatsSections')).then(m => { StatsSections = m.default; });
++// Corpus plant (stats-starve-typing): the stats behind React.lazy and Suspense again, as before the fix, so their mount
++// finishes on a retry lane that each typed character of a reason restarts.
++const StatsSections = lazy(() => import('@/components/StatsSections'));
++const loadStats = () => Promise.resolve();
+ 
+ const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
+ const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
+@@ -30,7 +32,8 @@ export default memo(function StatsScreens(props: { stats: StatsResponse | null;
+   const hold = useRef<HTMLDivElement>(null);
+   const [on, failed] = useStatsMount(hold);
+   // One swap, from the stand-in to the stats (a screen reader on a stand-in's section loses it once, not twice).
+-  return on && StatsSections ? <KeepScroll><StatsSections {...props} /></KeepScroll> : <StatsHold ref={hold} phone={phone} failed={failed} />;
++  const stand = <StatsHold ref={hold} phone={phone} failed={failed} />;
++  return on ? <Suspense fallback={stand}><KeepScroll><StatsSections {...props} /></KeepScroll></Suspense> : stand;
+ });
+ 
+ // Where the page was scrolled to before the stats mounted. Their screens replace the hold's (new elements), and the

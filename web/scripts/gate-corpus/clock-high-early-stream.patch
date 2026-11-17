@@ -1,0 +1,14 @@
+diff --git a/web/src/lib/api.ts b/web/src/lib/api.ts
+index 920085f..a15f33a 100644
+--- a/web/src/lib/api.ts
++++ b/web/src/lib/api.ts
+@@ -139,7 +139,8 @@ export class GameStream {
+       };
+       if (early) {
+         early.sink = onMessage;
+-        early.q.splice(0).forEach(([e, at]) => onMessage(e, at));
++        // Corpus plant (clock-high-early-stream): each queued message timed from when the page drains it, not its arrival, as before the fix.
++        early.q.splice(0).forEach(([e]) => onMessage(e));
+       } else es.onmessage = e => onMessage(e);
+     });
+   }

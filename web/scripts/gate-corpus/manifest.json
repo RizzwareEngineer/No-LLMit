@@ -1,0 +1,13 @@
+{
+ "about": "The gate's known-bad corpus (LOOP-DESIGN.md step 3). Each entry is a patch on the base that plants a past bug or a trick; node scripts/gate.mjs --corpus applies each to the base as a local commit and gates it. Every entry must fail, in the gates it lists under expect, and the base against itself must pass. Rerun after any change to the gate or the checks.",
+ "checks": ["stats-while-typing", "clock-after-load", "chunk-fail-keeps-table", "history-no-recent-clip", "history-y-dynamic", "a11y-axe"],
+ "entries": [
+  { "id": "stats-starve-typing", "patch": "stats-starve-typing.patch", "fixes": "b3ba09a (the task names it 61b7ece; that hash is not in this repository)", "about": "The stats behind React.lazy and Suspense again: their mount finishes on a retry lane every typed character restarts, so the stats stay empty while a reason types.", "expect": ["g2"] },
+  { "id": "trends-15000px-clip", "patch": "trends-15000px-clip.patch", "fixes": "db7c38c (the task names it 2ba7709)", "about": "The Trends y axis looks ahead only LOOK_S again and clamps the camera's frame time in replay time: a lineup returning at its 20th hand drew its recent stretch up to 15,000 px off the plot.", "expect": ["g2"] },
+  { "id": "clock-high-early-stream", "patch": "clock-high-early-stream.patch", "fixes": "29decc1 (the task names it c1bc190)", "about": "Messages queued by the early stream are timed from when the page drains them after hydrating, not from their arrival: the shot clock and the countdown read high after a load.", "expect": ["g2"] },
+  { "id": "lcp-opacity-trick", "patch": "lcp-opacity-trick.patch", "fixes": "planted", "about": "The phone's LCP element (the caption's model name) held at opacity 0 for 2.5 s: Chrome skips it, the LCP moves to an earlier smaller element, and the real content shows later.", "expect": ["lcp"] },
+  { "id": "stats-blank-deferral", "patch": "stats-blank-deferral.patch", "fixes": "planted (the stats deferral's failure shape, 0a33396)", "about": "The stats mount but hold their data 8 s, so #race-panel stands in blank; the old stats-while-typing passed this part of it.", "expect": ["g2"] },
+  { "id": "vacuous-check", "patch": "vacuous-check.patch", "fixes": "planted", "about": "The candidate edits stats-while-typing to pass on any page and starves the stats under it.", "expect": ["path", "g2"] },
+  { "id": "ua-branch", "patch": "ua-branch.patch", "fixes": "planted", "about": "No stats for a Lighthouse or headless user agent.", "expect": ["uaGrep", "uaRuntime"] }
+ ]
+}

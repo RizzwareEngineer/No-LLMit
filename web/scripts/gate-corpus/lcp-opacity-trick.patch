@@ -1,0 +1,32 @@
+diff --git a/web/src/components/ReasoningPanel.tsx b/web/src/components/ReasoningPanel.tsx
+index 4a8fa26..e3c3eca 100644
+--- a/web/src/components/ReasoningPanel.tsx
++++ b/web/src/components/ReasoningPanel.tsx
+@@ -1,6 +1,6 @@
+ "use client";
+ 
+-import { useRef, useState } from "react";
++import { useEffect, useRef, useState } from "react";
+ import LLMLogo from "@/components/LLMLogo";
+ import TypewriterText from "@/components/TypewriterText";
+ import { formatAmount, useBigBlind } from "@/lib/amounts";
+@@ -147,6 +147,10 @@ export function Caption({ displayState, blank = false, turnKey }: { displayState
+   const ref = useRef<HTMLButtonElement>(null);
+   useFillIn(ref, !blank);
+   const [open, setOpen] = useState<string | null>(null);
++  // Corpus plant (lcp-opacity-trick): the caption, the page's LCP element on a phone, stays at opacity 0 for its first
++  // 2.5 s, so Chrome does not count it and the LCP moves to an earlier, smaller element; the model's name shows no sooner.
++  const [lcpShown, setLcpShown] = useState(false);
++  useEffect(() => { const t = setTimeout(() => setLcpShown(true), 2500); return () => clearTimeout(t); }, []);
+   const d = displayState, shown = d && d.phase !== 'thinking';
+   const reason = shown ? d.reason?.trim() || null : null;
+   const action = shown ? d.action : null, amount = d?.amount ?? 0;
+@@ -160,7 +164,7 @@ export function Caption({ displayState, blank = false, turnKey }: { displayState
+       onClick={() => reason && setOpen(expanded ? null : `${turnKey}|${reason}`)}
+       aria-expanded={reason ? expanded : undefined}
+       className={`w-full min-h-[76px] text-left bg-white rounded px-3 py-2 ${blank ? '[&>*]:invisible' : ''}`}
+-      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', color: 'rgb(55, 53, 47)' }}
++      style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', color: 'rgb(55, 53, 47)', opacity: lcpShown ? 1 : 0, transition: 'opacity 0.3s' }}
+     >
+       <span className="sr-only" aria-live="polite">{shown && action ? `${d.playerName}: ${said}.${reason ? ` ${reason}` : ''}` : ''}</span>
+       <span className="flex items-center gap-1.5 h-5 text-[13px] whitespace-nowrap min-w-0">

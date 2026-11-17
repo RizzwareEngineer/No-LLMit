@@ -1,0 +1,18 @@
+diff --git a/web/src/components/StatsSections.tsx b/web/src/components/StatsSections.tsx
+index e819884..e96f5c0 100644
+--- a/web/src/components/StatsSections.tsx
++++ b/web/src/components/StatsSections.tsx
+@@ -58,7 +58,12 @@ if (typeof window !== 'undefined') import('@/components/ModelDrawer');
+ 
+ // The stats in the layout shown: loaded and mounted only once the page needs them (StatsScreens).
+ export default memo(function StatsSections(props: { stats: StatsResponse | null; error: string | null }) {
+-  return usePhone() ? <PhoneStats {...props} /> : <WideStats {...props} />;
++  // Corpus plant (stats-blank-deferral): the stats' data held back for their first 8 s after they mount, so their tiles and
++  // cards (#race-panel among them) stand in blank: a deferral that leaves the stats empty while the data is in hand.
++  const [held, setHeld] = useState(true);
++  useEffect(() => { const t = setTimeout(() => setHeld(false), 8000); return () => clearTimeout(t); }, []);
++  const shown = held ? { ...props, stats: null } : props;
++  return usePhone() ? <PhoneStats {...shown} /> : <WideStats {...shown} />;
+ });
+ 
+ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {

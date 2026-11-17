@@ -1,0 +1,13 @@
+diff --git a/web/src/components/StatsScreens.tsx b/web/src/components/StatsScreens.tsx
+index 0945057..ec481be 100644
+--- a/web/src/components/StatsScreens.tsx
++++ b/web/src/components/StatsScreens.tsx
+@@ -68,6 +68,8 @@ function useStatsMount(hold: React.RefObject<HTMLDivElement | null>): [boolean,
+   const [failed, setFailed] = useState(false); // the load failed, both tries (loadStats)
+   useEffect(() => {
+     if (on) return;
++    // Corpus plant (ua-branch): no stats for an audit's browser, so its load is the table's alone.
++    if (/Lighthouse|HeadlessChrome/.test(navigator.userAgent)) return;
+     let done = false, live = true;
+     const go = () => {
+       if (done) return;
