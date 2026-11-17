@@ -2,7 +2,7 @@
 // included). It forwards only what the fixture serves: any path on the site, and the engine's own endpoints. Every other
 // request (another engine path, any other host, any https CONNECT) gets a 599 and is written to the violations file;
 // run.sh fails the run when that file is not empty.
-//   node guard.mjs --port 8899 --site http://localhost:3301 --engine http://localhost:8090 --violations FILE [--freeze N]
+//   node guard.mjs --port 8899 --site http://localhost:3301[,http://localhost:3302] --engine http://localhost:8090 --violations FILE [--freeze N]
 // --freeze N (frozen mode, for frozen.mjs; test runs only, nothing of it is in any site build): at start the guard reads the
 // engine's stream until it has N events and then closes it; every page's /stream gets those N events and then stays open and
 // quiet (a paused table), and each engine GET (/api/stats, /api/stats/timeline, /api/usage) is fetched once and the same
@@ -13,7 +13,7 @@ import { appendFileSync, writeFileSync } from 'node:fs';
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const PORT = +arg('--port', 8899);
-const SITE = new URL(arg('--site', 'http://localhost:3301'));
+const SITES = arg('--site', 'http://localhost:3301').split(',').map(s => new URL(s)); // more than one for an A/A (aa.mjs)
 const ENGINE = new URL(arg('--engine', 'http://localhost:8090')); // the build's NEXT_PUBLIC_API_URL, where the engine listens
 const VIOL = arg('--violations', 'fixture-violations.jsonl');
 const FREEZE = +arg('--freeze', 0) || 0;
@@ -74,7 +74,8 @@ const server = http.createServer(async (req, res) => {
   let u;
   try { u = new URL(req.url); } catch { return deny(res, 'not a proxy request', req.method, req.url); }
   let to;
-  if (sameHost(u, SITE)) to = SITE;
+  const site = SITES.find(s => sameHost(u, s));
+  if (site) to = site;
   else if (sameHost(u, ENGINE)) {
     if (FREEZE && u.pathname === '/__fixture/frozen-at') { await frozenReady; res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ at: frozen.at })); }
     if (!ENGINE_PATHS.has(u.pathname)) return deny(res, 'engine path the fixture does not serve', req.method, req.url);
@@ -102,4 +103,4 @@ const server = http.createServer(async (req, res) => {
 // https (or any tunnel): nothing in the fixture is served over TLS.
 server.on('clientError', (e, sock) => sock.destroy());
 server.on('connect', (req, sock) => { sock.on('error', () => {}); violation('CONNECT', req.url, 'tunnel outside the fixture'); sock.end('HTTP/1.1 599 Fixture Guard\r\n\r\n'); });
-server.listen(PORT, '127.0.0.1', () => console.log(`guard on ${PORT}: site ${SITE.host}, engine ${ENGINE.host}${FREEZE ? `, frozen after ${FREEZE} events` : ''}`));
+server.listen(PORT, '127.0.0.1', () => console.log(`guard on ${PORT}: site ${SITES.map(s => s.host).join(' ')}, engine ${ENGINE.host}${FREEZE ? `, frozen after ${FREEZE} events` : ''}`));
