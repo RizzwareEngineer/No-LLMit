@@ -10,10 +10,10 @@ Fixture: the real engine with the mock models, about 2,600 hands in the log (two
 ## Commits (one per idea; checks separate)
 | commit | what | findings |
 |---|---|---|
-| b14a61d, then 2 follow-ups | checks: clock-stops-at-move holds the stats' code until 260 ms before the move and judges the held figure at t1; new countdown-follows-deal; trends-zoom bb/100 and Chips zooms with no flat edge runs and the whole-fit stretch inside; trends-pinch-keeps-pack at 90% and no new edge points; chunk-fail-says-so needs the drawer line gone within 8.5 s; checkCovers' walk is changedChecks' own code | 0, 3, 4, 5, 6, 7, 8, 9 |
+| b14a61d, 2014f98, 958d6d1 | checks: clock-stops-at-move holds the stats' code until 260 ms before the move and judges the held figure at t1; new countdown-follows-deal; trends-zoom bb/100 and Chips zooms with no flat edge runs and the whole-fit stretch inside; trends-pinch-keeps-pack at 90% and no new edge points; chunk-fail-says-so needs the drawer line gone within 8.5 s; checkCovers' walk is changedChecks' own code | 0, 3, 4, 5, 6, 7, 8, 9 |
 | 5399648 | lib/stream `arrive()` / `arrivedClock()` / `arrivedDealAt()`: useGameState applies each message on arrival; useSecondsDraw's callers read the arrived clock and deal time at each step, and stop when the arrived clock has stopped | 0 |
-| (split) | StatsSections: the overview's Matchups tile body is its own mount part (6 parts) | 1 |
-| (format) | lib/format: one cached Intl.NumberFormat per kind and decimals (grouped, compact); same text | 1 |
+| 4f52c66 | StatsSections: the overview's Matchups tile body is its own mount part (6 parts) | 1 |
+| ecce695 | lib/format: one cached Intl.NumberFormat per kind and decimals (grouped, compact); same text | 1 |
 | e2795ab | CumulativeChart: a zoom fits its points from cut = lerp(X0, X1, 0.75 x zoomWidth / fullWidth), untrimmed; the `zoom ||` clamp removed (only pre-fitAt points held at the edge) | 2, 4 |
 | 328428d | lib/drawer: one loader for every route (StatsSections' preload included); page clears the failed line on any successful load, after 6 s, or on the next tap or key | 5 |
 
@@ -44,4 +44,15 @@ Finding 1 mechanism metric (longest task after the hydration task, 1440x900, 4x 
 
 ## Checks run
 - `npx tsc --noEmit`, `node --experimental-strip-types --test src/lib/*.test.mjs` (134 pass, plus the new arrivedClock test), `npx eslint src --quiet`: clean.
-- Full suite at --lanes 2 on this branch: see below.
+- Full suite at --lanes 2 on this branch (with ecce695): 160/169. Failures:
+  - phone-table-places, phone-table-ownership: expected red until the owner picks (run rules).
+  - phone-table-ownership-beside, phone-table-ownership-tucked: seat drafts with bets of 120 and 1,250; not touched here (no seat or table code changed), not rerun on base.
+  - profiles-all-stats: same failure on base alone ("figures clipped: ▼43%, ▼11%, −1,248, ▲20%"): pre-existing, data-dependent.
+  - numbers-one-format: same failure on base alone ("ungrouped 1070"): pre-existing, data-dependent.
+  - table-shuffle, table-shuffle-notice: failed under the suite's load, both PASS alone on this branch and on base.
+  - **glide-clean: FAIL alone on this branch** ("Matchups open 1440x900: row "Qwen 3.7 Flash" has its numbers but no name (frame 3); Matchups close by Escape: row "Claude Haiku 5.5" ... (frame 7)"), PASS alone on base (66 glides clean; that base run shared the machine with the suite). **Treat as a regression of this branch until shown otherwise.** Suspects: 4f52c66 (the Matchups tile body mounts in its own part) or ecce695 (the formatters return the same text, so less likely). It was found at 15:46, too late to bisect (a build plus a 9-minute check). Next step: rebuild with 4f52c66 reverted and rerun glide-clean alone 2x on each.
+
+## Honest read
+- Findings 0, 2, 3, 4, 5, 6, 7, 8, 9: fixed at the cause, and each new or changed check fails on the base (9 also on e0806b1) and passes here.
+- Finding 1: clock-after-load now passes 3 of 3 alone (base 2 of 3), and the stats mount's longest task fell from 266-348 ms to mostly 130-244 ms. But it is not under 250 ms in every run (311 ms once, with a live stats update mid-mount), a stats update still reaches about 270 ms, and hydration is 250-510 ms. So the strict "no task after load over 250 ms" is not met. The split commit may also be what broke glide-clean (above).
+- Not done: no Lighthouse or journey numbers. Interval statistics not computed (n = 3 to 8 per arm).
