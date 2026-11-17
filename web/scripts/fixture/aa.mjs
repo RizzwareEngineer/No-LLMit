@@ -44,7 +44,7 @@ async function trace(url) {
     }, NAMES);
     const c = await p.createCDPSession();
     await c.send('Emulation.setCPUThrottlingRate', { rate: 4 });
-    await p.tracing.start({ categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline'] });
+    await p.tracing.start({ categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'blink.user_timing', 'loading'] });
     await p.goto(url, { waitUntil: 'load' });
     await sleep(10000);
     const dataAt = await p.evaluate(() => window.__dataAt);
@@ -52,6 +52,7 @@ async function trace(url) {
     const busy = m => ev.filter(e => e.pid === m.pid && e.tid === m.tid && e.name === 'RunTask').reduce((a, e) => a + (e.dur ?? 0), 0);
     const main = ev.filter(e => e.name === 'thread_name' && e.args.name === 'CrRendererMain').sort((x, y) => busy(y) - busy(x))[0];
     const nav = ev.filter(e => e.name === 'navigationStart' && e.pid === main.pid).at(-1)?.ts;
+    if (nav == null) throw new Error('no navigationStart in the trace');
     const tasks = ev.filter(e => e.pid === main.pid && e.tid === main.tid && e.name === 'RunTask' && e.ph === 'X' && e.ts >= nav && e.ts < nav + 10e6);
     const long = tasks.filter(t => t.dur > 50000);
     return { mainMs: tasks.reduce((a, t) => a + t.dur, 0) / 1000, longTasks: long.length, blockMs: long.reduce((a, t) => a + t.dur / 1000 - 50, 0),
