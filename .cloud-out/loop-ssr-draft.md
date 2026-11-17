@@ -67,5 +67,63 @@ the first real-data frame. Run 3: 0 on B (and 0 on A). Shown to catch the fault:
 fade guard removed (lib/boxes.ts `if (preFilled) return;` deleted, not committed) gave 60 such re-fades in 4 loads
 (15 boxes per load: seats, felt, panels) against 0 for this branch.
 
+## What the server HTML now holds (?ssr=1 only; `/` is unchanged and still holds only the chrome)
+Visible text of `/` (no JS): 475 characters: the title, tagline, "Hand # 00", "POT 0", "Profits & Losses",
+"Waiting for next action...", tab labels. Of `/?ssr=1`: about 2,200 characters, all from the engine at request time:
+- the hand number, blinds, the pot and the board;
+- every seat (both layouts' trees are in the HTML, CSS shows one): model name (and the phone's short label), position
+  badge, stack, last action and amount, hole cards for seats whose turn has come (the same peek rule as live);
+- the session's Profits & Losses leaderboard (rank, name, signed amount, en-US separators);
+- the turn on screen: the acting model, its action and amount, and the reason's full text in the screen-reader copy
+  (the visible typewriter starts at 0 characters on the server and types after hydration, as for any new viewer);
+- the phone bar's status label ("Live", hand number).
+Not in the HTML: the all-time stats sections (Trends, Profiles, Matchups) and About: StatsScreens mounts them on the
+client only, so their text is still client-only. The all-time stats body IS in the page (the RSC payload, ~250 KB raw),
+so the stats mount without waiting for the stream's stats frame, but search engines and screen readers do not see it
+as text. For search engines the draft route is `noindex` with canonical `/`, so nothing is indexed until the owner
+picks; if adopted as the default, crawlers would get the live table text above (a snapshot that changes every request).
+For screen readers: the table, the leaderboard and the current reason are readable before any JS runs; the stream's
+updates then replace them in place.
+
+## How a stale cached snapshot is kept from showing wrong figures
+1. The cache is 1 s (TTL_MS) and never served past it: an expired read is dropped before the new read starts (no
+   stale-while-revalidate). A read that fails or takes over 500 ms gives no frame: the page renders blank as `/` does.
+2. The HTML itself is not cacheable: `/ssr` is `force-dynamic`, and the response is
+   `Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate` (checked with curl), so no CDN or browser
+   copy can replay an old frame.
+3. The figures are the engine's own frames applied by the stream's own code (`fromFirstFrame` -> `applyMessage` /
+   `applyStats`): no second implementation to drift.
+4. Time-based figures are timed conservatively: the frame's age at render is subtracted from the page's navigation
+   start, which is earlier than when the frame really reached the page, so the shot clock and "Next hand in" can only
+   show fewer seconds than the engine has, never more (unit test: 45 s budget, 10 s run, 1.5 s old -> 34 s shown).
+5. The stream's own snapshot replaces every figure as soon as it arrives (the early stream opens from the HTML, so
+   about when hydration ends); a turn already on screen keeps its display object and clock (no retype, no reset). If
+   the stream sends no snapshot before the page would say Offline (4 s), the frame is dropped and the page goes blank,
+   as the default page is then: an unconfirmed frame is never shown as the table for longer than that.
+Honest limit: between first paint and the stream's snapshot (about 0.6-1 s at 4x here) the figures are those of a
+moment up to ~1 s (TTL) plus the read and render time behind the engine. Each equals the engine's figure at that
+moment, but a hand can move on in that window, after which the stream's figures replace them.
+
+## Checks
+Targeted set (45 ids: table-*, phone-table-oval, phone-chrome, desktop-table-text, status-boxes-remembered,
+phone-card-ring, sticky-pot-bb, skeleton-matches, the stream ones reconnect-unseen, stats-while-typing,
+chunk-fail-keeps-table, chunk-fail-says-so, early-scroll-kept, clock-after-load, clock-stops-at-move,
+watching-counts-me, numbers-one-format, and the stats ones trends-chart-fills, phone-stats-windows,
+profiles-all-stats, matchups-tile-filled, segments-fill, leader-scope, leader-bb100, stats-any-viewport,
+no-stats-hash, history-timeline-fetches), --lanes 2:
+- Without the flag (`--base :3300`): 43/45. FAIL skeleton-matches (1728x1117: the stats-table card 1.8 px taller
+  after data) and FAIL clock-after-load (countdown showed 5 s with 4 s left). The default page's code path is
+  unchanged (HTML identical to the base), so these are base behaviour; see below for the base rerun.
+- With the flag: `--query ssr=1` only reaches the scripted-table loads, so the run used `--base :3302`, a 15-line local
+  proxy (not committed) that adds `ssr=1` to every request for `/`, plus `--query ssr=1`; checks.mjs untouched.
+  First run 42/45: FAIL table-refresh-fades (desktop: 7 status-row boxes popped in; 27 hole cards moved
+  28x40 -> 40x56 at hydration), FAIL skeleton-matches (the first frame is not blank: expected, the draft changes the
+  load sequence and this spec needs the owner's yes; plus the same stats-table card resize), FAIL clock-after-load
+  (shot clock 35 s shown with 34 s left).
+  The first two table-refresh-fades faults were real draft bugs, fixed in 1e-commit "Fix two ?ssr=1 hydration
+  faults": the fade guard was re-armed on every render, and desktop seats were server-rendered with the phone's card
+  size (lib/tableSwitches `useCardSize` server snapshot now follows the seat's layout; `/` has no cards in its HTML,
+  so it is unchanged: verified identical again).
+
 ## Status
-(checks in progress)
+(full suite with ?ssr=1 in progress, started 14:56)
