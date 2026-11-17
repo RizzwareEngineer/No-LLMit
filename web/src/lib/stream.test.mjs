@@ -3,7 +3,7 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameStream } from './api.ts';
-import { applyMessage, applyStats, clockLeft, clockShare } from './stream.ts';
+import { applyMessage, applyStats, clockLeft, clockShare, fromFirstFrame } from './stream.ts';
 
 // Every EventSource the client opens; the test makes each one open or fail.
 let opened = [];
@@ -191,4 +191,23 @@ test('the ring is the share of the budget left, even for a viewer who joins mid-
   assert.equal(clockShare(clockLeft(c, 1000), c.budgetMs), 0.6);
   assert.equal(clockShare(clockLeft(c, 19_000), c.budgetMs), 0);
   assert.equal(clockShare(clockLeft({ ...c, budgetMs: 29_500, elapsedMs: 0 }, 1000), 29_500), 1); // rounded-up seconds never pass a full ring
+});
+
+test("the server-rendered first frame (?ssr=1) is the stream's own opening, and the stream resumes on it without retyping or resetting the clock", () => {
+  const thinking = { type: 'llm_thinking', payload: { turn: 5, playerIdx: 2, playerName: 'B', budgetMs: 45000, elapsedMs: 10000 } };
+  const stats = { seq: 1, type: 'stats', payload: { generated_at: 'a', seated: [], partial: false, models: [{ name: 'B', hands: 3 }] } };
+  // Read on the server 1.5 s before this page's navigation began (its age at render): timed from then on the page's clock.
+  const first = fromFirstFrame([{ ...snap({ turn: thinking }), seq: 1 }, stats], 100_000 - 1500);
+  assert.deepEqual(first.tables, applyMessage({}, snap({ turn: thinking }), 98_500), 'the same tables as the stream\'s snapshot');
+  assert.equal(first.stats, stats.payload, 'and its stats body');
+  assert.equal(clockLeft(first.tables[T].clock, 100_000), 34, 'never more seconds than the engine has left: 45 - 10 - 1.5, rounded up');
+  // The stream's own snapshot, the same turn 2 s on: the turn on screen is kept as it is, typing and clock.
+  const live = applyMessage(first.tables, snap({ turn: { ...thinking, payload: { ...thinking.payload, elapsedMs: 13500 } } }), 102_000);
+  assert.equal(live[T].display, first.tables[T].display, 'the very same display object: nothing retypes');
+  assert.equal(live[T].clock, first.tables[T].clock, 'the clock runs on, not reset');
+  // A later hand by the time the stream opened: the stream's figures replace the frame's.
+  const later = applyMessage(first.tables, snap({ state: state(5) }), 102_000);
+  assert.equal(later[T].gameState.handNumber, 5);
+  assert.equal(later[T].display, null);
+  assert.deepEqual(fromFirstFrame([], 0), { tables: {}, stats: null }, 'no frame: blank, as the default page');
 });
