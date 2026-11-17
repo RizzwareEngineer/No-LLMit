@@ -42,6 +42,7 @@ const REPO = resolve(arg('--repo', join(dirname(SELF), '../..')));
 const CHROME = process.env.CHROME_PATH || '/usr/bin/google-chrome';
 const API = arg('--api', 'http://localhost:8080');
 const LANES = +arg('--lanes', 2);
+const PORT = +arg('--port', 3401); // the base's server; the candidate's is the next port
 const WORK = resolve(arg('--work', join(tmpdir(), `gate-${process.pid}`)));
 const CORPUS_DIR = join(dirname(SELF), 'gate-corpus');
 const LIGHTHOUSE = 'lighthouse@12.8.2', AXE = 'axe-core@4.10.2';
@@ -386,15 +387,18 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
     const grew = Object.keys(UA_PATTERNS).filter(k => cu.counts[k] > bu.counts[k]);
     gates.uaGrep = { pass: !grew.length, base: bu.counts, cand: cu.counts, added: Object.fromEntries(grew.map(k => [k, cu.where[k].filter(x => !bu.where[k]?.includes(x)).slice(0, 10)])) };
     if (grew.length) reasons.push(`ua: the candidate adds ${grew.map(k => `${k} (${bu.counts[k]} -> ${cu.counts[k]})`).join(', ')}`);
-    // G1
+    log('g1'); // G1
     modules(bdir, base); modules(dir, base);
     if (!skip.has('g1')) { gates.g1 = g1(dir); if (!gates.g1.pass) reasons.push(`g1: ${gates.g1.steps.filter(s => !s.pass).map(s => s.name).join(', ')} failed`); }
     // builds
-    gates.build = { base: build(bdir) };
+    log('builds'); gates.build = { base: build(bdir) };
     try { gates.build.cand = build(dir); } catch (e) { gates.build.cand = 'failed'; reasons.push(`build: ${String(e.stderr ?? e.message).split('\n').slice(-5).join(' | ')}`); throw e; }
-    const baseUrl = await serve(bdir, 3401), candUrl = await serve(dir, 3402);
+    const baseUrl = await serve(bdir, PORT), candUrl = await serve(dir, PORT + 1);
+    log('ua at run time');
     if (!skip.has('ua')) { gates.uaRuntime = await uaRuntime(candUrl); if (!gates.uaRuntime.pass) reasons.push('ua: the page loads other scripts or elements under a Lighthouse or headless user agent'); }
+    log('lcp');
     if (!skip.has('lcp')) { gates.lcp = await lcpGate(baseUrl, candUrl); if (!gates.lcp.pass) reasons.push(`lcp: ${gates.lcp.why.join('; ')}`); }
+    log('g2');
     if (!skip.has('g2')) {
       const key = `g2-${createHash('md5').update(String(ids ?? 'all') + LANES).digest('hex').slice(0, 8)}`;
       const bres = await cached(base, key, () => runChecks(bdir, baseUrl, ids));
@@ -415,6 +419,7 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
       gates.g2 = { pass: !j.fails.length, checks: Object.keys(cres.rows).length, baseRed: Object.entries(bres.rows).filter(([, r]) => !r.pass).map(([id]) => id), fails: j.fails, notes: j.notes, ms: { base: bres.ms, cand: cres.ms } };
       if (!gates.g2.pass) reasons.push(`g2: ${j.fails.map(f => `${f.id} (${f.detail.slice(0, 140)})`).join('; ')}`);
     }
+    log('g5');
     if (!skip.has('g5')) {
       const bg5 = await cached(base, 'g5', async () => ({ axe: await axeRun(baseUrl), lh: lighthouse(baseUrl) }));
       const cg5 = { axe: await axeRun(candUrl), lh: lighthouse(candUrl) };
@@ -463,7 +468,7 @@ async function corpus(baseRef, ids) {
     out.entries.push({ id: e.id, about: e.about, cand: sha, failed: !v.pass, status: v.status, failingGates: failed, expect: e.expect, expectMet: (e.expect ?? []).every(x => failed.includes(x)), reasons: v.reasons, verdict: v });
     save();
   }
-  out.pass = (out.control?.pass ?? true) && out.entries.every(e => e.failed && e.expectMet);
+  out.pass = out.control?.pass === true && out.entries.every(e => e.failed && e.expectMet);
   out.finishedAt = new Date().toISOString();
   save();
   return out;
@@ -475,7 +480,7 @@ async function freezeRed(baseRef) {
   const dir = worktree(`base-${base.slice(0, 8)}`, base);
   try {
     modules(dir, base); build(dir);
-    const url = await serve(dir, 3401);
+    const url = await serve(dir, PORT);
     const r = runChecks(dir, url, ids());
     const entries = Object.entries(r.rows).filter(([, x]) => !x.pass).map(([id, x]) => ({ id, detail: x.detail }));
     const red = { base, frozenAt: new Date().toISOString(), lanes: LANES, api: API, checks: Object.keys(r.rows).length, minutes: +(r.ms / 60000).toFixed(1), entries };
@@ -505,6 +510,6 @@ if (process.argv[1] === SELF) {
   const text = JSON.stringify(result, null, 1);
   if (arg('--out')) writeFileSync(arg('--out'), text); else console.log(text);
   if (result.reasons) log(result.pass ? 'PASS' : `${result.status?.toUpperCase()}: ${result.reasons.join(' | ')}`);
-  if (has('--corpus')) { log(`control: ${result.control?.pass ? 'pass' : 'FAIL'}`); for (const e of result.entries) log(`${e.id}: ${e.failed ? 'failed' : 'PASSED (bad)'} by ${e.failingGates?.join(', ')}${e.expectMet ? '' : ` (expected ${e.expect})`}`); }
+  if (has('--corpus')) { log(`control: ${result.control ? (result.control.pass ? 'pass' : 'FAIL') : 'not run'}`); for (const e of result.entries) log(`${e.id}: ${e.failed ? 'failed' : 'PASSED (bad)'} by ${e.failingGates?.join(', ')}${e.expectMet ? '' : ` (expected ${e.expect})`}`); }
   process.exit(ok ? 0 : 1);
 }
