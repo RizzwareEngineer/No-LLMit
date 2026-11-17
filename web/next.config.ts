@@ -23,6 +23,10 @@ const nextConfig: NextConfig = {
       ],
     }];
   },
+  // The server-rendered first frame, a draft (app/ssr/page.tsx): only /?ssr=1 goes there, so / stays prerendered.
+  async rewrites() {
+    return { beforeFiles: [{ source: '/', has: [{ type: 'query', key: 'ssr', value: '1' }], destination: '/ssr' }], afterFiles: [], fallback: [] };
+  },
   // The stats pages became sections and a drawer on the home page.
   async redirects() {
     return [

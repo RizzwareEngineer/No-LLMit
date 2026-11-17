@@ -28,10 +28,10 @@ import DevPace from "@/components/DevPace";
 import PeelLab from "@/components/PeelLab";
 import { setTypingPace } from "@/components/TypewriterText";
 import { isSoundOn, unlockOnFirstGesture } from "@/lib/sound";
-import { useGameState } from "@/hooks/useGameState";
+import { useGameState, type InitialFrame } from "@/hooks/useGameState";
 import { EARLY_STREAM } from "@/lib/api";
 import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
-import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
+import { holdBoxes, setPreFilled, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone } from "@/lib/layout";
 import { useLayout } from "@/lib/tableSwitches";
@@ -127,14 +127,21 @@ function roomInside(dir: number) {
   return { room: 0, ahead: null };
 }
 
-// /?peellab shows the peek lab (PeelLab) instead of the table.
+// /?peellab shows the peek lab (PeelLab) instead of the table. `initial`: the ?ssr=1 draft's server-rendered first frame
+// (app/ssr/page.tsx renders this component with it), the engine's opening frames as read on the server at request time;
+// the table and the stats render with them and the stream resumes on top (useGameState). Without it (this page, as
+// prerendered) nothing changes.
 const noSubscribe = () => () => {};
-export default function Home() {
+export default function Home({ initial }: { initial?: InitialFrame }) {
   const lab = useSyncExternalStore(noSubscribe, () => new URLSearchParams(window.location.search).has('peellab'), () => false);
-  return lab ? <PeelLab /> : <Table />;
+  return lab ? <PeelLab /> : <Table initial={initial} />;
 }
 
-function Table() {
+function Table({ initial }: { initial?: InitialFrame }) {
+  // Boxes hydrated with the first frame's data were painted filled: they do not fade in again (lib/boxes).
+  const [preFilled] = useState(() => !!initial?.frames.length);
+  if (preFilled && typeof window !== 'undefined') setPreFilled(true);
+  useLayoutEffect(() => setPreFilled(false), []);
   const {
     gameState,
     dealAt,
@@ -145,8 +152,9 @@ function Table() {
     clock,
     buttonDetermination,
     stats,
+    fromServer,
     retry,
-  } = useGameState();
+  } = useGameState(initial);
   useEffect(() => setTypingPace(gameState?.pace), [gameState?.pace]); // reasons type in step with the table's pace
   // Sound starts on the first gesture (SoundToggle does it too, but a phone no longer mounts the desktop status row).
   useEffect(() => {
@@ -159,7 +167,9 @@ function Table() {
   const [counting, setCounting] = useState(false); // the next-hand countdown shows (until dealAt)
   const { usage, error: usageError } = useUsage(connection !== 'connecting'); // the hub counts this page once its stream opens
   const watching = usageError ? undefined : usage?.table?.spectators;
-  const isLive = connection === 'open' && !tableNotice;
+  // The server-rendered first frame was the live table a moment ago (lib/firstFrame: at most a second old): live until
+  // the stream says otherwise, so the live dot does not change as the stream confirms it.
+  const isLive = (connection === 'open' || (connection === 'connecting' && fromServer)) && !tableNotice;
   // The connection bar only once the server has been unreachable for a while (useGameState): a bar shown and hidden on a
   // normal load moved every screen by its height (--bar-h).
   const bar = connection === 'down';

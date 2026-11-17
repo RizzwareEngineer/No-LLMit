@@ -61,9 +61,15 @@ export function useRememberedBox<T extends HTMLElement>(name: string, loaded: bo
 
 // The moment a blank box fills (its data arrived), the children it held invisible fade in where they sit (owner
 // 2026-11-11: on a refresh nothing slides or pops in). Once: a child added after that is not faded.
+// A box the server rendered with its data (the ?ssr=1 draft's first frame) was already painted filled: hydrating it is
+// not a fill, so it does not fade again. Only for the boxes filled as the page hydrates: preFilled is set while the page
+// renders with a first frame and cleared by the page's own layout effect, which runs after every child's in that commit.
+let preFilled = false;
+export const setPreFilled = (on: boolean) => { preFilled = on; };
 export function useFillIn(ref: React.RefObject<HTMLElement | null>, filled: boolean) {
   useLayoutEffect(() => {
     if (!filled || !ref.current || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (preFilled) return;
     for (const e of ref.current.children) e.animate({ opacity: [0, 1] }, { duration: 300, easing: 'ease-out' });
   }, [filled, ref]);
 }

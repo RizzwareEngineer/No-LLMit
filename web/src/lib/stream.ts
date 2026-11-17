@@ -215,3 +215,16 @@ export const typedSoFar = (text: string, key: string, began: { key: string; at: 
   if (!key || !began || began.key !== key) return 0;
   return Math.min(text.length + 1, Math.floor((now - began.at) / typingMs(text.length, pace)));
 };
+
+// The server-rendered first frame (the ?ssr=1 draft): the engine's opening frames as the server read them (lib/firstFrame),
+// applied as the stream's own would be, timed from `at`, the moment they were read on this page's clock. The stream
+// then resumes on top: its own first snapshot replaces the tables through fromSnapshot, which keeps a turn already on
+// screen (its typing and its shot clock), so the frame neither jumps nor retypes; its stats body replaces these stats.
+export function fromFirstFrame(frames: ServerMessage[], at: number): { tables: Tables; stats: StatsResponse | null } {
+  let tables: Tables = {}, stats: StatsResponse | null = null;
+  for (const m of frames) {
+    if (m.type === 'stats') stats = applyStats(stats, m.payload as StatsResponse);
+    else tables = applyMessage(tables, m, at);
+  }
+  return { tables, stats };
+}
