@@ -1,6 +1,6 @@
 # loop-ssr-draft (lever L3: server-rendered first frame behind ?ssr=1)
 
-Started 13:46 UTC 2026-11-17 on work/loop-base a0dbd90. Deadline: stop new work 15:56, end 16:16.
+Started 13:46 UTC 2026-11-17 on work/loop-base a0dbd90. Ended 15:51 UTC. Pre-commit gate (tsc, unit tests 134/134, eslint) passed on the last code commit (7fba592).
 
 ## Mechanism metric and prediction (written before any product change)
 Metric: time from navigation start to the first frame that shows real engine data (a seated model's name visible,
@@ -126,7 +126,9 @@ no-stats-hash, history-timeline-fetches), --lanes 2:
   so it is unchanged: verified identical again).
 
 Full suite once, with ?ssr=1 on every home-page load (proxy :3302 plus `--query ssr=1`), --lanes 2, after 7fba592:
-FULL_RESULT
+**158/168 passed** (raw output: .cloud-out/loop-ssr-draft-fullsuite-ssr.txt; targeted runs beside it). FAIL:
+clock-after-load, history-overtake-burst, history-overtake-shake, phone-table-places, phone-table-ownership,
+phone-table-ownership-beside, phone-table-ownership-tucked, skeleton-matches, table-refresh-fades, trends-zoom.
 
 Reading the full-suite failures:
 - phone-table-places, phone-table-ownership: expected red until the owner picks the seat (RUN-RULES).
@@ -143,8 +145,9 @@ Reading the full-suite failures:
 - history-overtake-burst, history-overtake-shake, trends-zoom: Trends chart checks; the draft does not touch the
   Trends code or its data path (the stats arrive in the same body, one stream frame earlier). Not rerun on the base
   in the time left: judge them against the frozen red list (H2).
-- clock-after-load failed in the targeted runs with and without the flag (default page = base code), passed in the
-  full suite run.
+- clock-after-load failed in every run, with and without the flag ("countdown 5 s shown with 4 s left" also on the
+  default page, whose code is the base's), so it is not the draft; under the flag the shot clock also read one second
+  high once (38 s with 37 s left), the same symptom the default page shows for the countdown.
 
 ## Open
 - FitName's hydration shortening on desktop seats under ?ssr=1 (above).
