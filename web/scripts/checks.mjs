@@ -6845,19 +6845,25 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
 
 // Review 5, finding 9 (review 4 #4's guard): a state that moves the next deal (an outage notice's 180 s) while "Next hand
 // in Ns" counts must move the figure to the new deal at once and for good: no value of the old deal's after it arrived
-// (a countdown chain that outlived its effect alternated between the two). The new state comes 40 ms before a whole-second
-// edge of the old countdown and a 250 ms task runs over that edge, so the old timer is due while the state waits.
+// (a countdown chain that outlived its effect alternated between the two). The new state comes at the end of a 260 ms
+// task over a whole-second edge of the old countdown, so the old timer is due while the state waits.
 group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, a state that moves the next deal while "Next hand in Ns" counts shows the new deal\'s whole seconds from then on, never the old deal\'s again', async () => {
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   const bad = [], seen = [];
   try {
     const cdp = await p.createCDPSession(); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+    // The stats' code is held until the first deal moves, so their mount's transition render holds the new state back
+    // while the old countdown's timer comes due (as clock-stops-at-move).
+    let held = [];
+    await p.setRequestInterception(true);
+    p.on('request', r => { if (held && r.initiator()?.type === 'script' && /\/_next\/static\/chunks\/.*\.js/.test(r.url())) held.push(r); else r.continue().catch(() => {}); });
+    await p.exposeFunction('__releaseChunks', () => { const h = held || []; held = null; for (const r of h) r.continue().catch(() => {}); return h.length; });
     await scriptStream(p);
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await p.waitForFunction(() => window.__stream?.last?.players?.length && window.__stream.feed && document.querySelector('[data-seat]'), { timeout: 120000 });
     await sleep(3000);
     for (let k = 0; k < 2; k++) {
-      const r = await p.evaluate(() => new Promise(done => {
+      const r = await p.evaluate(k => new Promise(done => {
         const s = window.__stream, l = s.last, i = Math.max(0, l.players.findIndex(q => q.status === 'active'));
         s.scripted = true;
         const shown = [];
@@ -6871,7 +6877,9 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
         s.feed({ type: 'table_notice', payload: { kind: '', message: '' } });
         const t0 = Date.now();
         s.feed({ type: 'game_state', payload: { ...end, nextHandInMs: 7000 } });
-        // 40 ms before the old countdown's 4 s edge: the outage notice and its state, 180 s to the deal; a long task over the edge.
+        // A long task over the old countdown's 4 s edge (3 s after its state), and at its end the outage notice and its
+        // state, 180 s to the deal: the old countdown's timer is then due before the new state is rendered.
+        if (k === 0) setTimeout(() => window.__releaseChunks(), 2700);
         setTimeout(() => {
           const moved = Date.now();
           s.feed({ type: 'table_notice', payload: { kind: 'outage', message: 'The models are not answering. The next hand waits.' } });
@@ -6879,7 +6887,7 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
           while (Date.now() - moved < 250);
           setTimeout(() => { mo.disconnect(); read(); done({ t0, moved, shown }); }, 4000);
         }, 2960 - (Date.now() - t0));
-      }));
+      }), k);
       const oldAt = at => Math.ceil((7000 - (at - r.t0)) / 1000), newAt = at => Math.ceil((180000 - (at - r.moved)) / 1000);
       const after = r.shown.filter(x => x.at > r.moved && x.v !== null);
       const wrong = after.filter(x => x.v !== newAt(x.at) && x.v !== Math.ceil((180000 - (x.at - r.moved) + 300) / 1000));
