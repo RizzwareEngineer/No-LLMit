@@ -77,9 +77,9 @@ const COVERS = [
   [/components\/(PokerTable|Player|TableFelt|WinningsPanel|UsageIndicator|ReasoningPanel|StickyBar|StatsTable|HeadToHead|CumulativeChart|About)\.tsx|lib\/boxes\./, /^skeleton-/],
   [/lib\/boxes\./, /^status-boxes-remembered$/], // useRememberedBox
   [/components\/(UsageIndicator|WinningsPanel)\.tsx|hooks\//, /^(usage-card-one-line|donate-apparent|watching-counts-me)$/],
-  [/components\/(TypewriterText|ReasoningPanel)\.tsx|hooks\//, /^(reconnect-unseen|stats-while-typing|clock-after-load|clock-stops-at-move)$/],
+  [/components\/(TypewriterText|ReasoningPanel)\.tsx|hooks\//, /^(reconnect-unseen|stats-while-typing|clock-after-load|clock-stops-at-move|countdown-follows-deal)$/],
   // TableFelt draws "Next hand in Ns" and PokerTable passes its deal time: only clock-after-load reads that figure.
-  [/components\/(TableFelt|PokerTable)\.tsx/, /^clock-after-load$/],
+  [/components\/(TableFelt|PokerTable)\.tsx/, /^(clock-after-load|countdown-follows-deal)$/],
   [/components\/TableMotion\.tsx/, /^table-shuffle-resume$/],
   [/components\/CumulativeChart\.tsx/, /^zoom-tolerable$/],
   [/(^|\/)AGENTS\.md$/, /(?!)/], // the file next dev writes: no check covers it
@@ -3096,12 +3096,35 @@ group(() => check('trends-zoom', 'In the opened Trends card a pinch or ctrl+whee
     if (Math.abs(axis.scrolled - before.scrolled) < 50) bad.push('a plain wheel over the plot did not move the page');
     if (!near(axis, full.x0, full.x1)) bad.push(`a plain wheel changed the axis to ${axis.x0.toFixed(0)}–${axis.x1.toFixed(0)}`);
     seen.push(`plain wheel: page moved ${(axis.scrolled - before.scrolled).toFixed(0)}px`);
+    // Review 5, findings 2, 3 and 7: in Chips (no early hands held back) a zoom fits the stretch zoomed into whole: no line
+    // point is outside the plot band or held on its edge (the fit's 8% of air keeps every fitted point off it; a point on
+    // the edge is one drawn flat there, off its readout). A clamp of every zoomed point made the band rule above vacuous.
+    await p.evaluate(() => [...document.querySelectorAll('[role=group][aria-label=Metric] button')].find(b => b.textContent.trim() === 'Chips' && b.getBoundingClientRect().width > 0)?.click()); await sleep(1500);
+    for (const f of [0.35, 0.65]) {
+      const s0 = await zoomState(p);
+      await ctrlWheel(p, s0, f, -40, 6); await sleep(1500);
+      const zc = await zoomState(p);
+      const e = await p.evaluate(() => {
+        const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0), c = plot.querySelector('clipPath rect');
+        const top = +c.getAttribute('y') + 2, bot = top + +c.getAttribute('height') - 4;
+        let n = 0, edge = 0, out = 0;
+        for (const path of plot.querySelectorAll('g[clip-path] path[fill="none"]')) {
+          const v = (path.getAttribute('d') || '').match(/-?\d*\.?\d+(?:e-?\d+)?/g)?.map(Number) ?? [];
+          for (let i = 1; i < v.length; i += 2) { n++; if (Math.abs(v[i] - top) < 0.5 || Math.abs(v[i] - bot) < 0.5) edge++; else if (v[i] < top - 0.5 || v[i] > bot + 0.5) out++; }
+        }
+        return { n, edge, out };
+      });
+      if (!zc.reset || !e.n) bad.push(`Chips zoom at ${f * 100}%: ${!zc.reset ? 'did not zoom' : 'no line points read'}`);
+      else if (e.edge || e.out) bad.push(`Chips zoomed into hands ${zc.x0.toFixed(0)}–${zc.x1.toFixed(0)}: ${e.edge} of ${e.n} line points held on the plot's edge, ${e.out} outside it`);
+      else seen.push(`Chips zoomed into ${zc.x0.toFixed(0)}–${zc.x1.toFixed(0)}: ${e.n} points inside, none on the edge`);
+      await p.mouse.click(zc.left + 0.5 * zc.w, zc.y, { count: 2 }); await sleep(900);
+    }
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 // Review 4, finding 8: the first small step of a pinch-in on the resting Trends card keeps the pack as tall as it was
 // (its recent quarter fitted, the window's early rate swings trimmed), not flattened by the early hands' extremes.
-group(() => check('trends-pinch-keeps-pack', 'At 1440x900 in the opened Trends card at rest, one small ctrl+wheel step in (a pinch\'s first event) keeps the lines\' recent quarter at least 60% as tall on the plot as before', async () => {
+group(() => check('trends-pinch-keeps-pack', 'At 1440x900 in the opened Trends card at rest, one small ctrl+wheel step in (a pinch\'s first event) keeps the lines\' recent quarter at least 90% as tall on the plot as before, and holds no more points on the plot\'s edge', async () => {
   const p = await pageAt(1440, 900, 'race');
   try {
     await clickCenter(p, '#race-panel'); await sleep(1500);
@@ -3113,7 +3136,14 @@ group(() => check('trends-pinch-keeps-pack', 'At 1440x900 in the opened Trends c
         const v = (path.getAttribute('d') || '').match(/-?\d*\.?\d+(?:e-?\d+)?/g)?.map(Number) ?? [];
         for (let i = 0; i + 1 < v.length; i += 2) if (v[i] >= cl + 0.75 * cw && v[i] <= cl + cw) ys.push(v[i + 1]);
       }
-      return { n: ys.length, h: ys.length ? Math.max(...ys) - Math.min(...ys) : 0, plot: +c.getAttribute('height') };
+      // And the points held on the plot's edge, anywhere (review 5, finding 4: a step must not draw new flat runs there).
+      const top = +c.getAttribute('y') + 2, bot = top + +c.getAttribute('height') - 4;
+      let edge = 0;
+      for (const path of plot.querySelectorAll('g[clip-path] path[fill="none"]')) {
+        const v = (path.getAttribute('d') || '').match(/-?\d*\.?\d+(?:e-?\d+)?/g)?.map(Number) ?? [];
+        for (let i = 0; i + 1 < v.length; i += 2) if (v[i] >= cl && v[i] <= cl + cw && (Math.abs(v[i + 1] - top) < 0.5 || Math.abs(v[i + 1] - bot) < 0.5)) edge++;
+      }
+      return { n: ys.length, h: ys.length ? Math.max(...ys) - Math.min(...ys) : 0, plot: +c.getAttribute('height'), edge };
     });
     const a = await spread(), s = await zoomState(p);
     if (!a.n || a.h < 5) return { pass: false, detail: `at rest the recent quarter has ${a.n} points ${a.h.toFixed(0)} tall (nothing tested)` };
@@ -3121,8 +3151,9 @@ group(() => check('trends-pinch-keeps-pack', 'At 1440x900 in the opened Trends c
     const z = await zoomState(p), b = await spread();
     if (!z.reset) return { pass: false, detail: 'one ctrl+wheel step did not zoom (nothing tested)' };
     const ratio = b.h / a.h;
-    const detail = `hands ${s.x0.toFixed(0)}–${s.x1.toFixed(0)} → ${z.x0.toFixed(0)}–${z.x1.toFixed(0)}: the recent quarter ${a.h.toFixed(0)} → ${b.h.toFixed(0)} of ${a.plot.toFixed(0)} design px (${(ratio * 100).toFixed(0)}%)`;
-    return { pass: ratio >= 0.6, detail };
+    const detail = `hands ${s.x0.toFixed(0)}–${s.x1.toFixed(0)} → ${z.x0.toFixed(0)}–${z.x1.toFixed(0)}: the recent quarter ${a.h.toFixed(0)} → ${b.h.toFixed(0)} of ${a.plot.toFixed(0)} design px (${(ratio * 100).toFixed(0)}%); points on the plot's edge ${a.edge} → ${b.edge}`;
+    // Review 5, finding 4: a 3% step moves the fit by about as much (90%, not 60%), and draws no new runs on the edge.
+    return { pass: ratio >= 0.9 && b.edge <= a.edge, detail };
   } finally { await p.close(); }
 }));
 // The same on a touch screen: two fingers pinch the plot's hands axis (never the page); one finger keeps scrolling the page.
@@ -6552,7 +6583,7 @@ group(() => check('chunk-fail-keeps-table', 'At 390x844 (touch), with every scri
 
 // Review 4, findings 1 and 2: a stats or drawer chunk that fails (a deploy replaced it) says so in one line, at least
 // 11px, and on a desktop (no touch, no wheel, no key) a click on "Stats ↓" retries a stats load that failed at hydration.
-group(() => check('chunk-fail-says-so', 'At 1440x900 with the stats and drawer scripts failing: the overview says "Stats did not load. Reload the page." and a model link "Model page did not load. Reload the page.", each one line of at least 11px; once the network is back, a click on Stats ↓ alone shows the stats', async () => {
+group(() => check('chunk-fail-says-so', 'At 1440x900 with the stats and drawer scripts failing: the overview says "Stats did not load. Reload the page." and a model link "Model page did not load. Reload the page.", each one line of at least 11px, the drawer\'s gone within 8.5 s; once the network is back, a click on Stats ↓ alone shows the stats', async () => {
   const p = await newPage(), bad = [];
   try {
     await p.setViewport({ width: 1440, height: 900 });
@@ -6591,6 +6622,12 @@ group(() => check('chunk-fail-says-so', 'At 1440x900 with the stats and drawer s
       const drawerLine = await line('Model page did not load. Reload the page.');
       if (!drawerLine) bad.push('a model link that failed to load says nothing');
       else if (drawerLine.px < 11 || drawerLine.lines !== 1 || !drawerLine.inside) bad.push(`the drawer line is ${drawerLine.px}px, ${drawerLine.lines} lines`);
+      // Review 5, finding 5: the line is fixed over the top seat (a phone's) and the title; it goes on its own after a
+      // few seconds, with no tap, not only on a reload.
+      if (drawerLine) {
+        await sleep(6000);
+        if (await line('Model page did not load. Reload the page.')) bad.push('the drawer line was still up 8.5 s later, with no tap');
+      }
     }
     if (!failed) bad.push('no script was asked for while blocked (nothing tested)');
     // The network is back: back to the table by script, then one click on Stats ↓ (a pointerdown, no wheel or key).
@@ -6705,11 +6742,19 @@ group(() => check('clock-after-load', 'Loaded mid-turn and between hands at 1440
 // At 1440x900 on a 4x-throttled CPU, three turns, the first while the stats still mount after the load (their render
 // held stream updates back). Each move comes 40 ms before a whole-second edge of its clock and is followed by a 250 ms
 // task over that edge, so the clock's timer for that edge is due while the move's update still waits.
+// Review 5, finding 0: the code loaded after the page's (the stats' chunks) is held until the first turn's clock runs, so
+// the stats' transition render is in progress when that turn's move arrives (it holds the move's commit back); no value
+// below the hold may show after the move. Finding 6: the figure on screen through the hold, read just before the next
+// turn, must be the held one (the commit draws it before move+550, which the rule on changes does not see).
 group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the shot clock holds the time left at the move for as long as the move shows, and the next turn\'s clock counts its own seconds down without a flicker back up', async () => {
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   const bad = [], seen = [];
   try {
     const cdp = await p.createCDPSession(); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+    let held = [];
+    await p.setRequestInterception(true);
+    p.on('request', r => { if (held && r.initiator()?.type === 'script' && /\/_next\/static\/chunks\/.*\.js/.test(r.url())) held.push(r); else r.continue().catch(() => {}); });
+    await p.exposeFunction('__releaseChunks', () => { const h = held || []; held = null; for (const r of h) r.continue().catch(() => {}); return h.length; });
     await scriptStream(p);
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await p.waitForFunction(() => window.__stream?.last?.players?.length && window.__stream.feed && document.querySelector('[data-clock]'), { timeout: 120000 });
@@ -6729,17 +6774,21 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
         s.scripted = true;
         const t0 = Date.now();
         s.feed({ type: 'llm_thinking', payload: { turn: 100 + 2 * k, playerIdx: i, playerName: l.players[i].name, budgetMs: 45000, elapsedMs: 0 } });
+        // The first turn: the stats' code comes now, so their mount's render runs over the move.
+        if (k === 0) setTimeout(() => window.__releaseChunks(), 1700);
         setTimeout(() => {
           const move = Date.now();
           s.feed({ type: 'llm_action', payload: { turn: 100 + 2 * k, playerIdx: i, playerName: l.players[i].name, action: 'CALL', amount: 10, reason: 'Calling.' } });
           while (Date.now() - move < 250);
           setTimeout(() => {
+            // The figure on screen through the hold, just before the next turn.
+            const c0 = document.querySelector('[data-clock]'), hold = c0 && !c0.closest('.invisible') ? parseInt(c0.textContent, 10) : null;
             // The next turn: 30 s, none run.
             const t1 = Date.now(), j = (i + 1) % l.players.length;
             s.feed({ type: 'llm_thinking', payload: { turn: 101 + 2 * k, playerIdx: j, playerName: l.players[j].name, budgetMs: 30000, elapsedMs: 0 } });
             setTimeout(() => {
               const c = document.querySelector('[data-clock]');
-              done({ t0, move, t1, end: Date.now(), last: c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null });
+              done({ t0, move, t1, hold, end: Date.now(), last: c && !c.closest('.invisible') ? parseInt(c.textContent, 10) : null });
             }, 3500);
           }, 3000);
         }, 2960 - (Date.now() - t0));
@@ -6749,13 +6798,17 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
       // After the move's commit (the long task, then 300 ms of slack on a 4x CPU) until the next turn: the held value only.
       const during = shown.filter(x => x.at > r.move + 550 && x.at < r.t1);
       const moved = during.filter(x => x.v !== held);
+      // Any value below the hold once the move has arrived: a second the engine never had (finding 0).
+      const below = shown.filter(x => x.at > r.move && x.at < r.t1 && x.v !== null && x.v < held);
       // The next turn: each value its engine's whole seconds left (300 ms slack), never back up.
       const next = shown.filter(x => x.at >= r.t1 && x.v !== null);
       const eng = at => Math.ceil((30000 - (at - r.t1)) / 1000);
       const high = next.filter(x => x.v > Math.ceil((30000 - (x.at - r.t1) + 300) / 1000) || x.v < eng(x.at) - 1);
       const up = next.filter((x, n) => n > 0 && x.v > next[n - 1].v);
       const lastBad = r.last === null || r.last > Math.ceil((30000 - (r.end - r.t1) + 300) / 1000) || r.last < eng(r.end) - 1;
-      seen.push(`turn ${k + 1}: held ${held}, then ${next.map(x => x.v).join(' ')}`);
+      seen.push(`turn ${k + 1}: held ${held} (shown ${r.hold}), then ${next.map(x => x.v).join(' ')}`);
+      if (below.length) bad.push(`turn ${k + 1}: after the move (${held}s left) the clock counted on: ${below.slice(0, 4).map(x => `${x.v}s at +${x.at - r.move} ms`).join(', ')}`);
+      if (r.hold !== held) bad.push(`turn ${k + 1}: ${r.hold ?? 'no clock'} shown through the hold, not the ${held}s left at the move`);
       if (moved.length) bad.push(`turn ${k + 1}: after the move (${held}s left) the clock showed ${moved.slice(0, 4).map(x => `${x.v}s at +${x.at - r.move} ms`).join(', ')}`);
       if (high.length) bad.push(`turn ${k + 2}: ${high.slice(0, 3).map(x => `${x.v}s shown with ${eng(x.at)}s left`).join(', ')}`);
       if (up.length) bad.push(`turn ${k + 2}: the clock went back up (${next.map(x => x.v).join(' ')})`);
@@ -6763,6 +6816,56 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
     }
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+
+// Review 5, finding 9 (review 4 #4's guard): a state that moves the next deal (an outage notice's 180 s) while "Next hand
+// in Ns" counts must move the figure to the new deal at once and for good: no value of the old deal's after it arrived
+// (a countdown chain that outlived its effect alternated between the two). The new state comes 40 ms before a whole-second
+// edge of the old countdown and a 250 ms task runs over that edge, so the old timer is due while the state waits.
+group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, a state that moves the next deal while "Next hand in Ns" counts shows the new deal\'s whole seconds from then on, never the old deal\'s again', async () => {
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
+  const bad = [], seen = [];
+  try {
+    const cdp = await p.createCDPSession(); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+    await scriptStream(p);
+    await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => window.__stream?.last?.players?.length && window.__stream.feed && document.querySelector('[data-seat]'), { timeout: 120000 });
+    await sleep(3000);
+    for (let k = 0; k < 2; k++) {
+      const r = await p.evaluate(() => new Promise(done => {
+        const s = window.__stream, l = s.last, i = Math.max(0, l.players.findIndex(q => q.status === 'active'));
+        s.scripted = true;
+        const shown = [];
+        const read = () => {
+          const e = [...document.querySelectorAll('span')].find(x => /^Next hand in \d+s$/.test(x.textContent.trim()) && x.getBoundingClientRect().width > 0 && getComputedStyle(x).visibility !== 'hidden');
+          const v = e ? +e.textContent.replace(/\D/g, '') : null, last = shown.at(-1);
+          if (!last || last.v !== v) shown.push({ v, at: Date.now() });
+        };
+        const mo = new MutationObserver(read); mo.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+        const end = { ...l, street: 'complete', currentPlayerIdx: -1, winners: [{ playerIdx: i, amount: l.pot || 15, handType: 'Pair', handDesc: 'Pair of Kings', eligiblePlayers: [i], potNumber: 1 }] };
+        s.feed({ type: 'table_notice', payload: { kind: '', message: '' } });
+        const t0 = Date.now();
+        s.feed({ type: 'game_state', payload: { ...end, nextHandInMs: 7000 } });
+        // 40 ms before the old countdown's 4 s edge: the outage notice and its state, 180 s to the deal; a long task over the edge.
+        setTimeout(() => {
+          const moved = Date.now();
+          s.feed({ type: 'table_notice', payload: { kind: 'outage', message: 'The models are not answering. The next hand waits.' } });
+          s.feed({ type: 'game_state', payload: { ...end, nextHandInMs: 180000 } });
+          while (Date.now() - moved < 250);
+          setTimeout(() => { mo.disconnect(); read(); done({ t0, moved, shown }); }, 4000);
+        }, 2960 - (Date.now() - t0));
+      }));
+      const oldAt = at => Math.ceil((7000 - (at - r.t0)) / 1000), newAt = at => Math.ceil((180000 - (at - r.moved)) / 1000);
+      const after = r.shown.filter(x => x.at > r.moved && x.v !== null);
+      const wrong = after.filter(x => x.v !== newAt(x.at) && x.v !== Math.ceil((180000 - (x.at - r.moved) + 300) / 1000));
+      const old = after.filter(x => x.v <= 7);
+      seen.push(`${k + 1}: ${r.shown.map(x => x.v).join(' ')}`);
+      if (!after.length) bad.push(`${k + 1}: no countdown shown after the deal moved (${r.shown.map(x => x.v).join(' ')})`);
+      if (old.length) bad.push(`${k + 1}: the old deal's countdown after the deal moved: ${old.slice(0, 4).map(x => `${x.v}s at +${x.at - r.moved} ms (old ${oldAt(x.at)}s, new ${newAt(x.at)}s)`).join(', ')}`);
+      else if (wrong.length) bad.push(`${k + 1}: ${wrong.slice(0, 3).map(x => `${x.v}s shown with ${newAt(x.at)}s to the deal`).join(', ')}`);
+    }
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `values shown: ${seen.join('; ')}` };
 }));
 
 // --lanes 1 runs one page at a time (the main page's steps, then each group, then each late): a timing check on the main
