@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -319,6 +320,19 @@ func (t *Table) startGame() {
 // whole roster with the mock provider. The session index it sends is the number of
 // sessions already in the local hand log (0 when hands go to Supabase).
 func (t *Table) lineup() []string {
+	// FIXTURE_LINEUP (test fixtures only; production never sets it): seat these comma-separated names as given, e.g. the
+	// roster's longest names, whatever the LLM service would seat. The service is still asked, for the shot clock's budget.
+	if v := os.Getenv("FIXTURE_LINEUP"); v != "" {
+		var names []string
+		for _, n := range strings.Split(v, ",") {
+			if n = strings.TrimSpace(n); n != "" {
+				names = append(names, n)
+			}
+		}
+		seatedPlayers(func() ([]string, error) { return client.GetSeated(0) }, lineupWait)
+		log.Printf("FIXTURE_LINEUP: %v", names)
+		return names
+	}
 	session := 0
 	if fs, ok := t.saver.(*fileSaver); ok {
 		// shortcut: parses the whole local log once at startup; fine for dev-sized files.

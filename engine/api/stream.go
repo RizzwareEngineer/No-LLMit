@@ -10,6 +10,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -168,7 +169,14 @@ var heartbeat = []byte(": hb\n\n")
 
 // streamLife is how long one stream stays open: a random 10 to 14 minutes, under Railway's
 // 15-minute cut, so a burst's reconnects spread out.
-func streamLife() time.Duration { return streamLifetime + rand.N(4*time.Minute) }
+// FIXTURE_STREAM_LIFE_S (test fixtures only; production never sets it) closes every stream after exactly that many
+// seconds instead, so a fixture can make the page reconnect at a known time.
+func streamLife() time.Duration {
+	if s, err := strconv.ParseFloat(os.Getenv("FIXTURE_STREAM_LIFE_S"), 64); err == nil && s > 0 {
+		return time.Duration(s * float64(time.Second))
+	}
+	return streamLifetime + rand.N(4*time.Minute)
+}
 
 func (h *hub) handleStream(w http.ResponseWriter, r *http.Request) {
 	if addr := clientAddr(r); addr != "" {

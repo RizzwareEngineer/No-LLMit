@@ -567,3 +567,15 @@ func TestPeekedFollowsTheTurns(t *testing.T) {
 		t.Errorf("next hand: peeked %v", p)
 	}
 }
+
+// FIXTURE_STREAM_LIFE_S fixes a stream's life (fixtures only); unset, it stays 10 to 14 minutes.
+func TestFixtureStreamLife(t *testing.T) {
+	t.Setenv("FIXTURE_STREAM_LIFE_S", "2.5")
+	if d := streamLife(); d != 2500*time.Millisecond {
+		t.Fatalf("life %v, want 2.5s", d)
+	}
+	t.Setenv("FIXTURE_STREAM_LIFE_S", "")
+	if d := streamLife(); d < streamLifetime || d > streamLifetime+4*time.Minute {
+		t.Fatalf("life %v outside 10 to 14 minutes", d)
+	}
+}

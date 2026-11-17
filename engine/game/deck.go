@@ -6,6 +6,8 @@ package game
 
 import (
 	"math/rand"
+	"os"
+	"strconv"
 	"time"
 )
 
@@ -19,11 +21,20 @@ func NewDeck() *Deck {
 	d := &Deck{
 		cards: make([]Card, 52),
 		index: 0,
-		rng:   rand.New(rand.NewSource(time.Now().UnixNano())),
+		rng:   rand.New(rand.NewSource(deckSeed())),
 	}
 	d.initCards()
 	d.Shuffle()
 	return d
+}
+
+// deckSeed seeds a new deck from the clock. FIXTURE_SEED (test fixtures only: web/scripts/fixture; production
+// never sets it) seeds it from that number instead, so a fixture deals the same cards every run.
+func deckSeed() int64 {
+	if v, err := strconv.ParseInt(os.Getenv("FIXTURE_SEED"), 10, 64); err == nil {
+		return v
+	}
+	return time.Now().UnixNano()
 }
 
 func (d *Deck) initCards() {
