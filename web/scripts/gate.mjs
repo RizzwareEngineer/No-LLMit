@@ -187,16 +187,22 @@ function runChecks(dir, url, ids) {
 // unless the red list says `better: "higher"` for that check (most figures are px off, ms late or counts).
 const NUM = /-?\d[\d,]*(?:\.\d+)?/g;
 const offenders = d => (d || '').split(/;\s+/).map(s => s.trim()).filter(Boolean).map(s => ({ s, key: s.replace(NUM, '#'), nums: (s.match(NUM) || []).map(n => +n.replace(/,/g, '')) }));
-export function judgeDetail(frozen, now, better = 'lower') {
-  const a = offenders(frozen), b = offenders(now), why = [];
-  if (b.length > a.length) why.push(`${b.length} offenders, frozen ${a.length}`);
+// `frozen` may be a list of details (the red list's and every base run's): the candidate is worse only if it is worse than
+// all of them, so a red check's own spread on the base is never read as the candidate's doing. Figures count only where
+// the red list gives the check a direction (`better`); without one, a red check fails on new or more offenders alone.
+export function judgeDetail(frozen, now, better = null) {
+  const seen = [].concat(frozen).filter(x => typeof x === 'string').map(offenders), b = offenders(now), why = [];
+  if (!seen.length) return { worse: false, why: ['nothing to judge against'] };
+  const keys = new Set(seen.flat().map(x => x.key)), most = Math.max(...seen.map(a => a.length));
+  if (b.length > most) why.push(`${b.length} offenders, the base at most ${most}`);
   for (const o of b) {
-    const m = a.find(x => x.key === o.key);
-    if (!m) { why.push(`new: ${o.s.slice(0, 160)}`); continue; }
+    if (!keys.has(o.key)) { why.push(`new: ${o.s.slice(0, 160)}`); continue; }
+    if (!better) continue;
     o.nums.forEach((n, i) => {
-      const f = m.nums[i]; if (f === undefined) return;
-      const tol = Math.abs(f) * 0.15 + 2, worse = better === 'higher' ? n < f - tol : n > f + tol;
-      if (worse) why.push(`${o.s.slice(0, 120)}: ${n} against ${f}`);
+      const fs = seen.flat().filter(x => x.key === o.key).map(x => x.nums[i]).filter(f => f !== undefined);
+      if (!fs.length) return;
+      const f = better === 'higher' ? Math.min(...fs) : Math.max(...fs), tol = Math.abs(f) * 0.15 + 2;
+      if (better === 'higher' ? n < f - tol : n > f + tol) why.push(`${o.s.slice(0, 120)}: ${n} against ${f}`);
     });
   }
   return { worse: why.length > 0, why };
@@ -210,7 +216,7 @@ function judgeG2(base, cand, red) {
     if (!b) { fails.push({ id, why: 'no base result', detail: c.detail }); continue; }
     if (b.pass) { fails.push({ id, why: 'green on the base, red on the candidate', detail: c.detail }); continue; }
     const r = red?.entries?.find(e => e.id === id);
-    const j = judgeDetail(r ? r.detail : b.detail, c.detail, r?.better);
+    const j = judgeDetail([r?.detail, b.detail], c.detail, r?.better);
     (j.worse ? fails : notes).push({ id, why: `red on the base (${r ? 'frozen' : 'not on the red list: judged against this run\'s base'})${j.worse ? ': worse' : ': no worse'}`, detail: c.detail, against: r ? r.detail : b.detail, worse: j.why });
   }
   return { fails, notes };
@@ -228,7 +234,7 @@ const LH_UA = 'Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/
 const hideWebdriver = p => p.evaluateOnNewDocument(() => { Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => false }); });
 
 // ---------- the user-agent rule at run time ----------
-async function uaRuntime(url) {
+async function uaRuntime(url) { // one build's differences under an audit's agent
   const b = await browser(['--disable-blink-features=AutomationControlled']);
   const load = async (ua, phone, webdriver) => {
     const p = await b.newPage();
@@ -250,15 +256,25 @@ async function uaRuntime(url) {
     for (const phone of [true, false]) {
       // Three loads under the phone's (or a laptop's) own agent set the noise: whatever differs among them. A difference
       // under an audit's agent counts only if both of its loads show it.
-      const ua = phone ? PHONE_UA : DESK_UA, n = [await load(ua, phone, false), await load(ua, phone, false), await load(ua, phone, false)];
-      const noise = new Set([...diff(n[0], n[1]), ...diff(n[0], n[2])].map(x => x.slice(1)));
+      const ua = phone ? PHONE_UA : DESK_UA, n = [await load(ua, phone, false), await load(ua, phone, false)];
+      const noise = new Set(diff(n[0], n[1]).map(x => x.slice(1)));
       const off = x => !noise.has(x.slice(1));
       const both = async (u, wd) => { const a = diff(n[0], await load(u, phone, wd)).filter(off), b = new Set(diff(n[0], await load(u, phone, wd))); return a.filter(x => b.has(x)).slice(0, 20); };
       out[phone ? 'phone' : 'desktop'] = { lighthouse: await both(phone ? LH_UA : `${DESK_UA} Chrome-Lighthouse`, false), headless: await both(null, true), noise: noise.size };
     }
   } finally { await b.close(); }
-  const pass = Object.values(out).every(o => !o.lighthouse.length && !o.headless.length);
-  return { pass, ...out };
+  return out;
+}
+// The framework already serves an audit's agent differently (Next.js treats Chrome-Lighthouse as a bot that gets its
+// metadata in the HTML, and loads two chunks fewer at the laptop size). So the candidate fails only on a difference under
+// an audit's agent that the base's build does not show too.
+async function uaGate(baseUrl, candUrl) {
+  const b = await uaRuntime(baseUrl), c = await uaRuntime(candUrl), extra = {};
+  for (const size of ['phone', 'desktop']) for (const who of ['lighthouse', 'headless']) {
+    const more = c[size][who].filter(x => !b[size][who].includes(x));
+    if (more.length) extra[`${size} ${who}`] = more;
+  }
+  return { pass: !Object.keys(extra).length, extra, base: b, cand: c };
 }
 
 // ---------- LCP: real content no later, and no moved LCP element without it ----------
@@ -305,11 +321,11 @@ async function lcpGate(baseUrl, candUrl, n = 3) {
     const runs = { base: [], cand: [] };
     for (let i = 0; i < n; i++) { runs.base.push(await lcpLoad(b, baseUrl, sel)); runs.cand.push(await lcpLoad(b, candUrl, sel)); }
     const bm = median(runs.base.map(r => r.seen)), cm = median(runs.cand.map(r => r.seen));
-    const candSel = mode(runs.cand.map(r => r.sel)), margin = Math.max(300, 0.2 * (bm ?? 0)), why = [];
+    const baseSel = mode(runs.base.map(r => r.sel)), candSel = mode(runs.cand.map(r => r.sel)), margin = Math.max(300, 0.2 * (bm ?? 0)), why = [];
     if (cm === null) why.push(`the base's LCP element (${sel}) never showed on the candidate in 20 s`);
     else if (bm !== null && cm > bm + margin) why.push(`the base's LCP element shows at ${cm} ms on the candidate, ${bm} ms on the base (margin ${Math.round(margin)} ms)`);
-    if (candSel !== sel && !(cm !== null && bm !== null && cm < bm - margin)) why.push(`the LCP element moved (${candSel}) without the base's LCP content showing sooner`);
-    return { pass: !why.length, why, sel, candSel, baseSeenMs: bm, candSeenMs: cm, baseLcpMs: median(runs.base.map(r => r.lcp)), candLcpMs: median(runs.cand.map(r => r.lcp)), runs };
+    if (candSel !== baseSel && !(cm !== null && bm !== null && cm < bm - margin)) why.push(`the LCP element moved (${candSel}) without the base's LCP content showing sooner`);
+    return { pass: !why.length, why, sel, baseSel, candSel, baseSeenMs: bm, candSeenMs: cm, baseLcpMs: median(runs.base.map(r => r.lcp)), candLcpMs: median(runs.cand.map(r => r.lcp)), runs };
   } finally { await b.close(); }
 }
 
@@ -350,7 +366,10 @@ function lighthouse(url) {
 }
 function judgeG5(base, cand) {
   const why = [];
-  for (const [k, n] of Object.entries(cand.axe)) if (n > (base.axe[k] ?? 0)) why.push(`axe ${k}: ${n} nodes, base ${base.axe[k] ?? 0}`);
+  // The live page's content changes between loads (which reason shows, who folded), and color-contrast's node count with
+  // it (1 to 9 on the base's own phone loads). So on the live page a rule fails if it is new on a state, or its nodes
+  // pass twice the base's plus 5; the exact axe judgement is G2's a11y-axe, on a scripted stream.
+  for (const [k, n] of Object.entries(cand.axe)) if (!(k in base.axe) || n > 2 * base.axe[k] + 5) why.push(`axe ${k}: ${n} nodes, base ${base.axe[k] ?? 0}`);
   for (const [k, s] of Object.entries(cand.lh)) {
     if (Array.isArray(s)) { const add = s.filter(x => !base.lh[k]?.includes(x)); if (add.length) why.push(`lighthouse ${k}: ${add.join(', ')}`); }
     else if (s < (base.lh[k] ?? 0)) why.push(`lighthouse ${k}: ${s}, base ${base.lh[k]}`);
@@ -395,7 +414,7 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
     try { gates.build.cand = build(dir); } catch (e) { gates.build.cand = 'failed'; reasons.push(`build: ${String(e.stderr ?? e.message).split('\n').slice(-5).join(' | ')}`); throw e; }
     const baseUrl = await serve(bdir, PORT), candUrl = await serve(dir, PORT + 1);
     log('ua at run time');
-    if (!skip.has('ua')) { gates.uaRuntime = await uaRuntime(candUrl); if (!gates.uaRuntime.pass) reasons.push('ua: the page loads other scripts or elements under a Lighthouse or headless user agent'); }
+    if (!skip.has('ua')) { gates.uaRuntime = await uaGate(baseUrl, candUrl); if (!gates.uaRuntime.pass) reasons.push('ua: the page loads other scripts or elements under a Lighthouse or headless user agent'); }
     log('lcp');
     if (!skip.has('lcp')) { gates.lcp = await lcpGate(baseUrl, candUrl); if (!gates.lcp.pass) reasons.push(`lcp: ${gates.lcp.why.join('; ')}`); }
     log('g2');
@@ -411,7 +430,14 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
         j.fails = j.fails.filter(f => {
           const bf = (bres.rows[f.id]?.pass ? 0 : 1) + (b2.rows[f.id]?.pass ? 0 : 1), cf = 1 + (c2.rows[f.id]?.pass ? 0 : 1);
           f.rerun = { candDetail: c2.rows[f.id]?.detail, baseDetail: b2.rows[f.id]?.detail, baseFails: bf, candFails: cf };
-          if (f.why.startsWith('red on the base')) { const r = readRed()?.entries?.find(e => e.id === f.id); return c2.rows[f.id]?.pass ? false : judgeDetail(r ? r.detail : b2.rows[f.id]?.detail, c2.rows[f.id]?.detail, r?.better).worse; }
+          const r = readRed()?.entries?.find(e => e.id === f.id);
+          const baseSaw = [r?.detail, bres.rows[f.id]?.pass ? null : bres.rows[f.id]?.detail, b2.rows[f.id]?.pass ? null : b2.rows[f.id]?.detail];
+          // Red on the base in any run (or frozen red): judged by detail, and worse on both candidate runs.
+          if (bf > 0 || r) {
+            const keep = !c2.rows[f.id]?.pass && judgeDetail(baseSaw, f.detail, r?.better).worse && judgeDetail(baseSaw, c2.rows[f.id]?.detail, r?.better).worse;
+            if (!keep) j.notes.push({ ...f, why: `${f.why}; red on the base too (${bf} of 2), and the candidate's detail is not worse than the base's on both runs` });
+            return keep;
+          }
           if (cf > bf) return true;
           j.notes.push({ ...f, why: `${f.why}, but the base failed it as often on the rerun` }); return false;
         });

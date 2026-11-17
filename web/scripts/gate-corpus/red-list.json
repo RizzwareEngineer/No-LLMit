@@ -1,0 +1,22 @@
+{
+ "base": "5a7800bda234b806121a6b57eee02ba2df9b6b10",
+ "product": "01ecd25",
+ "frozenAt": "2026-11-17T14:41Z",
+ "scope": "the corpus check set only (manifest.json checks), one base run at --lanes 2 on the late-lineup fixture; the full suite is not frozen yet (node scripts/gate.mjs --freeze-red --all)",
+ "lanes": 2,
+ "checks": 6,
+ "entries": [
+  {
+   "id": "history-y-dynamic",
+   "detail": "fill 10s 100% (recent 100%), 30s 100% (recent 100%), 50s 85% (recent 153%), rest 24% (recent 100%); axis moved in 7% of frames (7 wider, 8 narrower), worst 0.5% per frame; tips outside the plot in 0 frames"
+  },
+  {
+   "id": "history-no-recent-clip",
+   "detail": "50s: 191px out (#D97757 at x 1288); 3 of 228 replay frames over 2px, worst 308.1px at 47.3 s"
+  },
+  {
+   "id": "clock-after-load",
+   "detail": "countdown stays past its second: 5s still shown with 4s left"
+  }
+ ]
+}
