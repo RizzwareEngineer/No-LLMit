@@ -21,16 +21,12 @@ import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import StatsSections from "@/components/StatsScreens";
 import PlaySoonButton from "@/components/PlaySoonButton";
-// The model drawer's code (its chart, its tables) is not in the first load: it loads with the stats (StatsSections
-// starts it), or as a pointer or a touch comes to a model's link, so it opens at once; a link opened before then waits for it.
-// Loaded on the first pointer near a model link, or the first model opened, and mounted only once loaded (StatsScreens
-// says why: a lazy would finish on a retry lane that a typing reason restarts). A failed load never reaches React: the
-// drawer stays closed, one line says it did not load (a chunk a deploy replaced does not come back: reload), and the next
-// open tries again.
-let drawerChunk: Promise<typeof import("@/components/ModelDrawer")> | null = null;
-let ModelDrawer: typeof import("@/components/ModelDrawer").default | null = null; // once loaded
-const loadDrawer = () => drawerChunk ??= import("@/components/ModelDrawer").catch(() => import("@/components/ModelDrawer"))
-  .then(m => { ModelDrawer = m.default; return m; }, e => { drawerChunk = null; throw e; });
+// The model drawer (lib/drawer) is loaded on the first pointer near a model link, the first model opened, or with the
+// stats, and mounted only once loaded (StatsScreens says why: a lazy would finish on a retry lane that a typing reason
+// restarts). A failed load never reaches React: the drawer stays closed, one line says it did not load (a chunk a deploy
+// replaced does not come back: reload), and the next open tries again. The line goes after a few seconds, on the next
+// tap or key, or once the drawer's code does load: it sits over the top seat on a phone.
+import { ModelDrawer, loadDrawer, onDrawerLoaded } from "@/lib/drawer";
 import StickyBar, { PhoneBar } from "@/components/StickyBar";
 import TabBar, { type Tab } from "@/components/TabBar";
 import SessionProgress from "@/components/SessionProgress";
@@ -290,6 +286,15 @@ export default function Home() {
     loadDrawer().then(() => { if (live) { setDrawerFailed(false); setDrawerEver(true); } }, () => { if (live) { setDrawerFailed(true); closeModel(); } });
     return () => { live = false; };
   }, [drawerSlug, drawerEver]);
+  useEffect(() => onDrawerLoaded(() => setDrawerFailed(false)), []);
+  useEffect(() => {
+    if (!drawerFailed) return;
+    const clear = () => setDrawerFailed(false);
+    const t = setTimeout(clear, 6000);
+    addEventListener('pointerdown', clear, { capture: true, passive: true });
+    addEventListener('keydown', clear, { capture: true, passive: true });
+    return () => { clearTimeout(t); removeEventListener('pointerdown', clear, { capture: true }); removeEventListener('keydown', clear, { capture: true }); };
+  }, [drawerFailed]);
   useEffect(() => {
     const near = (e: Event) => { if (e.target instanceof Element && e.target.closest('a[href^="#model="]')) { loadDrawer().catch(() => {}); off(); } };
     const off = () => { removeEventListener('pointerover', near, true); removeEventListener('touchstart', near, true); };

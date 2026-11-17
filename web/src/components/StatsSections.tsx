@@ -49,13 +49,14 @@ const useNativeTimeline = () =>
 // Phones (lib/layout's PHONE) get their own stats: one full-screen window per part (PhoneStats); wider windows the overview and
 // its cards' loop. The prerender is the wide one (stats sit below the table screen, out of sight when a phone swaps them).
 import { PHONE, isDraftA } from '@/lib/layout';
+import { loadDrawer } from '@/lib/drawer';
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
 const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
 
 // The three panels under the live table, all time. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
 // The model drawer's code loads with the stats (page.tsx): their rows and seats open it.
-if (typeof window !== 'undefined') import('@/components/ModelDrawer');
+if (typeof window !== 'undefined') loadDrawer().catch(() => {});
 
 // The stats in the layout shown: loaded and mounted only once the page needs them (StatsScreens).
 export default memo(function StatsSections(props: { stats: StatsResponse | null; error: string | null }) {
