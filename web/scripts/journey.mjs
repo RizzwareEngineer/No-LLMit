@@ -41,6 +41,8 @@ const SIZE = {
   desk: { viewport: { width: 1440, height: 900, deviceScaleFactor: 1, isMobile: false, hasTouch: false },
     ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' },
 };
+// Each Stats window's screen (journey-page.mjs's J.landed names the one the page rests on).
+const SCREEN = { pnl: 'phone-stats', overview: 'stats', trends: 'race', profiles: 'stats-table', matchups: 'pairwise' };
 const LONG_REASON = 'Qzstart ' + 'The board is dry and the pot is small, so a call keeps the weaker hands in while my pair is ahead. '.repeat(6) + 'zqend';
 
 async function journey(size, { run, inventory, films }) {
@@ -134,14 +136,28 @@ async function journey(size, { run, inventory, films }) {
     // Each Stats window.
     const windows = phone ? [['pnl', 'swipe up'], ['trends', 'swipe up'], ['profiles', 'swipe up'], ['matchups', 'swipe up']]
       : [['overview', 'wheel notch down'], ['trends', 'click the Trends tile title'], ['profiles', 'wheel notch down'], ['matchups', 'wheel notch down']];
+    let prev = null;
     for (const [target, gesture] of windows) {
+      // A gesture that left the page on another window: the page is put back on the window this one starts from (by
+      // script, as checks.mjs's goto), so each window's own gesture is measured; the step says so.
+      let repositioned = false;
+      if (prev && (await page.evaluate(() => window.__J.landed())) !== SCREEN[prev]) {
+        await page.evaluate(id => { const e = document.getElementById(id); window.scrollTo({ top: e.getBoundingClientRect().top + window.scrollY, behavior: 'instant' }); }, SCREEN[prev]);
+        await sleep(1500);
+        repositioned = true;
+      }
+      prev = target;
       await step(`to-${target}`, gesture, async t0 => {
         await page.evaluate((name, t0) => { window.__J.pending = window.__J.wait(name, 10000, t0); }, target, t0);
         const g = phone ? await swipeUp() : gesture.startsWith('click') ? await tapAt('#race-panel-title') : await notch();
         const w = await page.evaluate(() => window.__J.pending);
         const seen = { end: await lastInput(phone ? ['touchend'] : ['wheel', 'click'], t0), start: await lastInput(phone ? ['touchstart'] : ['wheel', 'click'], t0) };
         await sleep(1500);
-        const r = { ...content(w, t0, g.end, g.start), pageSawEnd: seen.end == null ? null : Math.round(seen.end - g.end) };
+        // Where the gesture left the page: a swipe that carries past its window (or stops short) fails the step.
+        const landed = await page.evaluate(() => window.__J.landed()), want = SCREEN[target];
+        const r = { ...content(w, t0, g.end, g.start), pageSawEnd: seen.end == null ? null : Math.round(seen.end - g.end), landed, wanted: want };
+        if (landed !== want) r.wrongWindow = true;
+        if (repositioned) r.startedFromRepositioned = true;
         return { target, regions: { [target]: r }, ttc: r.fromEnd ?? null };
       });
     }

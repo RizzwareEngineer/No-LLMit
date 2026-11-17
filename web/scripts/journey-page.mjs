@@ -82,14 +82,16 @@ export function instrument() {
     // Trends: a chart with three lines or more drawn from data, shown.
     trends: () => { const s = els('#race svg, #race-panel svg').find(s => [...s.querySelectorAll('path')].filter(p => (p.getAttribute('d') ?? '').length > 100).length >= 3 && inView(s)); return s && vis(s) && screenIn('race') ? s : null; },
     // Profiles: three model rows or more with figures, shown.
-    profiles: () => { const r = els('#stats-table tbody tr, #stats-panel tbody tr, #stats-card tbody tr').filter(r => NUM.test(r.textContent) && /[A-Za-z]{2}/.test(r.textContent)).filter(r => inView(r)); return r.length >= 3 && some(r, 3) && screenIn('stats-table') ? r[0].closest('table') : null; },
+    // A row's figures are its cells after the first (a model's name can hold a digit: GPT-OSS 120B); a row of dashes
+    // waiting for its numbers is an empty box.
+    profiles: () => { const r = els('#stats-table tbody tr, #stats-panel tbody tr, #stats-card tbody tr').filter(r => [...r.cells].slice(1).some(c => NUM.test(c.textContent))).filter(r => inView(r)); return r.length >= 3 && some(r, 3) && screenIn('stats-table') ? r[0].closest('table') : null; },
     // Matchups: nine cells or more with figures, shown.
     matchups: () => { const c = els('#pairwise td[data-cell], #pairwise-panel td[data-cell], #pairwise-card td[data-cell]').filter(c => NUM.test(c.textContent)).filter(c => inView(c)); return c.length >= 9 && some(c, 3) && screenIn('pairwise') ? c[0].closest('table') : null; },
     // The desktop overview: its three tiles, each with data, on the overview's screen.
     overview: () => {
       if (!screenIn('stats')) return null;
       const svg = els('#race-panel svg').some(s => [...s.querySelectorAll('path')].filter(p => (p.getAttribute('d') ?? '').length > 100).length >= 3 && vis(s));
-      const rows = els('#stats-panel tbody tr').filter(r => NUM.test(r.textContent) && inView(r)), cells = els('#pairwise-panel td[data-cell]').filter(c => NUM.test(c.textContent) && inView(c));
+      const rows = els('#stats-panel tbody tr').filter(r => [...r.cells].slice(1).some(c => NUM.test(c.textContent)) && inView(r)), cells = els('#pairwise-panel td[data-cell]').filter(c => NUM.test(c.textContent) && inView(c));
       return svg && rows.length >= 3 && cells.length >= 9 && some(rows, 2) && some(cells, 2) ? document.getElementById('stats') : null;
     },
     // The model drawer: open, shown, with a figure and more than a heading.
@@ -100,6 +102,16 @@ export function instrument() {
     // The planted stack (journey's stream step) on the felt, shown.
     planted: () => els('[data-seat] *').find(e => e.childElementCount === 0 && e.textContent.includes('77,777') && vis(e)) ?? null,
     typing: () => els('span').find(e => e.textContent.startsWith('Qzstart') && e.textContent.endsWith('▌')) ?? null,
+  };
+  // Which window the page rests on: the screen most in view (at least half the window), else the table.
+  J.landed = () => {
+    let best = 'table', most = 0.5 * innerHeight;
+    for (const id of ['phone-stats', 'stats', 'race', 'stats-table', 'pairwise', 'about']) {
+      const e = document.getElementById(id); if (!e) continue;
+      const b = e.getBoundingClientRect(), h = Math.min(b.bottom, innerHeight) - Math.max(b.top, 0);
+      if (b.height > 1 && h >= most) { most = h; best = id; }
+    }
+    return best;
   };
   // Waits for a region's real content from now (or from `from`), checking each frame; resolves with the frame's time.
   J.wait = (name, ms, from) => new Promise(res => {

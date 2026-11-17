@@ -80,6 +80,7 @@ export function summarize(runs, targetMs) {
       if (regions.length) m.regions = Object.fromEntries(regions.map(g => [g, {
         found: `${ss.filter(s => s.regions?.[g]?.found).length}/${ss.length}`,
         fromStep: stat(ss.map(s => s.regions?.[g]?.fromStep)), fromEnd: stat(ss.map(s => s.regions?.[g]?.fromEnd)), fromStart: stat(ss.map(s => s.regions?.[g]?.fromStart)),
+        wrongWindow: ss.filter(s => s.regions?.[g]?.wrongWindow).map(s => s.regions[g].landed),
         etFound: `${ss.filter(s => s.regions?.[g]?.etAt != null).length}/${ss.length}`,
       }]));
       if (name === 'load') m.lcp = stat(ss.map(s => s.lcp?.t));
@@ -91,7 +92,8 @@ export function summarize(runs, targetMs) {
       for (const name of Object.keys(S.steps).filter(n => n.startsWith('to-'))) {
         const v = ok.map(r => r.steps.find(s => s.name === name)?.ttc).filter(x => typeof x === 'number');
         const miss = ok.length - v.length;
-        out.swipe[name] = { targetMs, ...stat(v), within: v.filter(x => x <= targetMs).length, of: ok.length, notShownIn10s: miss,
+        const wrong = ok.map(r => r.steps.find(s => s.name === name)?.regions?.[name.slice(3)]).filter(g => g?.wrongWindow).map(g => g.landed);
+        out.swipe[name] = { targetMs, ...stat(v), landedElsewhere: wrong, within: v.filter(x => x <= targetMs).length, of: ok.length, notShownIn10s: miss,
           verdict: miss === 0 && v.length && v.every(x => x <= targetMs) ? 'within target every run' : `over target in ${v.filter(x => x > targetMs).length + miss} of ${ok.length} runs` };
       }
     }
