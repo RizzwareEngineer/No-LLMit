@@ -3099,25 +3099,41 @@ group(() => check('trends-zoom', 'In the opened Trends card a pinch or ctrl+whee
     // Review 5, findings 2, 3 and 7: in Chips (no early hands held back) a zoom fits the stretch zoomed into whole: no line
     // point is outside the plot band or held on its edge (the fit's 8% of air keeps every fitted point off it; a point on
     // the edge is one drawn flat there, off its readout). A clamp of every zoomed point made the band rule above vacuous.
-    await p.evaluate(() => [...document.querySelectorAll('[role=group][aria-label=Metric] button')].find(b => b.textContent.trim() === 'Chips' && b.getBoundingClientRect().width > 0)?.click()); await sleep(1500);
-    for (const f of [0.35, 0.65]) {
-      const s0 = await zoomState(p);
-      await ctrlWheel(p, s0, f, -40, 6); await sleep(1500);
-      const zc = await zoomState(p);
-      const e = await p.evaluate(() => {
-        const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0), c = plot.querySelector('clipPath rect');
-        const top = +c.getAttribute('y') + 2, bot = top + +c.getAttribute('height') - 4;
-        let n = 0, edge = 0, out = 0;
-        for (const path of plot.querySelectorAll('g[clip-path] path[fill="none"]')) {
-          const v = (path.getAttribute('d') || '').match(/-?\d*\.?\d+(?:e-?\d+)?/g)?.map(Number) ?? [];
-          for (let i = 1; i < v.length; i += 2) { n++; if (Math.abs(v[i] - top) < 0.5 || Math.abs(v[i] - bot) < 0.5) edge++; else if (v[i] < top - 0.5 || v[i] > bot + 0.5) out++; }
-        }
-        return { n, edge, out };
-      });
-      if (!zc.reset || !e.n) bad.push(`Chips zoom at ${f * 100}%: ${!zc.reset ? 'did not zoom' : 'no line points read'}`);
-      else if (e.edge || e.out) bad.push(`Chips zoomed into hands ${zc.x0.toFixed(0)}–${zc.x1.toFixed(0)}: ${e.edge} of ${e.n} line points held on the plot's edge, ${e.out} outside it`);
-      else seen.push(`Chips zoomed into ${zc.x0.toFixed(0)}–${zc.x1.toFixed(0)}: ${e.n} points inside, none on the edge`);
-      await p.mouse.click(zc.left + 0.5 * zc.w, zc.y, { count: 2 }); await sleep(900);
+    // Back to the opened card (the plain wheel paged on to Profiles), at rest: bb/100 zoomed past every model's early
+    // hands (fitAt), then Chips.
+    await goto(p, 'race'); await sleep(1500);
+    if (!(await zoomState(p).catch(() => null))?.w) { await clickCenter(p, '#race-panel'); await sleep(1500); }
+    for (const metric of ['bb/100', 'Chips']) {
+      await p.evaluate(metric => [...document.querySelectorAll('[role=group][aria-label=Metric] button')].find(b => b.textContent.trim() === metric && b.getBoundingClientRect().width > 0)?.click(), metric); await sleep(1500);
+      await clickText(p, 'Skip').catch(() => {}); await sleep(1200);
+      for (const [f, n] of (metric === 'Chips' ? [[0.1, 3], [0.35, 3], [0.6, 3], [0.85, 3], [0.35, 6], [0.65, 6]] : [[0.35, 3], [0.6, 3], [0.85, 3], [0.65, 6]])) {
+        const s0 = await zoomState(p);
+        await ctrlWheel(p, s0, f, -40, n); await sleep(1500);
+        const zc = await zoomState(p);
+        // The stretch the zoom fits whole: from a quarter of the window from its right end at every hand to all of it
+        // as it narrows (0.75 x its share of every hand, from its left end). A point there must be inside; anywhere,
+        // two points in a row on the same edge are a run drawn flat there.
+        const from = 0.75 * Math.min(1, (zc.x1 - zc.x0) / all);
+        const e = await p.evaluate(from => {
+          const plot = [...document.querySelectorAll('[data-plot]')].find(e => e.getBoundingClientRect().width > 0), c = plot.querySelector('clipPath rect');
+          const top = +c.getAttribute('y') + 2, bot = top + +c.getAttribute('height') - 4, cut = +c.getAttribute('x') + from * +c.getAttribute('width');
+          const at = y => (Math.abs(y - top) < 0.5 ? 1 : Math.abs(y - bot) < 0.5 ? 2 : 0);
+          let n = 0, edge = 0, out = 0;
+          for (const path of plot.querySelectorAll('g[clip-path] path[fill="none"]')) {
+            const v = (path.getAttribute('d') || '').match(/-?\d*\.?\d+(?:e-?\d+)?/g)?.map(Number) ?? [];
+            for (let i = 1; i < v.length; i += 2) {
+              n++;
+              if (at(v[i]) && i > 2 && at(v[i - 2]) === at(v[i])) edge++;
+              else if (v[i - 1] >= cut + 0.5 && (v[i] < top - 0.5 || v[i] > bot + 0.5)) out++;
+            }
+          }
+          return { n, edge, out };
+        }, from);
+        if (!zc.reset || !e.n) bad.push(`${metric} zoom at ${f * 100}%: ${!zc.reset ? 'did not zoom' : 'no line points read'}`);
+        else if (e.edge || e.out) bad.push(`${metric} zoomed into hands ${zc.x0.toFixed(0)}–${zc.x1.toFixed(0)}: ${e.edge} of ${e.n} line points in flat runs on the plot's edge, ${e.out} of the stretch it fits whole outside it`);
+        else seen.push(`${metric} zoomed into ${zc.x0.toFixed(0)}–${zc.x1.toFixed(0)}: ${e.n} points inside, none on the edge`);
+        await p.mouse.click(zc.left + 0.5 * zc.w, zc.y, { count: 2 }); await sleep(900);
+      }
     }
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
@@ -6782,8 +6798,9 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
         s.scripted = true;
         const t0 = Date.now();
         s.feed({ type: 'llm_thinking', payload: { turn: 100 + 2 * k, playerIdx: i, playerName: l.players[i].name, budgetMs: 45000, elapsedMs: 0 } });
-        // The first turn: the stats' code comes now, so their mount's render runs over the move.
-        if (k === 0) setTimeout(() => window.__releaseChunks(), 1700);
+        // The first turn: the stats' code comes 260 ms before the move, so their mount's render runs over it (at 1,700 or
+        // 2,300 ms it was done before the move; 2,600 to 2,850 caught it on the base build every time).
+        if (k === 0) setTimeout(() => window.__releaseChunks(), 2700);
         setTimeout(() => {
           const move = Date.now();
           s.feed({ type: 'llm_action', payload: { turn: 100 + 2 * k, playerIdx: i, playerName: l.players[i].name, action: 'CALL', amount: 10, reason: 'Calling.' } });
