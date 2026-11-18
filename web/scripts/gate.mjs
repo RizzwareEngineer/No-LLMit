@@ -628,15 +628,16 @@ function judgeG5(base, cand) {
 // only ever read back from memory (a cache file another process wrote, or one rewritten since, is never trusted), and
 // the cache directory's name is random.
 const fileHash = buf => createHash('sha1').update(buf).digest('hex');
-// Every file under root (or root itself, a file) -> its content hash; symlinks by target; top-level names in skipTop left out.
-export function treeFiles(root, skipTop = []) {
+// Every file under root (or root itself, a file) -> its content hash; symlinks by target; the paths in skip (relative to
+// root, at any depth) left out.
+export function treeFiles(root, skip = []) {
   const out = new Map();
   if (!existsSync(root)) return out;
   if (statSync(root).isFile()) { out.set('', fileHash(readFileSync(root))); return out; }
   const walk = rel => {
     for (const e of readdirSync(join(root, rel), { withFileTypes: true })) {
       const r = rel ? `${rel}/${e.name}` : e.name;
-      if (!rel && skipTop.includes(e.name)) continue;
+      if (skip.includes(r)) continue;
       if (e.isSymbolicLink()) out.set(r, `-> ${readlinkSync(join(root, r))}`);
       else if (e.isDirectory()) walk(r);
       else if (e.isFile()) out.set(r, fileHash(readFileSync(join(root, r))));
@@ -647,8 +648,8 @@ export function treeFiles(root, skipTop = []) {
 }
 export class Ledger {
   constructor() { this.items = new Map(); }
-  // what: a label; path: a file or a directory (skipTop: top-level names left out, such as .next/cache, which the server
-  // writes); want: what a file must hold (a cache file: its value in memory), else what it holds now
+  // what: a label; path: a file or a directory (skipTop: paths left out, such as .next/cache and .next/server/route-cache,
+  // which the server itself writes); want: what a file must hold (a cache file: its value in memory), else what it holds now
   seal(what, path, skipTop = [], want = null) { this.items.set(what, { path, skipTop, files: want === null ? treeFiles(path, skipTop) : new Map([['', fileHash(want)]]) }); }
   // Each label whose content changed since it was sealed (with the first files that did), and any file in `dir` that this
   // process did not write.
@@ -718,7 +719,9 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
     if (!SHARED_API) { log('base engine'); baseApi = await startEngine(be, snap, ENGINE_PORT, await startModel(bdir)); ledger.seal('base engine binary', be.bin); }
     modules(bdir, base); modules(dir, base);
     log('base build'); gates.build = { base: build(bdir, baseApi) };
-    ledger.seal('base web/.next', join(bdir, 'web/.next'), ['cache', 'trace']);
+    // next start writes .next/cache and its ISR route cache (server/route-cache) as it serves: not sealed (a gap: candidate
+    // code could seed the base's route cache)
+    ledger.seal('base web/.next', join(bdir, 'web/.next'), ['cache', 'trace', 'server/route-cache']);
     ledger.seal('base web/node_modules', join(bdir, 'web/node_modules'), ['.cache']);
     if (!skip.has('g5')) { tool(AXE); tool(LIGHTHOUSE); ledger.seal('tools', join(WORK, 'tools')); }
     const baseUrl = await serve(bdir, PORT);
