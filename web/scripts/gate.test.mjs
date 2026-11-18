@@ -183,11 +183,11 @@ test('ledger R7-6: regressions — a forged base G2 cache, a patched axe, a slow
   const l = new Ledger(); l.seal('base .next', join(d, 'next')); l.seal('tools', join(d, 'tools')); l.seal('cache g2', join(d, 'cache/g2.json'));
   const known = new Set([join(d, 'cache/g2.json')]);
   writeFileSync(join(d, 'cache/g2.json'), '{"rows":{"a":{"pass":false,"detail":"999999px"}}}');
-  assert.deepEqual(l.check(join(d, 'cache'), known), ['cache g2: changed']);
+  assert.deepEqual(l.check(join(d, 'cache'), known), ['cache g2: 1 change ((the file) changed)']);
   writeFileSync(join(d, 'tools/axe-core/axe.min.js'), 'axe with no rules');
   writeFileSync(join(d, 'next/chunk.js'), 'while(Date.now()<t+900);a');
   writeFileSync(join(d, 'cache/g5.json'), '{}');
-  assert.deepEqual(l.check(join(d, 'cache'), known), ['base .next: changed', 'tools: changed', 'cache g2: changed', `${join(d, 'cache/g5.json')}: not written by the gate`]);
+  assert.deepEqual(l.check(join(d, 'cache'), known), ['base .next: 1 change (chunk.js changed)', 'tools: 1 change (axe-core/axe.min.js changed)', 'cache g2: 1 change ((the file) changed)', `${join(d, 'cache/g5.json')}: not written by the gate`]);
 });
 
 // A minimal element: tag, attributes, parent; closest() for an attribute selector only.

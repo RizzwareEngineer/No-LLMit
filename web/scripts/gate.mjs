@@ -614,30 +614,38 @@ function judgeG5(base, cand) {
 // only ever read back from memory (a cache file another process wrote, or one rewritten since, is never trusted), and
 // the cache directory's name is random.
 const fileHash = buf => createHash('sha1').update(buf).digest('hex');
-export function treeHash(root, skipTop = []) {
-  const h = createHash('sha256');
-  if (!existsSync(root)) return 'missing';
-  if (statSync(root).isFile()) return fileHash(readFileSync(root));
+// Every file under root (or root itself, a file) -> its content hash; symlinks by target; top-level names in skipTop left out.
+export function treeFiles(root, skipTop = []) {
+  const out = new Map();
+  if (!existsSync(root)) return out;
+  if (statSync(root).isFile()) { out.set('', fileHash(readFileSync(root))); return out; }
   const walk = rel => {
-    for (const e of readdirSync(join(root, rel), { withFileTypes: true }).sort((x, y) => (x.name < y.name ? -1 : 1))) {
+    for (const e of readdirSync(join(root, rel), { withFileTypes: true })) {
       const r = rel ? `${rel}/${e.name}` : e.name;
       if (!rel && skipTop.includes(e.name)) continue;
-      if (e.isSymbolicLink()) h.update(`l ${r} ${readlinkSync(join(root, r))}\n`);
+      if (e.isSymbolicLink()) out.set(r, `-> ${readlinkSync(join(root, r))}`);
       else if (e.isDirectory()) walk(r);
-      else if (e.isFile()) h.update(`f ${r} ${fileHash(readFileSync(join(root, r)))}\n`);
+      else if (e.isFile()) out.set(r, fileHash(readFileSync(join(root, r))));
     }
   };
   walk('');
-  return h.digest('hex');
+  return out;
 }
 export class Ledger {
   constructor() { this.items = new Map(); }
-  // what: a label; path: a file or a directory (skipTop: top-level names left out, such as .next/cache, which the server writes)
-  // hash: what the content must be (a cache file: its value in memory), else what it is now
-  seal(what, path, skipTop = [], hash = treeHash(path, skipTop)) { this.items.set(what, { path, skipTop, hash }); }
-  // The labels whose content changed since they were sealed, and any file in `dir` that this process did not write.
+  // what: a label; path: a file or a directory (skipTop: top-level names left out, such as .next/cache, which the server
+  // writes); want: what a file must hold (a cache file: its value in memory), else what it holds now
+  seal(what, path, skipTop = [], want = null) { this.items.set(what, { path, skipTop, files: want === null ? treeFiles(path, skipTop) : new Map([['', fileHash(want)]]) }); }
+  // Each label whose content changed since it was sealed (with the first files that did), and any file in `dir` that this
+  // process did not write.
   check(dir = null, known = new Set()) {
-    const bad = [...this.items].filter(([, x]) => treeHash(x.path, x.skipTop) !== x.hash).map(([w]) => `${w}: changed`);
+    const bad = [];
+    for (const [w, x] of this.items) {
+      const now = treeFiles(x.path, x.skipTop), diff = [];
+      for (const [f, h] of x.files) if (now.get(f) !== h) diff.push(`${f || '(the file)'} ${now.has(f) ? 'changed' : 'removed'}`);
+      for (const f of now.keys()) if (!x.files.has(f)) diff.push(`${f} added`);
+      if (diff.length) bad.push(`${w}: ${diff.length} change${diff.length > 1 ? 's' : ''} (${diff.slice(0, 3).join(', ')})`);
+    }
     if (dir && existsSync(dir)) for (const f of readdirSync(dir)) if (!known.has(join(dir, f))) bad.push(`${join(dir, f)}: not written by the gate`);
     return bad;
   }
@@ -648,7 +656,7 @@ const cacheFile = (sha, what) => join(CACHE_DIR, `${sha}-${what}.json`);
 const cached = async (sha, what, fn, keep = () => true, ledger = null) => {
   const f = cacheFile(sha, what);
   // the file is a record for the reader; the ledger proves it still says what memory holds
-  const seal = () => ledger?.seal(`cache ${sha.slice(0, 8)}-${what}`, f, [], fileHash(memo.get(f)));
+  const seal = () => ledger?.seal(`cache ${sha.slice(0, 8)}-${what}`, f, [], memo.get(f));
   if (memo.has(f)) { seal(); return JSON.parse(memo.get(f)); }
   const v = await fn();
   if (keep(v)) { memo.set(f, JSON.stringify(v)); mkdirSync(CACHE_DIR, { recursive: true }); writeFileSync(f, memo.get(f)); seal(); }
