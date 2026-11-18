@@ -1,7 +1,11 @@
 // Unit tests for the gate's pure verdict helpers: node --test scripts/gate.test.mjs (from web/)
 import test from 'node:test';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { srcRoot, readSrc, layoutOf, promptLinesOf } from './check-src.mjs';
 import assert from 'node:assert/strict';
-import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptCounts, uaDiff, uaExtra, quantile } from './gate.mjs';
+import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptCounts, checksEnv, uaDiff, uaExtra, quantile } from './gate.mjs';
 
 const CLIP = '50s: 191px out (#D97757 at x 1288); 3 of 228 replay frames over 2px, worst 308.1px at 47.3 s';
 
@@ -149,4 +153,19 @@ test('ua R7-0: regressions — an extra script, or one script fewer, only under 
   assert.deepEqual(uaExtra(base, uaDiff(ld(16), ld(15))), ['-script /_next/static/chunks/<h>.js x1']);
   assert.deepEqual(uaExtra(base, uaDiff(ld(16), ld(12))), ['-script /_next/static/chunks/<h>.js x4']);
   assert.deepEqual(uaExtra(base, uaDiff(ld(16), ld(14, []))), ['-dom #race-panel']);
+});
+
+test('checks R7-5: the checks read the arm under test\'s layout.ts and systemPrompt.ts, not their own worktree\'s', () => {
+  const own = layoutOf(readSrc('lib/layout.ts', {}));
+  const arm = mkdtempSync(join(tmpdir(), 'arm-')); mkdirSync(join(arm, 'web/src/lib'), { recursive: true });
+  const layout = readFileSync(join(srcRoot({}), 'lib/layout.ts'), 'utf8').replace(/DESK_MIN_W = \d+/, 'DESK_MIN_W = 1024');
+  writeFileSync(join(arm, 'web/src/lib/layout.ts'), layout);
+  const prompt = readFileSync(join(srcRoot({}), 'lib/systemPrompt.ts'), 'utf8');
+  const first = Object.keys(promptLinesOf(prompt))[0];
+  writeFileSync(join(arm, 'web/src/lib/systemPrompt.ts'), prompt.replace(new RegExp(`(export const ${first} = \`)`), '$1An edited line. '));
+  const env = checksEnv(arm);
+  assert.equal(layoutOf(readSrc('lib/layout.ts', env)).DESK_MIN_W, 1024, 'the candidate\'s moved breakpoint');
+  assert.notEqual(own.DESK_MIN_W, 1024);
+  assert.match(promptLinesOf(readSrc('lib/systemPrompt.ts', env))[first], /^An edited line\. /);
+  assert.equal(readSrc('lib/layout.ts', {}), readFileSync(join(srcRoot({}), 'lib/layout.ts'), 'utf8'), 'run by hand: the src beside the checks');
 });

@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { inflateSync } from 'node:zlib';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { readSrc, layoutOf, promptLinesOf } from './check-src.mjs';
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const BASE = arg('--base', 'http://localhost:3100');
@@ -17,8 +18,8 @@ const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Conte
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 // The phone/desktop switch, read from the one place it is defined (src/lib/layout.ts): a W x H CSS window gets the phone
 // layout under DESK_MIN_W across or at SHORT_H tall or less; PHONE_Q is the same as a media query, for page code.
-const LAYOUT = readFileSync(new URL('../src/lib/layout.ts', import.meta.url), 'utf8');
-const DESK_MIN_W = +LAYOUT.match(/DESK_MIN_W = (\d+)/)[1], SHORT_H = +LAYOUT.match(/SHORT_H = (\d+)/)[1];
+// The arm under test's source (CHECKS_SRC, set by the gate), not this file's worktree (check-src.mjs).
+const { DESK_MIN_W, SHORT_H } = layoutOf(readSrc('lib/layout.ts'));
 const PHONE_Q = `not all and (min-width: ${DESK_MIN_W}px) and (min-height: ${SHORT_H + 1}px)`;
 const phoneAt = (w, h) => w < DESK_MIN_W || h <= SHORT_H;
 const results = [];
@@ -4770,7 +4771,7 @@ const ABOUT_GONE = [['LLM Council', /LLM Council/i], ['training an LLM', /Train 
   ['Poker is noisy', /Poker is noisy/i], ['One turn', /One turn/i], ['The call', /\bThe call\b/], ['Playing against the LLMs', /Playing against the LLMs|weak game/i]];
 const ABOUT_LINKS = ['https://github.com/sponsors/RizzwareEngineer', 'https://github.com/RizzwareEngineer/No-LLMit', 'https://github.com/RizzwareEngineer'];
 // The first line of each prompt lib/systemPrompt.ts exports (`export const NAME = \`first line`), from the file's text.
-const PROMPT_LINES = Object.fromEntries([...readFileSync(new URL('../src/lib/systemPrompt.ts', import.meta.url), 'utf8').matchAll(/^export const (\w+) = `([^\n`]*)/gm)].map(m => [m[1], m[2].trim()]));
+const PROMPT_LINES = promptLinesOf(readSrc('lib/systemPrompt.ts'));
 // Each dialog's code blocks, in order, and the export each one starts with.
 const PROMPT_DIALOGS = [['the system prompt', 'Read the system prompt', ['SYSTEM_PROMPT']], ['the user prompt', 'Read the user prompt', ['EXAMPLE_USER_PROMPT', 'EXAMPLE_REPLY']]];
 group(() => check('about-content-complete', 'About says what it must, in the owner\'s plain words (pseudo benchmark, the same system and user prompts, the reply, the caveats, the hours in four lines, the Play button, the dataset, its date and why, what donations pay for, GitHub and handle) with the system prompt and the user prompt then the reply opened from lib/systemPrompt.ts (each export\'s first line, read at run time), and nothing the owner cut ("Poker is noisy" and "One turn" among it)', async () => {

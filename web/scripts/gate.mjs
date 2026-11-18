@@ -18,7 +18,7 @@
 //          run time, one that loads other scripts or other elements under a Lighthouse or a headless user agent than
 //          under a phone's (beyond what two loads under the phone's own agent differ by);
 //  g1      tsc --noEmit, eslint src --quiet and the unit tests (src/lib/*.test.mjs), on the candidate;
-//  g2      the UI checks (checks.mjs, run from the base's worktree) on both builds, each against its own arm's engine, in
+//  g2      the UI checks (checks.mjs, run from the base's worktree, reading each arm's own product source) on both builds, each against its own arm's engine, in
 //          one environment that this script sets (no WITHIN_MS or other knob from the caller): a check green on the base
 //          and red on the candidate fails, and so does a check with a base result and none on the candidate;
 //          a check red on the base is judged by its measured detail against the frozen red list (or, if it is not on
@@ -228,11 +228,13 @@ function parseChecks(out) {
   }
   return rows;
 }
-function runChecks(dir, url, ids) {
+// The checks are the base's (dir), the product source they read is the arm's own (src: its worktree; R7-5).
+export const checksEnv = src => ({ ...ENV, CHECKS_SRC: join(src, 'web/src') });
+function runChecks(dir, url, ids, src = dir) {
   const t0 = Date.now();
   const cmd = `node scripts/checks.mjs --base ${url} --lanes ${LANES}${ids ? ` --only ${ids.join(',')}` : ''}`;
   let out;
-  try { out = sh(cmd, { cwd: join(dir, 'web'), env: ENV, timeout: 3 * 3600000 }); }
+  try { out = sh(cmd, { cwd: join(dir, 'web'), env: checksEnv(src), timeout: 3 * 3600000 }); }
   catch (e) { out = `${e.stdout ?? ''}`; if (!out.includes('checks passed')) log('checks.mjs ended early:', `${e.stderr ?? ''}`.split('\n').slice(-3).join(' | ')); }
   const rows = parseChecks(out);
   const complete = out.includes('\nall checks, in order:\n') && /\n\d+\/\d+ checks passed/.test(out) && (!ids || ids.every(id => rows[id]));
@@ -651,10 +653,10 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
       const key = `g2-${createHash('md5').update(String(ids ?? 'all') + LANES + (SHARED_API ?? `fx${FX_SIZE}`)).digest('hex').slice(0, 8)}`;
       // The checks always run from the base's worktree (they are the base's anyway), on both arms' URLs.
       // A base run that ended early is never cached (R7-4): its missing rows would stand for every candidate after.
-      const bres = await cached(base, key, () => runChecks(bdir, baseUrl, ids), r => r.complete);
-      const cres = runChecks(bdir, candUrl, ids);
+      const bres = await cached(base, key, () => runChecks(bdir, baseUrl, ids, bdir), r => r.complete);
+      const cres = runChecks(bdir, candUrl, ids, dir);
       const red = readRed(base);
-      const j = await g2Judge({ bres, cres, red, run: async (arm, only) => runChecks(bdir, arm === 'base' ? baseUrl : candUrl, only) });
+      const j = await g2Judge({ bres, cres, red, run: async (arm, only) => arm === 'base' ? runChecks(bdir, baseUrl, only, bdir) : runChecks(bdir, candUrl, only, dir) });
       rehash('after G2');
       if (j.incomplete.length && !j.fails.length) { v.status ??= 'incomplete'; reasons.push(`g2 not decided: ${j.incomplete.map(f => f.id).join(', ')}`); }
       gates.g2 = { pass: !j.fails.length && !j.incomplete.length, incomplete: j.incomplete, checks: Object.keys(cres.rows).length, baseChecks: Object.keys(bres.rows).length, redList: red ? 'frozen on this base' : 'none for this base', baseRed: Object.entries(bres.rows).filter(([, r]) => !r.pass).map(([id]) => id), fails: j.fails, notes: j.notes, ms: { base: bres.ms, cand: cres.ms } };
