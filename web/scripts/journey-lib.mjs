@@ -90,11 +90,13 @@ export function summarize(runs, targetMs) {
     for (const k of TOTAL_METRICS) S.total[k] = stat(ok.map(r => r.total[k]));
     if (size === 'phone') {
       for (const name of Object.keys(S.steps).filter(n => n.startsWith('to-'))) {
-        const v = ok.map(r => r.steps.find(s => s.name === name)?.ttc).filter(x => typeof x === 'number');
-        const miss = ok.length - v.length;
-        const wrong = ok.map(r => r.steps.find(s => s.name === name)?.regions?.[name.slice(3)]).filter(g => g?.wrongWindow).map(g => g.landed);
-        out.swipe[name] = { targetMs, ...stat(v), landedElsewhere: wrong, within: v.filter(x => x <= targetMs).length, of: ok.length, notShownIn10s: miss,
-          verdict: miss === 0 && v.length && v.every(x => x <= targetMs) ? 'within target every run' : `over target in ${v.filter(x => x > targetMs).length + miss} of ${ok.length} runs` };
+        // A swipe that lands on the wrong window is a miss (R6-9): its time is when the target passed by, not when it stayed.
+        const st = ok.map(r => r.steps.find(s => s.name === name)), landedWrong = s => !!s?.regions?.[name.slice(3)]?.wrongWindow;
+        const v = st.filter(s => !landedWrong(s)).map(s => s?.ttc).filter(x => typeof x === 'number');
+        const wrong = st.filter(landedWrong).map(s => s.regions[name.slice(3)].landed);
+        const miss = ok.length - v.length, notShown = miss - wrong.length;
+        out.swipe[name] = { targetMs, ...stat(v), landedElsewhere: wrong, within: v.filter(x => x <= targetMs).length, of: ok.length, notShownIn10s: notShown,
+          verdict: miss === 0 && v.length && v.every(x => x <= targetMs) ? 'within target every run' : `over target or missed in ${v.filter(x => x > targetMs).length + miss} of ${ok.length} runs${wrong.length ? ` (${wrong.length} landed on the wrong window)` : ''}` };
       }
     }
   }
