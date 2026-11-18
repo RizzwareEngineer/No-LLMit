@@ -575,9 +575,25 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
             if (!keep) j.notes.push({ ...f, why: `${f.why}; red on the base too (${bf} of 2), and the candidate's detail is not worse than the base's on both runs` });
             return keep;
           }
-          if (cf > bf) return true;
+          if (cf > bf + 1) return true; // red on both candidate runs, green on both base runs
+          if (cf > bf) { f.settle = true; return true; } // one candidate flake: settled below
           j.notes.push({ ...f, why: `${f.why}, but the base failed it as often on the rerun` }); return false;
         });
+        // A check green on both base runs and red on one of two candidate runs is a flake or an intermittent regression:
+        // two more runs on each arm (four each), and it fails if the candidate fails it at least twice more than the base.
+        // (The base against itself failed clock-after-load this way, 1 of 2 against 0 of 2.)
+        const settle = j.fails.filter(f => f.settle).map(f => f.id);
+        if (settle.length) {
+          const more = [0, 1].map(() => ({ b: runChecks(bdir, baseUrl, settle), c: runChecks(bdir, candUrl, settle) }));
+          j.fails = j.fails.filter(f => {
+            if (!f.settle) return true;
+            delete f.settle;
+            const bf = f.rerun.baseFails + more.filter(m => !m.b.rows[f.id]?.pass).length, cf = f.rerun.candFails + more.filter(m => !m.c.rows[f.id]?.pass).length;
+            f.rerun = { ...f.rerun, baseFails: bf, candFails: cf, runs: 4, moreCandDetails: more.map(m => m.c.rows[f.id]?.detail) };
+            if (cf >= bf + 2) return true;
+            j.notes.push({ ...f, why: `${f.why} once; over four runs each the candidate failed it ${cf} times, the base ${bf}` }); return false;
+          });
+        }
       }
       rehash('after G2');
       gates.g2 = { pass: !j.fails.length, checks: Object.keys(cres.rows).length, baseChecks: Object.keys(bres.rows).length, redList: red ? 'frozen on this base' : 'none for this base', baseRed: Object.entries(bres.rows).filter(([, r]) => !r.pass).map(([id]) => id), fails: j.fails, notes: j.notes, ms: { base: bres.ms, cand: cres.ms } };
