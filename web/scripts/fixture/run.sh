@@ -8,6 +8,12 @@ VIOL=$1; shift; [ "${1-}" = "--" ] && shift
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # The guard's own file (serve.sh's "violations:" path) must exist: a wrong path would count nothing and pass (R6-7).
 [ -f "$VIOL" ] || { echo "FIXTURE GUARD: no violations file $VIOL (is serve.sh running? use the path it printed)"; exit 3; }
+# ...and a guard must be writing it now: the pid it left beside the file is alive and is guard.mjs on this very file
+# (R7-12: a stopped fixture's file stays on disk, and counted nothing while another guard wrote elsewhere).
+GPID=$(cat "$VIOL.pid" 2>/dev/null)
+if [ -z "$GPID" ] || ! kill -0 "$GPID" 2>/dev/null || ! tr '\0' ' ' < "/proc/$GPID/cmdline" 2>/dev/null | grep -q -- "guard.mjs.*--violations $VIOL\( \|$\)"; then
+  echo "FIXTURE GUARD: no running guard writes $VIOL (a stopped fixture's file? use the path the running serve.sh printed)"; exit 3
+fi
 cp "$VIOL" "$VIOL.before"
 REAL="${FIXTURE_REAL_CHROME:-${CHROME_PATH:-/usr/bin/google-chrome}}"
 # CHROME_PATH exported as chrome.sh (serve.sh's "use:" line) would make chrome.sh exec itself forever (R6-13).
