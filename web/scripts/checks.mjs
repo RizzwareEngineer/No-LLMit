@@ -6771,10 +6771,31 @@ group(() => check('clock-after-load', 'Loaded mid-turn and between hands at 1440
 // the stats' transition render is in progress when that turn's move arrives (it holds the move's commit back); no value
 // below the hold may show after the move. Finding 6: the figure on screen through the hold, read just before the next
 // turn, must be the held one (the commit draws it before move+550, which the rule on changes does not see).
+// The hold in clock-stops-at-move and countdown-follows-deal must hold the stats (review 7, R7-10: a count of held chunks
+// passed while testing nothing when the stats came in statically and some other lazy chunk was held). At the release the
+// stats' stand-in (StatsHold: .stats-room with no #race-panel) must still be on the page, and StatsSections (#race-panel)
+// must mount after the release and before the end of the first turn's (deal's) window.
+const watchStatsMount = p => p.evaluate(() => {
+  window.__statsAt = null;
+  if (document.querySelector('#race-panel')) { window.__statsAt = -1; return; } // already there before the hold's release
+  const mo = new MutationObserver(() => { if (document.querySelector('#race-panel')) { window.__statsAt = Date.now(); mo.disconnect(); } });
+  mo.observe(document, { subtree: true, childList: true });
+});
+async function statsHoldWhy(p, heldN, end) {
+  const { hold, statsAt } = await p.evaluate(() => ({ hold: window.__holdState ?? null, statsAt: window.__statsAt }));
+  if (!heldN) return `${heldN ?? 'no'} chunks held`;
+  if (!hold) return `${heldN} chunks held, never released`;
+  if (!hold.standIn || statsAt === -1) return `${heldN} chunks held, but the stats were already mounted at the release`;
+  if (!statsAt || statsAt < hold.at) return `${heldN} chunks held, but the stats never mounted after the release`;
+  if (end && statsAt > end) return `${heldN} chunks held, but the stats mounted ${statsAt - hold.at} ms after the release, past the window (${end - hold.at} ms)`;
+  return null;
+}
+
 group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the shot clock holds the time left at the move for as long as the move shows, and the next turn\'s clock counts its own seconds down without a flicker back up', async () => {
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   const bad = [], seen = [];
   let heldN = null; // the chunks the hold caught (review 6, R6-15: an empty hold tests nothing)
+  const ends = []; // each turn's (deal's) window end: the stats must have mounted by the first one's (R7-10)
   try {
     const cdp = await p.createCDPSession(); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
     let held = [];
@@ -6784,6 +6805,7 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
     await scriptStream(p);
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await p.waitForFunction(() => window.__stream?.last?.players?.length && window.__stream.feed && document.querySelector('[data-clock]'), { timeout: 120000 });
+    await watchStatsMount(p);
     await p.evaluate(() => {
       window.__shown = [];
       const read = () => {
@@ -6802,7 +6824,7 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
         s.feed({ type: 'llm_thinking', payload: { turn: 100 + 2 * k, playerIdx: i, playerName: l.players[i].name, budgetMs: 45000, elapsedMs: 0 } });
         // The first turn: the stats' code comes 260 ms before the move, so their mount's render runs over it (at 1,700 or
         // 2,300 ms it was done before the move; 2,600 to 2,850 caught it on the base build every time).
-        if (k === 0) setTimeout(() => window.__releaseChunks(), 2700);
+        if (k === 0) setTimeout(() => { window.__holdState = { standIn: !!document.querySelector('.stats-room') && !document.querySelector('#race-panel'), at: Date.now() }; window.__releaseChunks(); }, 2700);
         setTimeout(() => {
           const move = Date.now();
           s.feed({ type: 'llm_action', payload: { turn: 100 + 2 * k, playerIdx: i, playerName: l.players[i].name, action: 'CALL', amount: 10, reason: 'Calling.' } });
@@ -6820,6 +6842,7 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
           }, 3000);
         }, 2960 - (Date.now() - t0));
       }), k);
+      ends.push(r.t1);
       const shown = await p.evaluate(() => window.__shown.splice(0));
       const held = Math.ceil((45000 - (r.move - r.t0)) / 1000);
       // After the move's commit (the long task, then 300 ms of slack on a 4x CPU) until the next turn: the held value only.
@@ -6841,7 +6864,8 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
       if (up.length) bad.push(`turn ${k + 2}: the clock went back up (${next.map(x => x.v).join(' ')})`);
       if (lastBad) bad.push(`turn ${k + 2}: ${r.last ?? 'no clock'} shown at the end with ${eng(r.end)}s left`);
     }
-    if (!heldN) bad.unshift(`nothing held (nothing tested): ${heldN ?? 'no'} stats chunks held for the first turn`);
+    const why = await statsHoldWhy(p, heldN, ends[0]);
+    if (why) bad.unshift(`nothing held (nothing tested): ${why} for the first turn`);
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${seen.join('; ')}; ${heldN} chunks held` };
 }));
@@ -6854,6 +6878,7 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   const bad = [], seen = [];
   let heldN = null; // the chunks the hold caught (review 6, R6-15: an empty hold tests nothing)
+  const ends = []; // each turn's (deal's) window end: the stats must have mounted by the first one's (R7-10)
   try {
     const cdp = await p.createCDPSession(); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
     // The stats' code is held until the first deal moves, so their mount's transition render holds the new state back
@@ -6865,6 +6890,7 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
     await scriptStream(p);
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await p.waitForFunction(() => window.__stream?.last?.players?.length && window.__stream.feed && document.querySelector('[data-seat]'), { timeout: 120000 });
+    await watchStatsMount(p);
     await sleep(3000);
     for (let k = 0; k < 2; k++) {
       const r = await p.evaluate(k => new Promise(done => {
@@ -6883,7 +6909,7 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
         s.feed({ type: 'game_state', payload: { ...end, nextHandInMs: 7000 } });
         // A long task over the old countdown's 4 s edge (3 s after its state), and at its end the outage notice and its
         // state, 180 s to the deal: the old countdown's timer is then due before the new state is rendered.
-        if (k === 0) setTimeout(() => window.__releaseChunks(), 2700);
+        if (k === 0) setTimeout(() => { window.__holdState = { standIn: !!document.querySelector('.stats-room') && !document.querySelector('#race-panel'), at: Date.now() }; window.__releaseChunks(); }, 2700);
         setTimeout(() => {
           const moved = Date.now();
           s.feed({ type: 'table_notice', payload: { kind: 'outage', message: 'The models are not answering. The next hand waits.' } });
@@ -6892,6 +6918,7 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
           setTimeout(() => { mo.disconnect(); read(); done({ t0, moved, shown }); }, 4000);
         }, 2960 - (Date.now() - t0));
       }), k);
+      ends.push(r.moved + 4000);
       const oldAt = at => Math.ceil((7000 - (at - r.t0)) / 1000), newAt = at => Math.ceil((180000 - (at - r.moved)) / 1000);
       const after = r.shown.filter(x => x.at > r.moved && x.v !== null);
       const wrong = after.filter(x => x.v !== newAt(x.at) && x.v !== Math.ceil((180000 - (x.at - r.moved) + 300) / 1000));
@@ -6901,7 +6928,8 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
       if (old.length) bad.push(`${k + 1}: the old deal's countdown after the deal moved: ${old.slice(0, 4).map(x => `${x.v}s at +${x.at - r.moved} ms (old ${oldAt(x.at)}s, new ${newAt(x.at)}s)`).join(', ')}`);
       else if (wrong.length) bad.push(`${k + 1}: ${wrong.slice(0, 3).map(x => `${x.v}s shown with ${newAt(x.at)}s to the deal`).join(', ')}`);
     }
-    if (!heldN) bad.unshift(`nothing held (nothing tested): ${heldN ?? 'no'} stats chunks held for the first deal`);
+    const why = await statsHoldWhy(p, heldN, ends[0]);
+    if (why) bad.unshift(`nothing held (nothing tested): ${why} for the first deal`);
   } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `values shown: ${seen.join('; ')}; ${heldN} chunks held` };
 }));
