@@ -235,12 +235,26 @@ function parseChecks(out) {
 }
 // The checks are the base's (dir), the product source they read is the arm's own (src: its worktree; R7-5).
 export const checksEnv = src => ({ ...ENV, CHECKS_SRC: join(src, 'web/src') });
-function runChecks(dir, url, ids, src = dir) {
+// Async, in its own process group, so a signal reaches the gate at once and the gate can stop the run (review 7, R7-8:
+// execSync held SIGTERM for up to the run's 3 h, and after a Ctrl-C the synchronous reruns started first).
+const children = new Set();
+let stopping = null; // the signal that is stopping the gate
+const killChildren = () => { for (const c of children) { try { process.kill(-c.pid, 'SIGKILL'); } catch { /* gone */ } } };
+const shAsync = (cmd, opts) => new Promise(done => {
+  const c = spawn('bash', ['-c', cmd], { ...opts, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  children.add(c);
+  let out = '', err = '';
+  c.stdout.on('data', d => { out += d; }); c.stderr.on('data', d => { err += d; });
+  const t = setTimeout(() => { try { process.kill(-c.pid, 'SIGKILL'); } catch { /* gone */ } }, opts.timeout ?? 3 * 3600000);
+  c.on('close', code => { clearTimeout(t); children.delete(c); done({ code, out, err }); });
+});
+async function runChecks(dir, url, ids, src = dir) {
   const t0 = Date.now();
+  if (stopping) throw new Error(`stopped (${stopping})`);
   const cmd = `node scripts/checks.mjs --base ${url} --lanes ${LANES}${ids ? ` --only ${ids.join(',')}` : ''}`;
-  let out;
-  try { out = sh(cmd, { cwd: join(dir, 'web'), env: checksEnv(src), timeout: 3 * 3600000 }); }
-  catch (e) { out = `${e.stdout ?? ''}`; if (!out.includes('checks passed')) log('checks.mjs ended early:', `${e.stderr ?? ''}`.split('\n').slice(-3).join(' | ')); }
+  const { code, out, err } = await shAsync(cmd, { cwd: join(dir, 'web'), env: checksEnv(src), timeout: 3 * 3600000 });
+  if (stopping) throw new Error(`stopped (${stopping})`);
+  if (code !== 0 && !out.includes('checks passed')) log('checks.mjs ended early:', err.split('\n').slice(-3).join(' | '));
   const rows = parseChecks(out);
   const complete = out.includes('\nall checks, in order:\n') && /\n\d+\/\d+ checks passed/.test(out) && (!ids || ids.every(id => rows[id]));
   if (ids) for (const id of ids) rows[id] ??= { pass: false, s: 0, detail: 'no result (the run ended before it)', missing: true };
@@ -730,9 +744,9 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
     if (!skip.has('g2')) {
       // The checks always run from the base's worktree (they are the base's anyway), on both arms' URLs, each reading its
       // own arm's source.
-      const cres = runChecks(bdir, candUrl, ids, dir);
+      const cres = await runChecks(bdir, candUrl, ids, dir);
       const red = readRed(base);
-      const j = await g2Judge({ bres, cres, red, run: async (arm, only) => { rehash('before a rerun'); return arm === 'base' ? runChecks(bdir, baseUrl, only, bdir) : runChecks(bdir, candUrl, only, dir); } });
+      const j = await g2Judge({ bres, cres, red, stopping: () => !!stopping, run: async (arm, only) => { rehash('before a rerun'); return arm === 'base' ? runChecks(bdir, baseUrl, only, bdir) : runChecks(bdir, candUrl, only, dir); } });
       rehash('after G2');
       if (j.incomplete.length && !j.fails.length) { v.status ??= 'incomplete'; reasons.push(`g2 not decided: ${j.incomplete.map(f => f.id).join(', ')}`); }
       gates.g2 = { pass: !j.fails.length && !j.incomplete.length, incomplete: j.incomplete, checks: Object.keys(cres.rows).length, baseChecks: Object.keys(bres.rows).length, redList: red ? 'frozen on this base' : 'none for this base', baseRed: Object.entries(bres.rows).filter(([, r]) => !r.pass).map(([id]) => id), fails: j.fails, notes: j.notes, ms: { base: bres.ms, cand: cres.ms } };
@@ -803,7 +817,7 @@ async function freezeRed(baseRef) {
     if (!api) api = await startEngine(buildEngine(dir, 'base'), join(dir, 'web/scripts/fixture/snapshot.jsonl.gz'), ENGINE_PORT, await startModel(dir));
     build(dir, api);
     const url = await serve(dir, PORT);
-    const r = runChecks(dir, url, ids());
+    const r = await runChecks(dir, url, ids());
     const entries = Object.entries(r.rows).filter(([, x]) => !x.pass).map(([id, x]) => ({ id, detail: x.detail }));
     const red = { base, frozenAt: new Date().toISOString(), lanes: LANES, api: SHARED_API ?? `fixture engine, ${FX_SIZE} hands`, checks: Object.keys(r.rows).length, minutes: +(r.ms / 60000).toFixed(1), entries };
     writeFileSync(arg('--red-out', join(CORPUS_DIR, 'red-list.json')), JSON.stringify(red, null, 1) + '\n');
@@ -822,7 +836,9 @@ if (process.argv[1] === SELF) {
   const skip = new Set((arg('--skip', '') || '').split(',').filter(Boolean));
   process.on('exit', stopServers);
   // Ctrl-C or a kill: stop the servers and engines, drop this run's worktrees, then exit (Node emits no 'exit' for these).
-  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { log(`${sig}: cleaning up`); stopServers(); if (!has('--keep')) { for (const d of worktrees) dropWorktree(d); if (!WORK_GIVEN) rmSync(WORK, { recursive: true, force: true }); } process.exit(130); });
+  // The checks run as async children in their own groups (runChecks), so this runs at once: it kills them, and the gate's
+  // own steps stop at the next check of `stopping`. Exit 130 on SIGINT, 143 on SIGTERM.
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stopping = sig; log(`${sig}: cleaning up`); killChildren(); stopServers(); if (!has('--keep')) { for (const d of worktrees) dropWorktree(d); if (!WORK_GIVEN) rmSync(WORK, { recursive: true, force: true }); } process.exit(sig === 'SIGTERM' ? 143 : 130); });
   let result, ok;
   if (has('--freeze-red')) { result = await freezeRed(arg('--base', 'HEAD')); ok = true; }
   else if (has('--corpus')) { result = await corpus(arg('--base', 'HEAD'), ids(), skip); ok = result.pass; }
