@@ -6773,12 +6773,12 @@ group(() => check('clock-after-load', 'Loaded mid-turn and between hands at 1440
 group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the shot clock holds the time left at the move for as long as the move shows, and the next turn\'s clock counts its own seconds down without a flicker back up', async () => {
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   const bad = [], seen = [];
+  let heldN = null; // the chunks the hold caught (review 6, R6-15: an empty hold tests nothing)
   try {
     const cdp = await p.createCDPSession(); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
     let held = [];
     await p.setRequestInterception(true);
     p.on('request', r => { if (held && r.initiator()?.type === 'script' && /\/_next\/static\/chunks\/.*\.js/.test(r.url())) held.push(r); else r.continue().catch(() => {}); });
-    let heldN = null; // the chunks the hold caught (review 6, R6-15: an empty hold tests nothing)
     await p.exposeFunction('__releaseChunks', () => { const h = held || []; held = null; heldN = h.length; for (const r of h) r.continue().catch(() => {}); return h.length; });
     await scriptStream(p);
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
@@ -6852,6 +6852,7 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
 group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, a state that moves the next deal while "Next hand in Ns" counts shows the new deal\'s whole seconds from then on, never the old deal\'s again', async () => {
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   const bad = [], seen = [];
+  let heldN = null; // the chunks the hold caught (review 6, R6-15: an empty hold tests nothing)
   try {
     const cdp = await p.createCDPSession(); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
     // The stats' code is held until the first deal moves, so their mount's transition render holds the new state back
@@ -6859,7 +6860,6 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
     let held = [];
     await p.setRequestInterception(true);
     p.on('request', r => { if (held && r.initiator()?.type === 'script' && /\/_next\/static\/chunks\/.*\.js/.test(r.url())) held.push(r); else r.continue().catch(() => {}); });
-    let heldN = null; // the chunks the hold caught (review 6, R6-15: an empty hold tests nothing)
     await p.exposeFunction('__releaseChunks', () => { const h = held || []; held = null; heldN = h.length; for (const r of h) r.continue().catch(() => {}); return h.length; });
     await scriptStream(p);
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
