@@ -30,14 +30,16 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process
 
 const isLoop = h => ['localhost', '127.0.0.1', '[::1]', '::1'].includes(h);
 const sameHost = (u, base) => (u.hostname === base.hostname || (isLoop(u.hostname) && isLoop(base.hostname))) && (u.port || '80') === (base.port || '80');
-// Chrome's own background calls (updates, time sync, safe browsing) to its service hosts, which flags do not stop in
-// branded Chrome: logged beside the violations, not in them. Only Chrome's service hosts are here (review 6, R6-12), and
-// only hosts a page has no use for (review 7, R7-11: an https request reaches the guard as a CONNECT, which carries no
-// Referer or Origin, so a page's own call to www.google.com or accounts.google.com, a sign-in or reCAPTCHA script, was
-// exempt): any other Google host a page could use (www.google.com, accounts.google.com, fonts.googleapis.com,
-// fonts.gstatic.com, storage or firebase on googleapis.com, www.gstatic.com) is a violation, and so is any plain request
-// whose Referer or Origin is a fixture site.
-const CHROME_OWN = /^(?:clients\d*\.google\.com|[a-z0-9-]+\.clients\.google\.com|update\.googleapis\.com|safebrowsing(?:-[a-z0-9]+)?\.googleapis\.com|[a-z0-9-]+-pa\.googleapis\.com|content-autofill\.googleapis\.com|chromewebstore\.googleapis\.com|(?:[a-z0-9-]+\.)*gvt1\.com)(?::\d+)?$/;
+// Chrome's own background calls (updates, sign-in, time sync, safe browsing) to its service hosts, which flags do not stop
+// in branded Chrome: logged beside the violations, not in them. Only Chrome's service hosts are here (review 6, R6-12).
+// An https request reaches the guard as a CONNECT, which carries no Referer or Origin, so a page's own https call to an
+// exempt host cannot be told from Chrome's (review 7, R7-11). www.google.com is no longer exempt (a real session through
+// the guard showed Chrome never contacts it). accounts.google.com stays: the same session showed Chrome for Testing 153
+// opening CONNECTs to it on a plain page, with or without the sign-in flags, so dropping it failed every honest run; a
+// page's own sign-in script there is the gap, and run.sh prints every exempt CONNECT of a run for a reader to see. Any
+// other Google host a page could use (www.google.com, fonts.googleapis.com, fonts.gstatic.com, storage or firebase on
+// googleapis.com, www.gstatic.com) is a violation, and so is any plain request whose Referer or Origin is a fixture site.
+const CHROME_OWN = /^(?:accounts\.google\.com|clients\d*\.google\.com|[a-z0-9-]+\.clients\.google\.com|update\.googleapis\.com|safebrowsing(?:-[a-z0-9]+)?\.googleapis\.com|[a-z0-9-]+-pa\.googleapis\.com|content-autofill\.googleapis\.com|chromewebstore\.googleapis\.com|(?:[a-z0-9-]+\.)*gvt1\.com)(?::\d+)?$/;
 const fromSite = req => { for (const h of [req?.headers?.referer, req?.headers?.origin]) { try { if (h && SITES.some(s => sameHost(new URL(h), s))) return true; } catch {} } return false; };
 const chromeOwn = (method, url, req) => {
   if (fromSite(req)) return false;

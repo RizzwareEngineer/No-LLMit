@@ -14,7 +14,7 @@ GPID=$(cat "$VIOL.pid" 2>/dev/null)
 if [ -z "$GPID" ] || ! kill -0 "$GPID" 2>/dev/null || ! tr '\0' ' ' < "/proc/$GPID/cmdline" 2>/dev/null | grep -q -- "guard.mjs.*--violations $VIOL\( \|$\)"; then
   echo "FIXTURE GUARD: no running guard writes $VIOL (a stopped fixture's file? use the path the running serve.sh printed)"; exit 3
 fi
-cp "$VIOL" "$VIOL.before"
+cp "$VIOL" "$VIOL.before"; touch "$VIOL.chrome"; cp "$VIOL.chrome" "$VIOL.chrome.before"
 REAL="${FIXTURE_REAL_CHROME:-${CHROME_PATH:-/usr/bin/google-chrome}}"
 # CHROME_PATH exported as chrome.sh (serve.sh's "use:" line) would make chrome.sh exec itself forever (R6-13).
 if [ "$(readlink -f "$REAL" 2>/dev/null)" = "$(readlink -f "$HERE/chrome.sh")" ]; then
@@ -24,6 +24,9 @@ fi
 FIXTURE_REAL_CHROME="$REAL" CHROME_PATH="$HERE/chrome.sh" "$@"
 code=$?
 new=$(( $(wc -l < "$VIOL") - $(wc -l < "$VIOL.before") )); rm -f "$VIOL.before"
+# The exempt requests of this run (Chrome's own, by host; R7-11: a page's https call to an exempt host looks the same).
+ex=$(( $(wc -l < "$VIOL.chrome") - $(wc -l < "$VIOL.chrome.before") )); rm -f "$VIOL.chrome.before"
+[ "$ex" -gt 0 ] && echo "fixture guard: $ex exempt request(s) (Chrome's own hosts): $(tail -n "$ex" "$VIOL.chrome" | grep -o '"url":"[^"]*"' | sed 's/"url":"//; s/"$//' | sort | uniq -c | awk '{printf "%s x%s, ", $2, $1}' | sed 's/, $//')"
 if [ "$new" -gt 0 ]; then
   echo "FIXTURE GUARD: $new request(s) the fixture does not serve:"; tail -n "$new" "$VIOL" | head -20
   exit 3
