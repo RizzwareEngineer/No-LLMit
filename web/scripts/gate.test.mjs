@@ -1,7 +1,7 @@
 // Unit tests for the gate's pure verdict helpers: node --test scripts/gate.test.mjs (from web/)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { judgeDetail, judgeG2, redFor, pathRule, scriptKey, scriptKeys, quantile } from './gate.mjs';
+import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptKeys, quantile } from './gate.mjs';
 
 const CLIP = '50s: 191px out (#D97757 at x 1288); 3 of 228 replay frames over 2px, worst 308.1px at 47.3 s';
 
@@ -32,13 +32,13 @@ test('red list: used only when frozen on this base (R6-3)', () => {
 });
 test('judgeG2: green on the base and red on the candidate fails even with a red-list entry (R6-3)', () => {
   const det = 'countdown stays past its second: 5s still shown with 4s left';
-  const j = judgeG2({ rows: { c: { pass: true } } }, { rows: { c: { pass: false, detail: det } } }, { base: 'x', entries: [{ id: 'c', detail: det }] });
+  const j = judgeG2({ rows: { c: { pass: true } } }, { rows: { c: { pass: false, detail: det } } });
   assert.deepEqual(j.fails.map(f => f.id), ['c']);
 });
 test('judgeG2: the union of rows; a check with a base result and none on the candidate fails (R6-5)', () => {
-  const j = judgeG2({ rows: { a: { pass: true }, b: { pass: false, detail: 'x 1px' }, c: { pass: true } } }, { rows: { a: { pass: true } } }, null);
+  const j = judgeG2({ rows: { a: { pass: true }, b: { pass: false, detail: 'x 1px' }, c: { pass: true } } }, { rows: { a: { pass: true } } });
   assert.deepEqual(j.fails.map(f => [f.id, f.why]).sort(), [['b', 'no result on the candidate'], ['c', 'no result on the candidate']]);
-  assert.deepEqual(judgeG2({ rows: { a: { pass: true } } }, { rows: {} }, null).fails.map(f => f.id), ['a']);
+  assert.deepEqual(judgeG2({ rows: { a: { pass: true } } }, { rows: {} }).fails.map(f => f.id), ['a']);
 });
 test('scriptKey: two builds of the same scripts give the same keys, counted per kind (R6-6, G-f)', () => {
   const a = ['/_next/static/chunks/0cz1d0mv5g_q7.js', '/_next/static/chunks/turbopack-077hmtqrhcoji.js', '/_next/static/chunks/2-k1bp-mzg57u.js', '/_next/static/chunks/app/page-0123abcd4567.js', '/_next/static/AbC123dEf456/_buildManifest.js'];
@@ -81,4 +81,56 @@ test('judgeDetail R7-1: a countdown read at another second with the same lag is 
   assert.equal(judgeDetail(['countdown stays past its second: 5s still shown with 4s left'], 'countdown stays past its second: 38s still shown with 37s left').worse, false);
   assert.equal(judgeDetail(['fill 50s 85%'], 'fill 50s 40%', 'higher').worse, true);
   assert.equal(judgeDetail(['fill 50s 85%'], 'fill 50s 40%').worse, false, 'a percentage with no declared direction is not judged');
+});
+
+// A fake arm: each call returns the next result of a fixed sequence, or draws from a seeded generator.
+const rng = seed => () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+const DET = 'countdown stays past its second: 6s still shown with 4s left';
+const arm = next => (ids) => ({ rows: Object.fromEntries(ids.map(id => { const p = next(); return [id, p === null ? { pass: false, detail: 'no result (the run ended before it)', missing: true } : { pass: p, detail: p ? '' : DET }]; })) });
+const judge = async (bres, cres, base, cand, red = null) => {
+  const runs = { base: arm(base), cand: arm(cand) }; let calls = 0;
+  const j = await g2Judge({ bres, cres, red, run: async (a, ids) => { calls++; return runs[a](ids); } });
+  return { ...j, calls };
+};
+const seq = xs => { let i = 0; return () => xs[i++ % xs.length]; };
+const one = (pass, detail = DET) => ({ rows: { c: { pass, detail: pass ? '' : detail } } });
+test('g2Judge R7-2: a candidate that always fails a base-flaky check fails, even when the cached base sample is red', async () => {
+  // (a) the cached base sample red, the base flaking every other run after it
+  assert.deepEqual((await judge(one(false), one(false), seq([true, false]), () => false)).fails.map(f => f.id), ['c']);
+  // (b) the cached base sample green, its rerun red
+  assert.deepEqual((await judge(one(true), one(false), seq([false, true]), () => false)).fails.map(f => f.id), ['c']);
+});
+test('g2Judge R7-2: honest — an identical build on a base-flaky check passes', async () => {
+  const j = await judge(one(false), one(false), seq([true, false]), seq([true, false]));
+  assert.deepEqual(j.fails, []);
+});
+test('g2Judge R7-2: a check red on every base sample is still judged by detail (worse fails, the same detail passes)', async () => {
+  assert.deepEqual((await judge(one(false), one(false), () => false, () => false)).fails, []);
+  const worse = await g2Judge({ bres: one(false), cres: one(false, 'countdown stays past its second: 12s still shown with 4s left'), red: null, run: async (a, ids) => ({ rows: { c: { pass: false, detail: a === 'base' ? DET : 'countdown stays past its second: 12s still shown with 4s left' } } }) });
+  assert.deepEqual(worse.fails.map(f => f.rule), ['detail']);
+});
+test(`g2Judge R7-3: the settle counts fresh runs only — an identical build with flake rate 0.5 fails under 5% of settles (seeded Monte Carlo), an always-failing candidate always fails against a green base`, async () => {
+  const r = rng(7); let failed = 0; const N = 1500;
+  // the selection: green on the base sample, red on the candidate's (the case that started a settle)
+  for (let i = 0; i < N; i++) if ((await judge(one(true), one(false), () => r() >= 0.5, () => r() >= 0.5)).fails.length) failed++;
+  assert.ok(failed / N < 0.05, `identical build failed ${failed} of ${N}`);
+  let caught = 0; for (let i = 0; i < 200; i++) if ((await judge(one(true), one(false), () => r() >= 0.02, () => false)).fails.length) caught++;
+  assert.equal(caught, 200);
+  let p25 = 0; for (let i = 0; i < 400; i++) if ((await judge(one(true), one(false), () => r() >= 0.25, () => false)).fails.length) p25++;
+  assert.ok(p25 / 400 > 0.9, `always-failing candidate against a base failing 25%: caught ${p25} of 400`);
+});
+test('g2Judge R7-3: stopping early never changes the verdict; an always-failing candidate stops after five runs a side', () => {
+  for (let cf = 0; cf <= SETTLE_N; cf++) for (let bf = 0; bf <= SETTLE_N; bf++) assert.notEqual(countVerdict(cf, SETTLE_N, bf, SETTLE_N), 'open');
+  assert.equal(countVerdict(5, 5, 0, 5), 'fail', 'an always-failing candidate against a green base is decided after five runs a side');
+  assert.equal(countVerdict(4, 4, 0, 4), 'open');
+  assert.ok(fisherP(6, 6, 0, 6) < 0.01);
+});
+test('g2Judge R7-4: --all — a missing base row is unknown, not a failure: green on the base reruns and red on the candidate fails', async () => {
+  const j = await judge({ rows: {} }, one(false), () => true, () => false);
+  assert.deepEqual(j.fails.map(f => f.id), ['c']);
+});
+test('g2Judge R7-4: a missing candidate row takes its reruns like any red row: green reruns pass, red reruns fail', async () => {
+  const miss = { rows: {} };
+  assert.deepEqual((await judge(one(true), miss, () => true, () => true)).fails, []);
+  assert.deepEqual((await judge(one(true), miss, () => true, () => null)).fails.map(f => f.id), ['c']);
 });

@@ -235,8 +235,9 @@ function runChecks(dir, url, ids) {
   try { out = sh(cmd, { cwd: join(dir, 'web'), env: ENV, timeout: 3 * 3600000 }); }
   catch (e) { out = `${e.stdout ?? ''}`; if (!out.includes('checks passed')) log('checks.mjs ended early:', `${e.stderr ?? ''}`.split('\n').slice(-3).join(' | ')); }
   const rows = parseChecks(out);
-  if (ids) for (const id of ids) rows[id] ??= { pass: false, s: 0, detail: 'no result (the run ended before it)' };
-  return { rows, ms: Date.now() - t0 };
+  const complete = out.includes('\nall checks, in order:\n') && /\n\d+\/\d+ checks passed/.test(out) && (!ids || ids.every(id => rows[id]));
+  if (ids) for (const id of ids) rows[id] ??= { pass: false, s: 0, detail: 'no result (the run ended before it)', missing: true };
+  return { rows, ms: Date.now() - t0, complete };
 }
 // A red check's detail, judged against the base's. The detail lists offenders, "; " apart. An offender's key is its text
 // with the numbers taken out, its figures are the numbers, and its kind is the key with names taken out too (capitalised
@@ -291,21 +292,82 @@ export function judgeDetail(frozen, now, better = null) {
 // The red list, only when it was frozen on this very base: a list frozen on another base says nothing about this one.
 export const redFor = (red, base) => (red && red.base === base ? red : null);
 const readRed = base => { try { return redFor(JSON.parse(readFileSync(join(CORPUS_DIR, 'red-list.json'), 'utf8')), base); } catch { return null; } };
-// Every check either arm has a row for: one with a base result and none on the candidate (its run crashed or timed out
-// before it) fails.
-export function judgeG2(base, cand, red) {
-  const fails = [], notes = [];
+// The first pass: every check either arm has a row for whose candidate result is red or missing (its run crashed or
+// timed out before it) is a suspect. None is passed on one sample: g2Judge reruns each.
+export function judgeG2(base, cand) {
+  const fails = [];
   for (const id of new Set([...Object.keys(base.rows), ...Object.keys(cand.rows)])) {
     const b = base.rows[id], c = cand.rows[id] ?? { pass: false, s: 0, detail: 'no result on the candidate (its run ended before it)', missing: true };
     if (c.pass) continue;
-    if (c.missing) { fails.push({ id, why: 'no result on the candidate', detail: c.detail, missing: true }); continue; }
-    if (!b) { fails.push({ id, why: 'no base result', detail: c.detail }); continue; }
-    if (b.pass) { fails.push({ id, why: 'green on the base, red on the candidate', detail: c.detail }); continue; }
-    const r = red?.entries?.find(e => e.id === id);
-    const j = judgeDetail([r?.detail, b.detail], c.detail, r?.better);
-    (j.worse ? fails : notes).push({ id, why: `red on the base (${r ? 'frozen' : 'not on the red list: judged against this run\'s base'})${j.worse ? ': worse' : ': no worse'}`, detail: c.detail, against: r ? r.detail : b.detail, worse: j.why });
+    if (c.missing) fails.push({ id, why: 'no result on the candidate', detail: c.detail, missing: true });
+    else if (!b || b.missing) fails.push({ id, why: 'no base result', detail: c.detail });
+    else if (b.pass) fails.push({ id, why: 'green on the base, red on the candidate', detail: c.detail });
+    else fails.push({ id, why: 'red on the base', detail: c.detail });
   }
-  return { fails, notes };
+  return { fails };
+}
+// The count rule (review 7, R7-2/R7-3): a check that is not red on every base sample is judged by failure counts over
+// fresh runs only (never the runs that selected it), SETTLE_N per arm, by a one-sided Fisher exact test at SETTLE_ALPHA.
+// Exact sizes: an identical build fails at most 3.4% of settles at any flake rate (1.9% at 0.5); a candidate that always
+// fails is caught every time against a base that never fails, 96% against one failing 25%, 66% against one failing 50%.
+export const SETTLE_N = 6, SETTLE_ALPHA = 0.1;
+const choose = (n, k) => { if (k < 0 || k > n) return 0; let r = 1; for (let i = 1; i <= k; i++) r = r * (n - k + i) / i; return r; };
+// P(the candidate has cf or more of the cf+bf failures | cn and bn runs): small when the candidate fails more.
+export function fisherP(cf, cn, bf, bn) {
+  const t = cf + bf, all = choose(cn + bn, t);
+  let p = 0; for (let x = cf; x <= Math.min(cn, t); x++) p += choose(cn, x) * choose(bn, t - x) / all;
+  return Math.min(1, p);
+}
+const countFails = (cf, cn, bf, bn) => cf > 0 && fisherP(cf, cn, bf, bn) <= SETTLE_ALPHA;
+// The verdict the full SETTLE_N runs per arm will give, or 'open' while the runs still to come could change it (stopping
+// early never changes a verdict, it only saves runs).
+export function countVerdict(cf, cn, bf, bn, n = SETTLE_N) {
+  let fail = false, pass = false;
+  for (let c = cf; c <= cf + Math.max(0, n - cn); c++) for (let b = bf; b <= bf + Math.max(0, n - bn); b++) (countFails(c, Math.max(n, cn), b, Math.max(n, bn)) ? fail = true : pass = true);
+  return fail && pass ? 'open' : fail ? 'fail' : 'pass';
+}
+// G2's verdict over the first base and candidate runs and `run(arm, ids)` for more (each returns { rows }). Every suspect
+// runs once more on each arm. A check red on every base sample (at least two, the red list frozen on this base counting
+// as one) is judged by detail: it fails only if every candidate sample is red and worse. Every other suspect (green on the
+// base, red on some base runs only, a single base sample, or no base row at all: unknown, not a failure, R7-4) goes to the
+// count rule on fresh runs. A missing candidate row counts as a candidate failure; a missing base row counts as nothing.
+export async function g2Judge({ bres, cres, red, run, n = SETTLE_N, stopping = () => false }) {
+  const fails = [], notes = [], incomplete = [];
+  const sus = judgeG2(bres, cres).fails;
+  if (!sus.length) return { fails, notes, incomplete };
+  const ids = sus.map(f => f.id), real = r => r && !r.missing;
+  const b2 = await run('base', ids), c2 = await run('cand', ids);
+  const counted = [];
+  for (const f of sus) {
+    const r = red?.entries?.find(e => e.id === f.id);
+    const baseRows = [bres.rows[f.id], b2.rows[f.id]].filter(real), candRows = [cres.rows[f.id], c2.rows[f.id]].filter(real);
+    f.rerun = { baseDetail: b2.rows[f.id]?.detail, candDetail: c2.rows[f.id]?.detail };
+    if (baseRows.length && baseRows.length + (r ? 1 : 0) >= 2 && baseRows.every(x => !x.pass)) {
+      const baseSaw = [r?.detail, ...baseRows.map(x => x.detail)];
+      const keep = candRows.every(x => !x.pass && judgeDetail(baseSaw, x.detail, r?.better).worse);
+      f.rule = 'detail';
+      (keep ? fails : notes).push({ ...f, why: `${f.why}: red on every base sample (${baseRows.length} run${baseRows.length > 1 ? 's' : ''}${r ? ' and the red list' : ''}), ${keep ? 'and worse on every candidate sample' : 'and the candidate is not worse on every sample'}` });
+    } else counted.push({ ...f, rule: 'count', cf: 0, cn: 0, bf: 0, bn: 0 });
+  }
+  let open = counted;
+  for (let round = 0; open.length && round < n + 2 && !stopping(); round++) {
+    const rb = await run('base', open.map(f => f.id)), rc = await run('cand', open.map(f => f.id));
+    for (const f of open) {
+      const x = rb.rows[f.id], y = rc.rows[f.id];
+      if (real(x)) { f.bn++; if (!x.pass) f.bf++; }
+      f.cn++; if (!y?.pass) f.cf++;
+      f.verdict = f.bn ? countVerdict(f.cf, f.cn, f.bf, f.bn, n) : 'open';
+      if (f.verdict === 'open' && round >= n + 1) f.verdict = f.bn && f.cn ? (countFails(f.cf, f.cn, f.bf, f.bn) ? 'fail' : 'pass') : 'open';
+    }
+    open = open.filter(f => f.verdict === 'open');
+  }
+  for (const f of counted) {
+    const tally = `fresh runs: candidate red ${f.cf} of ${f.cn}, base ${f.bf} of ${f.bn} (p ${f.bn ? fisherP(f.cf, f.cn, f.bf, f.bn).toFixed(3) : '-'})`;
+    if (f.verdict === 'fail') fails.push({ ...f, why: `${f.why}; ${tally}` });
+    else if (f.verdict === 'pass') notes.push({ ...f, why: `${f.why}; ${tally}: not more often than the base` });
+    else incomplete.push({ ...f, why: `${f.why}; ${tally}: not decided` });
+  }
+  return { fails, notes, incomplete };
 }
 
 // ---------- browsers ----------
@@ -512,10 +574,10 @@ function judgeG5(base, cand) {
 
 // ---------- one gate run ----------
 const cacheFile = (sha, what) => join(WORK, 'cache', `${sha}-${what}.json`);
-const cached = async (sha, what, fn) => {
+const cached = async (sha, what, fn, keep = () => true) => {
   const f = cacheFile(sha, what);
   if (existsSync(f)) return JSON.parse(readFileSync(f, 'utf8'));
-  const v = await fn(); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, JSON.stringify(v)); return v;
+  const v = await fn(); if (keep(v)) { mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, JSON.stringify(v)); } return v;
 };
 export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = {}) {
   const base = git(`rev-parse ${baseRef}^{commit}`), cand = git(`rev-parse ${candRef}^{commit}`);
@@ -572,50 +634,15 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
     if (!skip.has('g2')) {
       const key = `g2-${createHash('md5').update(String(ids ?? 'all') + LANES + (SHARED_API ?? `fx${FX_SIZE}`)).digest('hex').slice(0, 8)}`;
       // The checks always run from the base's worktree (they are the base's anyway), on both arms' URLs.
-      const bres = await cached(base, key, () => runChecks(bdir, baseUrl, ids));
+      // A base run that ended early is never cached (R7-4): its missing rows would stand for every candidate after.
+      const bres = await cached(base, key, () => runChecks(bdir, baseUrl, ids), r => r.complete);
       const cres = runChecks(bdir, candUrl, ids);
       const red = readRed(base);
-      let j = judgeG2(bres, cres, red);
-      // Each red result once more on both arms, same lanes: the candidate fails a check only if it fails it more often.
-      const again = j.fails.map(f => f.id);
-      if (again.length) {
-        const b2 = runChecks(bdir, baseUrl, again), c2 = runChecks(bdir, candUrl, again);
-        j.fails = j.fails.filter(f => {
-          const bf = (bres.rows[f.id]?.pass ? 0 : 1) + (b2.rows[f.id]?.pass ? 0 : 1), cf = 1 + (c2.rows[f.id]?.pass ? 0 : 1);
-          f.rerun = { candDetail: c2.rows[f.id]?.detail, baseDetail: b2.rows[f.id]?.detail, baseFails: bf, candFails: cf };
-          const r = red?.entries?.find(e => e.id === f.id);
-          const baseSaw = [r?.detail, bres.rows[f.id]?.pass ? null : bres.rows[f.id]?.detail, b2.rows[f.id]?.pass ? null : b2.rows[f.id]?.detail];
-          // Red on the base in a run: judged by detail (against the base's runs and the frozen detail), and worse on both
-          // candidate runs. Green on both base runs: never judged by a frozen detail.
-          if (f.missing) return true;
-          if (bf > 0) {
-            const keep = !c2.rows[f.id]?.pass && judgeDetail(baseSaw, f.detail, r?.better).worse && judgeDetail(baseSaw, c2.rows[f.id]?.detail, r?.better).worse;
-            if (!keep) j.notes.push({ ...f, why: `${f.why}; red on the base too (${bf} of 2), and the candidate's detail is not worse than the base's on both runs` });
-            return keep;
-          }
-          if (cf > bf + 1) return true; // red on both candidate runs, green on both base runs
-          if (cf > bf) { f.settle = true; return true; } // one candidate flake: settled below
-          j.notes.push({ ...f, why: `${f.why}, but the base failed it as often on the rerun` }); return false;
-        });
-        // A check green on both base runs and red on one of two candidate runs is a flake or an intermittent regression:
-        // two more runs on each arm (four each), and it fails if the candidate fails it at least twice more than the base.
-        // (The base against itself failed clock-after-load this way, 1 of 2 against 0 of 2.)
-        const settle = j.fails.filter(f => f.settle).map(f => f.id);
-        if (settle.length) {
-          const more = [0, 1].map(() => ({ b: runChecks(bdir, baseUrl, settle), c: runChecks(bdir, candUrl, settle) }));
-          j.fails = j.fails.filter(f => {
-            if (!f.settle) return true;
-            delete f.settle;
-            const bf = f.rerun.baseFails + more.filter(m => !m.b.rows[f.id]?.pass).length, cf = f.rerun.candFails + more.filter(m => !m.c.rows[f.id]?.pass).length;
-            f.rerun = { ...f.rerun, baseFails: bf, candFails: cf, runs: 4, moreCandDetails: more.map(m => m.c.rows[f.id]?.detail) };
-            if (cf >= bf + 2) return true;
-            j.notes.push({ ...f, why: `${f.why} once; over four runs each the candidate failed it ${cf} times, the base ${bf}` }); return false;
-          });
-        }
-      }
+      const j = await g2Judge({ bres, cres, red, run: async (arm, only) => runChecks(bdir, arm === 'base' ? baseUrl : candUrl, only) });
       rehash('after G2');
-      gates.g2 = { pass: !j.fails.length, checks: Object.keys(cres.rows).length, baseChecks: Object.keys(bres.rows).length, redList: red ? 'frozen on this base' : 'none for this base', baseRed: Object.entries(bres.rows).filter(([, r]) => !r.pass).map(([id]) => id), fails: j.fails, notes: j.notes, ms: { base: bres.ms, cand: cres.ms } };
-      if (!gates.g2.pass) reasons.push(`g2: ${j.fails.map(f => `${f.id} (${f.detail.slice(0, 140)})`).join('; ')}`);
+      if (j.incomplete.length && !j.fails.length) { v.status ??= 'incomplete'; reasons.push(`g2 not decided: ${j.incomplete.map(f => f.id).join(', ')}`); }
+      gates.g2 = { pass: !j.fails.length && !j.incomplete.length, incomplete: j.incomplete, checks: Object.keys(cres.rows).length, baseChecks: Object.keys(bres.rows).length, redList: red ? 'frozen on this base' : 'none for this base', baseRed: Object.entries(bres.rows).filter(([, r]) => !r.pass).map(([id]) => id), fails: j.fails, notes: j.notes, ms: { base: bres.ms, cand: cres.ms } };
+      if (j.fails.length) reasons.push(`g2: ${j.fails.map(f => `${f.id} (${f.detail.slice(0, 140)})`).join('; ')}`);
     }
     log('g5');
     if (!skip.has('g5')) {
