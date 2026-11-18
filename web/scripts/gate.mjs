@@ -329,7 +329,7 @@ export function judgeG2(base, cand) {
 }
 // The count rule (review 7, R7-2/R7-3): a check that is not red on every base sample is judged by failure counts over
 // fresh runs only (never the runs that selected it), SETTLE_N per arm, by a one-sided Fisher exact test at SETTLE_ALPHA.
-// Exact sizes: an identical build fails at most 3.4% of settles at any flake rate (1.9% at 0.5); a candidate that always
+// Exact sizes: an identical build fails at most 3.4% of settles at any flake rate (2.9% at 0.5); a candidate that always
 // fails is caught every time against a base that never fails, 96% against one failing 25%, 66% against one failing 50%.
 export const SETTLE_N = 6, SETTLE_ALPHA = 0.1;
 const choose = (n, k) => { if (k < 0 || k > n) return 0; let r = 1; for (let i = 1; i <= k; i++) r = r * (n - k + i) / i; return r; };
