@@ -140,11 +140,13 @@ const freePort = async port => { try { sh(`fuser -k ${port}/tcp`); } catch { /* 
 
 // ---------- engines: the mock model, and one fixture engine per arm (G-e) ----------
 const GO_ENV = Object.fromEntries(['GOPATH', 'GOCACHE', 'GOMODCACHE', 'GOFLAGS', 'GOPROXY', 'GOTOOLCHAIN'].filter(k => process.env[k]).map(k => [k, process.env[k]]));
+// uv resolves the mock model's requirements through the machine's proxy: its CA settings, and nothing else, pass through.
+const TLS_ENV = Object.fromEntries(['SSL_CERT_FILE', 'UV_NATIVE_TLS', 'REQUESTS_CA_BUNDLE', 'UV_CACHE_DIR'].filter(k => process.env[k]).map(k => [k, process.env[k]]));
 // The mock model from the base's llm/ (pinned), seeded as the fixture's serve.sh seeds it.
 async function startModel(bdir) {
   await freePort(LLM_PORT);
   servers.push(spawn('uv', ['run', '--quiet', '--no-project', '--with-requirements', 'requirements.txt', 'python', '-m', 'uvicorn', 'app:app', '--host', '127.0.0.1', '--port', String(LLM_PORT), '--log-level', 'warning'],
-    { cwd: join(bdir, 'llm'), env: { ...ENV, LLM_PROVIDER: 'mock', MOCK_SEED: '7' }, stdio: 'ignore', detached: true }));
+    { cwd: join(bdir, 'llm'), env: { ...ENV, ...TLS_ENV, LLM_PROVIDER: 'mock', MOCK_SEED: '7' }, stdio: 'ignore', detached: true }));
   await waitUp(`http://127.0.0.1:${LLM_PORT}/health`, 'the mock model');
   return `http://127.0.0.1:${LLM_PORT}`;
 }
@@ -362,11 +364,11 @@ async function uaGate(baseUrl, candUrl) {
 }
 
 // ---------- LCP: real content no later, and no moved LCP element without it ----------
-const LCP_WATCH = sel => {
+const LCP_WATCH = sels => {
   const path = e => { const parts = []; for (; e && e !== document.body && e.nodeType === 1; e = e.parentElement) parts.unshift(e.tagName.toLowerCase() + (e.id ? `#${CSS.escape(e.id)}` : '') + e.getAttributeNames().filter(a => a.startsWith('data-')).map(a => `[${a}]`).join('')); return parts.join(' > '); };
-  const w = window.__gateLcp = { entries: [], seen: null };
+  const w = window.__gateLcp = { entries: [], seen: {} };
   new PerformanceObserver(l => { for (const e of l.getEntries()) w.entries.push({ t: e.startTime, size: e.size, sel: e.element ? path(e.element) : null }); }).observe({ type: 'largest-contentful-paint', buffered: true });
-  if (!sel) return;
+  if (!sels?.length) return;
   const shown = e => {
     const r = e.getBoundingClientRect(); if (r.width < 1 || r.height < 1 || r.bottom <= 0 || r.top >= innerHeight) return false;
     if (!(e.textContent || '').trim() && !(e.tagName === 'IMG' && e.complete)) return false;
@@ -374,52 +376,71 @@ const LCP_WATCH = sel => {
     return o >= 0.99;
   };
   const tick = () => {
-    if (w.seen !== null || performance.now() > 20000) return;
-    if (document.body && [...document.querySelectorAll(sel)].some(shown)) { w.seen = performance.now(); return; }
-    requestAnimationFrame(tick);
+    if (performance.now() > 20000) return;
+    for (const sel of sels) if (!(sel in w.seen) && document.body && [...document.querySelectorAll(sel)].some(shown)) w.seen[sel] = performance.now();
+    if (Object.keys(w.seen).length < sels.length) requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
 };
-async function lcpLoad(b, url, sel) {
+async function lcpLoad(b, url, sels) {
   const p = await b.newPage();
   try {
     await hideWebdriver(p); await p.setUserAgent(PHONE_UA);
     await p.setViewport({ width: 412, height: 823, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true });
     const c = await p.createCDPSession(); await c.send('Emulation.setCPUThrottlingRate', { rate: 4 });
-    await p.evaluateOnNewDocument(`(${LCP_WATCH})(${JSON.stringify(sel)})`);
+    await p.evaluateOnNewDocument(`(${LCP_WATCH})(${JSON.stringify(sels)})`);
     await p.goto(url, { waitUntil: 'load', timeout: 120000 });
-    await p.waitForFunction(() => window.__gateLcp.seen !== null || performance.now() > 20000, { timeout: 60000, polling: 200 }).catch(() => {});
+    // With elements to watch: until each has shown (or 20 s). Without (a probe): 8 s, for the LCP entries to settle.
+    await p.waitForFunction(n => n ? Object.keys(window.__gateLcp.seen).length >= n || performance.now() > 20000 : performance.now() > 8000, { timeout: 60000, polling: 200 }, sels?.length ?? 0).catch(() => {});
     await sleep(500);
-    const r = await p.evaluate(() => { const w = window.__gateLcp, last = w.entries.at(-1); return { lcp: last ? Math.round(last.t) : null, sel: last?.sel ?? null, seen: w.seen === null ? null : Math.round(w.seen) }; });
+    const r = await p.evaluate(() => { const w = window.__gateLcp, last = w.entries.at(-1); return { lcp: last ? Math.round(last.t) : null, sel: last?.sel ?? null, seen: Object.fromEntries(Object.entries(w.seen).map(([k, v]) => [k, Math.round(v)])) }; });
     return r;
   } finally { await p.close(); }
 }
 const median = xs => { const s = xs.filter(x => x !== null).sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
 const mode = xs => { const m = new Map(); xs.forEach(x => m.set(x, (m.get(x) ?? 0) + 1)); return [...m].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null; };
-// The pairs alternate which arm loads first, both arms get the same warm-up, and a base-against-base pair (a second base
-// load in the same pair) measures this run's own A/A noise: the candidate fails only if its median paired delay passes
-// max(300 ms, 20% of the base's median, the A/A band's high edge), the band being the A/A deltas' 10th to 90th percentile.
+// The base's LCP element is not one element: from load to load it is the caption's model name or a seat's text on the
+// felt. So every element that was the base's LCP in a probe is watched, in every load. The pairs alternate which arm
+// loads first, both arms get the same warm-up, and a base-against-base load in each pair measures this run's own A/A
+// noise: the candidate fails if any watched element's median paired delay passes max(300 ms, 20% of its base median,
+// the high edge of its A/A band, the 10th to 90th percentile of its A/A deltas), or if its LCP element is one the base
+// never had and the base's content does not show sooner (the opacity trick: hide the LCP element, the score rises).
 export const quantile = (xs, q) => { const s = xs.filter(x => x !== null && x !== undefined).sort((a, b) => a - b); if (!s.length) return null; const i = (s.length - 1) * q, lo = Math.floor(i); return s[lo] + (s[Math.ceil(i)] - s[lo]) * (i - lo); };
 async function lcpGate(baseUrl, candUrl, n = +arg('--lcp-pairs', 6)) {
   const b = await browser(['--disable-blink-features=AutomationControlled']);
   try {
-    const probe = [await lcpLoad(b, baseUrl, null), await lcpLoad(b, candUrl, null), await lcpLoad(b, baseUrl, null), await lcpLoad(b, candUrl, null)];
-    const sel = mode([probe[0], probe[2]].map(r => r.sel));
-    if (!sel) return { pass: false, why: ['the base reported no LCP element'] };
+    const probe = [];
+    for (let i = 0; i < 3; i++) for (const [arm, url] of i % 2 ? [['cand', candUrl], ['base', baseUrl]] : [['base', baseUrl], ['cand', candUrl]]) probe.push({ arm, ...(await lcpLoad(b, url, null)) });
+    const sels = [...new Set(probe.filter(r => r.arm === 'base' && r.sel).map(r => r.sel))];
+    if (!sels.length) return { pass: false, why: ['the base reported no LCP element'] };
     const runs = { base: [], cand: [], base2: [] }, pairs = [];
     for (let i = 0; i < n; i++) {
       const order = i % 2 ? ['cand', 'base', 'base2'] : ['base2', 'base', 'cand'], got = {};
-      for (const arm of order) { got[arm] = await lcpLoad(b, arm === 'cand' ? candUrl : baseUrl, sel); runs[arm].push(got[arm]); }
-      pairs.push({ order: order.join(','), delta: got.cand.seen !== null && got.base.seen !== null ? got.cand.seen - got.base.seen : null, aa: got.base2.seen !== null && got.base.seen !== null ? got.base2.seen - got.base.seen : null });
+      for (const arm of order) { got[arm] = await lcpLoad(b, arm === 'cand' ? candUrl : baseUrl, sels); runs[arm].push(got[arm]); }
+      pairs.push({ order: order.join(','), got: Object.fromEntries(order.map(a => [a, got[a].seen])) });
     }
-    const bm = median(runs.base.map(r => r.seen)), cm = median(runs.cand.map(r => r.seen)), dm = median(pairs.map(p => p.delta));
-    const aa = pairs.map(p => p.aa), band = [quantile(aa, 0.1), quantile(aa, 0.9)].map(x => x === null ? null : Math.round(x));
-    const margin = Math.max(300, 0.2 * (bm ?? 0), band[1] ?? 0), why = [];
-    const baseSel = mode([...runs.base, ...runs.base2].map(r => r.sel)), candSel = mode(runs.cand.map(r => r.sel));
-    if (cm === null || runs.cand.filter(r => r.seen === null).length > n / 2) why.push(`the base's LCP element (${sel}) never showed on the candidate in 20 s`);
-    else if (dm !== null && dm > margin) why.push(`the base's LCP element shows ${dm} ms later on the candidate (median of ${n} pairs; base ${bm} ms, candidate ${cm} ms; margin ${Math.round(margin)} ms, A/A band ${band[0]}..${band[1]} ms)`);
-    if (candSel !== baseSel && !(dm !== null && dm < -margin)) why.push(`the LCP element moved (${candSel}) without the base's LCP content showing sooner`);
-    return { pass: !why.length, why, sel, baseSel, candSel, baseSeenMs: bm, candSeenMs: cm, medianDeltaMs: dm, aaBandMs: band, aaMedianMs: median(aa), marginMs: Math.round(margin), pairs, baseLcpMs: median(runs.base.map(r => r.lcp)), candLcpMs: median(runs.cand.map(r => r.lcp)), runs };
+    // Judged: the watched elements that showed within 10 s in every base load (the caption, a seat's text). One that comes
+    // and goes with the hand (the pot) is reported, never judged.
+    const stable = sel => [...runs.base, ...runs.base2].every(r => r.seen[sel] != null && r.seen[sel] < 10000);
+    const judged = sels.filter(stable);
+    if (!judged.length) return { pass: false, why: ['no LCP element of the base showed within 10 s in every base load'], sels, runs, probe };
+    const why = [], per = {};
+    for (const sel of sels) {
+      const d = pairs.map(p => p.got.cand[sel] != null && p.got.base[sel] != null ? p.got.cand[sel] - p.got.base[sel] : null);
+      const aa = pairs.map(p => p.got.base2[sel] != null && p.got.base[sel] != null ? p.got.base2[sel] - p.got.base[sel] : null);
+      const bm = median(runs.base.map(r => r.seen[sel] ?? null)), cm = median(runs.cand.map(r => r.seen[sel] ?? null)), dm = median(d);
+      const band = [quantile(aa, 0.1), quantile(aa, 0.9)].map(x => x === null ? null : Math.round(x)), margin = Math.max(300, 0.2 * (bm ?? 0), band[1] ?? 0);
+      per[sel] = { judged: judged.includes(sel), baseSeenMs: bm, candSeenMs: cm, medianDeltaMs: dm, aaBandMs: band, aaMedianMs: median(aa), marginMs: Math.round(margin) };
+      if (!judged.includes(sel)) continue;
+      const missing = runs.cand.filter(r => r.seen[sel] == null).length, baseMissing = runs.base.filter(r => r.seen[sel] == null).length;
+      if (missing > baseMissing + 1 || (cm === null && bm !== null)) why.push(`the base's LCP element ${sel} did not show within 20 s on the candidate in ${missing} of ${n} loads (base ${baseMissing})`);
+      else if (dm !== null && dm > margin) why.push(`the base's LCP element ${sel} shows ${dm} ms later on the candidate (median of ${n} pairs; base ${bm} ms, candidate ${cm} ms; margin ${Math.round(margin)} ms, A/A band ${band[0]}..${band[1]} ms)`);
+    }
+    const baseSels = new Set([...sels, ...runs.base.map(r => r.sel), ...runs.base2.map(r => r.sel)].filter(Boolean)), candSel = mode(runs.cand.map(r => r.sel));
+    const sooner = Object.values(per).some(x => x.judged && x.medianDeltaMs !== null && x.medianDeltaMs < -x.marginMs);
+    if (candSel && !baseSels.has(candSel) && !sooner) why.push(`the LCP element moved (${candSel}) without the base's LCP content showing sooner`);
+    const aaAll = pairs.flatMap(p => judged.map(sel => p.got.base2[sel] != null && p.got.base[sel] != null ? p.got.base2[sel] - p.got.base[sel] : null));
+    return { pass: !why.length, why, sels, judged, baseSels: [...baseSels], candSel, perElement: per, aaBandMs: [quantile(aaAll, 0.1), quantile(aaAll, 0.9)].map(x => x === null ? null : Math.round(x)), pairs, baseLcpMs: median(runs.base.map(r => r.lcp)), candLcpMs: median(runs.cand.map(r => r.lcp)), runs, probe };
   } finally { await b.close(); }
 }
 
