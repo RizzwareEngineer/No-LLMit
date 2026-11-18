@@ -153,7 +153,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
               strokeDasharray={C} className="motion-safe:transition-[stroke-dashoffset] motion-safe:duration-1000 motion-safe:ease-linear" />
           </svg>
         )}
-        <a href={modelHref(player.name)} aria-label={player.name} aria-haspopup={onOpen ? 'dialog' : undefined}
+        <a data-lcp="seat-logo" href={modelHref(player.name)} aria-label={player.name} aria-haspopup={onOpen ? 'dialog' : undefined}
           onClick={e => { if (onOpen && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); onOpen(); } }} className="absolute pointer-events-auto rounded-full bg-white flex items-center justify-center" style={{ left: ox - LOGO / 2, top: oy - LOGO / 2, width: LOGO, height: LOGO, ...LOGO_RIM }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {logo ? <img src={logo} alt="" width={28} height={28} /> : <span className="text-[13px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{player.name.slice(0, 2).toUpperCase()}</span>}
@@ -166,10 +166,10 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           </div>
         )}
         <div className={`absolute flex flex-col ${tb[0] > 0 ? 'items-start' : tb[2] < 0 ? 'items-end' : 'items-center'} pointer-events-auto tabular-nums whitespace-nowrap`} style={{ left: ox + tb[0], top: oy + tb[1], width: tb[2] - tb[0] }}>
-          <div data-chips={player.stack} className="text-[12px] leading-[14px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(player.stack, bb)}</div>
+          <div data-lcp="seat-stack" data-chips={player.stack} className="text-[12px] leading-[14px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(player.stack, bb)}</div>
           {isWinner
-            ? <div data-label data-chips={winAmount} className="text-[11px] leading-[14px] font-bold" style={{ color: 'rgb(15, 123, 108)' }} aria-label={`won ${formatAmount(winAmount, bb)}, ${winDesc}`}>+{formatAmount(winAmount, bb)}</div>
-            : <div data-label className="text-[11px] leading-[14px]" style={{ color: MUTED }}>{seatLabel(player.name)}</div>}
+            ? <div data-label data-lcp="seat-label" data-chips={winAmount} className="text-[11px] leading-[14px] font-bold" style={{ color: 'rgb(15, 123, 108)' }} aria-label={`won ${formatAmount(winAmount, bb)}, ${winDesc}`}>+{formatAmount(winAmount, bb)}</div>
+            : <div data-label data-lcp="seat-label" className="text-[11px] leading-[14px]" style={{ color: MUTED }}>{seatLabel(player.name)}</div>}
         </div>
         <div className="absolute pointer-events-auto" style={{ left: ox + c[0] - 30, top: oy + c[1] - 20 }}>{hole}</div>
         {/* The action, for a moment, on the seat's side away from the middle, where its cards never are: over the logo

@@ -157,6 +157,7 @@ export function Caption({ displayState, blank = false, turnKey }: { displayState
       ref={ref}
       type="button"
       data-caption
+      data-lcp="caption"
       onClick={() => reason && setOpen(expanded ? null : `${turnKey}|${reason}`)}
       aria-expanded={reason ? expanded : undefined}
       className={`w-full min-h-[76px] text-left bg-white rounded px-3 py-2 ${blank ? '[&>*]:invisible' : ''}`}
@@ -165,7 +166,7 @@ export function Caption({ displayState, blank = false, turnKey }: { displayState
       <span className="sr-only" aria-live="polite">{shown && action ? `${d.playerName}: ${said}.${reason ? ` ${reason}` : ''}` : ''}</span>
       <span className="flex items-center gap-1.5 h-5 text-[13px] whitespace-nowrap min-w-0">
         {d ? <LLMLogo model={d.playerName} size={16} /> : null}
-        <span className="font-bold truncate">{d ? d.playerName : 'Waiting for the next action…'}</span>
+        <span data-lcp="caption-name" className="font-bold truncate">{d ? d.playerName : 'Waiting for the next action…'}</span>
         {action && (
           <span className="flex items-center gap-1 shrink-0 text-[12px]">
             <span className="uppercase font-bold tracking-wider">{action.replace('_', '-')}</span>
@@ -175,6 +176,7 @@ export function Caption({ displayState, blank = false, turnKey }: { displayState
       </span>
       {/* The second line fades out at its end when a long reason is cut (the mask's bottom line). */}
       <span
+        data-lcp="caption-reason"
         className={`block mt-1 text-[13px] leading-[18px] italic ${expanded ? '' : 'line-clamp-2'}`}
         style={!expanded && reason && reason.length > 70 ? { maskImage: 'linear-gradient(#000, #000) top / 100% calc(100% - 18px) no-repeat, linear-gradient(to right, #000 55%, transparent) bottom / 100% 18px no-repeat' } : undefined}
       >

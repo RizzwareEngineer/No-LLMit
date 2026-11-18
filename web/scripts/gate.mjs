@@ -467,14 +467,24 @@ async function uaGate(baseUrl, candUrl) {
 }
 
 // ---------- LCP: real content no later, and no moved LCP element without it ----------
+// What an LCP element is watched by (review 7, R7-7: the full ancestor path failed an honest change that dropped a
+// wrapper div as "did not show"): its nearest data-lcp mark (the caption, its model name and reason, a phone seat's logo,
+// stack and label carry one; invisible), else its own tag and data- marks under the nearest ancestor with an id.
+export function lcpHook(e) {
+  const m = e.closest('[data-lcp]');
+  if (m) return `[data-lcp="${m.getAttribute('data-lcp')}"]`;
+  const own = e.tagName.toLowerCase() + e.getAttributeNames().filter(a => a.startsWith('data-')).map(a => `[${a}]`).join('');
+  for (let x = e.parentElement; x && x.tagName !== 'BODY' && x.tagName !== 'HTML'; x = x.parentElement) if (x.id) return `#${x.id} ${own}`;
+  return own;
+}
 const LCP_WATCH = sels => {
-  const path = e => { const parts = []; for (; e && e !== document.body && e.nodeType === 1; e = e.parentElement) parts.unshift(e.tagName.toLowerCase() + (e.id ? `#${CSS.escape(e.id)}` : '') + e.getAttributeNames().filter(a => a.startsWith('data-')).map(a => `[${a}]`).join('')); return parts.join(' > '); };
+  const path = e => window.__lcpHook(e);
   const w = window.__gateLcp = { entries: [], seen: {} };
   new PerformanceObserver(l => { for (const e of l.getEntries()) w.entries.push({ t: e.startTime, size: e.size, sel: e.element ? path(e.element) : null }); }).observe({ type: 'largest-contentful-paint', buffered: true });
   if (!sels?.length) return;
   const shown = e => {
     const r = e.getBoundingClientRect(); if (r.width < 1 || r.height < 1 || r.bottom <= 0 || r.top >= innerHeight) return false;
-    if (!(e.textContent || '').trim() && !(e.tagName === 'IMG' && e.complete)) return false;
+    if (!(e.textContent || '').trim() && !(e.tagName === 'IMG' && e.complete) && !e.querySelector('img')?.complete) return false;
     let o = 1; for (let x = e; x && x.nodeType === 1; x = x.parentElement) { const c = getComputedStyle(x); if (c.display === 'none' || c.visibility === 'hidden') return false; o *= +c.opacity; }
     return o >= 0.99;
   };
@@ -491,7 +501,7 @@ async function lcpLoad(b, url, sels) {
     await hideWebdriver(p); await p.setUserAgent(PHONE_UA);
     await p.setViewport({ width: 412, height: 823, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true });
     const c = await p.createCDPSession(); await c.send('Emulation.setCPUThrottlingRate', { rate: 4 });
-    await p.evaluateOnNewDocument(`(${LCP_WATCH})(${JSON.stringify(sels)})`);
+    await p.evaluateOnNewDocument(`window.__lcpHook = ${lcpHook}; (${LCP_WATCH})(${JSON.stringify(sels)})`);
     await p.goto(url, { waitUntil: 'load', timeout: 120000 });
     // With elements to watch: until each has shown (or 20 s). Without (a probe): 8 s, for the LCP entries to settle.
     await p.waitForFunction(n => n ? Object.keys(window.__gateLcp.seen).length >= n || performance.now() > 20000 : performance.now() > 8000, { timeout: 60000, polling: 200 }, sels?.length ?? 0).catch(() => {});
@@ -515,7 +525,8 @@ async function lcpGate(baseUrl, candUrl, n = +arg('--lcp-pairs', 6)) {
     const probe = [];
     for (let i = 0; i < 3; i++) for (const [arm, url] of i % 2 ? [['cand', candUrl], ['base', baseUrl]] : [['base', baseUrl], ['cand', candUrl]]) probe.push({ arm, ...(await lcpLoad(b, url, null)) });
     const sels = [...new Set(probe.filter(r => r.arm === 'base' && r.sel).map(r => r.sel))];
-    if (!sels.length) return { pass: false, why: ['the base reported no LCP element'] };
+    // Nothing of the base's to judge is not a pass and not the candidate's failure: incomplete.
+    if (!sels.length) return { pass: false, incomplete: true, why: ['the base reported no LCP element (nothing judged)'] };
     const runs = { base: [], cand: [], base2: [] }, pairs = [];
     for (let i = 0; i < n; i++) {
       const order = i % 2 ? ['cand', 'base', 'base2'] : ['base2', 'base', 'cand'], got = {};
@@ -526,7 +537,7 @@ async function lcpGate(baseUrl, candUrl, n = +arg('--lcp-pairs', 6)) {
     // and goes with the hand (the pot) is reported, never judged.
     const stable = sel => [...runs.base, ...runs.base2].every(r => r.seen[sel] != null && r.seen[sel] < 10000);
     const judged = sels.filter(stable);
-    if (!judged.length) return { pass: false, why: ['no LCP element of the base showed within 10 s in every base load'], sels, runs, probe };
+    if (!judged.length) return { pass: false, incomplete: true, why: ['no LCP element of the base showed within 10 s in every base load (nothing judged)'], sels, runs, probe };
     const why = [], per = {};
     for (const sel of sels) {
       const d = pairs.map(p => p.got.cand[sel] != null && p.got.base[sel] != null ? p.got.cand[sel] - p.got.base[sel] : null);

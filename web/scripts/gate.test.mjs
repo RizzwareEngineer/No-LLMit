@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { srcRoot, readSrc, layoutOf, promptLinesOf } from './check-src.mjs';
 import assert from 'node:assert/strict';
-import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptCounts, checksEnv, Ledger, uaDiff, uaExtra, quantile } from './gate.mjs';
+import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptCounts, checksEnv, Ledger, lcpHook, uaDiff, uaExtra, quantile } from './gate.mjs';
 
 const CLIP = '50s: 191px out (#D97757 at x 1288); 3 of 228 replay frames over 2px, worst 308.1px at 47.3 s';
 
@@ -188,4 +188,22 @@ test('ledger R7-6: regressions — a forged base G2 cache, a patched axe, a slow
   writeFileSync(join(d, 'next/chunk.js'), 'while(Date.now()<t+900);a');
   writeFileSync(join(d, 'cache/g5.json'), '{}');
   assert.deepEqual(l.check(join(d, 'cache'), known), ['base .next: changed', 'tools: changed', 'cache g2: changed', `${join(d, 'cache/g5.json')}: not written by the gate`]);
+});
+
+// A minimal element: tag, attributes, parent; closest() for an attribute selector only.
+const el = (tag, attrs = {}, parent = null) => ({ tagName: tag.toUpperCase(), id: attrs.id ?? '', parentElement: parent, getAttribute: k => attrs[k] ?? null, getAttributeNames: () => Object.keys(attrs),
+  closest(sel) { const k = sel.slice(1, -1); for (let x = this; x; x = x.parentElement) if (x.getAttributeNames().includes(k)) return x; return null; } });
+test('lcp R7-7: honest — removing a wrapper div above the caption keeps the hook', () => {
+  const body = el('body'), main = el('main', {}, body);
+  const withWrap = el('span', {}, el('span', { 'data-lcp': 'caption-name' }, el('span', {}, el('button', { 'data-caption': '', 'data-lcp': 'caption' }, el('div', {}, el('div', {}, main))))));
+  const noWrap = el('span', {}, el('span', { 'data-lcp': 'caption-name' }, el('span', {}, el('button', { 'data-caption': '', 'data-lcp': 'caption' }, main))));
+  assert.equal(lcpHook(withWrap), '[data-lcp="caption-name"]');
+  assert.equal(lcpHook(noWrap), lcpHook(withWrap));
+  // unmarked: tag and own marks under the nearest id, whatever lies between
+  const a = el('p', { 'data-x': '' }, el('div', {}, el('section', { id: 'about' }, body))), b = el('p', { 'data-x': '' }, el('section', { id: 'about' }, body));
+  assert.equal(lcpHook(a), '#about p[data-x]'); assert.equal(lcpHook(a), lcpHook(b));
+});
+test('lcp R7-7: regression — another element (the opacity trick moves the LCP to a seat) has another hook', () => {
+  const body = el('body');
+  assert.notEqual(lcpHook(el('div', { 'data-lcp': 'seat-stack' }, body)), lcpHook(el('span', { 'data-lcp': 'caption-name' }, body)));
 });
