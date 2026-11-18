@@ -239,13 +239,23 @@ export const checksEnv = src => ({ ...ENV, CHECKS_SRC: join(src, 'web/src') });
 // execSync held SIGTERM for up to the run's 3 h, and after a Ctrl-C the synchronous reruns started first).
 const children = new Set();
 let stopping = null; // the signal that is stopping the gate
-const killChildren = () => { for (const c of children) { try { process.kill(-c.pid, 'SIGKILL'); } catch { /* gone */ } } };
+// A child's whole tree, taken before anything is killed: checks.mjs's Chrome runs in a process group of its own (puppeteer
+// starts it detached), so killing the checks' group left it running (found by the R7-8 proof).
+const treeOf = pid => {
+  let rows = [];
+  try { rows = execSync('ps -eo pid=,ppid=', { encoding: 'utf8' }).trim().split('\n').map(l => l.trim().split(/\s+/).map(Number)); } catch { /* no ps */ }
+  const out = [pid], walk = p => { for (const [k, pp] of rows) if (pp === p) { out.push(k); walk(k); } };
+  walk(pid);
+  return out;
+};
+const killTree = pid => { for (const p of treeOf(pid)) { for (const t of [-p, p]) { try { process.kill(t, 'SIGKILL'); } catch { /* gone, or not a group */ } } } };
+const killChildren = () => { for (const c of children) killTree(c.pid); };
 const shAsync = (cmd, opts) => new Promise(done => {
   const c = spawn('bash', ['-c', cmd], { ...opts, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   children.add(c);
   let out = '', err = '';
   c.stdout.on('data', d => { out += d; }); c.stderr.on('data', d => { err += d; });
-  const t = setTimeout(() => { try { process.kill(-c.pid, 'SIGKILL'); } catch { /* gone */ } }, opts.timeout ?? 3 * 3600000);
+  const t = setTimeout(() => killTree(c.pid), opts.timeout ?? 3 * 3600000);
   c.on('close', code => { clearTimeout(t); children.delete(c); done({ code, out, err }); });
 });
 async function runChecks(dir, url, ids, src = dir) {
@@ -607,17 +617,29 @@ function lighthouse(url) {
   }
   return out;
 }
-function judgeG5(base, cand) {
-  const why = [];
-  // The live page's content changes between loads (which reason shows, who folded), and color-contrast's node count with
-  // it (1 to 9 on the base's own phone loads). So on the live page a rule fails if it is new on a state, or its nodes
-  // pass twice the base's plus 5; the exact axe judgement is G2's a11y-axe, on a scripted stream.
+// The live page's content changes between loads (which reason shows, who folded), and color-contrast with it: axe's node
+// count (1 to 9 on the base's own phone loads), and whether Lighthouse's color-contrast audit fails at all (review 7: the
+// base against itself failed G5 on it, 100 -> 96 on the home page). So on the live page an axe rule fails if it is new on
+// a state, or its nodes pass twice the base's plus 5; Lighthouse's color-contrast audit, and an accessibility score drop
+// that comes with it and no other newly failing audit, are notes; every other newly failing audit and every other score
+// drop fails. The exact colour judgement is G2's a11y-axe, on a scripted stream.
+export const LIVE_NOISE = new Set(['color-contrast']);
+export function judgeG5(base, cand) {
+  const why = [], notes = [];
   for (const [k, n] of Object.entries(cand.axe)) if (!(k in base.axe) || n > 2 * base.axe[k] + 5) why.push(`axe ${k}: ${n} nodes, base ${base.axe[k] ?? 0}`);
+  const added = k => (cand.lh[k] ?? []).filter(x => !base.lh[k]?.includes(x));
   for (const [k, s] of Object.entries(cand.lh)) {
-    if (Array.isArray(s)) { const add = s.filter(x => !base.lh[k]?.includes(x)); if (add.length) why.push(`lighthouse ${k}: ${add.join(', ')}`); }
-    else if (s < (base.lh[k] ?? 0)) why.push(`lighthouse ${k}: ${s}, base ${base.lh[k]}`);
+    if (Array.isArray(s)) {
+      const add = added(k), real = add.filter(x => !LIVE_NOISE.has(x));
+      if (real.length) why.push(`lighthouse ${k}: ${real.join(', ')}`);
+      if (add.length > real.length) notes.push(`lighthouse ${k}: ${add.filter(x => LIVE_NOISE.has(x)).join(', ')} (live-page content, not judged)`);
+    } else if (s < (base.lh[k] ?? 0)) {
+      const [path, cat] = [k.slice(0, k.lastIndexOf(' ')), k.slice(k.lastIndexOf(' ') + 1)], add = added(`${path} failing`);
+      if (cat === 'accessibility' && add.length && add.every(x => LIVE_NOISE.has(x))) notes.push(`lighthouse ${k}: ${s}, base ${base.lh[k]}, with only ${add.join(', ')} newly failing (live-page content, not judged)`);
+      else why.push(`lighthouse ${k}: ${s}, base ${base.lh[k]}`);
+    }
   }
-  return { pass: !why.length, why };
+  return { pass: !why.length, why, notes };
 }
 
 // ---------- one gate run ----------

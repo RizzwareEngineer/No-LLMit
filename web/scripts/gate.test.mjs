@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { srcRoot, readSrc, layoutOf, promptLinesOf } from './check-src.mjs';
 import assert from 'node:assert/strict';
-import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptCounts, checksEnv, Ledger, lcpHook, uaDiff, uaExtra, quantile } from './gate.mjs';
+import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptCounts, checksEnv, Ledger, lcpHook, judgeG5, uaDiff, uaExtra, quantile } from './gate.mjs';
 
 const CLIP = '50s: 191px out (#D97757 at x 1288); 3 of 228 replay frames over 2px, worst 308.1px at 47.3 s';
 
@@ -206,4 +206,20 @@ test('lcp R7-7: honest — removing a wrapper div above the caption keeps the ho
 test('lcp R7-7: regression — another element (the opacity trick moves the LCP to a seat) has another hook', () => {
   const body = el('body');
   assert.notEqual(lcpHook(el('div', { 'data-lcp': 'seat-stack' }, body)), lcpHook(el('span', { 'data-lcp': 'caption-name' }, body)));
+});
+
+// The base against itself (control-aa-1.json): Lighthouse's color-contrast came and went with the live page.
+const LH_BASE = { '/ accessibility': 100, '/ seo': 100, '/ failing': [], '/about accessibility': 92, '/about seo': 100, '/about failing': ['color-contrast', 'target-size'] };
+const AXE = { '/ 390x844 color-contrast': 9, '/ 1440x900 color-contrast': 85 };
+test('G5: honest — the same build whose live page fails color-contrast on one load (100 -> 96) passes, with a note', () => {
+  const j = judgeG5({ axe: AXE, lh: LH_BASE }, { axe: { '/ 390x844 color-contrast': 1, '/ 1440x900 color-contrast': 69 }, lh: { ...LH_BASE, '/ accessibility': 96, '/ failing': ['color-contrast'] } });
+  assert.equal(j.pass, true); assert.equal(j.notes.length, 2);
+});
+test('G5: regressions — another newly failing audit, a score drop with no new failing audit, an SEO drop, a new axe rule all fail', () => {
+  const lh = c => judgeG5({ axe: AXE, lh: LH_BASE }, { axe: AXE, lh: { ...LH_BASE, ...c } });
+  assert.equal(lh({ '/ accessibility': 90, '/ failing': ['color-contrast', 'image-alt'] }).pass, false);
+  assert.deepEqual(lh({ '/ accessibility': 90, '/ failing': ['color-contrast', 'image-alt'] }).why, ['lighthouse / accessibility: 90, base 100', 'lighthouse / failing: image-alt']);
+  assert.equal(lh({ '/ accessibility': 96 }).pass, false);
+  assert.equal(lh({ '/ seo': 92, '/ failing': ['color-contrast'] }).pass, false);
+  assert.equal(judgeG5({ axe: AXE, lh: LH_BASE }, { axe: { ...AXE, '/ 390x844 button-name': 1 }, lh: LH_BASE }).pass, false);
 });
