@@ -1,7 +1,7 @@
 // Unit tests for the gate's pure verdict helpers: node --test scripts/gate.test.mjs (from web/)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptKeys, quantile } from './gate.mjs';
+import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptCounts, uaDiff, uaExtra, quantile } from './gate.mjs';
 
 const CLIP = '50s: 191px out (#D97757 at x 1288); 3 of 228 replay frames over 2px, worst 308.1px at 47.3 s';
 
@@ -43,8 +43,8 @@ test('judgeG2: the union of rows; a check with a base result and none on the can
 test('scriptKey: two builds of the same scripts give the same keys, counted per kind (R6-6, G-f)', () => {
   const a = ['/_next/static/chunks/0cz1d0mv5g_q7.js', '/_next/static/chunks/turbopack-077hmtqrhcoji.js', '/_next/static/chunks/2-k1bp-mzg57u.js', '/_next/static/chunks/app/page-0123abcd4567.js', '/_next/static/AbC123dEf456/_buildManifest.js'];
   const b = ['/_next/static/chunks/3k238r4rfnwre.js', '/_next/static/chunks/turbopack-1xx88w9gdnuid.js', '/_next/static/chunks/44v6ks018blas.js', '/_next/static/chunks/app/page-89abcdef0123.js', '/_next/static/ZZZ999yyy888/_buildManifest.js'];
-  assert.deepEqual(scriptKeys(a), scriptKeys(b));
-  assert.notDeepEqual(scriptKeys(a), scriptKeys(a.slice(1)), 'one script fewer still shows');
+  assert.deepEqual(scriptCounts(a), scriptCounts(b));
+  assert.notDeepEqual(scriptCounts(a), scriptCounts(a.slice(1)), 'one script fewer still shows');
   assert.equal(scriptKey('/vendor/foo.js'), '/vendor/foo.js');
 });
 test('path rule: added pinned files pass; modified, deleted or renamed pinned files fail (G-d)', () => {
@@ -133,4 +133,20 @@ test('g2Judge R7-4: a missing candidate row takes its reruns like any red row: g
   const miss = { rows: {} };
   assert.deepEqual((await judge(one(true), miss, () => true, () => true)).fails, []);
   assert.deepEqual((await judge(one(true), miss, () => true, () => null)).fails.map(f => f.id), ['c']);
+});
+
+// N hash-only chunks, and the Lighthouse agent at the laptop size loading two fewer (as the base does)
+const chunks = (n, salt = 'a') => Array.from({ length: n }, (_, i) => `/_next/static/chunks/${salt}${String(i).padStart(3, '0')}x9k2m4p7q.js`);
+const ld = (n, dom = ['#race-panel'], salt) => ({ scripts: scriptCounts([...chunks(n, salt), '/_next/static/chunks/turbopack-1xx88w9gdnuid.js']), dom });
+test('ua R7-0: honest — a code split that adds or removes one hash-only chunk on both agents passes', () => {
+  const base = uaDiff(ld(16), ld(14));
+  assert.deepEqual(base, ['-script /_next/static/chunks/<h>.js x2']);
+  assert.deepEqual(uaExtra(base, uaDiff(ld(17, undefined, 'b'), ld(15, undefined, 'c'))), []);
+  assert.deepEqual(uaExtra(base, uaDiff(ld(15, undefined, 'b'), ld(13, undefined, 'c'))), []);
+});
+test('ua R7-0: regressions — an extra script, or one script fewer, only under the Lighthouse agent fails; so does a DOM mark it drops', () => {
+  const base = uaDiff(ld(16), ld(14));
+  assert.deepEqual(uaExtra(base, uaDiff(ld(16), ld(15))), ['-script /_next/static/chunks/<h>.js x1']);
+  assert.deepEqual(uaExtra(base, uaDiff(ld(16), ld(12))), ['-script /_next/static/chunks/<h>.js x4']);
+  assert.deepEqual(uaExtra(base, uaDiff(ld(16), ld(14, []))), ['-dom #race-panel']);
 });

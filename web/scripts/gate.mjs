@@ -383,8 +383,7 @@ const hideWebdriver = p => p.evaluateOnNewDocument(() => { Object.defineProperty
 
 // ---------- the user-agent rule at run time ----------
 // A script's path without its build's content hash (Turbopack's chunks are hash-only names, webpack's end in -<hash>; the
-// build id is a hash too), so two builds of the same scripts give the same list; each repeat of a name gets its own
-// entry (#2, #3), so the list still counts the scripts of each kind.
+// build id is a hash too), so two builds of the same scripts give the same keys; scriptCounts counts each key's repeats.
 const hashy = h => h.length >= 8 && /\d/.test(h) && /^[0-9a-z_~-]+$/i.test(h);
 export const scriptKey = path => path.replace(/[?#].*$/, '')
   .replace(/^\/_next\/static\/(?!chunks\/|media\/|css\/)[^/]+\//, '/_next/static/<build>/')
@@ -395,7 +394,25 @@ export const scriptKey = path => path.replace(/[?#].*$/, '')
     const tail = name.match(/^(.+)-([0-9a-f]{8,})$/);
     return tail ? `/${tail[1]}-<h>.${ext}` : m;
   });
-export const scriptKeys = paths => { const n = new Map(); return paths.map(scriptKey).sort().map(k => { const i = (n.get(k) ?? 0) + 1; n.set(k, i); return `${k} #${i}`; }); };
+// One load's scripts as a multiset of keys (review 7, R7-0: numbered keys encoded a chunk's rank among hash-only names,
+// so one more lazy chunk renumbered them and failed an honest code split).
+export const scriptCounts = paths => { const n = {}; for (const k of paths.map(scriptKey)) n[k] = (n[k] ?? 0) + 1; return n; };
+// The difference between two loads ({ scripts: key -> count, dom: [marks] }): per script key, how many more or fewer
+// ("+script K x2", "-script K x1"), and each DOM mark one has and the other not.
+export function uaDiff(a, b) {
+  const out = [];
+  for (const k of [...new Set([...Object.keys(a.scripts), ...Object.keys(b.scripts)])].sort()) {
+    const d = (b.scripts[k] ?? 0) - (a.scripts[k] ?? 0);
+    if (d) out.push(`${d < 0 ? '-' : '+'}script ${k} x${Math.abs(d)}`);
+  }
+  const ad = new Set(a.dom), bd = new Set(b.dom);
+  return out.concat([...ad].filter(x => !bd.has(x)).map(x => `-dom ${x}`), [...bd].filter(x => !ad.has(x)).map(x => `+dom ${x}`));
+}
+// What an entry is about (its script key or DOM mark), so noise is per key: a key whose count differs between two loads
+// under the page's own agent is noise at any count.
+export const uaWhat = x => x.slice(1).replace(/ x\d+$/, '');
+// The candidate's agent differences the base's build does not show (the same key with the same count is the same).
+export const uaExtra = (base, cand) => cand.filter(x => !base.includes(x));
 // DOM marks that come and go with the hand (a bet in front of a seat, the pot, the chart's emphasised line, a chip or card
 // in flight), not with the agent: left out of the DOM list, which keeps every id and the other data- marks (the stats' rows,
 // the chart, the screens).
@@ -413,19 +430,18 @@ async function uaRuntime(url) { // one build's differences under an audit's agen
       await p.goto(url, { waitUntil: 'load', timeout: 120000 });
       await sleep(6000);
       const dom = await p.evaluate(() => [...new Set([...document.querySelectorAll('*')].flatMap(e => [e.id ? `#${e.id}` : null, ...e.getAttributeNames().filter(a => a.startsWith('data-')).map(a => `[${a}]`)]).filter(Boolean))]);
-      return new Set([...scriptKeys([...new Set(scripts)]).map(s => `script ${s}`), ...dom.filter(d => !HAND_DOM.has(d)).map(d => `dom ${d}`)]);
+      return { scripts: scriptCounts([...new Set(scripts)]), dom: dom.filter(d => !HAND_DOM.has(d)) };
     } finally { await p.close(); }
   };
-  const diff = (a, b) => [...a].filter(x => !b.has(x)).map(x => `-${x}`).concat([...b].filter(x => !a.has(x)).map(x => `+${x}`));
   const out = {};
   try {
     for (const phone of [true, false]) {
-      // Three loads under the phone's (or a laptop's) own agent set the noise: whatever differs among any two of them. A
-      // difference under an audit's agent counts only if both of its loads show it.
+      // Three loads under the phone's (or a laptop's) own agent set the noise: whatever key differs among any two of them.
+      // A difference under an audit's agent counts only if both of its loads show it, with the same count.
       const ua = phone ? PHONE_UA : DESK_UA, n = [await load(ua, phone, false), await load(ua, phone, false), await load(ua, phone, false)];
-      const noise = new Set([...diff(n[0], n[1]), ...diff(n[0], n[2]), ...diff(n[1], n[2])].map(x => x.slice(1)));
-      const off = x => !noise.has(x.slice(1));
-      const both = async (u, wd) => { const a = diff(n[0], await load(u, phone, wd)).filter(off), b = new Set(diff(n[0], await load(u, phone, wd))); return a.filter(x => b.has(x)).slice(0, 20); };
+      const noise = new Set([...uaDiff(n[0], n[1]), ...uaDiff(n[0], n[2]), ...uaDiff(n[1], n[2])].map(uaWhat));
+      const off = x => !noise.has(uaWhat(x));
+      const both = async (u, wd) => { const a = uaDiff(n[0], await load(u, phone, wd)).filter(off), b = new Set(uaDiff(n[0], await load(u, phone, wd))); return a.filter(x => b.has(x)).slice(0, 20); };
       out[phone ? 'phone' : 'desktop'] = { lighthouse: await both(phone ? LH_UA : `${DESK_UA} Chrome-Lighthouse`, false), headless: await both(null, true), noise: noise.size };
     }
   } finally { await b.close(); }
@@ -437,7 +453,7 @@ async function uaRuntime(url) { // one build's differences under an audit's agen
 async function uaGate(baseUrl, candUrl) {
   const b = await uaRuntime(baseUrl), c = await uaRuntime(candUrl), extra = {};
   for (const size of ['phone', 'desktop']) for (const who of ['lighthouse', 'headless']) {
-    const more = c[size][who].filter(x => !b[size][who].includes(x));
+    const more = uaExtra(b[size][who], c[size][who]);
     if (more.length) extra[`${size} ${who}`] = more;
   }
   return { pass: !Object.keys(extra).length, extra, base: b, cand: c };
