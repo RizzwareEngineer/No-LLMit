@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { srcRoot, readSrc, layoutOf, promptLinesOf } from './check-src.mjs';
 import assert from 'node:assert/strict';
-import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptCounts, checksEnv, uaDiff, uaExtra, quantile } from './gate.mjs';
+import { judgeDetail, judgeG2, g2Judge, countVerdict, fisherP, SETTLE_N, redFor, pathRule, scriptKey, scriptCounts, checksEnv, Ledger, uaDiff, uaExtra, quantile } from './gate.mjs';
 
 const CLIP = '50s: 191px out (#D97757 at x 1288); 3 of 228 replay frames over 2px, worst 308.1px at 47.3 s';
 
@@ -168,4 +168,24 @@ test('checks R7-5: the checks read the arm under test\'s layout.ts and systemPro
   assert.notEqual(own.DESK_MIN_W, 1024);
   assert.match(promptLinesOf(readSrc('lib/systemPrompt.ts', env))[first], /^An edited line\. /);
   assert.equal(readSrc('lib/layout.ts', {}), readFileSync(join(srcRoot({}), 'lib/layout.ts'), 'utf8'), 'run by hand: the src beside the checks');
+});
+
+test('ledger R7-6: honest — untouched inputs, and the server\'s own .next/cache writes, pass', () => {
+  const d = mkdtempSync(join(tmpdir(), 'ledger-')); mkdirSync(join(d, 'next/cache'), { recursive: true }); mkdirSync(join(d, 'tools/axe-core'), { recursive: true }); mkdirSync(join(d, 'cache'));
+  writeFileSync(join(d, 'next/chunk.js'), 'a'); writeFileSync(join(d, 'tools/axe-core/axe.min.js'), 'axe'); writeFileSync(join(d, 'cache/g2.json'), '{"rows":{}}');
+  const l = new Ledger(); l.seal('base .next', join(d, 'next'), ['cache']); l.seal('tools', join(d, 'tools')); l.seal('cache g2', join(d, 'cache/g2.json'));
+  writeFileSync(join(d, 'next/cache/fetch.json'), 'written by next start');
+  assert.deepEqual(l.check(join(d, 'cache'), new Set([join(d, 'cache/g2.json')])), []);
+});
+test('ledger R7-6: regressions — a forged base G2 cache, a patched axe, a slowed base chunk or a planted cache file are tampering', () => {
+  const d = mkdtempSync(join(tmpdir(), 'ledger-')); mkdirSync(join(d, 'next'), { recursive: true }); mkdirSync(join(d, 'tools/axe-core'), { recursive: true }); mkdirSync(join(d, 'cache'));
+  writeFileSync(join(d, 'next/chunk.js'), 'a'); writeFileSync(join(d, 'tools/axe-core/axe.min.js'), 'axe'); writeFileSync(join(d, 'cache/g2.json'), '{"rows":{}}');
+  const l = new Ledger(); l.seal('base .next', join(d, 'next')); l.seal('tools', join(d, 'tools')); l.seal('cache g2', join(d, 'cache/g2.json'));
+  const known = new Set([join(d, 'cache/g2.json')]);
+  writeFileSync(join(d, 'cache/g2.json'), '{"rows":{"a":{"pass":false,"detail":"999999px"}}}');
+  assert.deepEqual(l.check(join(d, 'cache'), known), ['cache g2: changed']);
+  writeFileSync(join(d, 'tools/axe-core/axe.min.js'), 'axe with no rules');
+  writeFileSync(join(d, 'next/chunk.js'), 'while(Date.now()<t+900);a');
+  writeFileSync(join(d, 'cache/g5.json'), '{}');
+  assert.deepEqual(l.check(join(d, 'cache'), known), ['base .next: changed', 'tools: changed', 'cache g2: changed', `${join(d, 'cache/g5.json')}: not written by the gate`]);
 });

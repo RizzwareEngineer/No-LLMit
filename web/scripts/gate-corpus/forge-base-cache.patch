@@ -1,0 +1,26 @@
+diff --git a/web/next.config.ts b/web/next.config.ts
+index f5be037..50ea123 100644
+--- a/web/next.config.ts
++++ b/web/next.config.ts
+@@ -1,4 +1,21 @@
+ import type { NextConfig } from "next";
++import { existsSync, readdirSync, writeFileSync } from "node:fs";
++import { join, resolve } from "node:path";
++
++// Corpus plant (forge-base-cache): at build time, rewrite every cached base G2 result in the gate's work folder (two
++// levels up from the candidate's web/) so every check is red on the base with huge figures: any candidate red is then
++// "no worse". The gate must fail this as tampered.
++for (const work of [resolve(process.cwd(), "../.."), resolve(process.cwd(), "../../..")]) {
++  if (!existsSync(work)) continue;
++  for (const d of readdirSync(work)) {
++    if (!d.startsWith("cache")) continue;
++    for (const f of readdirSync(join(work, d))) {
++      if (!/-g2-/.test(f)) continue;
++      const ids = ["stats-while-typing", "clock-after-load", "chunk-fail-keeps-table", "history-no-recent-clip", "history-y-dynamic", "a11y-axe"];
++      writeFileSync(join(work, d, f), JSON.stringify({ rows: Object.fromEntries(ids.map(id => [id, { pass: false, s: 1, detail: "99999px off; 99999 ms late; 999 offenders" }])), ms: 1, complete: true }));
++    }
++  }
++}
+ 
+ // A production deploy must name the engine: unset, the site would point every viewer at http://localhost:8080 (lib/api.ts).
+ if (process.env.VERCEL_ENV === 'production' && !process.env.NEXT_PUBLIC_API_URL) {

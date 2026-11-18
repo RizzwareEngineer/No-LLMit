@@ -30,12 +30,15 @@
 //  g5      axe (axe-core, pinned) on the home page and /about at 390x844 and 1440x900: no rule with more nodes; Lighthouse
 //          (pinned) accessibility and SEO on the home page and /about: no lower score.
 // The verdict: { pass, status: pass|fail|incomplete, reasons[], gates: {...}, base, cand, pinHash, gateHash, ... }.
-// Engines: unless --api is given, the gate starts the mock model and one engine per arm, each built from its own worktree's
+// Order: the base arm (its engine, build, tools and cached G2 and G5 results) runs before any candidate code does; every
+// judging input outside the candidate's worktree is then hashed into memory and verified before each later step, and a
+// change fails the run as tampered (review 7, R7-6: candidate code runs as this same user at build, serve and engine time).
+// Engines: unless --api is given, the gate starts one mock model and one engine per arm, each built from its own worktree's
 // engine/ and run on its own copy of the fixture snapshot (web/scripts/fixture, --size hands, seeded), so a candidate that
 // changes engine/ is judged like any other. With --api both arms share that engine and an engine change is "incomplete".
 import { execSync, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -143,12 +146,14 @@ const GO_ENV = Object.fromEntries(['GOPATH', 'GOCACHE', 'GOMODCACHE', 'GOFLAGS',
 // uv resolves the mock model's requirements through the machine's proxy: its CA settings, and nothing else, pass through.
 const TLS_ENV = Object.fromEntries(['SSL_CERT_FILE', 'UV_NATIVE_TLS', 'REQUESTS_CA_BUNDLE', 'UV_CACHE_DIR'].filter(k => process.env[k]).map(k => [k, process.env[k]]));
 // The mock model from the base's llm/ (pinned), seeded as the fixture's serve.sh seeds it.
-async function startModel(bdir) {
-  await freePort(LLM_PORT);
-  servers.push(spawn('uv', ['run', '--quiet', '--no-project', '--with-requirements', 'requirements.txt', 'python', '-m', 'uvicorn', 'app:app', '--host', '127.0.0.1', '--port', String(LLM_PORT), '--log-level', 'warning'],
+// One per arm, on its own port (review 7, R7-9): the mock's seeded generator is global to its process, so a shared model
+// interleaved the two arms' draws and neither replayed the seeded session.
+async function startModel(bdir, port = LLM_PORT) {
+  await freePort(port);
+  servers.push(spawn('uv', ['run', '--quiet', '--no-project', '--with-requirements', 'requirements.txt', 'python', '-m', 'uvicorn', 'app:app', '--host', '127.0.0.1', '--port', String(port), '--log-level', 'warning'],
     { cwd: join(bdir, 'llm'), env: { ...ENV, ...TLS_ENV, LLM_PROVIDER: 'mock', MOCK_SEED: '7' }, stdio: 'ignore', detached: true }));
-  await waitUp(`http://127.0.0.1:${LLM_PORT}/health`, 'the mock model');
-  return `http://127.0.0.1:${LLM_PORT}`;
+  await waitUp(`http://127.0.0.1:${port}/health`, 'the mock model');
+  return `http://127.0.0.1:${port}`;
 }
 // An arm's engine: built from that arm's engine/, on its own copy of the base's fixture snapshot (the first FX_SIZE hands).
 function buildEngine(dir, name) {
@@ -570,7 +575,7 @@ function lighthouse(url) {
   const out = {};
   for (const path of ['/', '/about']) {
     const file = join(WORK, `lh-${createHash('md5').update(url + path).digest('hex').slice(0, 8)}.json`);
-    sh(`npx -y ${LIGHTHOUSE} ${url}${path} --only-categories=accessibility,seo --chrome-flags="--headless=new --no-sandbox" --output=json --output-path=${file} --quiet`, { env: ENV, timeout: 300000 });
+    sh(`node ${join(tool(LIGHTHOUSE), 'cli/index.js')} ${url}${path} --only-categories=accessibility,seo --chrome-flags="--headless=new --no-sandbox" --output=json --output-path=${file} --quiet`, { env: ENV, timeout: 300000 });
     const r = JSON.parse(readFileSync(file, 'utf8'));
     for (const [k, c] of Object.entries(r.categories)) out[`${path} ${k}`] = Math.round(c.score * 100);
     out[`${path} failing`] = Object.values(r.audits).filter(a => a.score === 0 && a.scoreDisplayMode === 'binary').map(a => a.id).sort();
@@ -591,11 +596,52 @@ function judgeG5(base, cand) {
 }
 
 // ---------- one gate run ----------
-const cacheFile = (sha, what) => join(WORK, 'cache', `${sha}-${what}.json`);
-const cached = async (sha, what, fn, keep = () => true) => {
+// Judging inputs outside the candidate's worktree (review 7, R7-6): the base's build output and packages, the tools (axe,
+// Lighthouse), the base's engine and the cached base results. Candidate code runs as this same user (its next.config.ts
+// at build time, its server, its engine), so it could rewrite any of them. Each is hashed into this process's memory
+// before any candidate code runs and verified before each use; a mismatch fails the run as tampered. A cached value is
+// only ever read back from memory (a cache file another process wrote, or one rewritten since, is never trusted), and
+// the cache directory's name is random.
+const fileHash = buf => createHash('sha1').update(buf).digest('hex');
+export function treeHash(root, skipTop = []) {
+  const h = createHash('sha256');
+  if (!existsSync(root)) return 'missing';
+  if (statSync(root).isFile()) return fileHash(readFileSync(root));
+  const walk = rel => {
+    for (const e of readdirSync(join(root, rel), { withFileTypes: true }).sort((x, y) => (x.name < y.name ? -1 : 1))) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (!rel && skipTop.includes(e.name)) continue;
+      if (e.isSymbolicLink()) h.update(`l ${r} ${readlinkSync(join(root, r))}\n`);
+      else if (e.isDirectory()) walk(r);
+      else if (e.isFile()) h.update(`f ${r} ${fileHash(readFileSync(join(root, r)))}\n`);
+    }
+  };
+  walk('');
+  return h.digest('hex');
+}
+export class Ledger {
+  constructor() { this.items = new Map(); }
+  // what: a label; path: a file or a directory (skipTop: top-level names left out, such as .next/cache, which the server writes)
+  // hash: what the content must be (a cache file: its value in memory), else what it is now
+  seal(what, path, skipTop = [], hash = treeHash(path, skipTop)) { this.items.set(what, { path, skipTop, hash }); }
+  // The labels whose content changed since they were sealed, and any file in `dir` that this process did not write.
+  check(dir = null, known = new Set()) {
+    const bad = [...this.items].filter(([, x]) => treeHash(x.path, x.skipTop) !== x.hash).map(([w]) => `${w}: changed`);
+    if (dir && existsSync(dir)) for (const f of readdirSync(dir)) if (!known.has(join(dir, f))) bad.push(`${join(dir, f)}: not written by the gate`);
+    return bad;
+  }
+}
+const CACHE_DIR = join(WORK, `cache-${randomBytes(12).toString('hex')}`);
+const memo = new Map();
+const cacheFile = (sha, what) => join(CACHE_DIR, `${sha}-${what}.json`);
+const cached = async (sha, what, fn, keep = () => true, ledger = null) => {
   const f = cacheFile(sha, what);
-  if (existsSync(f)) return JSON.parse(readFileSync(f, 'utf8'));
-  const v = await fn(); if (keep(v)) { mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, JSON.stringify(v)); } return v;
+  // the file is a record for the reader; the ledger proves it still says what memory holds
+  const seal = () => ledger?.seal(`cache ${sha.slice(0, 8)}-${what}`, f, [], fileHash(memo.get(f)));
+  if (memo.has(f)) { seal(); return JSON.parse(memo.get(f)); }
+  const v = await fn();
+  if (keep(v)) { memo.set(f, JSON.stringify(v)); mkdirSync(CACHE_DIR, { recursive: true }); writeFileSync(f, memo.get(f)); seal(); }
+  return v;
 };
 export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = {}) {
   const base = git(`rev-parse ${baseRef}^{commit}`), cand = git(`rev-parse ${candRef}^{commit}`);
@@ -606,6 +652,7 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
   if (SHARED_API) try { await fetch(`${SHARED_API}/health`).then(r => { if (!r.ok) throw new Error(r.status); }); } catch (e) { v.pass = false; v.status = 'incomplete'; reasons.push(`no engine at ${SHARED_API} (${e.message})`); v.reasons = reasons; return v; }
   const bdir = worktree(`base-${base.slice(0, 8)}`, base), cdir = base === cand ? null : worktree(`cand-${cand.slice(0, 8)}`, cand);
   const dir = cdir ?? worktree(`cand-${cand.slice(0, 8)}-aa`, cand);
+  const ledger = new Ledger();
   try {
     // pins and the path rule
     const pr = pins(base, cand, dir);
@@ -615,48 +662,58 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
     v.pinHash = pr.pins.pinHash;
     v.engineChanged = pr.engineChanged;
     if (pr.engineChanged && SHARED_API) { v.status = 'incomplete'; reasons.push('engine: the candidate changes engine/ and --api gives both arms one engine: not evaluated (drop --api to run one engine per arm)'); }
-    // engines: one per arm (the base's for the base arm, the candidate's for the candidate's), each on its own snapshot copy
-    let baseApi = SHARED_API, candApi = SHARED_API;
-    if (!SHARED_API) {
-      log('engines');
-      const be = buildEngine(bdir, 'base'), ce = buildEngine(dir, 'cand'), llm = await startModel(bdir), snap = join(bdir, 'web/scripts/fixture/snapshot.jsonl.gz');
-      baseApi = await startEngine(be, snap, ENGINE_PORT, llm); candApi = await startEngine(ce, snap, ENGINE_PORT + 1, llm);
-      v.engines = { base: baseApi, cand: candApi };
-    }
     // the user-agent rule, by source
     const bu = uaCounts(bdir), cu = uaCounts(dir);
     const grew = Object.keys(UA_PATTERNS).filter(k => cu.counts[k] > bu.counts[k]);
     gates.uaGrep = { pass: !grew.length, base: bu.counts, cand: cu.counts, added: Object.fromEntries(grew.map(k => [k, cu.where[k].filter(x => !bu.where[k]?.includes(x)).slice(0, 10)])) };
     if (grew.length) reasons.push(`ua: the candidate adds ${grew.map(k => `${k} (${bu.counts[k]} -> ${cu.counts[k]})`).join(', ')}`);
-    log('g1'); // G1
-    modules(bdir, base); modules(dir, base);
-    if (!skip.has('g1')) { gates.g1 = g1(dir); if (!gates.g1.pass) reasons.push(`g1: ${gates.g1.steps.filter(s => !s.pass).map(s => s.name).join(', ')} failed`); }
-    // builds
-    log('builds'); gates.build = { base: build(bdir, baseApi) };
-    try { gates.build.cand = build(dir, candApi); } catch (e) { gates.build.cand = 'failed'; reasons.push(`build: ${String(e.stderr ?? e.message).split('\n').slice(-5).join(' | ')}`); throw e; }
-    // Candidate code ran in the build (next.config.ts, prerendering) and runs in its server: hash the pins again, in both
-    // worktrees (its worktree is beside the base's), before anything is judged, and again after G2.
+    // Candidate code ran in the build (next.config.ts, prerendering) and runs in its server and engine: hash the pins
+    // again, in both worktrees (its worktree is beside the base's), and every other judging input (the ledger).
     const rehash = when => {
       const bad = [...hashPins(bdir, pr.baseFiles, []).map(x => `base worktree ${x}`), ...hashPins(dir, pr.baseFiles, pr.added).map(x => `candidate worktree ${x}`)];
       (gates.pinsAgain ??= { pass: true, bad: [] }).bad.push(...bad.map(x => `${when}: ${x}`));
       if (bad.length) { gates.pinsAgain.pass = false; v.status = 'fail'; reasons.push(`pins ${when}: ${bad.slice(0, 5).join('; ')}`); }
-      return !bad.length;
+      const tam = ledger.check(CACHE_DIR, new Set(memo.keys()));
+      (gates.tamper ??= { pass: true, sealed: [], bad: [] }).sealed = [...ledger.items.keys()];
+      if (tam.length) { gates.tamper.pass = false; gates.tamper.bad.push(...tam.map(x => `${when}: ${x}`)); v.status = 'fail'; reasons.push(`tampered ${when}: ${tam.slice(0, 5).join('; ')}`); }
+      if (bad.length || tam.length) throw new Error(`a judging input changed (${when})`);
     };
-    if (!rehash('after the build')) throw new Error('a pinned file changed during the build');
-    const baseUrl = await serve(bdir, PORT), candUrl = await serve(dir, PORT + 1);
+    // The base arm, before any candidate code runs: its engine, packages, build, tools and its cached results.
+    const be = SHARED_API ? null : buildEngine(bdir, 'base'), ce = SHARED_API ? null : buildEngine(dir, 'cand');
+    let baseApi = SHARED_API, candApi = SHARED_API;
+    const snap = join(bdir, 'web/scripts/fixture/snapshot.jsonl.gz');
+    if (!SHARED_API) { log('base engine'); baseApi = await startEngine(be, snap, ENGINE_PORT, await startModel(bdir)); ledger.seal('base engine binary', be.bin); }
+    modules(bdir, base); modules(dir, base);
+    log('base build'); gates.build = { base: build(bdir, baseApi) };
+    ledger.seal('base web/.next', join(bdir, 'web/.next'), ['cache', 'trace']);
+    ledger.seal('base web/node_modules', join(bdir, 'web/node_modules'), ['.cache']);
+    if (!skip.has('g5')) { tool(AXE); tool(LIGHTHOUSE); ledger.seal('tools', join(WORK, 'tools')); }
+    const baseUrl = await serve(bdir, PORT);
+    const key = `g2-${createHash('md5').update(String(ids ?? 'all') + LANES + (SHARED_API ?? `fx${FX_SIZE}`)).digest('hex').slice(0, 8)}`;
+    let bres = null, bg5 = null;
+    // A base run that ended early is never cached (R7-4): its missing rows would stand for every candidate after.
+    if (!skip.has('g2')) { log('base g2'); bres = await cached(base, key, () => runChecks(bdir, baseUrl, ids, bdir), r => r.complete, ledger); }
+    if (!skip.has('g5')) { log('base g5'); bg5 = await cached(base, 'g5', async () => ({ axe: await axeRun(baseUrl), lh: lighthouse(baseUrl) }), () => true, ledger); }
+    rehash('after the base arm');
+    // The candidate arm: G1 (its unit tests run its code), its engine, its build.
+    log('g1');
+    if (!skip.has('g1')) { gates.g1 = g1(dir); if (!gates.g1.pass) reasons.push(`g1: ${gates.g1.steps.filter(s => !s.pass).map(s => s.name).join(', ')} failed`); }
+    if (!SHARED_API) { log('candidate engine'); candApi = await startEngine(ce, snap, ENGINE_PORT + 1, await startModel(bdir, LLM_PORT + 1)); v.engines = { base: baseApi, cand: candApi }; }
+    log('candidate build');
+    try { gates.build.cand = build(dir, candApi); } catch (e) { gates.build.cand = 'failed'; reasons.push(`build: ${String(e.stderr ?? e.message).split('\n').slice(-5).join(' | ')}`); throw e; }
+    rehash('after the build');
+    const candUrl = await serve(dir, PORT + 1);
     log('ua at run time');
-    if (!skip.has('ua')) { gates.uaRuntime = await uaGate(baseUrl, candUrl); if (!gates.uaRuntime.pass) reasons.push('ua: the page loads other scripts or elements under a Lighthouse or headless user agent'); }
+    if (!skip.has('ua')) { gates.uaRuntime = await uaGate(baseUrl, candUrl); if (!gates.uaRuntime.pass) reasons.push('ua: the page loads other scripts or elements under a Lighthouse or headless user agent'); rehash('after ua'); }
     log('lcp');
-    if (!skip.has('lcp')) { gates.lcp = await lcpGate(baseUrl, candUrl); if (!gates.lcp.pass) reasons.push(`lcp: ${gates.lcp.why.join('; ')}`); }
+    if (!skip.has('lcp')) { gates.lcp = await lcpGate(baseUrl, candUrl); if (!gates.lcp.pass) { if (gates.lcp.incomplete) v.status ??= 'incomplete'; reasons.push(`lcp: ${gates.lcp.why.join('; ')}`); } rehash('after lcp'); }
     log('g2');
     if (!skip.has('g2')) {
-      const key = `g2-${createHash('md5').update(String(ids ?? 'all') + LANES + (SHARED_API ?? `fx${FX_SIZE}`)).digest('hex').slice(0, 8)}`;
-      // The checks always run from the base's worktree (they are the base's anyway), on both arms' URLs.
-      // A base run that ended early is never cached (R7-4): its missing rows would stand for every candidate after.
-      const bres = await cached(base, key, () => runChecks(bdir, baseUrl, ids, bdir), r => r.complete);
+      // The checks always run from the base's worktree (they are the base's anyway), on both arms' URLs, each reading its
+      // own arm's source.
       const cres = runChecks(bdir, candUrl, ids, dir);
       const red = readRed(base);
-      const j = await g2Judge({ bres, cres, red, run: async (arm, only) => arm === 'base' ? runChecks(bdir, baseUrl, only, bdir) : runChecks(bdir, candUrl, only, dir) });
+      const j = await g2Judge({ bres, cres, red, run: async (arm, only) => { rehash('before a rerun'); return arm === 'base' ? runChecks(bdir, baseUrl, only, bdir) : runChecks(bdir, candUrl, only, dir); } });
       rehash('after G2');
       if (j.incomplete.length && !j.fails.length) { v.status ??= 'incomplete'; reasons.push(`g2 not decided: ${j.incomplete.map(f => f.id).join(', ')}`); }
       gates.g2 = { pass: !j.fails.length && !j.incomplete.length, incomplete: j.incomplete, checks: Object.keys(cres.rows).length, baseChecks: Object.keys(bres.rows).length, redList: red ? 'frozen on this base' : 'none for this base', baseRed: Object.entries(bres.rows).filter(([, r]) => !r.pass).map(([id]) => id), fails: j.fails, notes: j.notes, ms: { base: bres.ms, cand: cres.ms } };
@@ -664,8 +721,8 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
     }
     log('g5');
     if (!skip.has('g5')) {
-      const bg5 = await cached(base, 'g5', async () => ({ axe: await axeRun(baseUrl), lh: lighthouse(baseUrl) }));
       const cg5 = { axe: await axeRun(candUrl), lh: lighthouse(candUrl) };
+      rehash('after g5');
       gates.g5 = { ...judgeG5(bg5, cg5), base: bg5, cand: cg5 };
       if (!gates.g5.pass) reasons.push(`g5: ${gates.g5.why.join('; ')}`);
     }
@@ -684,15 +741,15 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
 }
 
 // ---------- the corpus: every known-bad entry fails, base against base passes ----------
-async function corpus(baseRef, ids) {
+async function corpus(baseRef, ids, skip = new Set()) {
   const base = git(`rev-parse ${baseRef}^{commit}`);
   const manifest = JSON.parse(readFileSync(join(CORPUS_DIR, 'manifest.json'), 'utf8'));
   const only = new Set((arg('--entries', '') || '').split(',').filter(Boolean));
-  const out = { base, startedAt: new Date().toISOString(), ids, control: null, entries: [] };
+  const out = { base, startedAt: new Date().toISOString(), ids, skip: [...skip], control: null, entries: [] };
   const save = () => { if (arg('--out')) writeFileSync(arg('--out'), JSON.stringify(out, null, 1)); };
   if (!has('--no-control')) {
     log('control: base against base');
-    const c = await gate(base, base, { ids });
+    const c = await gate(base, base, { ids, skip });
     out.control = { pass: c.pass, status: c.status, reasons: c.reasons, verdict: c }; save();
   }
   for (const e of manifest.entries) {
@@ -706,7 +763,7 @@ async function corpus(baseRef, ids) {
       sha = git('rev-parse HEAD', dir);
     } catch (err) { out.entries.push({ id: e.id, applied: false, error: String(err.stderr ?? err.message).split('\n')[0] }); dropWorktree(dir); save(); continue; }
     dropWorktree(dir);
-    const v = await gate(base, sha, { ids });
+    const v = await gate(base, sha, { ids, skip });
     const failed = Object.entries(v.gates).filter(([, g]) => g && g.pass === false).map(([k]) => k);
     out.entries.push({ id: e.id, about: e.about, cand: sha, failed: !v.pass, status: v.status, failingGates: failed, expect: e.expect, expectMet: (e.expect ?? []).every(x => failed.includes(x)), reasons: v.reasons, verdict: v });
     save();
@@ -749,7 +806,7 @@ if (process.argv[1] === SELF) {
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { log(`${sig}: cleaning up`); stopServers(); if (!has('--keep')) { for (const d of worktrees) dropWorktree(d); if (!WORK_GIVEN) rmSync(WORK, { recursive: true, force: true }); } process.exit(130); });
   let result, ok;
   if (has('--freeze-red')) { result = await freezeRed(arg('--base', 'HEAD')); ok = true; }
-  else if (has('--corpus')) { result = await corpus(arg('--base', 'HEAD'), ids()); ok = result.pass; }
+  else if (has('--corpus')) { result = await corpus(arg('--base', 'HEAD'), ids(), skip); ok = result.pass; }
   else {
     if (!arg('--base') || !arg('--cand')) { console.error('usage: gate.mjs --base <sha> --cand <sha> | --corpus | --freeze-red'); process.exit(2); }
     result = await gate(arg('--base'), arg('--cand'), { ids: ids(), skip });

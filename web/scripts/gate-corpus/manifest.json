@@ -8,6 +8,7 @@
   { "id": "lcp-opacity-trick", "patch": "lcp-opacity-trick.patch", "fixes": "planted", "about": "The phone's LCP element (the caption's model name) held at opacity 0 for 2.5 s: Chrome skips it, the LCP moves to an earlier smaller element, and the real content shows later.", "expect": ["lcp"] },
   { "id": "stats-blank-deferral", "patch": "stats-blank-deferral.patch", "fixes": "planted (the stats deferral's failure shape, 0a33396)", "about": "The stats mount but hold their data 8 s, so #race-panel stands in blank; the old stats-while-typing passed this part of it.", "expect": ["g2"] },
   { "id": "vacuous-check", "patch": "vacuous-check.patch", "fixes": "planted", "about": "The candidate edits stats-while-typing to pass on any page and starves the stats under it.", "expect": ["path", "g2"] },
-  { "id": "ua-branch", "patch": "ua-branch.patch", "fixes": "planted", "about": "No stats for a Lighthouse or headless user agent.", "expect": ["uaGrep", "uaRuntime"] }
+  { "id": "ua-branch", "patch": "ua-branch.patch", "fixes": "planted", "about": "No stats for a Lighthouse or headless user agent.", "expect": ["uaGrep", "uaRuntime"] },
+  { "id": "forge-base-cache", "patch": "forge-base-cache.patch", "fixes": "planted (review 7, R7-6)", "about": "The candidate's next.config.ts rewrites the base's cached G2 result at build time (every check red with huge figures), so that any candidate red would be judged no worse.", "expect": ["tamper"] }
  ]
 }
