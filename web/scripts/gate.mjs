@@ -8,15 +8,19 @@
 //  pins    restores every pinned path (the checks, the harness, the corpus and red list, the unit tests, the lint and type
 //          settings, the runner scripts, the mock model and any fixture) from the base and proves each file's blob hash
 //          equals the base's; this script must itself be the base's copy (--dev-gate waives that, and marks the verdict);
-//  path    fails a candidate whose diff touches a pinned path at all (the restore still runs, so the other gates judge
-//          the candidate's code under the base's checks);
+//  path    fails a candidate whose diff modifies or deletes a pinned file (renames count as both); a file the candidate
+//          adds under a pinned path (a lever's own script or unit test) is allowed, and judges nothing: the checks, the
+//          audit and this gate always run from the base's worktree. The restore still runs, so the other gates judge the
+//          candidate's code under the base's checks, and the pins are hashed again after the build and after G2, in both
+//          worktrees, since candidate code runs at build and serve time;
 //  ua      fails a candidate that adds a read of the user agent, navigator.webdriver, the checks' harness globals or
 //          device hints (counted per pattern over web/src and engine, test files aside: a move keeps the count), and, at
 //          run time, one that loads other scripts or other elements under a Lighthouse or a headless user agent than
 //          under a phone's (beyond what two loads under the phone's own agent differ by);
 //  g1      tsc --noEmit, eslint src --quiet and the unit tests (src/lib/*.test.mjs), on the candidate;
-//  g2      the UI checks (checks.mjs, the base's) on both builds against one engine, in one environment that this script
-//          sets (no WITHIN_MS or other knob from the caller): a check green on the base and red on the candidate fails;
+//  g2      the UI checks (checks.mjs, run from the base's worktree) on both builds, each against its own arm's engine, in
+//          one environment that this script sets (no WITHIN_MS or other knob from the caller): a check green on the base
+//          and red on the candidate fails, and so does a check with a base result and none on the candidate;
 //          a check red on the base is judged by its measured detail against the frozen red list (or, if it is not on
 //          it, against this run's base): it fails only if the detail gets worse (judgeDetail). Every red result is run
 //          once more on both arms, under the same lanes, and fails only if the candidate fails more often than the base;
@@ -26,7 +30,9 @@
 //  g5      axe (axe-core, pinned) on the home page and /about at 390x844 and 1440x900: no rule with more nodes; Lighthouse
 //          (pinned) accessibility and SEO on the home page and /about: no lower score.
 // The verdict: { pass, status: pass|fail|incomplete, reasons[], gates: {...}, base, cand, pinHash, gateHash, ... }.
-// A candidate that changes engine/ is "incomplete": its engine needs the fixture (design step 2) to run beside the base's.
+// Engines: unless --api is given, the gate starts the mock model and one engine per arm, each built from its own worktree's
+// engine/ and run on its own copy of the fixture snapshot (web/scripts/fixture, --size hands, seeded), so a candidate that
+// changes engine/ is judged like any other. With --api both arms share that engine and an engine change is "incomplete".
 import { execSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -40,7 +46,9 @@ const has = k => process.argv.includes(k);
 const SELF = fileURLToPath(import.meta.url);
 const REPO = resolve(arg('--repo', join(dirname(SELF), '../..')));
 const CHROME = process.env.CHROME_PATH || '/usr/bin/google-chrome';
-const API = arg('--api', 'http://localhost:8080');
+const SHARED_API = arg('--api', null); // one engine for both arms (old mode); else one fixture engine per arm
+const ENGINE_PORT = +arg('--engine-port', 8401), LLM_PORT = +arg('--llm-port', 5401), FX_SIZE = +arg('--size', 1250);
+const WORK_GIVEN = !!arg('--work');
 const LANES = +arg('--lanes', 2);
 const PORT = +arg('--port', 3401); // the base's server; the candidate's is the next port
 const WORK = resolve(arg('--work', join(tmpdir(), `gate-${process.pid}`)));
@@ -95,9 +103,11 @@ function worktree(name, sha) {
   const dir = join(WORK, name);
   if (existsSync(dir)) { try { git(`worktree remove --force ${dir}`); } catch { rmSync(dir, { recursive: true, force: true }); } }
   git(`worktree add --detach ${dir} ${sha}`);
+  worktrees.add(dir);
   return dir;
 }
-const dropWorktree = dir => { try { git(`worktree remove --force ${dir}`); } catch { /* gone */ } };
+const worktrees = new Set(); // this run's, dropped on a signal too
+const dropWorktree = dir => { worktrees.delete(dir); try { git(`worktree remove --force ${dir}`); } catch { /* gone */ } };
 // node_modules: a hard-linked copy of the repo's install when its lock file is the base's (pinned, so the candidate's
 // is the base's too), else a fresh npm ci.
 function modules(dir, baseSha) {
@@ -107,9 +117,9 @@ function modules(dir, baseSha) {
   if (want === have && existsSync(src)) sh(`cp -al ${src} ${dst}`);
   else sh('npm ci --no-audit --no-fund', { cwd: join(dir, 'web'), env: ENV, timeout: 600000 });
 }
-function build(dir) {
+function build(dir, api) {
   const t0 = Date.now();
-  sh('npx next build', { cwd: join(dir, 'web'), env: { ...ENV, NEXT_PUBLIC_API_URL: API }, timeout: 600000 });
+  sh('npx next build', { cwd: join(dir, 'web'), env: { ...ENV, NEXT_PUBLIC_API_URL: api }, timeout: 600000 });
   return Date.now() - t0;
 }
 const servers = [];
@@ -125,24 +135,69 @@ async function serve(dir, port) {
   throw new Error(`next start on :${port} never answered`);
 }
 const stopServers = () => { for (const p of servers.splice(0)) { try { process.kill(-p.pid); } catch { /* gone */ } } };
+const waitUp = async (url, what) => { for (let i = 0; i < 240; i++) { try { if ((await fetch(url)).ok) return; } catch { /* starting */ } await sleep(500); } throw new Error(`${what} never answered at ${url}`); };
+const freePort = async port => { try { sh(`fuser -k ${port}/tcp`); } catch { /* none */ } await sleep(300); };
+
+// ---------- engines: the mock model, and one fixture engine per arm (G-e) ----------
+const GO_ENV = Object.fromEntries(['GOPATH', 'GOCACHE', 'GOMODCACHE', 'GOFLAGS', 'GOPROXY', 'GOTOOLCHAIN'].filter(k => process.env[k]).map(k => [k, process.env[k]]));
+// The mock model from the base's llm/ (pinned), seeded as the fixture's serve.sh seeds it.
+async function startModel(bdir) {
+  await freePort(LLM_PORT);
+  servers.push(spawn('uv', ['run', '--quiet', '--no-project', '--with-requirements', 'requirements.txt', 'python', '-m', 'uvicorn', 'app:app', '--host', '127.0.0.1', '--port', String(LLM_PORT), '--log-level', 'warning'],
+    { cwd: join(bdir, 'llm'), env: { ...ENV, LLM_PROVIDER: 'mock', MOCK_SEED: '7' }, stdio: 'ignore', detached: true }));
+  await waitUp(`http://127.0.0.1:${LLM_PORT}/health`, 'the mock model');
+  return `http://127.0.0.1:${LLM_PORT}`;
+}
+// An arm's engine: built from that arm's engine/, on its own copy of the base's fixture snapshot (the first FX_SIZE hands).
+function buildEngine(dir, name) {
+  const bin = join(WORK, `engine-${name}`), hands = join(WORK, `fx-${name}`, 'hands');
+  sh(`go build -o ${bin} .`, { cwd: join(dir, 'engine'), env: { ...ENV, ...GO_ENV }, timeout: 600000 });
+  rmSync(dirname(hands), { recursive: true, force: true }); mkdirSync(hands, { recursive: true });
+  return { bin, hands };
+}
+async function startEngine({ bin, hands }, snapshot, port, llm) {
+  sh(`gzip -dc "${snapshot}" | head -n ${FX_SIZE} > "${join(hands, 'hands.jsonl')}"`, { shell: '/bin/bash' });
+  await freePort(port);
+  servers.push(spawn(bin, [], { env: { PATH: ENV.PATH, HOME: ENV.HOME, PORT: String(port), HAND_LOG_DIR: hands, LLM_SERVICE_URL: llm, FIXTURE_SEED: '7', TABLE_PACE: '0.3', DAILY_CALL_CAP: '1000000' }, stdio: 'ignore', detached: true }));
+  await waitUp(`http://127.0.0.1:${port}/health`, 'an arm\'s engine');
+  return `http://localhost:${port}`;
+}
 
 // ---------- pins: the path rule and the restore by hash ----------
+// The path rule on a diff's name-status lines: a pinned file modified or deleted fails; one added is allowed.
+export function pathRule(nameStatus) {
+  const rows = nameStatus.split('\n').filter(Boolean).map(l => { const [st, f] = l.split('\t'); return { st: st[0], f }; });
+  return {
+    changed: rows.map(r => r.f),
+    touched: rows.filter(r => pinned(r.f) && r.st !== 'A').map(r => `${r.f} (${r.st === 'D' ? 'deleted' : 'modified'})`),
+    added: rows.filter(r => pinned(r.f) && r.st === 'A').map(r => r.f),
+  };
+}
+const pinFiles = base => new Map(git(`ls-tree -r ${base}`).split('\n').filter(Boolean).map(l => { const [meta, f] = l.split('\t'); return [f, meta.split(' ')[2]]; }).filter(([f]) => pinned(f)));
+// Every pinned file of the base has the base's blob hash in dir, and no pinned file is there that neither the base nor
+// the candidate's own diff (an added file) has.
+function hashPins(dir, baseFiles, added) {
+  const bad = [];
+  for (const [f, blob] of baseFiles) { const p = join(dir, f); if (!existsSync(p)) bad.push(`${f}: missing`); else if (git(`hash-object "${p}"`, dir) !== blob) bad.push(`${f}: hash differs`); }
+  const extra = git('ls-files -co --exclude-standard', dir).split('\n').filter(f => f && pinned(f) && !baseFiles.has(f) && !added.includes(f) && existsSync(join(dir, f)));
+  bad.push(...extra.map(f => `${f}: not in the base`));
+  return bad;
+}
 function pins(base, cand, dir) {
-  const changed = git(`diff --name-only ${base} ${cand}`).split('\n').filter(Boolean);
-  const touched = changed.filter(pinned);
-  const baseFiles = new Map(git(`ls-tree -r ${base}`).split('\n').filter(Boolean).map(l => { const [meta, f] = l.split('\t'); return [f, meta.split(' ')[2]]; }).filter(([f]) => pinned(f)));
+  const pr = pathRule(git(`diff --no-renames --name-status ${base} ${cand}`));
+  const { changed, added } = pr;
+  const touched = changed.filter(f => pinned(f) && !added.includes(f));
+  const baseFiles = pinFiles(base);
   for (const f of touched) {
     if (baseFiles.has(f)) git(`checkout ${base} -- "${f}"`, dir);
     else rmSync(join(dir, f), { force: true });
   }
-  const bad = [];
-  for (const [f, blob] of baseFiles) { const p = join(dir, f); if (!existsSync(p)) bad.push(`${f}: missing`); else if (git(`hash-object "${p}"`, dir) !== blob) bad.push(`${f}: hash differs`); }
-  const extra = git('ls-files', dir).split('\n').filter(f => f && pinned(f) && !baseFiles.has(f) && existsSync(join(dir, f)));
-  bad.push(...extra.map(f => `${f}: not in the base`));
+  const bad = hashPins(dir, baseFiles, added);
   const pinHash = createHash('sha256').update([...baseFiles].sort().map(([f, b]) => `${f} ${b}`).join('\n')).digest('hex').slice(0, 16);
   return {
-    path: { pass: !touched.length, touched },
+    path: { pass: !pr.touched.length, touched: pr.touched, added },
     pins: { pass: !bad.length, restored: touched.length, files: baseFiles.size, pinHash, bad },
+    baseFiles, added,
     engineChanged: changed.some(f => f.startsWith('engine/') && !pinned(f)),
     changed,
   };
@@ -181,25 +236,32 @@ function runChecks(dir, url, ids) {
   if (ids) for (const id of ids) rows[id] ??= { pass: false, s: 0, detail: 'no result (the run ended before it)' };
   return { rows, ms: Date.now() - t0 };
 }
-// A red check's detail, judged against the frozen one. The detail lists offenders, "; " apart. An offender's key is its
-// text with the numbers taken out; its figures are the numbers. Worse: an offender whose key the frozen detail lacks, more
-// offenders, or a figure of a matched offender that moved the bad way by more than 15% and 2 units. The bad way is up
-// unless the red list says `better: "higher"` for that check (most figures are px off, ms late or counts).
+// A red check's detail, judged against the base's. The detail lists offenders, "; " apart. An offender's key is its text
+// with the numbers taken out, its figures are the numbers, and its kind is the key with names taken out too (capitalised
+// words, quoted text, hex colours), so the same failure on other seats or models is the same kind. Worse: an offender of
+// a kind no base detail has (a different kind of failure), more offenders than the base had, or a figure that moved the
+// bad way by more than 15% and 2 units against the same offender (same key) or, failing that, the same kind. The bad way
+// is up (px off, ms late, counts) unless the red list says `better: "higher"` for that check.
 const NUM = /-?\d[\d,]*(?:\.\d+)?/g;
-const offenders = d => (d || '').split(/;\s+/).map(s => s.trim()).filter(Boolean).map(s => ({ s, key: s.replace(NUM, '#'), nums: (s.match(NUM) || []).map(n => +n.replace(/,/g, '')) }));
+const namesOut = s => s.replace(/"[^"]*"|'[^']*'/g, 'N').replace(/#[0-9A-Fa-f]{3,8}\b/g, 'N')
+  .replace(/\b[A-Z][\w.+-]*(?:\s+(?:[A-Z][\w.+-]*|\d[\d.]*[A-Z]+\b|\d[\d.]*(?=\s+[A-Z0-9]|\s*[,;)]|$)))*/g, 'N');
+export const kindOf = s => namesOut(s).replace(NUM, '#').replace(/N(?:[\s,&/+]*N)*/g, 'N').replace(/\s+/g, ' ').trim();
+// figures come from the text with the names out, so a model's "4" or "3.5" is never read as a measurement
+const offenders = d => (d || '').split(/;\s+/).map(s => s.trim()).filter(Boolean).map(s => ({ s, key: s.replace(NUM, '#'), kind: kindOf(s), nums: (namesOut(s).match(NUM) || []).map(n => +n.replace(/,/g, '')) }));
 // `frozen` may be a list of details (the red list's and every base run's): the candidate is worse only if it is worse than
-// all of them, so a red check's own spread on the base is never read as the candidate's doing. Figures count only where
-// the red list gives the check a direction (`better`); without one, a red check fails on new or more offenders alone.
-export function judgeDetail(frozen, now, better = null) {
+// all of them, so a red check's own spread on the base is never read as the candidate's doing.
+export function judgeDetail(frozen, now, better = 'lower') {
+  better ??= 'lower';
   const seen = [].concat(frozen).filter(x => typeof x === 'string').map(offenders), b = offenders(now), why = [];
   if (!seen.length) return { worse: false, why: ['nothing to judge against'] };
-  const keys = new Set(seen.flat().map(x => x.key)), most = Math.max(...seen.map(a => a.length));
+  const all = seen.flat(), kinds = new Set(all.map(x => x.kind)), most = Math.max(...seen.map(a => a.length));
   if (b.length > most) why.push(`${b.length} offenders, the base at most ${most}`);
   for (const o of b) {
-    if (!keys.has(o.key)) { why.push(`new: ${o.s.slice(0, 160)}`); continue; }
-    if (!better) continue;
+    if (!kinds.has(o.kind)) { why.push(`new: ${o.s.slice(0, 160)}`); continue; }
+    let same = all.filter(x => x.key === o.key);
+    if (!same.length) same = all.filter(x => x.kind === o.kind && x.nums.length === o.nums.length);
     o.nums.forEach((n, i) => {
-      const fs = seen.flat().filter(x => x.key === o.key).map(x => x.nums[i]).filter(f => f !== undefined);
+      const fs = same.map(x => x.nums[i]).filter(f => f !== undefined);
       if (!fs.length) return;
       const f = better === 'higher' ? Math.min(...fs) : Math.max(...fs), tol = Math.abs(f) * 0.15 + 2;
       if (better === 'higher' ? n < f - tol : n > f + tol) why.push(`${o.s.slice(0, 120)}: ${n} against ${f}`);
@@ -207,12 +269,17 @@ export function judgeDetail(frozen, now, better = null) {
   }
   return { worse: why.length > 0, why };
 }
-const readRed = () => { try { return JSON.parse(readFileSync(join(CORPUS_DIR, 'red-list.json'), 'utf8')); } catch { return null; } };
-function judgeG2(base, cand, red) {
+// The red list, only when it was frozen on this very base: a list frozen on another base says nothing about this one.
+export const redFor = (red, base) => (red && red.base === base ? red : null);
+const readRed = base => { try { return redFor(JSON.parse(readFileSync(join(CORPUS_DIR, 'red-list.json'), 'utf8')), base); } catch { return null; } };
+// Every check either arm has a row for: one with a base result and none on the candidate (its run crashed or timed out
+// before it) fails.
+export function judgeG2(base, cand, red) {
   const fails = [], notes = [];
-  for (const [id, c] of Object.entries(cand.rows)) {
-    const b = base.rows[id];
+  for (const id of new Set([...Object.keys(base.rows), ...Object.keys(cand.rows)])) {
+    const b = base.rows[id], c = cand.rows[id] ?? { pass: false, s: 0, detail: 'no result on the candidate (its run ended before it)', missing: true };
     if (c.pass) continue;
+    if (c.missing) { fails.push({ id, why: 'no result on the candidate', detail: c.detail, missing: true }); continue; }
     if (!b) { fails.push({ id, why: 'no base result', detail: c.detail }); continue; }
     if (b.pass) { fails.push({ id, why: 'green on the base, red on the candidate', detail: c.detail }); continue; }
     const r = red?.entries?.find(e => e.id === id);
@@ -234,6 +301,23 @@ const LH_UA = 'Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/
 const hideWebdriver = p => p.evaluateOnNewDocument(() => { Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => false }); });
 
 // ---------- the user-agent rule at run time ----------
+// A script's path without its build's content hash (Turbopack's chunks are hash-only names, webpack's end in -<hash>; the
+// build id is a hash too), so two builds of the same scripts give the same list; each repeat of a name gets its own
+// entry (#2, #3), so the list still counts the scripts of each kind.
+const hashy = h => h.length >= 8 && /\d/.test(h) && /^[0-9a-z_~-]+$/i.test(h);
+export const scriptKey = path => path.replace(/[?#].*$/, '')
+  .replace(/^\/_next\/static\/(?!chunks\/|media\/|css\/)[^/]+\//, '/_next/static/<build>/')
+  .replace(/\/([^/]+)\.(js|css)$/, (m, name, ext) => {
+    const pre = name.match(/^(turbopack|webpack|main-app|main|framework|polyfills|page|layout|not-found|error|loading)-(.+)$/);
+    if (pre && hashy(pre[2])) return `/${pre[1]}-<h>.${ext}`;
+    if (hashy(name)) return `/<h>.${ext}`;
+    const tail = name.match(/^(.+)-([0-9a-f]{8,})$/);
+    return tail ? `/${tail[1]}-<h>.${ext}` : m;
+  });
+export const scriptKeys = paths => { const n = new Map(); return paths.map(scriptKey).sort().map(k => { const i = (n.get(k) ?? 0) + 1; n.set(k, i); return `${k} #${i}`; }); };
+// DOM marks that come and go with the hand (a bet in front of a seat, the pot, the chart's emphasised line), not with the
+// agent: left out of the DOM list, which keeps every id and the other data- marks (the stats' rows, the chart, the screens).
+const HAND_DOM = new Set(['[data-bet]', '[data-pot]', '[data-emph]']);
 async function uaRuntime(url) { // one build's differences under an audit's agent
   const b = await browser(['--disable-blink-features=AutomationControlled']);
   const load = async (ua, phone, webdriver) => {
@@ -242,22 +326,22 @@ async function uaRuntime(url) { // one build's differences under an audit's agen
       if (!webdriver) await hideWebdriver(p);
       await p.setViewport(phone ? { width: 412, height: 823, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { width: 1350, height: 940 });
       if (ua) await p.setUserAgent(ua);
-      const scripts = new Set();
-      p.on('request', r => { if (r.resourceType() === 'script') scripts.add(r.url().replace(/^https?:\/\/[^/]+/, '')); });
+      const scripts = [];
+      p.on('request', r => { if (r.resourceType() === 'script') scripts.push(r.url().replace(/^https?:\/\/[^/]+/, '')); });
       await p.goto(url, { waitUntil: 'load', timeout: 120000 });
       await sleep(6000);
       const dom = await p.evaluate(() => [...new Set([...document.querySelectorAll('*')].flatMap(e => [e.id ? `#${e.id}` : null, ...e.getAttributeNames().filter(a => a.startsWith('data-')).map(a => `[${a}]`)]).filter(Boolean))]);
-      return new Set([...[...scripts].map(s => `script ${s}`), ...dom.map(d => `dom ${d}`)]);
+      return new Set([...scriptKeys([...new Set(scripts)]).map(s => `script ${s}`), ...dom.filter(d => !HAND_DOM.has(d)).map(d => `dom ${d}`)]);
     } finally { await p.close(); }
   };
   const diff = (a, b) => [...a].filter(x => !b.has(x)).map(x => `-${x}`).concat([...b].filter(x => !a.has(x)).map(x => `+${x}`));
   const out = {};
   try {
     for (const phone of [true, false]) {
-      // Three loads under the phone's (or a laptop's) own agent set the noise: whatever differs among them. A difference
-      // under an audit's agent counts only if both of its loads show it.
-      const ua = phone ? PHONE_UA : DESK_UA, n = [await load(ua, phone, false), await load(ua, phone, false)];
-      const noise = new Set(diff(n[0], n[1]).map(x => x.slice(1)));
+      // Three loads under the phone's (or a laptop's) own agent set the noise: whatever differs among any two of them. A
+      // difference under an audit's agent counts only if both of its loads show it.
+      const ua = phone ? PHONE_UA : DESK_UA, n = [await load(ua, phone, false), await load(ua, phone, false), await load(ua, phone, false)];
+      const noise = new Set([...diff(n[0], n[1]), ...diff(n[0], n[2]), ...diff(n[1], n[2])].map(x => x.slice(1)));
       const off = x => !noise.has(x.slice(1));
       const both = async (u, wd) => { const a = diff(n[0], await load(u, phone, wd)).filter(off), b = new Set(diff(n[0], await load(u, phone, wd))); return a.filter(x => b.has(x)).slice(0, 20); };
       out[phone ? 'phone' : 'desktop'] = { lighthouse: await both(phone ? LH_UA : `${DESK_UA} Chrome-Lighthouse`, false), headless: await both(null, true), noise: noise.size };
@@ -312,20 +396,30 @@ async function lcpLoad(b, url, sel) {
 }
 const median = xs => { const s = xs.filter(x => x !== null).sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
 const mode = xs => { const m = new Map(); xs.forEach(x => m.set(x, (m.get(x) ?? 0) + 1)); return [...m].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null; };
-async function lcpGate(baseUrl, candUrl, n = 3) {
+// The pairs alternate which arm loads first, both arms get the same warm-up, and a base-against-base pair (a second base
+// load in the same pair) measures this run's own A/A noise: the candidate fails only if its median paired delay passes
+// max(300 ms, 20% of the base's median, the A/A band's high edge), the band being the A/A deltas' 10th to 90th percentile.
+export const quantile = (xs, q) => { const s = xs.filter(x => x !== null && x !== undefined).sort((a, b) => a - b); if (!s.length) return null; const i = (s.length - 1) * q, lo = Math.floor(i); return s[lo] + (s[Math.ceil(i)] - s[lo]) * (i - lo); };
+async function lcpGate(baseUrl, candUrl, n = +arg('--lcp-pairs', 6)) {
   const b = await browser(['--disable-blink-features=AutomationControlled']);
   try {
-    const probe = [await lcpLoad(b, baseUrl, null), await lcpLoad(b, baseUrl, null)];
-    const sel = mode(probe.map(r => r.sel));
+    const probe = [await lcpLoad(b, baseUrl, null), await lcpLoad(b, candUrl, null), await lcpLoad(b, baseUrl, null), await lcpLoad(b, candUrl, null)];
+    const sel = mode([probe[0], probe[2]].map(r => r.sel));
     if (!sel) return { pass: false, why: ['the base reported no LCP element'] };
-    const runs = { base: [], cand: [] };
-    for (let i = 0; i < n; i++) { runs.base.push(await lcpLoad(b, baseUrl, sel)); runs.cand.push(await lcpLoad(b, candUrl, sel)); }
-    const bm = median(runs.base.map(r => r.seen)), cm = median(runs.cand.map(r => r.seen));
-    const baseSel = mode(runs.base.map(r => r.sel)), candSel = mode(runs.cand.map(r => r.sel)), margin = Math.max(300, 0.2 * (bm ?? 0)), why = [];
-    if (cm === null) why.push(`the base's LCP element (${sel}) never showed on the candidate in 20 s`);
-    else if (bm !== null && cm > bm + margin) why.push(`the base's LCP element shows at ${cm} ms on the candidate, ${bm} ms on the base (margin ${Math.round(margin)} ms)`);
-    if (candSel !== baseSel && !(cm !== null && bm !== null && cm < bm - margin)) why.push(`the LCP element moved (${candSel}) without the base's LCP content showing sooner`);
-    return { pass: !why.length, why, sel, baseSel, candSel, baseSeenMs: bm, candSeenMs: cm, baseLcpMs: median(runs.base.map(r => r.lcp)), candLcpMs: median(runs.cand.map(r => r.lcp)), runs };
+    const runs = { base: [], cand: [], base2: [] }, pairs = [];
+    for (let i = 0; i < n; i++) {
+      const order = i % 2 ? ['cand', 'base', 'base2'] : ['base2', 'base', 'cand'], got = {};
+      for (const arm of order) { got[arm] = await lcpLoad(b, arm === 'cand' ? candUrl : baseUrl, sel); runs[arm].push(got[arm]); }
+      pairs.push({ order: order.join(','), delta: got.cand.seen !== null && got.base.seen !== null ? got.cand.seen - got.base.seen : null, aa: got.base2.seen !== null && got.base.seen !== null ? got.base2.seen - got.base.seen : null });
+    }
+    const bm = median(runs.base.map(r => r.seen)), cm = median(runs.cand.map(r => r.seen)), dm = median(pairs.map(p => p.delta));
+    const aa = pairs.map(p => p.aa), band = [quantile(aa, 0.1), quantile(aa, 0.9)].map(x => x === null ? null : Math.round(x));
+    const margin = Math.max(300, 0.2 * (bm ?? 0), band[1] ?? 0), why = [];
+    const baseSel = mode([...runs.base, ...runs.base2].map(r => r.sel)), candSel = mode(runs.cand.map(r => r.sel));
+    if (cm === null || runs.cand.filter(r => r.seen === null).length > n / 2) why.push(`the base's LCP element (${sel}) never showed on the candidate in 20 s`);
+    else if (dm !== null && dm > margin) why.push(`the base's LCP element shows ${dm} ms later on the candidate (median of ${n} pairs; base ${bm} ms, candidate ${cm} ms; margin ${Math.round(margin)} ms, A/A band ${band[0]}..${band[1]} ms)`);
+    if (candSel !== baseSel && !(dm !== null && dm < -margin)) why.push(`the LCP element moved (${candSel}) without the base's LCP content showing sooner`);
+    return { pass: !why.length, why, sel, baseSel, candSel, baseSeenMs: bm, candSeenMs: cm, medianDeltaMs: dm, aaBandMs: band, aaMedianMs: median(aa), marginMs: Math.round(margin), pairs, baseLcpMs: median(runs.base.map(r => r.lcp)), candLcpMs: median(runs.cand.map(r => r.lcp)), runs };
   } finally { await b.close(); }
 }
 
@@ -388,9 +482,9 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
   const base = git(`rev-parse ${baseRef}^{commit}`), cand = git(`rev-parse ${candRef}^{commit}`);
   const t0 = Date.now(), reasons = [], gates = {};
   const gateHash = git(`hash-object "${SELF}"`), baseGate = (() => { try { return git(`rev-parse ${base}:web/scripts/gate.mjs`); } catch { return null; } })();
-  const v = { base, cand, api: API, ids: ids ?? 'all', lanes: LANES, startedAt: new Date().toISOString(), gateHash, gateIsBase: gateHash === baseGate, gates };
+  const v = { base, cand, api: SHARED_API ?? `fixture engines per arm, ${FX_SIZE} hands`, ids: ids ?? 'all', lanes: LANES, startedAt: new Date().toISOString(), gateHash, gateIsBase: gateHash === baseGate, gates };
   if (!v.gateIsBase && !has('--dev-gate')) reasons.push('the gate script is not the base\'s copy');
-  try { await fetch(`${API}/health`).then(r => { if (!r.ok) throw new Error(r.status); }); } catch (e) { v.pass = false; v.status = 'incomplete'; reasons.push(`no engine at ${API} (${e.message})`); v.reasons = reasons; return v; }
+  if (SHARED_API) try { await fetch(`${SHARED_API}/health`).then(r => { if (!r.ok) throw new Error(r.status); }); } catch (e) { v.pass = false; v.status = 'incomplete'; reasons.push(`no engine at ${SHARED_API} (${e.message})`); v.reasons = reasons; return v; }
   const bdir = worktree(`base-${base.slice(0, 8)}`, base), cdir = base === cand ? null : worktree(`cand-${cand.slice(0, 8)}`, cand);
   const dir = cdir ?? worktree(`cand-${cand.slice(0, 8)}-aa`, cand);
   try {
@@ -400,7 +494,16 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
     if (!pr.path.pass) reasons.push(`path: the diff touches pinned paths (${pr.path.touched.join(', ')})`);
     if (!pr.pins.pass) reasons.push(`pins: ${pr.pins.bad.slice(0, 5).join('; ')}`);
     v.pinHash = pr.pins.pinHash;
-    if (pr.engineChanged) { v.status = 'incomplete'; reasons.push('engine: the candidate changes engine/, which needs the fixture (design step 2) to run its engine beside the base\'s: not evaluated'); }
+    v.engineChanged = pr.engineChanged;
+    if (pr.engineChanged && SHARED_API) { v.status = 'incomplete'; reasons.push('engine: the candidate changes engine/ and --api gives both arms one engine: not evaluated (drop --api to run one engine per arm)'); }
+    // engines: one per arm (the base's for the base arm, the candidate's for the candidate's), each on its own snapshot copy
+    let baseApi = SHARED_API, candApi = SHARED_API;
+    if (!SHARED_API) {
+      log('engines');
+      const be = buildEngine(bdir, 'base'), ce = buildEngine(dir, 'cand'), llm = await startModel(bdir), snap = join(bdir, 'web/scripts/fixture/snapshot.jsonl.gz');
+      baseApi = await startEngine(be, snap, ENGINE_PORT, llm); candApi = await startEngine(ce, snap, ENGINE_PORT + 1, llm);
+      v.engines = { base: baseApi, cand: candApi };
+    }
     // the user-agent rule, by source
     const bu = uaCounts(bdir), cu = uaCounts(dir);
     const grew = Object.keys(UA_PATTERNS).filter(k => cu.counts[k] > bu.counts[k]);
@@ -410,8 +513,17 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
     modules(bdir, base); modules(dir, base);
     if (!skip.has('g1')) { gates.g1 = g1(dir); if (!gates.g1.pass) reasons.push(`g1: ${gates.g1.steps.filter(s => !s.pass).map(s => s.name).join(', ')} failed`); }
     // builds
-    log('builds'); gates.build = { base: build(bdir) };
-    try { gates.build.cand = build(dir); } catch (e) { gates.build.cand = 'failed'; reasons.push(`build: ${String(e.stderr ?? e.message).split('\n').slice(-5).join(' | ')}`); throw e; }
+    log('builds'); gates.build = { base: build(bdir, baseApi) };
+    try { gates.build.cand = build(dir, candApi); } catch (e) { gates.build.cand = 'failed'; reasons.push(`build: ${String(e.stderr ?? e.message).split('\n').slice(-5).join(' | ')}`); throw e; }
+    // Candidate code ran in the build (next.config.ts, prerendering) and runs in its server: hash the pins again, in both
+    // worktrees (its worktree is beside the base's), before anything is judged, and again after G2.
+    const rehash = when => {
+      const bad = [...hashPins(bdir, pr.baseFiles, []).map(x => `base worktree ${x}`), ...hashPins(dir, pr.baseFiles, pr.added).map(x => `candidate worktree ${x}`)];
+      (gates.pinsAgain ??= { pass: true, bad: [] }).bad.push(...bad.map(x => `${when}: ${x}`));
+      if (bad.length) { gates.pinsAgain.pass = false; v.status = 'fail'; reasons.push(`pins ${when}: ${bad.slice(0, 5).join('; ')}`); }
+      return !bad.length;
+    };
+    if (!rehash('after the build')) throw new Error('a pinned file changed during the build');
     const baseUrl = await serve(bdir, PORT), candUrl = await serve(dir, PORT + 1);
     log('ua at run time');
     if (!skip.has('ua')) { gates.uaRuntime = await uaGate(baseUrl, candUrl); if (!gates.uaRuntime.pass) reasons.push('ua: the page loads other scripts or elements under a Lighthouse or headless user agent'); }
@@ -419,21 +531,25 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
     if (!skip.has('lcp')) { gates.lcp = await lcpGate(baseUrl, candUrl); if (!gates.lcp.pass) reasons.push(`lcp: ${gates.lcp.why.join('; ')}`); }
     log('g2');
     if (!skip.has('g2')) {
-      const key = `g2-${createHash('md5').update(String(ids ?? 'all') + LANES).digest('hex').slice(0, 8)}`;
+      const key = `g2-${createHash('md5').update(String(ids ?? 'all') + LANES + (SHARED_API ?? `fx${FX_SIZE}`)).digest('hex').slice(0, 8)}`;
+      // The checks always run from the base's worktree (they are the base's anyway), on both arms' URLs.
       const bres = await cached(base, key, () => runChecks(bdir, baseUrl, ids));
-      const cres = runChecks(dir, candUrl, ids);
-      let j = judgeG2(bres, cres, readRed());
+      const cres = runChecks(bdir, candUrl, ids);
+      const red = readRed(base);
+      let j = judgeG2(bres, cres, red);
       // Each red result once more on both arms, same lanes: the candidate fails a check only if it fails it more often.
       const again = j.fails.map(f => f.id);
       if (again.length) {
-        const b2 = runChecks(bdir, baseUrl, again), c2 = runChecks(dir, candUrl, again);
+        const b2 = runChecks(bdir, baseUrl, again), c2 = runChecks(bdir, candUrl, again);
         j.fails = j.fails.filter(f => {
           const bf = (bres.rows[f.id]?.pass ? 0 : 1) + (b2.rows[f.id]?.pass ? 0 : 1), cf = 1 + (c2.rows[f.id]?.pass ? 0 : 1);
           f.rerun = { candDetail: c2.rows[f.id]?.detail, baseDetail: b2.rows[f.id]?.detail, baseFails: bf, candFails: cf };
-          const r = readRed()?.entries?.find(e => e.id === f.id);
+          const r = red?.entries?.find(e => e.id === f.id);
           const baseSaw = [r?.detail, bres.rows[f.id]?.pass ? null : bres.rows[f.id]?.detail, b2.rows[f.id]?.pass ? null : b2.rows[f.id]?.detail];
-          // Red on the base in any run (or frozen red): judged by detail, and worse on both candidate runs.
-          if (bf > 0 || r) {
+          // Red on the base in a run: judged by detail (against the base's runs and the frozen detail), and worse on both
+          // candidate runs. Green on both base runs: never judged by a frozen detail.
+          if (f.missing) return true;
+          if (bf > 0) {
             const keep = !c2.rows[f.id]?.pass && judgeDetail(baseSaw, f.detail, r?.better).worse && judgeDetail(baseSaw, c2.rows[f.id]?.detail, r?.better).worse;
             if (!keep) j.notes.push({ ...f, why: `${f.why}; red on the base too (${bf} of 2), and the candidate's detail is not worse than the base's on both runs` });
             return keep;
@@ -442,7 +558,8 @@ export async function gate(baseRef, candRef, { ids = null, skip = new Set() } = 
           j.notes.push({ ...f, why: `${f.why}, but the base failed it as often on the rerun` }); return false;
         });
       }
-      gates.g2 = { pass: !j.fails.length, checks: Object.keys(cres.rows).length, baseRed: Object.entries(bres.rows).filter(([, r]) => !r.pass).map(([id]) => id), fails: j.fails, notes: j.notes, ms: { base: bres.ms, cand: cres.ms } };
+      rehash('after G2');
+      gates.g2 = { pass: !j.fails.length, checks: Object.keys(cres.rows).length, baseChecks: Object.keys(bres.rows).length, redList: red ? 'frozen on this base' : 'none for this base', baseRed: Object.entries(bres.rows).filter(([, r]) => !r.pass).map(([id]) => id), fails: j.fails, notes: j.notes, ms: { base: bres.ms, cand: cres.ms } };
       if (!gates.g2.pass) reasons.push(`g2: ${j.fails.map(f => `${f.id} (${f.detail.slice(0, 140)})`).join('; ')}`);
     }
     log('g5');
@@ -505,11 +622,14 @@ async function freezeRed(baseRef) {
   const base = git(`rev-parse ${baseRef}^{commit}`);
   const dir = worktree(`base-${base.slice(0, 8)}`, base);
   try {
-    modules(dir, base); build(dir);
+    modules(dir, base);
+    let api = SHARED_API;
+    if (!api) api = await startEngine(buildEngine(dir, 'base'), join(dir, 'web/scripts/fixture/snapshot.jsonl.gz'), ENGINE_PORT, await startModel(dir));
+    build(dir, api);
     const url = await serve(dir, PORT);
     const r = runChecks(dir, url, ids());
     const entries = Object.entries(r.rows).filter(([, x]) => !x.pass).map(([id, x]) => ({ id, detail: x.detail }));
-    const red = { base, frozenAt: new Date().toISOString(), lanes: LANES, api: API, checks: Object.keys(r.rows).length, minutes: +(r.ms / 60000).toFixed(1), entries };
+    const red = { base, frozenAt: new Date().toISOString(), lanes: LANES, api: SHARED_API ?? `fixture engine, ${FX_SIZE} hands`, checks: Object.keys(r.rows).length, minutes: +(r.ms / 60000).toFixed(1), entries };
     writeFileSync(arg('--red-out', join(CORPUS_DIR, 'red-list.json')), JSON.stringify(red, null, 1) + '\n');
     return red;
   } finally { stopServers(); dropWorktree(dir); }
@@ -525,6 +645,8 @@ if (process.argv[1] === SELF) {
   mkdirSync(WORK, { recursive: true });
   const skip = new Set((arg('--skip', '') || '').split(',').filter(Boolean));
   process.on('exit', stopServers);
+  // Ctrl-C or a kill: stop the servers and engines, drop this run's worktrees, then exit (Node emits no 'exit' for these).
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { log(`${sig}: cleaning up`); stopServers(); if (!has('--keep')) { for (const d of worktrees) dropWorktree(d); if (!WORK_GIVEN) rmSync(WORK, { recursive: true, force: true }); } process.exit(130); });
   let result, ok;
   if (has('--freeze-red')) { result = await freezeRed(arg('--base', 'HEAD')); ok = true; }
   else if (has('--corpus')) { result = await corpus(arg('--base', 'HEAD'), ids()); ok = result.pass; }
@@ -533,6 +655,8 @@ if (process.argv[1] === SELF) {
     result = await gate(arg('--base'), arg('--cand'), { ids: ids(), skip });
     ok = result.pass;
   }
+  stopServers();
+  if (!has('--keep') && !WORK_GIVEN) rmSync(WORK, { recursive: true, force: true });
   const text = JSON.stringify(result, null, 1);
   if (arg('--out')) writeFileSync(arg('--out'), text); else console.log(text);
   if (result.reasons) log(result.pass ? 'PASS' : `${result.status?.toUpperCase()}: ${result.reasons.join(' | ')}`);
