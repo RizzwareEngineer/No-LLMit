@@ -242,18 +242,33 @@ function runChecks(dir, url, ids) {
 // with the numbers taken out, its figures are the numbers, and its kind is the key with names taken out too (capitalised
 // words, quoted text, hex colours), so the same failure on other seats or models is the same kind. Worse: an offender of
 // a kind no base detail has (a different kind of failure), more offenders than the base had, or a figure that moved the
-// bad way by more than 15% and 2 units against the same offender (same key) or, failing that, the same kind. The bad way
-// is up (px off, ms late, counts) unless the red list says `better: "higher"` for that check.
+// bad way by more than 15% and 2 units against the same offender (same key) or, failing that, the same kind.
+// Each figure carries its own direction, read from its unit (review 7, R7-1: one direction for a whole detail judged a
+// frame count, a fill percentage and a timestamp as badness): px and ms off, "N s late/early/behind/ahead/off", the N of
+// "N of M", and the lateness of "X s still shown with Y s left" (X - Y) are lower-is-better; every other figure (the M of
+// "N of M", percentages, "at 47.3 s", a window's "50s", a coordinate, a bare count) is not judged, unless the check's
+// red-list entry declares `better` ("lower" or "higher"), which then applies to every figure.
 const NUM = /-?\d[\d,]*(?:\.\d+)?/g;
 const namesOut = s => s.replace(/"[^"]*"|'[^']*'/g, 'N').replace(/#[0-9A-Fa-f]{3,8}\b/g, 'N')
   .replace(/\b[A-Z][\w.+-]*(?:\s+(?:[A-Z][\w.+-]*|\d[\d.]*[A-Z]+\b|\d[\d.]*(?=\s+[A-Z0-9]|\s*[,;)]|$)))*/g, 'N');
 export const kindOf = s => namesOut(s).replace(NUM, '#').replace(/N(?:[\s,&/+]*N)*/g, 'N').replace(/\s+/g, ' ').trim();
+const num = x => +x.replace(/,/g, '');
 // figures come from the text with the names out, so a model's "4" or "3.5" is never read as a measurement
-const offenders = d => (d || '').split(/;\s+/).map(s => s.trim()).filter(Boolean).map(s => ({ s, key: s.replace(NUM, '#'), kind: kindOf(s), nums: (namesOut(s).match(NUM) || []).map(n => +n.replace(/,/g, '')) }));
+export function figures(s) {
+  const t = namesOut(s), out = [];
+  for (const m of t.matchAll(NUM)) {
+    const after = t.slice(m.index + m[0].length);
+    const dir = /^\s*(?:px|ms)\b/.test(after) || /^\s*s\s+(?:too\s+)?(?:late|early|behind|ahead|off)\b/.test(after) || /^\s+of\s+-?\d/.test(after) ? 'lower' : null;
+    out.push({ n: num(m[0]), dir });
+  }
+  // a countdown or clock that stays past its second: how far past is the figure, not the clock's reading
+  for (const m of t.matchAll(/(-?\d[\d,]*(?:\.\d+)?)\s*s still shown with (-?\d[\d,]*(?:\.\d+)?)\s*s left/g)) out.push({ n: num(m[1]) - num(m[2]), dir: 'lower', lag: true });
+  return out;
+}
+const offenders = d => (d || '').split(/;\s+/).map(s => s.trim()).filter(Boolean).map(s => ({ s, key: s.replace(NUM, '#'), kind: kindOf(s), figs: figures(s) }));
 // `frozen` may be a list of details (the red list's and every base run's): the candidate is worse only if it is worse than
 // all of them, so a red check's own spread on the base is never read as the candidate's doing.
-export function judgeDetail(frozen, now, better = 'lower') {
-  better ??= 'lower';
+export function judgeDetail(frozen, now, better = null) {
   const seen = [].concat(frozen).filter(x => typeof x === 'string').map(offenders), b = offenders(now), why = [];
   if (!seen.length) return { worse: false, why: ['nothing to judge against'] };
   const all = seen.flat(), kinds = new Set(all.map(x => x.kind)), most = Math.max(...seen.map(a => a.length));
@@ -261,12 +276,14 @@ export function judgeDetail(frozen, now, better = 'lower') {
   for (const o of b) {
     if (!kinds.has(o.kind)) { why.push(`new: ${o.s.slice(0, 160)}`); continue; }
     let same = all.filter(x => x.key === o.key);
-    if (!same.length) same = all.filter(x => x.kind === o.kind && x.nums.length === o.nums.length);
-    o.nums.forEach((n, i) => {
-      const fs = same.map(x => x.nums[i]).filter(f => f !== undefined);
+    if (!same.length) same = all.filter(x => x.kind === o.kind && x.figs.length === o.figs.length);
+    o.figs.forEach(({ n, dir }, i) => {
+      const way = better ?? dir;
+      if (!way) return;
+      const fs = same.map(x => x.figs[i]?.n).filter(f => f !== undefined);
       if (!fs.length) return;
-      const f = better === 'higher' ? Math.min(...fs) : Math.max(...fs), tol = Math.abs(f) * 0.15 + 2;
-      if (better === 'higher' ? n < f - tol : n > f + tol) why.push(`${o.s.slice(0, 120)}: ${n} against ${f}`);
+      const f = way === 'higher' ? Math.min(...fs) : Math.max(...fs), tol = Math.abs(f) * 0.15 + 2;
+      if (way === 'higher' ? n < f - tol : n > f + tol) why.push(`${o.s.slice(0, 120)}: ${n} against ${f}`);
     });
   }
   return { worse: why.length > 0, why };

@@ -59,3 +59,26 @@ test('quantile', () => {
   assert.equal(quantile([0, 10], 0.9), 9);
   assert.equal(quantile([null], 0.5), null);
 });
+
+// ---------- review 7 ----------
+test('judgeDetail R7-1: honest — a faster replay with more frames and less clip is not worse', () => {
+  assert.equal(judgeDetail([CLIP], '50s: 120px out (#D97757 at x 1288); 2 of 280 replay frames over 2px, worst 150.0px at 47.3 s').worse, false);
+  // the worst frame later in the replay is a timestamp, not badness
+  assert.equal(judgeDetail([CLIP], '50s: 120px out (#D97757 at x 1288); 2 of 280 replay frames over 2px, worst 150.0px at 58.9 s').worse, false);
+});
+test('judgeDetail R7-1: honest — a better fill (85% -> 100%, 24% -> 40%) is not worse', () => {
+  const base = 'fill 10s 100% (recent 100%), 30s 100% (recent 100%), 50s 85% (recent 153%), rest 24% (recent 100%); axis moved in 7% of frames (7 wider, 8 narrower), worst 0.5% per frame; tips outside the plot in 0 frames';
+  assert.equal(judgeDetail([base], base.replace('50s 85%', '50s 100%').replace('rest 24%', 'rest 40%')).worse, false);
+});
+test('judgeDetail R7-1: regressions — the 15,000 px clip, more clipped frames, a 5s -> 9s stale countdown are worse', () => {
+  assert.equal(judgeDetail([CLIP], '50s: 15000px out (#D97757 at x 1288); 3 of 228 replay frames over 2px, worst 15000.0px at 47.3 s').worse, true);
+  assert.equal(judgeDetail([CLIP], '50s: 191px out (#D97757 at x 1288); 40 of 280 replay frames over 2px, worst 308.1px at 47.3 s').worse, true);
+  assert.equal(judgeDetail(['countdown stays past its second: 5s still shown with 4s left'], 'countdown stays past its second: 9s still shown with 4s left').worse, true);
+  assert.equal(judgeDetail(['the caption shows 300 ms late'], 'the caption shows 1,900 ms late').worse, true);
+  assert.equal(judgeDetail(['the clock is 1 s late'], 'the clock is 6 s late').worse, true);
+});
+test('judgeDetail R7-1: a countdown read at another second with the same lag is not worse; a declared direction still applies to every figure', () => {
+  assert.equal(judgeDetail(['countdown stays past its second: 5s still shown with 4s left'], 'countdown stays past its second: 38s still shown with 37s left').worse, false);
+  assert.equal(judgeDetail(['fill 50s 85%'], 'fill 50s 40%', 'higher').worse, true);
+  assert.equal(judgeDetail(['fill 50s 85%'], 'fill 50s 40%').worse, false, 'a percentage with no declared direction is not judged');
+});
