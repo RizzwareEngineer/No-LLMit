@@ -120,14 +120,60 @@ func TestStreamIsGzippedWhenAccepted(t *testing.T) {
 			t.Errorf("gzipped frame %d %q differs from the plain %q", i, z[i], p[i])
 		}
 	}
+}
+
+// acceptsGzip parses the q value: the name is case-insensitive, and q=0 in any spelling, or a
+// q that does not parse, refuses gzip.
+func TestAcceptsGzipParsesQ(t *testing.T) {
 	for _, c := range []struct {
 		accept string
 		want   bool
-	}{{"gzip", true}, {"br, GZIP;q=0.5", true}, {"gzip;q=0", false}, {"", false}, {"deflate", false}} {
+	}{
+		{"gzip", true}, {"GZIP", true}, {"gzip;q=0.5", true}, {"br, GZIP;q=0.5", true}, {"gzip; q=1", true},
+		{"gzip;q=0", false}, {"gzip;Q=0", false}, {"gzip;q=0.", false}, {"gzip;q=0.000", false},
+		{"gzip; q = 0", false}, {"gzip;q=abc", false}, {"br, gzip;q=0", false},
+		{"identity", false}, {"", false}, {"deflate", false},
+	} {
 		r, _ := http.NewRequest("GET", "/", nil)
 		r.Header.Set("Accept-Encoding", c.accept)
 		if acceptsGzip(r) != c.want {
 			t.Errorf("Accept-Encoding %q: gzip %v", c.accept, !c.want)
 		}
+	}
+}
+
+// The real handler, gzip accepted, to the end of a short stream life: every frame goes through
+// out.send (snapshot, stats, a live frame) and out.end writes the trailer, so reading the body to
+// EOF through gzip.NewReader checks the handler's own CRC and ISIZE.
+func TestGzipStreamEndsWithAValidTrailer(t *testing.T) {
+	t.Setenv("FIXTURE_STREAM_LIFE_S", "0.6")
+	h := newHub()
+	h.publish("", nil, []byte(`{"models":[{"name":"m","pnl":-1250}]}`), ServerMessage{Type: MsgStats, Payload: map[string]any{}})
+	h.publish("tbl_a", &tableSnap{State: GameStatePayload{HandNumber: 4}}, nil, handStartMsg(4))
+	srv := httptest.NewServer(http.HandlerFunc(h.handleStream))
+	defer srv.Close()
+	req, _ := http.NewRequest("GET", srv.URL, nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("Content-Encoding %q", resp.Header.Get("Content-Encoding"))
+	}
+	zr, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	br := bufio.NewReader(zr)
+	br.ReadString('\n') // the snapshot is out: publish a live frame mid-stream
+	h.publish("tbl_a", &tableSnap{}, nil, handStartMsg(5))
+	rest, err := io.ReadAll(br) // to EOF: the trailer's CRC and length are checked here
+	if err != nil {
+		t.Fatalf("gzip body to EOF: %v", err)
+	}
+	if !strings.Contains(string(rest), `"pnl":-1250`) || !strings.Contains(string(rest), `"type":"hand_start"`) {
+		t.Errorf("stream body %q", rest)
 	}
 }

@@ -68,14 +68,22 @@ func (p packedBody) frame(seq uint64) []byte {
 
 var packedHeartbeat = storedSeg(heartbeat)
 
-// acceptsGzip: the request's Accept-Encoding lists gzip without q=0.
+// acceptsGzip: the request's Accept-Encoding lists gzip with a q above 0 (RFC 9110: the
+// parameter name is case-insensitive; q=0, "0.", "0.000" or a q that does not parse refuse it).
 func acceptsGzip(r *http.Request) bool {
 	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
 		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
-		if strings.EqualFold(strings.TrimSpace(name), "gzip") {
-			q := strings.ReplaceAll(params, " ", "")
-			return q != "q=0" && q != "q=0.0" && q != "q=0.00" && q != "q=0.000"
+		if !strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			continue
 		}
+		for _, p := range strings.Split(params, ";") {
+			k, v, _ := strings.Cut(p, "=")
+			if strings.EqualFold(strings.TrimSpace(k), "q") {
+				q, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+				return err == nil && q > 0
+			}
+		}
+		return true
 	}
 	return false
 }
