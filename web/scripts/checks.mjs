@@ -6778,7 +6778,8 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
     let held = [];
     await p.setRequestInterception(true);
     p.on('request', r => { if (held && r.initiator()?.type === 'script' && /\/_next\/static\/chunks\/.*\.js/.test(r.url())) held.push(r); else r.continue().catch(() => {}); });
-    await p.exposeFunction('__releaseChunks', () => { const h = held || []; held = null; for (const r of h) r.continue().catch(() => {}); return h.length; });
+    let heldN = null; // the chunks the hold caught (review 6, R6-15: an empty hold tests nothing)
+    await p.exposeFunction('__releaseChunks', () => { const h = held || []; held = null; heldN = h.length; for (const r of h) r.continue().catch(() => {}); return h.length; });
     await scriptStream(p);
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await p.waitForFunction(() => window.__stream?.last?.players?.length && window.__stream.feed && document.querySelector('[data-clock]'), { timeout: 120000 });
@@ -6839,8 +6840,9 @@ group(() => check('clock-stops-at-move', 'At 1440x900 on a 4x-throttled CPU, the
       if (up.length) bad.push(`turn ${k + 2}: the clock went back up (${next.map(x => x.v).join(' ')})`);
       if (lastBad) bad.push(`turn ${k + 2}: ${r.last ?? 'no clock'} shown at the end with ${eng(r.end)}s left`);
     }
+    if (!heldN) bad.unshift(`nothing held (nothing tested): ${heldN ?? 'no'} stats chunks held for the first turn`);
   } finally { await p.close(); }
-  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `${seen.join('; ')}; ${heldN} chunks held` };
 }));
 
 // Review 5, finding 9 (review 4 #4's guard): a state that moves the next deal (an outage notice's 180 s) while "Next hand
@@ -6857,7 +6859,8 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
     let held = [];
     await p.setRequestInterception(true);
     p.on('request', r => { if (held && r.initiator()?.type === 'script' && /\/_next\/static\/chunks\/.*\.js/.test(r.url())) held.push(r); else r.continue().catch(() => {}); });
-    await p.exposeFunction('__releaseChunks', () => { const h = held || []; held = null; for (const r of h) r.continue().catch(() => {}); return h.length; });
+    let heldN = null; // the chunks the hold caught (review 6, R6-15: an empty hold tests nothing)
+    await p.exposeFunction('__releaseChunks', () => { const h = held || []; held = null; heldN = h.length; for (const r of h) r.continue().catch(() => {}); return h.length; });
     await scriptStream(p);
     await p.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
     await p.waitForFunction(() => window.__stream?.last?.players?.length && window.__stream.feed && document.querySelector('[data-seat]'), { timeout: 120000 });
@@ -6897,8 +6900,9 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
       if (old.length) bad.push(`${k + 1}: the old deal's countdown after the deal moved: ${old.slice(0, 4).map(x => `${x.v}s at +${x.at - r.moved} ms (old ${oldAt(x.at)}s, new ${newAt(x.at)}s)`).join(', ')}`);
       else if (wrong.length) bad.push(`${k + 1}: ${wrong.slice(0, 3).map(x => `${x.v}s shown with ${newAt(x.at)}s to the deal`).join(', ')}`);
     }
+    if (!heldN) bad.unshift(`nothing held (nothing tested): ${heldN ?? 'no'} stats chunks held for the first deal`);
   } finally { await p.close(); }
-  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `values shown: ${seen.join('; ')}` };
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `values shown: ${seen.join('; ')}; ${heldN} chunks held` };
 }));
 
 // --lanes 1 runs one page at a time (the main page's steps, then each group, then each late): a timing check on the main
