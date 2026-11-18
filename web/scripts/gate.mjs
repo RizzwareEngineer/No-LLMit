@@ -317,9 +317,10 @@ export const scriptKey = path => path.replace(/[?#].*$/, '')
     return tail ? `/${tail[1]}-<h>.${ext}` : m;
   });
 export const scriptKeys = paths => { const n = new Map(); return paths.map(scriptKey).sort().map(k => { const i = (n.get(k) ?? 0) + 1; n.set(k, i); return `${k} #${i}`; }); };
-// DOM marks that come and go with the hand (a bet in front of a seat, the pot, the chart's emphasised line), not with the
-// agent: left out of the DOM list, which keeps every id and the other data- marks (the stats' rows, the chart, the screens).
-const HAND_DOM = new Set(['[data-bet]', '[data-pot]', '[data-emph]']);
+// DOM marks that come and go with the hand (a bet in front of a seat, the pot, the chart's emphasised line, a chip or card
+// in flight), not with the agent: left out of the DOM list, which keeps every id and the other data- marks (the stats' rows,
+// the chart, the screens).
+const HAND_DOM = new Set(['[data-bet]', '[data-pot]', '[data-emph]', '[data-flight]']);
 async function uaRuntime(url) { // one build's differences under an audit's agent
   const b = await browser(['--disable-blink-features=AutomationControlled']);
   const load = async (ua, phone, webdriver) => {
