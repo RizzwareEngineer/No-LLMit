@@ -16,7 +16,10 @@
 # It prints the env to use for a browser tool (CHROME_PATH=chrome.sh) and stays in the foreground; Ctrl-C stops it all.
 set -eu
 # Its own process group, so stopping it (Ctrl-C, or kill on this script) stops every server it started, next-server included.
-[ -z "${FIXTURE_GROUP-}" ] && FIXTURE_GROUP=1 exec setsid "$0" "$@"
+# Started from a terminal (or any shell with job control) it already leads its own group, in the terminal's foreground, so
+# Ctrl-C reaches it all: no setsid then (setsid would fork and detach it from the terminal; R6-10). Started from a script
+# (check-states.sh's &), it shares its caller's group: only then does it take a session of its own.
+if [ -z "${FIXTURE_GROUP-}" ] && [ "$(ps -o pgid= -p $$ | tr -d ' ')" != "$$" ]; then FIXTURE_GROUP=1 exec setsid "$0" "$@"; fi
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../../.." && pwd)"
 SIZE=1250 STATES=live PACE=0.3 FREEZE=0
 while [ $# -gt 0 ]; do case "$1" in --size) SIZE=$2; shift 2 ;; --state) STATES=$2; shift 2 ;; --pace) PACE=$2; shift 2 ;; --freeze) FREEZE=$2; shift 2 ;; *) echo "unknown $1"; exit 2 ;; esac; done

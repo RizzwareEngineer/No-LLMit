@@ -6,8 +6,15 @@
 set -u
 VIOL=$1; shift; [ "${1-}" = "--" ] && shift
 HERE="$(cd "$(dirname "$0")" && pwd)"
-: > "$VIOL.before"; cp "$VIOL" "$VIOL.before" 2>/dev/null
+# The guard's own file (serve.sh's "violations:" path) must exist: a wrong path would count nothing and pass (R6-7).
+[ -f "$VIOL" ] || { echo "FIXTURE GUARD: no violations file $VIOL (is serve.sh running? use the path it printed)"; exit 3; }
+cp "$VIOL" "$VIOL.before"
 REAL="${FIXTURE_REAL_CHROME:-${CHROME_PATH:-/usr/bin/google-chrome}}"
+# CHROME_PATH exported as chrome.sh (serve.sh's "use:" line) would make chrome.sh exec itself forever (R6-13).
+if [ "$(readlink -f "$REAL" 2>/dev/null)" = "$(readlink -f "$HERE/chrome.sh")" ]; then
+  REAL="${FIXTURE_REAL_CHROME_FALLBACK:-/usr/bin/google-chrome}"
+  [ "$(readlink -f "$REAL" 2>/dev/null)" = "$(readlink -f "$HERE/chrome.sh")" ] && { echo "run.sh: the real Chrome is chrome.sh itself; set FIXTURE_REAL_CHROME"; exit 2; }
+fi
 FIXTURE_REAL_CHROME="$REAL" CHROME_PATH="$HERE/chrome.sh" "$@"
 code=$?
 new=$(( $(wc -l < "$VIOL") - $(wc -l < "$VIOL.before") )); rm -f "$VIOL.before"

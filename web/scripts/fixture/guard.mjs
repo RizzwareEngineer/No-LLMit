@@ -23,17 +23,23 @@ writeFileSync(VIOL, '');
 
 const isLoop = h => ['localhost', '127.0.0.1', '[::1]', '::1'].includes(h);
 const sameHost = (u, base) => (u.hostname === base.hostname || (isLoop(u.hostname) && isLoop(base.hostname))) && (u.port || '80') === (base.port || '80');
-// Chrome's own background calls (updates, sign-in, time sync) to Google hosts, which flags do not stop in branded Chrome:
-// logged beside the violations, not in them. The site calls no Google host (no "google" in web/src); if it ever does,
-// that call is missed here, so keep this list to Chrome's service hosts.
-const CHROME_OWN = /^(?:[a-z0-9-]+\.)*(?:google\.com|googleapis\.com|gstatic\.com|gvt1\.com)(?::\d+)?$/;
-const violation = (method, url, why) => {
+// Chrome's own background calls (updates, sign-in, time sync, safe browsing) to its service hosts, which flags do not stop
+// in branded Chrome: logged beside the violations, not in them. Only Chrome's service hosts are here (review 6, R6-12):
+// any other Google host a page could use (fonts.googleapis.com, fonts.gstatic.com, storage or firebase on googleapis.com,
+// www.gstatic.com) is a violation, and so is any plain request whose Referer or Origin is a fixture site.
+const CHROME_OWN = /^(?:accounts\.google\.com|clients\d*\.google\.com|[a-z0-9-]+\.clients\.google\.com|www\.google\.com|update\.googleapis\.com|safebrowsing(?:-[a-z0-9]+)?\.googleapis\.com|[a-z0-9-]+-pa\.googleapis\.com|content-autofill\.googleapis\.com|chromewebstore\.googleapis\.com|(?:[a-z0-9-]+\.)*gvt1\.com)(?::\d+)?$/;
+const fromSite = req => { for (const h of [req?.headers?.referer, req?.headers?.origin]) { try { if (h && SITES.some(s => sameHost(new URL(h), s))) return true; } catch {} } return false; };
+const chromeOwn = (method, url, req) => {
+  if (fromSite(req)) return false;
   let host = '';
   try { host = method === 'CONNECT' ? url : new URL(url).host; } catch {}
-  appendFileSync(CHROME_OWN.test(host) ? VIOL + '.chrome' : VIOL, JSON.stringify({ at: new Date().toISOString(), method, url, why }) + '\n');
+  return CHROME_OWN.test(host);
 };
-const deny = (res, why, method, url) => {
-  violation(method, url, why);
+const violation = (method, url, why, req) => {
+  appendFileSync(chromeOwn(method, url, req) ? VIOL + '.chrome' : VIOL, JSON.stringify({ at: new Date().toISOString(), method, url, why }) + '\n');
+};
+const deny = (res, why, method, url, req) => {
+  violation(method, url, why, req);
   res.writeHead(599, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
   res.end(`fixture guard: ${why}`);
 };
@@ -72,13 +78,13 @@ const fetchOnce = path => {
 const server = http.createServer(async (req, res) => {
   req.on('error', () => {}); res.on('error', () => {}); // a page that closes mid-request is not the guard's failure
   let u;
-  try { u = new URL(req.url); } catch { return deny(res, 'not a proxy request', req.method, req.url); }
+  try { u = new URL(req.url); } catch { return deny(res, 'not a proxy request', req.method, req.url, req); }
   let to;
   const site = SITES.find(s => sameHost(u, s));
   if (site) to = site;
   else if (sameHost(u, ENGINE)) {
     if (FREEZE && u.pathname === '/__fixture/frozen-at') { await frozenReady; res.writeHead(200, { ...cors, 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ at: frozen.at })); }
-    if (!ENGINE_PATHS.has(u.pathname)) return deny(res, 'engine path the fixture does not serve', req.method, req.url);
+    if (!ENGINE_PATHS.has(u.pathname)) return deny(res, 'engine path the fixture does not serve', req.method, req.url, req);
     if (FREEZE && u.pathname === '/stream') {
       await frozenReady;
       res.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream' });
@@ -93,7 +99,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(r.body);
     }
     to = ENGINE;
-  } else return deny(res, 'host outside the fixture', req.method, req.url);
+  } else return deny(res, 'host outside the fixture', req.method, req.url, req);
   const up = http.request({ host: to.hostname, port: to.port || 80, method: req.method, path: u.pathname + u.search,
     headers: { ...req.headers, host: u.host } }, ur => { ur.on("error", () => res.destroy()); res.writeHead(ur.statusCode, ur.headers); ur.pipe(res); });
   up.on('error', e => { if (!res.headersSent) res.writeHead(502); res.end(String(e.message)); });
@@ -102,5 +108,5 @@ const server = http.createServer(async (req, res) => {
 });
 // https (or any tunnel): nothing in the fixture is served over TLS.
 server.on('clientError', (e, sock) => sock.destroy());
-server.on('connect', (req, sock) => { sock.on('error', () => {}); violation('CONNECT', req.url, 'tunnel outside the fixture'); sock.end('HTTP/1.1 599 Fixture Guard\r\n\r\n'); });
+server.on('connect', (req, sock) => { sock.on('error', () => {}); violation('CONNECT', req.url, 'tunnel outside the fixture', req); sock.end('HTTP/1.1 599 Fixture Guard\r\n\r\n'); });
 server.listen(PORT, '127.0.0.1', () => console.log(`guard on ${PORT}: site ${SITES.map(s => s.host).join(' ')}, engine ${ENGINE.host}${FREEZE ? `, frozen after ${FREEZE} events` : ''}`));

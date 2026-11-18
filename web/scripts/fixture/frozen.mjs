@@ -88,7 +88,11 @@ async function compare(a, b) {
   let bad = 0;
   const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });
   const page = await browser.newPage();
-  for (const f of readdirSync(a).filter(f => f.endsWith('.json'))) {
+  // Every capture either side has (R6-14): a view only one side has is a DIFF, and an A with no captures fails.
+  const ja = readdirSync(a).filter(f => f.endsWith('.json')), jb = readdirSync(b).filter(f => f.endsWith('.json'));
+  if (!ja.length) { console.log(`DIFF  ${a} has no captures`); bad++; }
+  for (const f of [...new Set([...ja, ...jb])].sort()) {
+    if (!ja.includes(f) || !jb.includes(f)) { console.log(`DIFF  ${f.replace('.json', '')}: only in ${ja.includes(f) ? 'A' : 'B'}`); bad++; continue; }
     const A = JSON.parse(readFileSync(`${a}/${f}`)).boxes, B = JSON.parse(readFileSync(`${b}/${f}`)).boxes;
     const key = x => JSON.stringify(x);
     const sa = new Set(A.map(key)), sb = new Set(B.map(key));
