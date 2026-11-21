@@ -389,3 +389,6 @@ html:has([data-screen]) {
   [data-tab-bar] svg { display: none; }
 }
 }
+
+/* Draft A (?phone=a, lib/tableSwitches' PHONE_A): the desktop page on a phone, without Profits & Losses. */
+html.phone-a #phone-stats { display: none; }

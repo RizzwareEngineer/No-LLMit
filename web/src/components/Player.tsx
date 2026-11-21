@@ -34,6 +34,7 @@ interface PlayerProps {
   bubble?: string; // the action just taken, shown for a moment (phone)
   onOpen?: () => void; // phone: a tap on the logo opens its basic stats (PokerTable's SeatStats); without it, the drawer
   fillIn?: boolean; // fade in on mount (the table filling); false for a seat mounted by a layout switch mid-hand
+  narrow?: boolean; // draft B's upright table (PokerTable): the desktop seat in a cell about 90px wide; the badge joins the action
 }
 
 // Position badge colors, for exactly the engine's names (game.PositionName)
@@ -71,7 +72,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, compact = false, spot, ring, bubble, onOpen, fillIn = true }: PlayerProps) {
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, compact = false, spot, ring, bubble, onOpen, fillIn = true, narrow = false }: PlayerProps) {
   const bb = useBigBlind();
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
@@ -195,21 +196,22 @@ export default function Player({ player, active, position, winAmount, winDesc, i
       >
         {/* Top-left, as in the original seat: logo, then the name over the stack. The name has the
             whole row because the hole cards sit bottom-right, so it fits on one line. */}
-        <div className="flex items-start justify-between gap-2 p-3 pb-0 min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <LLMLogo model={player.name} size={20} />
+        <div className={`flex items-start justify-between min-w-0 ${narrow ? 'gap-1 p-1.5 pb-0' : 'gap-2 p-3 pb-0'}`}>
+          <div className={`flex items-center min-w-0 ${narrow ? 'gap-1' : 'gap-2'}`}>
+            <LLMLogo model={player.name} size={narrow ? 16 : 20} />
             <div className="flex flex-col min-w-0">
               <FitName name={player.name} className="text-[11px] font-bold" style={{ color: 'rgb(55, 53, 47)' }} />
               <div data-chips={player.stack} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
             </div>
           </div>
           {/* Position badge, top-right */}
-          {badge}
+          {!narrow && badge}
         </div>
 
         {/* Bottom row: the action at the left, the hole cards at the right. */}
-        <div className="mt-auto flex items-end justify-between gap-2 p-3 pt-0 min-w-0">
-          <div className="flex items-center gap-2 min-w-0 mb-0.5">
+        <div className={`mt-auto flex min-w-0 ${narrow ? 'flex-col items-start gap-1 p-1.5 pt-0' : 'items-end justify-between gap-2 p-3 pt-0'}`}>
+          <div className={`flex items-center min-w-0 ${narrow ? 'gap-1 w-full overflow-hidden' : 'gap-2 mb-0.5'}`}>
+            {narrow && badge}
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
                 <span data-chips={winAmount} className="font-bold text-[11px] shrink-0 tabular-nums" style={{ color: 'rgb(15, 123, 108)' }}>+{formatAmount(winAmount, bb)}</span>
