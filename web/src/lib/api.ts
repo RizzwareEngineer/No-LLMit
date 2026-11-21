@@ -11,7 +11,7 @@ const STREAM_URL = `${API_URL}/stream`;
 // the engine's figures (a shot clock's elapsedMs, nextHandInMs) count from when it sent them, so a message is timed
 // from its arrival, not from when the page drained it after hydrating (seconds later on a slow phone).
 type Early = { es: EventSource; q: [MessageEvent, number][]; sink: ((e: MessageEvent, at: number) => void) | null };
-export const EARLY_STREAM = `(function(){if(/[?&]peellab/.test(location.search))return;try{var es=new EventSource(${JSON.stringify(STREAM_URL)}),s={es:es,q:[],sink:null};es.onmessage=function(e){var t=Date.now();s.sink?s.sink(e,t):s.q.push([e,t])};window.__earlyStream=s}catch(e){}})()`;
+export const EARLY_STREAM = `(function(){try{var es=new EventSource(${JSON.stringify(STREAM_URL)}),s={es:es,q:[],sink:null};es.onmessage=function(e){var t=Date.now();s.sink?s.sink(e,t):s.q.push([e,t])};window.__earlyStream=s}catch(e){}})()`;
 const adoptEarly = (): Early | null => {
   if (typeof window === 'undefined') return null;
   const w = window as unknown as { __earlyStream?: Early };
@@ -60,6 +60,7 @@ export interface PlayerState {
   currentBet: number;
   lastAction?: string;
   lastAmount?: number;
+  acted?: boolean; // lastAction was taken on the current street (the engine's): otherwise the seat waits or thinks
   isButton: boolean;
   position: string; // from the engine, the same name the models see
   winnings: number;
@@ -87,7 +88,6 @@ export interface GameState {
   };
   gameStartTime: string; // ISO8601 timestamp from server
   nextHandInMs?: number; // Shared table: time until the server deals the next hand
-  peeked?: number[]; // seats whose turn has come this hand (face up); always sent by the engine, [] when none
   pace?: number; // Shared table: multiplier on every pause (the engine's TABLE_PACE); reasons type at 25 ms per character times it
 }
 

@@ -38,7 +38,6 @@ type GameStatePayload struct {
 	Stakes           StakesPayload        `json:"stakes"`
 	GameStartTime    string               `json:"gameStartTime"`
 	NextHandInMs     int                  `json:"nextHandInMs,omitempty"` // Shared table: time until the next hand is dealt
-	Peeked           []int                `json:"peeked"`                 // seats whose turn has come this hand (their cards are face up); [] when none
 	Pace             float64              `json:"pace,omitempty"`         // Shared table: multiplier on every pause, so the site types reasons in step
 }
 
@@ -51,6 +50,7 @@ type PlayerStatePayload struct {
 	CurrentBet int      `json:"currentBet"`
 	LastAction string   `json:"lastAction,omitempty"`
 	LastAmount int      `json:"lastAmount,omitempty"`
+	Acted      bool     `json:"acted,omitempty"` // LastAction was taken on the current street
 	IsButton   bool     `json:"isButton"`
 	Position   string   `json:"position"` // BTN, SB, BB, UTG, ... as the models are told
 	Winnings   int      `json:"winnings"`
@@ -130,6 +130,7 @@ func ConvertGameState(gs *game.GameState) GameStatePayload {
 			CurrentBet: p.CurrentBet,
 			LastAction: lastAction,
 			LastAmount: lastAmount,
+			Acted:      p.LastAction != nil && p.LastAction.Street == gs.Street,
 			IsButton:   i == gs.ButtonIdx,
 			Position:   gs.PositionName(i),
 			Winnings:   p.Winnings,

@@ -2,17 +2,17 @@ import { useSyncExternalStore } from "react";
 import { isPhone, onLayoutChange } from "@/lib/layout";
 import type { SeatDraft } from "@/lib/phoneTable";
 
-// Hole card sizes in px, the card's 0.7 ratio: phones' 28x40 (the deck then is the board's 30x42), and desktop's 40x56 (the owner picked it, 2026-11-14; the deck is then the hole cards' size).
+// Card sizes in px, the card's 0.7 ratio: phones' 28x40 and desktop's 40x56 (the owner picked it, 2026-11-14). Every card on
+// the table is this size: hole cards, the board, the deck and the button draw (owner, 2026-11-21: "the dealer cards and the
+// community cards need to be same size as the cards the players get").
 export const CARD_SIZES = [{ w: 28, h: 40 }, { w: 40, h: 56 }] as const;
 // Literal classes, so Tailwind sees each one.
 export const CARD_CLASS = ['w-7 h-10', 'w-10 h-14'] as const;
 
 // Phones keep today's size: the phone table's seats are laid out for it (phoneTable.ts). The layout is lib/layout's.
 export const cardSizeNow = (): number => (isPhone() ? 0 : 1);
-// The deck's size in px: the board's on phones, the hole cards' on desktop.
-export function deckSize(size = cardSizeNow()) {
-  return size ? CARD_SIZES[size] : { w: 30, h: 42 }; // phones: the board's cards (phoneTable's DECK)
-}
+// The deck's size in px: the hole cards'.
+export const deckSize = (size = cardSizeNow()) => CARD_SIZES[size];
 
 export const useCardSize = () => useSyncExternalStore(onLayoutChange, cardSizeNow, () => 0);
 

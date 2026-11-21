@@ -33,9 +33,10 @@ func (at ActionType) String() string {
 // Action represents a player's action
 type Action struct {
 	Type      ActionType
-	Amount    int  // For raise/all-in, the total bet amount
-	PlayerIdx int  // Which player took the action
-	Bet       bool // an applied raise that opened the street's betting (RaiseName)
+	Amount    int    // For raise/all-in, the total bet amount
+	PlayerIdx int    // Which player took the action
+	Bet       bool   // an applied raise that opened the street's betting (RaiseName)
+	Street    Street // the street it was taken on
 }
 
 // Name is what viewers and saved hands call an applied action: its type, or BET for a raise

@@ -1,7 +1,6 @@
 "use client";
 
 import Card from "@/components/Card";
-import HoleCard from "@/components/HoleCard";
 import FitName from "@/components/FitName";
 import LLMLogo from "@/components/LLMLogo";
 import { logoFile } from "@/lib/families";
@@ -11,7 +10,7 @@ import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE, MUTED, modelHref } from "@/lib/stats";
-import { CARD_CLASS, CARD_SIZES, useCardSize } from "@/lib/tableSwitches";
+import { CARD_CLASS, useCardSize } from "@/lib/tableSwitches";
 import { useFillIn } from "@/lib/boxes";
 import { clockMs, clockShare, type Clock } from "@/lib/stream";
 import { useSecondsDraw } from "@/hooks/useSecondsDraw";
@@ -29,8 +28,6 @@ interface PlayerProps {
   seatIdx?: number; // where TableMotion's chips and cards fly to and from
   handNumber?: number;
   dealDelays?: number[]; // seconds until each dealt card lands, when the deal is animated
-  faceUp?: boolean; // the hole cards show their faces: the seat's turn has come this hand, or the hand is over
-  peek?: boolean; // they turn up by the peek (HoleCard): the seat's turn; otherwise (the hand's end) they just turn over
   compact?: boolean; // the phone table's seat (PokerTable), placed at `spot` (phoneTable.ts)
   spot?: Spot;
   ring?: Clock | null; // the shot clock, for the seat on the clock; null: no clock
@@ -74,7 +71,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, faceUp = true, peek = false, compact = false, spot, ring, bubble, onOpen, fillIn = true }: PlayerProps) {
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, compact = false, spot, ring, bubble, onOpen, fillIn = true }: PlayerProps) {
   const bb = useBigBlind();
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
@@ -82,10 +79,6 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const isWinner = winAmount !== undefined && winAmount > 0;
   const size = useCardSize();
   const cardClass = CARD_CLASS[size];
-  // The hand whose dealt cards have both landed: until then they stay face down, so the first seat to act (its turn
-  // comes during the deal) peeks once its cards are in place, not unseen in flight.
-  const [landed, setLanded] = useState(0);
-  const up = faceUp && (!dealDelays || landed === handNumber);
   const seatBg = isWinner ? 'rgb(237, 253, 244)' : '#ffffff';
   // A seat mounts where the blank one stood (PokerTable) when the table fills: its content fades in.
   // Not a seat mounted by a layout switch (PokerTable): it shows the table as it was. Only how it mounted counts.
@@ -106,14 +99,15 @@ export default function Player({ player, active, position, winAmount, winDesc, i
     <div data-hole className="flex flex-row items-center gap-1 shrink-0">
       {cards.length > 0 ? (
         cards.map((card, i) => (
-          // Keyed by hand, so a card dealt while watching waits for its flight to land.
+          // Face up as soon as it is dealt (owner, 2026-11-20: "just reveal as soon as cards are dealt"). Keyed by hand, so a
+          // card dealt while watching shows once its flight lands.
           <motion.div
             key={`${handNumber}-${card}-${i}`}
             initial={dealDelays ? { opacity: 0 } : false}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
           >
-            <HoleCard value={card} faceUp={up} peek={peek} fade={!size} slot={i ? 1 : 0} w={CARD_SIZES[size].w} h={CARD_SIZES[size].h} hand={handNumber} seat={seatIdx} settle={dealDelays?.[i]} onLanded={i ? () => setLanded(handNumber) : undefined} className={cardClass} />
+            <Card value={card} className={cardClass} />
           </motion.div>
         ))
       ) : (

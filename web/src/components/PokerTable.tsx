@@ -33,7 +33,6 @@ interface PokerTableProps {
   winnersByIdx?: Record<number, WinnerInfo>;
   nextDealAt?: number | null; // Date.now() of the next deal while the next-hand countdown shows (page.tsx); null: none
   thinkingPlayerIdx?: number;
-  peeked?: number[]; // seats whose hole cards are face up this hand (the engine's peeked, and the turn on screen)
   buttonDetermination?: ButtonDetermination | null;
   notice?: TableNoticePayload | null;
   street: string;
@@ -54,7 +53,6 @@ export default function PokerTable({
   winnersByIdx = {},
   nextDealAt = null,
   thinkingPlayerIdx,
-  peeked = [],
   buttonDetermination,
   notice,
   street,
@@ -65,22 +63,9 @@ export default function PokerTable({
 }: PokerTableProps) {
   const layout = getPlayerLayout(players.length || 9);
   const hidePositions = !!buttonDetermination; // the position badges wait for the button draw
-  // The engine keeps each seat's last action until the hand ends. A seat shows it only once it has
-  // acted on the current street: its action, amount or stack changed since the street started, or
-  // it was on the clock during this street (that catches a second CHECK in a row).
-  const sig = (p: PlayerState) => `${p.lastAction}|${p.lastAmount}|${p.stack}`;
-  const streetKey = `${handNumber}:${street}`;
-  const [view, setView] = useState({ key: '', start: null as Record<string, string> | null, acted: [] as string[] });
-  if (players.length && view.key !== streetKey) {
-    // The first street seen (a late joiner) has no starting point: see `shown`.
-    setView({ key: streetKey, start: view.key ? Object.fromEntries(players.map(p => [p.id, sig(p)])) : null, acted: [] });
-  }
-  const onClock = thinkingPlayerIdx !== undefined ? players[thinkingPlayerIdx]?.id : undefined;
-  if (onClock && view.key === streetKey && !view.acted.includes(onClock)) setView({ ...view, acted: [...view.acted, onClock] });
-  // Without a starting point, after the flop only seats with chips in this street have surely acted.
-  const shown = (p: PlayerState) => view.start
-    ? view.acted.includes(p.id) || view.start[p.id] !== sig(p)
-    : street === 'preflop' || p.currentBet > 0;
+  // The engine keeps each seat's last action until the hand ends; it shows only once taken on this street (the engine's
+  // `acted`). Before that the seat says WAITING, then THINKING on its turn, never an earlier street's action.
+  const shown = (p: PlayerState) => !!p.acted;
 
   // The deal: a late joiner sees the hand already dealt; a hand dealt while watching shows each card as its flight
   // lands (TableMotion), unless motion is reduced. The deck is shuffled on the felt between hands.
@@ -145,8 +130,6 @@ export default function PokerTable({
       handNumber={handNumber}
       fillIn={!switched}
       dealDelays={dealt ? [0, 1].map(round => dealStart(players, idx, round) + CARD_FLIGHT) : undefined}
-      faceUp={street === 'complete' || peeked.includes(idx)}
-      peek={peeked.includes(idx)}
       compact={!!spot}
       spot={spot}
       ring={spot && idx === currentPlayerIdx ? clock : undefined}

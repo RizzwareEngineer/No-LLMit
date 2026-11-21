@@ -179,8 +179,8 @@ func (gs *GameState) awardPotToLastPlayer() *Winner {
 
 	return &Winner{
 		PlayerIdx: lastPlayerIdx,
-		Amount:    totalPot, // what the pot paid, as at showdown; Winnings carries the profit
-		HandDesc:  "uncontested",
+		Amount:    totalPot,        // what the pot paid, as at showdown; Winnings carries the profit
+		HandDesc:  "others folded", // not "uncontested": someone may have called earlier (owner, 2026-11-21)
 	}
 }
 

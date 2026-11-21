@@ -25,7 +25,6 @@ import StickyBar, { PhoneBar } from "@/components/StickyBar";
 import TabBar, { type Tab } from "@/components/TabBar";
 import SessionProgress from "@/components/SessionProgress";
 import DevPace from "@/components/DevPace";
-import PeelLab from "@/components/PeelLab";
 import { setTypingPace } from "@/components/TypewriterText";
 import { isSoundOn, unlockOnFirstGesture } from "@/lib/sound";
 import { useGameState } from "@/hooks/useGameState";
@@ -127,14 +126,8 @@ function roomInside(dir: number) {
   return { room: 0, ahead: null };
 }
 
-// /?peellab shows the peek lab (PeelLab) instead of the table.
-const noSubscribe = () => () => {};
-export default function Home() {
-  const lab = useSyncExternalStore(noSubscribe, () => new URLSearchParams(window.location.search).has('peellab'), () => false);
-  return lab ? <PeelLab /> : <Table />;
-}
 
-function Table() {
+export default function Home() {
   const {
     gameState,
     dealAt,
@@ -206,8 +199,6 @@ function Table() {
   const handNumber = gameState?.handNumber || 0;
   const turnKey = displayState ? `${handNumber}:${displayState.turn}` : ''; // the typing record's key: turns restart each hand
   const winners = gameState?.winners || [];
-  // Seats whose cards are face up: the engine's list, and the turn on screen until a game_state carries it.
-  const peeked = gameState?.peeked ?? [];
   const isHandComplete = street === 'complete';
 
   // All-time stats feed the leaderboard, the drawer and the stats sections; the stream sends them on connect and as each hand is saved.
@@ -516,7 +507,6 @@ function Table() {
                 winnersByIdx={winnersByIdx}
                 nextDealAt={counting ? dealAt : null}
                 thinkingPlayerIdx={(displayState?.phase === 'thinking' || displayState?.phase === 'reasoning') ? displayState.playerIdx : undefined}
-                peeked={displayState ? [...peeked, displayState.playerIdx] : peeked}
                 buttonDetermination={buttonDetermination}
                 notice={tableNotice}
                 street={street}

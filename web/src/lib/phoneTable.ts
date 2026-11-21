@@ -17,7 +17,7 @@ export const POT_TOP = -36;
 // it is 8px under the pot (owner 2026-11-15: "the shuffle deck should not be in front of the pot count"; the audit found
 // it over the pot's label at 375, and the top seat's cards leave no room over the pot on a short table). Its top from the
 // felt's middle (px): the board's row starts 2px over it.
-export const DECK = { w: 30, h: 42, top: 2 } as const;
+export const DECK = { w: 28, h: 40, top: 2 } as const; // the hole cards' size (tableSwitches' CARD_SIZES)
 
 // The table's shape (?shape=, tableSwitches; drafts besides the oval, owner 2026-11-15: "some other layouts that we should
 // consider such that it still feels like it fits with the no-limit version"): the oval (the default), a rounded rectangle
@@ -183,7 +183,7 @@ export function seatSpots(n: number, shape: Shape = 'oval', draft: SeatDraft = '
 export const MIDDLE: Lin = [0.5, (FELT.top - FELT.bottom) / 2 + 6];
 
 // The seat's box around its logo's centre: the logo and its position chip, the stack and label under it, the cards with
-// room to land askew (35 degrees) and to be peeked. The hole cards' flights and peek checks treat it as the seat.
+// a margin round them. The hole cards' flights and the checks treat it as the seat.
 export const TEXT_H = 28; // the stack's line and the label's, from 4px under the logo
 export function seatBox(spot: Spot) {
   const c = spot.cards, half = LOGO / 2, x = textBox(spot);

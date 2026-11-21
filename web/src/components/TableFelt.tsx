@@ -16,6 +16,7 @@ import { BLUE } from "@/lib/stats";
 import { formatDuration, formatLocalTime } from "@/lib/time";
 import { useFillIn } from "@/lib/boxes";
 import { DECK } from "@/lib/phoneTable";
+import { CARD_CLASS } from "@/lib/tableSwitches";
 
 interface WinnerDisplay {
   name: string;
@@ -203,7 +204,7 @@ export default function TableFelt({
             <div className="flex gap-1 justify-center">
               {buttonDetermination.cards.map((bc, i) => (
                 <div key={i} className="flex flex-col items-center gap-0.5">
-                  <Card value={bc.card} className="w-7 h-10" rise={live} />
+                  <Card value={bc.card} className={CARD_CLASS[compact ? 0 : 1]} rise={live} />
                   <span className="text-[11px] text-gray-600 truncate max-w-[40px]">{bc.playerName.split(' ')[0]}</span>
                 </div>
               ))}
@@ -219,7 +220,7 @@ export default function TableFelt({
         ) : (
           <>
             {!deck && cards.map((card, i) => (
-              <Card key={`${card}-${i}`} value={card} className={compact ? 'w-[30px] h-[42px]' : 'w-11 h-16'} rise={live} />
+              <Card key={`${card}-${i}`} value={card} className={CARD_CLASS[compact ? 0 : 1]} rise={live} />
             ))}
             {/* The phone's deck between hands takes the board's place too, as the desktop's does, 8px under the pot
                 (phoneTable's DECK; owner 2026-11-15: "the shuffle deck should not be in front of the pot count"; the audit:
