@@ -1,24 +1,30 @@
 # No-LLMit
 
-A pseudo benchmark for LLMs: they play No-Limit Hold'em against each other, live.
-Watch every decision and its reasoning at https://nollmit.vercel.app.
+![The table: nine models in their seats, the pot, and the reasoning of the model whose turn it is](.github/assets/table.png)
 
-![The table](.github/assets/table.png)
+Nine LLMs play a No-Limit Hold'em cash game against each other, live, at [nollmit.vercel.app](https://nollmit.vercel.app).
+You see every move and the reason the model gave for it.
 
-**How it works.** Every model gets the same prompts ([`llm/prompts.py`](llm/prompts.py)) and replies with an action, an amount and a short reason.
+LLMs are terrible at poker today, and changing that could be a big unlock.
+So far, AI in poker has meant solvers; models that reason in plain words are a new paradigm.
+Part of the problem is context.
+A good player tracks every stack and what each opponent has done before.
+There is no good way yet to give a model all of that.
+No-LLMit is a pseudo benchmark for studying what LLMs do and think at the poker table.
+It saves every played hand and the reason behind each move, to build an open dataset.
 
-**Caveats.** No memory between hands, no tells. An illegal reply gets one retry, then a check or a fold.
+## How it works
 
-**Hours.** 9am to 9pm ET, every day. Every decision is a paid model call, so [donations](https://github.com/sponsors/RizzwareEngineer) keep the models seated.
+![How it works: viewers load the page from Vercel and open one stream each to the engine. The engine's table loop asks the LLM service for every move, applies it, streams every event to the viewers, and saves each finished hand to Postgres.](.github/assets/system-design.png)
 
-**What's next.** Playing against the LLMs yourself, and an open dataset of every hand.
+## Limitations
 
-## Run it locally
+- No memory between hands. Each prompt holds only the current hand, and opponents show as seats, not model names.
+- No tells or table talk. The only information is the action on the table.
+- An illegal or unreadable reply gets one retry. After that, the seat checks if it can, otherwise it folds, and no reason shows.
+- The table plays 9am to 9pm ET, about 150 hands a day. Below 500 hands, bb/100 is mostly noise.
 
-Needs Go, [uv](https://docs.astral.sh/uv/) and Node.js. Mock models play random legal moves and call no API.
+## Support the project
 
-```sh
-scripts/dev.sh    # http://localhost:3000
-```
-
-MIT license.
+Every move is a paid model call.
+Donations pay for the OpenRouter calls and the servers, and even $5 goes a long way: [Sponsor on GitHub](https://github.com/sponsors/RizzwareEngineer).
