@@ -23,7 +23,8 @@ export default function LandingFill({ stats, players }: { stats: StatsResponse |
   const box = useRef<HTMLDivElement>(null);
   // Where the fill starts on the page. It takes the rest of the first screen above the bars at the bottom: 100svh (steady
   // while iOS's address bar hides and shows) less --bar-h, which it inherits from the page (the tab bar, and the connection
-  // bar while that shows). At least that: a short phone's P&L grows past the screen rather than cutting rows off.
+  // bar while that shows). Never less than what it holds at its least (the chart's 150px or 180px, P&L's label and short
+  // rows: 32px + 25px a row): a short phone's fill runs past the screen rather than cutting rows off.
   const [top, setTop] = useState<number | null>(null);
   const [tableH, setTableH] = useState(0);
   useLayoutEffect(() => {
@@ -39,16 +40,18 @@ export default function LandingFill({ stats, players }: { stats: StatsResponse |
     return () => ro.disconnect();
   }, []);
   const field = useMemo(() => seatedModels(stats?.models ?? [], stats?.seated), [stats]);
+  const pnl = 32 + 25 * (players.length || 9), least = fill === 'graph' ? 180 : fill === 'pnl' ? pnl : 150 + 8 + pnl;
   const open = () => {
     document.getElementById('race-panel')?.focus({ preventScroll: true });
     pageTo('race');
   };
   return (
     <div ref={box} data-landing-fill className="relative mt-2 w-full flex flex-col gap-2"
-      style={top === null ? { visibility: 'hidden' } : { minHeight: `max(180px, calc(100svh - ${top}px - var(--bar-h, 0px) - 12px))` }}>
+      style={top === null ? { visibility: 'hidden' } : { height: `max(${least}px, calc(100svh - ${top}px - var(--bar-h, 0px) - 12px))` }}>
       {fill !== 'pnl' && (
-        // With P&L under it, the chart is the table's height (a short phone's down to 150px) and P&L takes the rest.
-        <div className={`relative w-full bg-white rounded overflow-hidden ${fill === 'both' ? 'shrink min-h-[150px]' : 'flex-1 min-h-[180px]'}`}
+        // With P&L under it, the chart is the table's height at most (down to 150px where P&L needs the room) and P&L takes
+        // the rest.
+        <div className={`relative w-full bg-white rounded overflow-hidden ${fill === 'both' ? 'shrink min-h-[150px]' : 'flex-1'}`}
           style={fill === 'both' ? { ...RING, flexBasis: tableH || 190 } : RING}>
           <LandingChart models={field} />
         </div>
