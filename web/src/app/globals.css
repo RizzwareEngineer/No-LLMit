@@ -392,3 +392,6 @@ html:has([data-screen]) {
 
 /* Draft A (app/a): the desktop page on a phone, without Profits & Losses. */
 html.phone-a #phone-stats { display: none; }
+/* Draft A: the screen's height is the 1,040px layout's (about 2,250px on a phone), so the table screen hugs its content
+   instead of centring in it. */
+html.phone-a section[data-screen] { min-height: 0; justify-content: flex-start; padding-top: 24px; }
