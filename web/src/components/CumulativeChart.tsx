@@ -9,6 +9,7 @@ import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/
 import { PLAY_MS, Timeline, playReplay, playedAt, replaySpeed, replayStarted, replayStep, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
 import { playSound } from '@/lib/sound';
 import { RATE_FROM, robustRange, series, type Metric } from '@/lib/series';
+import { isPhone } from '@/lib/layout';
 
 export { RATE_FROM, series };
 
@@ -675,7 +676,10 @@ export default function CumulativeChart({
       .map(t => ({ t, o: is.includes(t) ? (was.includes(t) ? 1 : kk) : 1 - kk }))
       .filter(d => d.o > 0 && d.t >= Math.min(a, b) - 1e-6 && d.t <= Math.max(a, b) + 1e-6);
   // x ticks never sit left of where the data starts.
-  const xTicksOf = (a: number, b: number) => niceTicks(a, b, compact ? Math.max(3, Math.floor(leadW / 70)) : 10, true).filter(t => t >= Math.max(a, from) && t <= b);
+  // A tick per 70px at most where room is short: compact Trends, and any of these charts on a phone (the model sheet's ten
+  // ticks ran into each other at 390px: "8001,0001,200").
+  const tickCount = compact || (typeof window !== 'undefined' && isPhone()) ? Math.max(3, Math.floor(leadW / 70)) : 10;
+  const xTicksOf = (a: number, b: number) => niceTicks(a, b, tickCount, true).filter(t => t >= Math.max(a, from) && t <= b);
   // Gridlines on the moving axis: their step holds while it gives 6–8 labels (so they slide with the
   // axis rather than relabel), then gridTicks picks again. A label joins with a fade in (CSS
   // @starting-style), leaves with a fade out (it stays, transparent, until the step changes or it
@@ -696,7 +700,7 @@ export default function CumulativeChart({
   // Under the camera (and while zoomed) the ticks slide with history, fading in at the leading edge and out at the left.
   // While the replay's window widens, the finer step's ticks fade out as the coarser step takes over: no label pops. A
   // zoom, which rests where the gesture leaves it, shows the round step alone.
-  const st = steps(X1 - X0, compact ? Math.max(3, Math.floor(leadW / 70)) : 10); // a phone: a tick per 70px at most
+  const st = steps(X1 - X0, tickCount);
   const fadeW = st.step * 0.35;
   const xTicks = race && (playing || zoom)
     ? Array.from({ length: Math.floor(X1 / st.finer) - Math.ceil(Math.max(X0, from) / st.finer) + 1 }, (_, i) => (Math.ceil(Math.max(X0, from) / st.finer) + i) * st.finer)
