@@ -400,4 +400,6 @@ html.phone-a [data-a-table] [role=img] span { font-size: 14px; }
 html.phone-a [data-a-table] [role=img] svg { width: 12px; height: 12px; }
 html.phone-a [data-a-table] [data-bet] { display: flex !important; }
 html.phone-a section[aria-label="Live table"][data-screen] { padding-bottom: 0; }
-html.phone-a { --phone-slack: 0px !important; } /* the oval's centring gap; the desktop table has no use for it */
+/* The oval's centring gap: the desktop table has no use for it. On the page itself, where [data-page] sets it (on <html>
+   it never reached the page: the caption kept 6px of it, 14px over the fill, not 8). */
+html.phone-a [data-page] { --phone-slack: 0px; }
