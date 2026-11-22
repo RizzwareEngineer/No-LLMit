@@ -400,4 +400,5 @@ html.phone-a [data-a-table] [role=img] span { font-size: 14px; }
 html.phone-a [data-a-table] [role=img] svg { width: 12px; height: 12px; }
 html.phone-a [data-a-table] [data-bet] { display: flex !important; }
 html.phone-a .stats-room > #race { height: auto; min-height: 0; }
-html.phone-a #race-panel .flex-1.min-h-\[160px\] { flex: none; height: 260px; }
+html.phone-a #race-panel .flex-1.min-h-\[160px\] { flex: none; height: 360px; } /* room for the nine end labels */
+html.phone-a { --phone-slack: 0px !important; } /* the oval's centring gap; the desktop table has no use for it */
