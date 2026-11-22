@@ -91,10 +91,10 @@ function LandingChart({ models }: { models: ModelStats[] }) {
     const every = Math.max(1, Math.ceil(pts.length / 240));
     return pts.filter((_, i) => i % every === 0 || i === pts.length - 1).map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join('');
   };
-  // Each label's middle at its line's end, at least a row from the next, all between the top and the bottom: rows shrink
-  // when there are more labels than rows (a short chart, a full table), so none is pushed outside.
+  // Each label's middle at its line's end, at least a row from the next, all inside the card (its whole height: the title
+  // sits at the left): rows shrink when there are more labels than rows (a short chart, a full table), none goes outside.
   const ends = lines.map(l => { const e = l.pts[l.pts.length - 1]; return { ...l, e, ty: y(e[1]) }; }).sort((a, b) => a.ty - b.ty);
-  const first = T + 8, last = size.h - B - 8;
+  const first = ROW / 2, last = size.h - ROW / 2;
   const gap = ends.length > 1 ? Math.min(ROW, (last - first) / (ends.length - 1)) : ROW;
   for (let i = 0; i < ends.length; i++) ends[i].ty = Math.max(ends[i].ty, i ? ends[i - 1].ty + gap : first);
   for (let i = ends.length - 1; i >= 0; i--) ends[i].ty = Math.min(ends[i].ty, i < ends.length - 1 ? ends[i + 1].ty - gap : last);
