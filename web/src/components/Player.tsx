@@ -200,18 +200,19 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           <div className={`flex items-center min-w-0 ${narrow ? 'gap-1' : 'gap-2'}`}>
             <LLMLogo model={player.name} size={narrow ? 16 : 20} />
             <div className="flex flex-col min-w-0">
-              <FitName name={player.name} className="text-[11px] font-bold" style={{ color: 'rgb(55, 53, 47)' }} />
+              {narrow
+                ? <div title={player.name} className="text-[11px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }}>{seatLabel(player.name)}</div>
+                : <FitName name={player.name} className="text-[11px] font-bold" style={{ color: 'rgb(55, 53, 47)' }} />}
               <div data-chips={player.stack} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
             </div>
           </div>
           {/* Position badge, top-right */}
-          {!narrow && badge}
+          {badge}
         </div>
 
         {/* Bottom row: the action at the left, the hole cards at the right. */}
         <div className={`mt-auto flex min-w-0 ${narrow ? 'flex-col items-start gap-1 p-1.5 pt-0' : 'items-end justify-between gap-2 p-3 pt-0'}`}>
           <div className={`flex items-center min-w-0 ${narrow ? 'gap-1 w-full overflow-hidden' : 'gap-2 mb-0.5'}`}>
-            {narrow && badge}
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
                 <span data-chips={winAmount} className="font-bold text-[11px] shrink-0 tabular-nums" style={{ color: 'rgb(15, 123, 108)' }}>+{formatAmount(winAmount, bb)}</span>

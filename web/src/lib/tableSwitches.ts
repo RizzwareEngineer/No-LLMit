@@ -24,13 +24,9 @@ const query = (k: string) => new URLSearchParams(window.location.search).get(k);
 const noSub = () => () => {};
 // ?seat=beside or ?seat=tucked: the phone seat's drafts (phoneTable's SeatDraft); without it, today's seat.
 export const useSeatDraft = () => useSyncExternalStore(noSub, () => { const s = query('seat'); return (s === 'beside' || s === 'tucked' ? s : 'today') as SeatDraft; }, () => 'today' as SeatDraft);
-// ?phone=a or ?phone=b: the phone table's drafts (owner, 2026-11-21: "go for both let's see it"). A: the desktop page as
-// it is, without Profits & Losses, shrunk to the phone's width (PHONE_A). B: the desktop table turned upright (PokerTable).
-export type PhoneDraft = 'a' | 'b' | null;
-export const usePhoneDraft = () => useSyncExternalStore(noSub, (): PhoneDraft => { const p = query('phone'); return p === 'a' || p === 'b' ? p : null; }, (): PhoneDraft => null);
-// Draft A, before the first layout: a phone lays the page out 1,040px wide (the desktop table and its gutters, no Profits &
-// Losses) and shrinks it to the screen, as for a page with no phone layout. A desktop ignores it.
-export const PHONE_A = `(function(){try{if(!/[?&]phone=a(&|$)/.test(location.search)||Math.min(screen.width,screen.height)>=600||!matchMedia('(pointer: coarse)').matches)return;var m=document.querySelectorAll('meta[name=viewport]'),c='width=1040, viewport-fit=cover';if(m.length)m[m.length-1].setAttribute('content',c);else{var e=document.createElement('meta');e.name='viewport';e.content=c;document.head.appendChild(e)}document.documentElement.classList.add('phone-a')}catch(e){}})()`;
+// ?phone=b: the phone table's draft B (owner, 2026-11-21: "go for both let's see it"), the desktop table turned upright
+// (PokerTable). Draft A is its own page, /a.
+export const usePhoneDraft = () => useSyncExternalStore(noSub, () => query('phone') === 'b', () => false);
 export const usePhoneShape = () => useSyncExternalStore(noSub, () => { const s = query('shape'); return (s === 'rect' || s === 'stadium' ? s : 'oval') as PhoneShape; }, () => 'oval' as PhoneShape);
 
 // Which layout's tree to mount (lib/layout's switch): 'phone' or 'desk' once the page runs; null in the prerendered page

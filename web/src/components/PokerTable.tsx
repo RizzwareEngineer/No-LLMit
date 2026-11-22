@@ -206,8 +206,8 @@ export default function PokerTable({
           with its position, stack, label and cards (Player's compact seat; phoneTable's geometry), each bet between its seat
           and the pot, the pot and the board in the middle, the deck over the pot between hands. A logo taps open its model's
           basic stats (SeatStats). data-oval: what the page watches for the bar. */}
-      {mounted !== 'desk' && phoneDraft === 'b' && <div data-upright className="md:hidden w-full bg-white rounded overflow-hidden" style={{ ...cardStyle, marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
-        <div className="grid" style={{ gridTemplateColumns: '1fr 2fr 1fr', gridTemplateRows: `100px ${upRows * 100}px 100px` }}>
+      {mounted !== 'desk' && phoneDraft && <div data-upright className="md:hidden w-full bg-white rounded overflow-hidden" style={{ ...cardStyle, marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
+        <div className="grid" style={{ gridTemplateColumns: '1fr 2fr 1fr', gridTemplateRows: `112px ${upRows * 112}px 112px` }}>
           <div style={{ borderRight: line, borderBottom: line }} />
           <div className="flex min-w-0" style={{ borderBottom: line }}>
             {up.top.map((idx, i) => <div key={idx} className="flex-1 min-w-0" style={{ borderRight: i < up.top.length - 1 ? line : undefined }}>{seat(idx, undefined, true)}</div>)}
@@ -227,7 +227,7 @@ export default function PokerTable({
           <div style={{ borderLeft: line }} />
         </div>
       </div>}
-      {mounted !== 'desk' && phoneDraft !== 'b' && <div ref={oval} data-oval data-shape={shape} data-seat-draft={draft} className="md:hidden relative w-full" style={{ height: 'var(--oval-h)', marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
+      {mounted !== 'desk' && !phoneDraft && <div ref={oval} data-oval data-shape={shape} data-seat-draft={draft} className="md:hidden relative w-full" style={{ height: 'var(--oval-h)', marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
         <div data-felt-oval aria-hidden className="absolute bg-white" style={{ left: FELT.side, right: FELT.side, top: FELT.top, bottom: FELT.bottom, borderRadius: RADIUS[shape], ...GRID, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 6px 24px' }} />
         <div className="absolute left-1/2 -translate-x-1/2 w-[180px] h-[116px]" style={{ top: css([MIDDLE[0], MIDDLE[1] + POT_TOP]) }}>{felt(true)}</div>
         {!blank && seatSpots(players.length, shape, draft).map((spot, idx) => (

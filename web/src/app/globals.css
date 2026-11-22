@@ -390,5 +390,5 @@ html:has([data-screen]) {
 }
 }
 
-/* Draft A (?phone=a, lib/tableSwitches' PHONE_A): the desktop page on a phone, without Profits & Losses. */
+/* Draft A (app/a): the desktop page on a phone, without Profits & Losses. */
 html.phone-a #phone-stats { display: none; }

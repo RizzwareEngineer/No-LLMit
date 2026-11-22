@@ -33,7 +33,7 @@ import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resn
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone } from "@/lib/layout";
-import { useLayout, PHONE_A } from "@/lib/tableSwitches";
+import { useLayout } from "@/lib/tableSwitches";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -452,7 +452,6 @@ export default function Home() {
         covers a screen's edge. data-page: the page's one background (globals.css) behind every screen. */}
     <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: bar ? 'calc(40px + var(--tab-h))' : 'var(--tab-h)' }}>
       {/* The stream opens as this is parsed (lib/api's EARLY_STREAM), not once the page has hydrated. */}
-      <script dangerouslySetInnerHTML={{ __html: PHONE_A }} />
       <script dangerouslySetInnerHTML={{ __html: EARLY_STREAM }} />
       <main className="flex flex-col items-center-safe">
       {/* Phones: the page's top heading (the desktop one sits in the header phones hide; the phone bar shows the name). */}
