@@ -50,18 +50,18 @@ html[data-hold] body :not(dialog[open], dialog[open] *) {
   transition: transform 150ms ease-out, background-color 150ms ease-out, box-shadow 150ms ease-out;
 }
 /* Not under a pointer that has not moved since a stats tile opened or closed (data-still): the row it rests on mid-glide
-   would paint its background over the rows gliding past it. Not on a phone layout by touch, which keeps :hover on what was
-   last tapped: a Profiles row tapped to compare and tapped again stayed lifted, grey and shadowed. The desktop layout
-   (lib/layout's DESK) keeps it on every device: an iPad reports a coarse pointer even with a trackpad. */
-@media not all and (pointer: coarse), (min-width: 992px) and (min-height: 501px) {
-  .lift:not([data-still] *):hover {
-    transform: translateY(-1px);
-    background-color: #f9f9f8;
-    box-shadow: 0 2px 6px rgba(15, 15, 15, 0.08);
-  }
+   would paint its background over the rows gliding past it. The desktop layout keeps it on every device (an iPad reports
+   a coarse pointer even with a trackpad); the phone layout only for a pointer that hovers, as a touch screen keeps
+   :hover on what was last tapped (a Profiles row tapped to compare and tapped again stayed lifted, grey and shadowed). */
+@media (min-width: 992px) and (min-height: 501px) {
+  .lift:not([data-still] *):hover { transform: translateY(-1px); background-color: #f9f9f8; box-shadow: 0 2px 6px rgba(15, 15, 15, 0.08); }
   /* Opaque, so the sticky first cell (bg-white) matches the rest of the row. */
-  tr.lift:not([data-still] *):hover > th {
-    background-color: #f9f9f8;
+  tr.lift:not([data-still] *):hover > th { background-color: #f9f9f8; }
+}
+@media not all and (min-width: 992px) and (min-height: 501px) {
+  @media not all and (pointer: coarse) {
+    .lift:not([data-still] *):hover { transform: translateY(-1px); background-color: #f9f9f8; box-shadow: 0 2px 6px rgba(15, 15, 15, 0.08); }
+    tr.lift:not([data-still] *):hover > th { background-color: #f9f9f8; }
   }
 }
 /* Keep the focus ring when a focused row is also hovered. */
