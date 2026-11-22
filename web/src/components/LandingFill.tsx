@@ -5,12 +5,13 @@
 // it, then they should get the expanded graph"). ?fill=both (default: the Trends lines, as tall as the table at most so they
 // never dwarf it, and Profits & Losses under them in the rest), graph (the lines alone, the whole space) or pnl (Profits &
 // Losses alone). No controls, no slides: a tap anywhere on it opens the full Trends window.
-import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import WinningsPanel from '@/components/WinningsPanel';
 import { pageTo } from '@/components/Section';
 import { MUTED, seatedModels, signed, type ModelStats, type StatsResponse } from '@/lib/stats';
 import { series } from '@/lib/series';
+import { replayStarted, skipReplay } from '@/lib/timeline';
 import type { PlayerState } from '@/lib/api';
 
 type Fill = 'graph' | 'pnl' | 'both';
@@ -35,10 +36,15 @@ export default function LandingFill({ stats, players }: { stats: StatsResponse |
       setTableH(Math.round(document.querySelector('[data-a-table]')?.getBoundingClientRect().height ?? 0));
     };
     at();
-    const ro = new ResizeObserver(at); // the table or the caption above changing height
+    // The table or the caption above changing height: the stage (its parent) grows with them, the page may not.
+    const ro = new ResizeObserver(at);
     ro.observe(document.body);
+    if (el.parentElement) ro.observe(el.parentElement);
     return () => ro.disconnect();
   }, []);
+  // The first screen shows the lines at their end, so Trends opens on those (owner: a tap gives "the expanded graph"), not
+  // on a replay from the first hand; its Replay button still plays it.
+  useEffect(() => { if (!replayStarted()) skipReplay(); }, []);
   const field = useMemo(() => seatedModels(stats?.models ?? [], stats?.seated), [stats]);
   const pnl = 32 + 25 * (players.length || 9), least = fill === 'graph' ? 180 : fill === 'pnl' ? pnl : 150 + 8 + pnl;
   const open = () => {
@@ -46,14 +52,14 @@ export default function LandingFill({ stats, players }: { stats: StatsResponse |
     pageTo('race');
   };
   return (
-    <div ref={box} data-landing-fill className="relative mt-2 w-full flex flex-col gap-2"
+    <div ref={box} data-landing-fill className="relative w-full flex flex-col gap-2"
       style={top === null ? { visibility: 'hidden' } : { height: `max(${least}px, calc(100svh - ${top}px - var(--bar-h, 0px) - 12px))` }}>
       {fill !== 'pnl' && (
         // With P&L under it, the chart is the table's height at most (down to 150px where P&L needs the room) and P&L takes
         // the rest.
         <div className={`relative w-full bg-white rounded overflow-hidden ${fill === 'both' ? 'shrink min-h-[150px]' : 'flex-1'}`}
           style={fill === 'both' ? { ...RING, flexBasis: tableH || 190 } : RING}>
-          <LandingChart models={field} />
+          <LandingChart models={field} labels={fill === 'graph'} />
         </div>
       )}
       {fill !== 'graph' && <WinningsPanel players={players} landing />}
@@ -63,10 +69,11 @@ export default function LandingFill({ stats, players }: { stats: StatsResponse |
   );
 }
 
-// The live lines alone: each seated model's net big blinds over the hands it has played, filling the space given, and at
-// each line's end its logo and figure (spread apart so none overlap, all inside). No controls: a tap opens Trends.
-const T = 28, B = 10, L = 8, LABEL = 76, ROW = 18;
-function LandingChart({ models }: { models: ModelStats[] }) {
+// Trends' lines alone (its default: each seated model's bb/100 over the hands it has played), filling the space given. With
+// P&L under it the rows name the lines (each row's colour bar); alone, each line's end has its logo and figure (spread
+// apart so none overlap, all inside the card). No controls: a tap opens Trends.
+const T = 28, B = 10, L = 8, LABEL = 84, ROW = 18;
+function LandingChart({ models, labels }: { models: ModelStats[]; labels: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   useLayoutEffect(() => {
@@ -78,10 +85,10 @@ function LandingChart({ models }: { models: ModelStats[] }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const title = <div className="absolute left-2 top-1.5 text-[13px] leading-4" style={{ color: MUTED }}>Net big blinds, all time</div>;
-  const lines = models.map(m => ({ name: m.name, color: modelColor(m.name), pts: series(m, 'bb') })).filter(l => l.pts.length > 1);
+  const title = <div className="absolute left-3 top-2 text-[13px] leading-4" style={{ color: MUTED }}>Trends · bb/100</div>;
+  const lines = models.map(m => ({ name: m.name, color: modelColor(m.name), pts: series(m, 'bb100') })).filter(l => l.pts.length > 1);
   if (!size || !lines.length) return <div ref={ref} className="absolute inset-0">{title}</div>;
-  const R = LABEL + 10;
+  const R = labels ? LABEL + 10 : 8;
   const maxX = Math.max(1, ...lines.map(l => l.pts[l.pts.length - 1][0]));
   const ys = lines.flatMap(l => l.pts.map(p => p[1]));
   const lo = Math.min(0, ...ys), hi = Math.max(0, ...ys), span = hi - lo || 1;
@@ -94,6 +101,7 @@ function LandingChart({ models }: { models: ModelStats[] }) {
   // Each label's middle at its line's end, at least a row from the next, all inside the card (its whole height: the title
   // sits at the left): rows shrink when there are more labels than rows (a short chart, a full table), none goes outside.
   const ends = lines.map(l => { const e = l.pts[l.pts.length - 1]; return { ...l, e, ty: y(e[1]) }; }).sort((a, b) => a.ty - b.ty);
+  const tag = labels ? ends : [];
   const first = ROW / 2, last = size.h - ROW / 2;
   const gap = ends.length > 1 ? Math.min(ROW, (last - first) / (ends.length - 1)) : ROW;
   for (let i = 0; i < ends.length; i++) ends[i].ty = Math.max(ends[i].ty, i ? ends[i - 1].ty + gap : first);
@@ -104,14 +112,10 @@ function LandingChart({ models }: { models: ModelStats[] }) {
       <svg width={size.w} height={size.h} className="absolute inset-0" role="img" aria-label="Net big blinds over hands played, each seated model">
         <line x1={L} x2={size.w - R} y1={y(0)} y2={y(0)} stroke="rgba(55, 53, 47, 0.25)" strokeDasharray="3 3" />
         {lines.map(l => <path key={l.name} d={path(l.pts)} fill="none" stroke={l.color} strokeWidth={1.5} strokeLinejoin="round" />)}
-        {ends.map(e => (
-          <g key={e.name}>
-            <line x1={x(e.e[0])} y1={y(e.e[1])} x2={size.w - LABEL - 4} y2={e.ty} stroke={e.color} strokeOpacity={0.35} />
-            <circle cx={x(e.e[0])} cy={y(e.e[1])} r={2.5} fill={e.color} />
-          </g>
-        ))}
+        {ends.map(e => <circle key={e.name} cx={x(e.e[0])} cy={y(e.e[1])} r={2.5} fill={e.color} />)}
+        {tag.map(e => <line key={e.name} x1={x(e.e[0])} y1={y(e.e[1])} x2={size.w - LABEL - 4} y2={e.ty} stroke={e.color} strokeOpacity={0.35} />)}
       </svg>
-      {ends.map(e => (
+      {tag.map(e => (
         <div key={e.name} className="absolute flex items-center gap-1 text-[13px] leading-4 font-bold tabular-nums whitespace-nowrap" style={{ left: size.w - LABEL, top: e.ty - 8, color: e.color }}>
           <LLMLogo model={e.name} size={16} />
           {signed(Math.round(e.e[1]), 0)}

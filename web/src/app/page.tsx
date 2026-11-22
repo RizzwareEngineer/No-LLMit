@@ -542,7 +542,7 @@ export default function Home() {
                 turnKey={turnKey}
               />
             </div>}
-            {phone && <div className="md:hidden mt-1.5 w-full" style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
+            {phone && <div className={`md:hidden ${draftA ? 'mt-2' : 'mt-1.5'} w-full`} style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
               <Caption displayState={displayState} blank={players.length === 0} turnKey={turnKey} />
             </div>}
             {phone && draftA && <LandingFill stats={stats} players={players} />}
