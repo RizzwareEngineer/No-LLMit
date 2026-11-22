@@ -395,3 +395,25 @@ html.phone-a #phone-stats { display: none; }
 /* Draft A: the screen's height is the 1,040px layout's (about 2,250px on a phone), so the table screen hugs its content
    instead of centring in it. */
 html.phone-a section[data-screen] { min-height: 0; justify-content: flex-start; padding-top: 24px; }
+
+/* Draft A scaled up (owner, 2026-11-22: "the table itself can just be bigger ... the cards can be in the middle ... scale it
+   up more"; live stats right under the table, then About). The table keeps its 1,000px width, the phone's limit, so its rows
+   grow instead: 200px tall, everything in a seat about twice the size, the hole cards centred over the action. */
+html.phone-a section[aria-label="Live table"] > :not(.mt-6):not(button) { zoom: 1.8; max-width: 560px; }
+html.phone-a .stage-zoom { width: 1000px; zoom: 1 !important; } /* fitStage would zoom it to 1.25 and widen the page */
+html.phone-a { --sz: 0.66 !important; --stage-w: 1000px !important; } /* the wide stats (laid out at 1,480px) fit 1,000px */
+html.phone-a section[aria-label="Live table"] > button { display: none; }
+html.phone-a #table { display: contents; }
+html.phone-a [data-reasoning] { order: 2; zoom: 1.6; width: 625px; }
+html.phone-a #phone-stats { display: flex; order: 3; width: 625px; margin-top: 16px; zoom: 1.6; }
+html.phone-a #phone-stats > :not(:first-child) { display: none; }
+html.phone-a #table td.h-\[128px\] { height: 200px; }
+html.phone-a [data-desk-seat] .text-\[11px\] { font-size: 20px; line-height: 24px; }
+html.phone-a [data-desk-seat] [data-position] { font-size: 17px; line-height: 22px; }
+html.phone-a [data-desk-seat] [data-seat-top] img { width: 30px !important; height: 30px !important; }
+html.phone-a [data-desk-seat] [data-seat-bottom] { flex-direction: column-reverse; align-items: center; gap: 6px; }
+html.phone-a [data-hole] [role=img], html.phone-a [data-felt-cards] [role=img] { width: 64px; height: 90px; }
+html.phone-a [data-hole] [role=img] span, html.phone-a [data-felt-cards] [role=img] span { font-size: 26px; }
+html.phone-a [data-hole] [role=img] svg, html.phone-a [data-felt-cards] [role=img] svg { width: 24px; height: 24px; }
+html.phone-a [data-felt] [data-pot] { zoom: 1.8; }
+html.phone-a [data-felt] [data-bet] { zoom: 1.6; }

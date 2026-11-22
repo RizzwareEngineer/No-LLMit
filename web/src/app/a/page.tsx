@@ -3,8 +3,9 @@
 import type { Viewport } from "next";
 import Home from "../page";
 
-// Next adds initial-scale=1 unless told otherwise, which shows a 1:1 slice; below fit-to-width, a phone clamps to fit.
-export const viewport: Viewport = { width: 1040, initialScale: 0.3, themeColor: "#ffffff", colorScheme: "light", viewportFit: "cover" };
+// Next adds initial-scale=1 unless told otherwise, which shows a 1:1 slice. A browser lays the page out at least
+// screen width / initial-scale wide, so the scale is 390 / 1,040: the common iPhone width fits exactly.
+export const viewport: Viewport = { width: 1040, initialScale: 0.375, themeColor: "#ffffff", colorScheme: "light", viewportFit: "cover" };
 
 export default function DraftA() {
   return (

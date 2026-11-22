@@ -530,7 +530,7 @@ export default function Home() {
 
             {/* Reasoning Panel - LLM thinking + reasoning; phones: the caption under the table (its shot clock is the ring
                 round the seat), the first screen's slack split above the table and under the caption. */}
-            {desk && <div className="mt-4 w-full max-md:hidden">
+            {desk && <div data-reasoning className="mt-4 w-full max-md:hidden">
               <ReasoningPanel
                 displayState={displayState}
                 clock={clock}
