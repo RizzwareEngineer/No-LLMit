@@ -440,13 +440,14 @@ export default function Home() {
   const tab: Tab = tableInView ? 'table' : screen === 'about' ? 'about' : 'stats';
   const onTab = (t: Tab) => {
     // A Stats or About scroll still underway must not land the page back on its screen (its scrollend resnaps there).
-    if (t === 'table') { stopPaging(); window.scrollTo({ top: 0 }); }
-    else if (t === 'about') pageTo('about');
+    // A phone's tab bar jumps (as a native tab bar): a smooth scroll from the table to About flashed every window between.
+    if (t === 'table') { stopPaging(); window.scrollTo(isPhone() ? { top: 0, behavior: 'instant' } : { top: 0 }); }
+    else if (t === 'about') pageTo('about', isPhone());
     else if (!isPhone() && (screen === 'race' || screen === 'stats-table' || screen === 'pairwise')) backToOverview();
     // Phones: on a Stats window already (Profits & Losses, Trends, Profiles, Matchups) the Stats tab does nothing, so a
     // tap just above the bar that touch adjustment hands to it never throws the viewer back to Profits & Losses.
     else if (isPhone() && tab === 'stats') return;
-    else pageTo(draftA ? 'race' : 'phone-stats'); // draft A has no Profits & Losses window: Trends is the first
+    else pageTo(draftA ? 'race' : 'phone-stats', true); // draft A has no Profits & Losses window: Trends is the first
   };
 
   return (

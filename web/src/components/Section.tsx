@@ -54,10 +54,11 @@ export function pageBy(dir: 1 | -1) {
   return true;
 }
 
-// A smooth scroll to the screen `id` (the header's About link).
-export function pageTo(id: string) {
+// A smooth scroll to the screen `id` (the header's About link); `instant` jumps there (a phone's tab bar: a smooth scroll
+// from the table to About showed every window between, a flash of each).
+export function pageTo(id: string, instant = false) {
   const el = document.getElementById(id);
-  if (el) scrollToTop(topOf(el), id);
+  if (el) scrollToTop(topOf(el), id, instant);
 }
 
 // While a tile glides to or from its card (StatsSections), paging waits: the page jumps to the
@@ -105,7 +106,7 @@ export function resnap(min = 0) {
   window.scrollTo({ top: topOf(el), behavior: 'instant' });
 }
 
-function scrollToTop(top: number, id: string) {
+function scrollToTop(top: number, id: string, instant = false) {
   pendingY = top;
   pendingId = id || null;
   clearTimeout(clearTimer);
@@ -114,7 +115,7 @@ function scrollToTop(top: number, id: string) {
   // stalled or interrupted smooth scroll can stop short; either way the page would rest between two.
   window.addEventListener('scrollend', () => resnap(), { once: true });
   window.dispatchEvent(new CustomEvent('screenchange', { detail: id }));
-  window.scrollTo({ top });
+  window.scrollTo(instant ? { top, behavior: 'instant' } : { top });
 }
 
 // True when `el` or an ancestor would scroll itself for a wheel or key in direction `dir`.

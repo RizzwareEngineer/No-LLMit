@@ -6810,6 +6810,91 @@ group(() => check('countdown-follows-deal', 'At 1440x900 on a 4x-throttled CPU, 
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `values shown: ${seen.join('; ')}; ${heldN} chunks held` };
 }));
 
+// Phone draft A (/a) by touch (owner, 2026-11-22: tapping into the stats "flickers, it doesn't even work"). The tab bar
+// marks the part shown, and each tab lands on its part in one jump: a smooth scroll from the table to About showed every
+// window between, a flash of each. The screens crossing the middle of the window are read every frame.
+const tapTab = async (p, tab) => {
+  const t = await p.evaluate(tab => { const b = [...document.querySelectorAll('nav[aria-label=Sections] button')].find(e => e.textContent.trim() === tab).getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, tab);
+  await p.touchscreen.tap(t[0], t[1]);
+};
+const phoneA = async (w, h) => {
+  const p = await newPage();
+  await p.emulate({ viewport: { width: w, height: h, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: (await browser.userAgent()) });
+  await p.goto(`${BASE}/a`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p.waitForFunction(() => document.querySelector('[data-landing-fill]') && document.querySelector('#race'), { timeout: 90000 }).catch(() => {});
+  await sleep(2500);
+  return p;
+};
+group(() => check('phone-a-tabs', 'On /a at 390x844 and 430x932 (touch), the tab bar marks Table while the table shows; Stats lands on Trends, then About on About, then Table on the table\'s top, each in one jump (no window between crosses the middle of the screen) and each marking its own tab', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[390, 844], [430, 932]]) {
+    const size = `${w}x${h}`, p = await phoneA(w, h);
+    try {
+      const current = () => p.evaluate(() => document.querySelector('nav[aria-label=Sections] [aria-current=page]')?.textContent.trim() ?? 'none');
+      const first = await current();
+      if (first !== 'Table') bad.push(`${size}: on load ${first} marked`);
+      for (const [tab, want] of [['Stats', 'race'], ['About', 'about'], ['Table', null]]) {
+        await p.evaluate(() => {
+          window.__mids = [];
+          const loop = () => {
+            const m = innerHeight / 2, s = [...document.querySelectorAll('[data-screen]')].find(e => { const b = e.getBoundingClientRect(); return b.height && b.top <= m && b.bottom > m; });
+            window.__mids.push(s?.id || 'table');
+            if (window.__mids.length < 120) requestAnimationFrame(loop);
+          };
+          requestAnimationFrame(loop);
+        });
+        await tapTab(p, tab); await sleep(2000);
+        const r = await p.evaluate(want => ({ y: Math.round(scrollY), top: want ? Math.round(document.getElementById(want).getBoundingClientRect().top) : null, mids: window.__mids.filter((x, i, a) => x !== a[i - 1]) }), want);
+        const now = await current();
+        seen.push(`${size} ${tab}: ${r.mids.join('>')}`);
+        if (want ? Math.abs(r.top) > 2 : r.y !== 0) bad.push(`${size}: ${tab} left the page at ${want ? `#${want} ${r.top}px from the top` : `y ${r.y}`}`);
+        if (now !== tab) bad.push(`${size}: after ${tab}, ${now} marked`);
+        if (r.mids.length > 2) bad.push(`${size}: ${tab} passed ${r.mids.slice(1, -1).join(', ')}`);
+      }
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// A phone keeps :hover on what was last tapped: a Profiles row tapped to compare and tapped again stayed lifted, grey and
+// shadowed. The lift is for a pointer that hovers; a mouse still gets it.
+group(() => check('phone-rows-no-sticky-hover', 'At 390x844 (touch) on /a, a Profiles row tapped to compare and tapped again is left as it was (no lift, no shadow), though the phone still reports :hover on it; at 1440x900 with a mouse, a hovered stats row still lifts', async () => {
+  const bad = [], seen = [];
+  const p = await phoneA(390, 844);
+  try {
+    await p.evaluate(() => window.scrollTo({ top: document.getElementById('stats-table').getBoundingClientRect().top + scrollY, behavior: 'instant' }));
+    await p.waitForFunction(() => [...document.querySelectorAll('#stats-panel tr.lift')].some(e => e.getBoundingClientRect().height), { timeout: 30000 }).catch(() => {});
+    await sleep(1200);
+    const at = await p.evaluate(() => { const b = [...document.querySelectorAll('#stats-panel tr.lift')].find(e => e.getBoundingClientRect().height)?.getBoundingClientRect(); return b && [(Math.max(b.left, 0) + Math.min(b.right, innerWidth)) / 2, b.top + b.height / 2]; });
+    if (!at) bad.push('390x844: no Profiles row');
+    else {
+      for (let i = 0; i < 2; i++) { await p.touchscreen.tap(at[0], at[1]); await sleep(700); }
+      const r = await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y)?.closest('tr.lift'); const cs = e && getComputedStyle(e); return e && { coarse: matchMedia('(pointer: coarse)').matches, hover: e.matches(':hover'), tf: cs.transform, sh: cs.boxShadow }; }, at);
+      seen.push(`390x844: hover ${r?.hover}, transform ${r?.tf}, shadow ${r?.sh}`);
+      if (!r) bad.push('390x844: the tapped row is gone');
+      // Without a coarse pointer keeping :hover on the row, the check could not see the defect at all.
+      else if (!r.coarse || !r.hover) bad.push(`390x844: no sticky :hover to test (coarse ${r.coarse}, hover ${r.hover})`);
+      else if (r.tf !== 'none' || r.sh !== 'none') bad.push(`390x844: the row tapped twice is left lifted (transform ${r.tf}, shadow ${r.sh})`);
+    }
+  } finally { await p.close(); }
+  const d = await newPage();
+  try {
+    await d.setViewport({ width: 1440, height: 900 });
+    await d.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await d.evaluate(() => window.scrollTo({ top: innerHeight, behavior: 'instant' }));
+    await d.waitForFunction(() => [...document.querySelectorAll('.lift')].some(e => { const b = e.getBoundingClientRect(); return b.height && b.top > 0 && b.bottom < innerHeight; }), { timeout: 60000 }).catch(() => {});
+    await sleep(1500);
+    const at = await d.evaluate(() => { const b = [...document.querySelectorAll('.lift')].map(e => e.getBoundingClientRect()).find(b => b.height && b.top > 0 && b.bottom < innerHeight); return b && [b.left + b.width / 2, b.top + b.height / 2]; });
+    if (!at) bad.push('1440x900: no stats row to hover');
+    else {
+      await d.mouse.move(at[0], at[1]); await sleep(400);
+      const tf = await d.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y)?.closest('.lift'); return e ? getComputedStyle(e).transform : null; }, at);
+      seen.push(`1440x900: hovered row transform ${tf}`);
+      if (!tf || tf === 'none') bad.push(`1440x900: a hovered row does not lift (${tf})`);
+    }
+  } finally { await d.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+
 // --lanes 1 runs one page at a time (the main page's steps, then each group, then each late): a timing check on the main
 // page (a 4x replay's splashes, a refresh's fade) misreads frames while a group films in a window beside it.
 const beside = LANES > 1 ? drain(groups, LANES - 1) : null;
