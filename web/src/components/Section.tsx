@@ -131,7 +131,7 @@ export function scrollsInside(el: Element | null, dir: number) {
 // The wide stats' one scale (--sz, page.tsx's fitStage): they are laid out at one reference size and zoomed (CSS zoom)
 // to the stage's column. Under it a length is in layout px, one drawn px being 1/zoom of them; motion measures drawn
 // boxes, so inside the zoom it is given them in layout px (StatsZoom), or its glides would travel zoom times too far.
-export const statsZoom = () => (typeof window === 'undefined' || isPhone() ? 1 : isDraftA() ? 1040 / 390 : parseFloat(document.documentElement.style.getPropertyValue('--sz')) || 1);
+export const statsZoom = () => (typeof window === 'undefined' || isPhone() ? 1 : isDraftA() ? 2 : parseFloat(document.documentElement.style.getPropertyValue('--sz')) || 1);
 const toLayout = (p: { x: number; y: number }) => { const z = statsZoom(); return z === 1 ? p : { x: p.x / z, y: p.y / z }; };
 export function StatsZoom({ children }: { children: React.ReactNode }) {
   return <MotionConfig transformPagePoint={toLayout}>{children}</MotionConfig>;
