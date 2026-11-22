@@ -1,12 +1,12 @@
 "use client";
 
-import { Suspense, lazy, useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
-const LandingFill = lazy(() => import("@/components/LandingFill"));
+import LandingFill from "@/components/LandingFill";
 const noSub = () => () => {};
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
@@ -255,7 +255,7 @@ export default function Home() {
   useEffect(() => {
     let first = true;
     // The top 44px sit under the bar itself, so they do not count as visible. On a phone the row has no box of its own
-    // (it lets the caption sit between the table and the sidebar), so the phone table (data-oval) is watched too.
+    // (it lets the caption sit between the table and the sidebar), so the phone table (data-oval; draft A's, data-a-table) is watched too.
     const seen = new Map<Element, boolean>();
     const io = new IntersectionObserver(es => {
       for (const e of es) seen.set(e.target, e.isIntersecting);
@@ -264,7 +264,7 @@ export default function Home() {
       first = false;
     }, { rootMargin: '-44px 0px 0px 0px' });
     const row = tableRef.current;
-    if (row) [row, ...row.querySelectorAll('[data-oval]')].forEach(e => io.observe(e));
+    if (row) [row, ...row.querySelectorAll('[data-oval], [data-a-table]')].forEach(e => io.observe(e));
     return () => io.disconnect();
   }, [mounted]); // the phone table mounts and unmounts with the layout
 
@@ -446,7 +446,7 @@ export default function Home() {
     // Phones: on a Stats window already (Profits & Losses, Trends, Profiles, Matchups) the Stats tab does nothing, so a
     // tap just above the bar that touch adjustment hands to it never throws the viewer back to Profits & Losses.
     else if (isPhone() && tab === 'stats') return;
-    else pageTo('phone-stats');
+    else pageTo(draftA ? 'race' : 'phone-stats'); // draft A has no Profits & Losses window: Trends is the first
   };
 
   return (
@@ -545,7 +545,7 @@ export default function Home() {
             {phone && <div className="md:hidden mt-1.5 w-full" style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
               <Caption displayState={displayState} blank={players.length === 0} turnKey={turnKey} />
             </div>}
-            {phone && draftA && <Suspense fallback={null}><LandingFill stats={stats} players={players} /></Suspense>}
+            {phone && draftA && <LandingFill stats={stats} players={players} />}
           </div>
         </div>
 

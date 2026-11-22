@@ -3,14 +3,15 @@
 // Phone draft A (app/a): under the table and its caption, the rest of the first screen holds one live thing, sized to the
 // space left (owner, 2026-11-22: "fill that space with either the P&L, or we just fill it with trends. If they click on
 // it, then they should get the expanded graph"). ?fill=graph (default: the Trends lines alone, no controls), pnl (Profits
-// & Losses, its rows re-sorting without a slide) or both (the graph, P&L under it). A tap opens the full Trends window.
+// & Losses, its rows re-sorting without a slide) or both (the graph, this session's P&L under it). A tap anywhere on it
+// opens the full Trends window.
 import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import WinningsPanel from '@/components/WinningsPanel';
 import { pageTo } from '@/components/Section';
-import { MUTED, seatedModels, type ModelStats, type StatsResponse } from '@/lib/stats';
+import { MUTED, netColor, seatedModels, signed, type ModelStats, type StatsResponse } from '@/lib/stats';
 import { series } from '@/lib/series';
-import { shortName } from '@/lib/names';
+import { formatAmount, useBigBlind } from '@/lib/amounts';
 import type { PlayerState } from '@/lib/api';
 
 type Fill = 'graph' | 'pnl' | 'both';
@@ -20,56 +21,60 @@ const RING = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 1
 
 export default function LandingFill({ stats, players }: { stats: StatsResponse | null; players: PlayerState[] }) {
   const fill = useFill();
-  const box = useRef<HTMLButtonElement>(null);
-  const [h, setH] = useState(0);
-  // The space the first screen has left under the caption, above the tab bar.
+  const box = useRef<HTMLDivElement>(null);
+  // Where the fill starts on the page. It takes the rest of the first screen above the bars at the bottom: 100svh (steady
+  // while iOS's address bar hides and shows) less --bar-h, which it inherits from the page (the tab bar, and the connection
+  // bar while that shows). At least that: a short phone's P&L grows past the screen rather than cutting rows off.
+  const [top, setTop] = useState<number | null>(null);
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    const size = () => {
-      const top = el.getBoundingClientRect().top + window.scrollY;
-      const bar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar-h')) || 0;
-      setH(Math.max(180, Math.round(window.innerHeight - top - bar - 12)));
-    };
-    size();
-    const ro = new ResizeObserver(size);
+    const at = () => setTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
+    at();
+    const ro = new ResizeObserver(at); // the table or the caption above changing height
     ro.observe(document.body);
     return () => ro.disconnect();
   }, []);
   const field = useMemo(() => seatedModels(stats?.models ?? [], stats?.seated), [stats]);
+  const open = () => {
+    document.getElementById('race-panel')?.focus({ preventScroll: true });
+    pageTo('race');
+  };
   return (
-    <button ref={box} type="button" data-landing-fill onClick={() => pageTo('race')} aria-label="Open Trends"
-      className="mt-2 w-full text-left flex flex-col gap-2" style={{ height: h || undefined, visibility: h ? undefined : 'hidden' }}>
+    <div ref={box} data-landing-fill className="relative mt-2 w-full flex flex-col gap-2"
+      style={top === null ? { visibility: 'hidden' } : { minHeight: `max(180px, calc(100svh - ${top}px - var(--bar-h, 0px) - 12px))` }}>
       {fill !== 'pnl' && (
-        <div className="relative flex-1 min-h-0 w-full bg-white rounded overflow-hidden" style={RING}>
+        <div className="relative flex-1 min-h-[180px] w-full bg-white rounded overflow-hidden" style={RING}>
           <LandingChart models={field} />
         </div>
       )}
-      {fill === 'pnl' && (
-        <div className="flex-1 min-h-0 w-full flex flex-col">
-          <WinningsPanel players={players} still />
-        </div>
-      )}
+      {fill === 'pnl' && <WinningsPanel players={players} landing />}
       {fill === 'both' && <SessionGrid players={players} />}
-    </button>
+      {/* One button over the whole fill: what it shows stays readable text, and no part of it takes a tap of its own. */}
+      <button type="button" onClick={open} aria-label="Open Trends" className="absolute inset-0 rounded [-webkit-tap-highlight-color:transparent] active:bg-black/[0.03]" />
+    </div>
   );
 }
 
-// The live lines alone: each seated model's net big blinds over the hands it has played, filling the space given, a dot
-// and its name and figure at each line's end (pushed apart so none overlap). No controls: a tap opens Trends.
+// The live lines alone: each seated model's net big blinds over the hands it has played, filling the space given, and at
+// each line's end its logo and figure (spread apart so none overlap, all inside). No controls: a tap opens Trends.
+const T = 28, B = 10, L = 8, LABEL = 76, ROW = 18;
 function LandingChart({ models }: { models: ModelStats[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
+    const measure = () => setSize(s => (s && s.w === el.clientWidth && s.h === el.clientHeight ? s : { w: el.clientWidth, h: el.clientHeight }));
+    measure(); // before the first paint: no frame without its lines
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  const title = <div className="absolute left-2 top-1.5 text-[13px] leading-4" style={{ color: MUTED }}>Net big blinds, all time</div>;
   const lines = models.map(m => ({ name: m.name, color: modelColor(m.name), pts: series(m, 'bb') })).filter(l => l.pts.length > 1);
-  if (!size || !lines.length) return <div ref={ref} className="absolute inset-0" />;
-  const LABEL = 118, L = 10, R = LABEL + 14, T = 26, B = 14, ROW = 15;
+  if (!size || !lines.length) return <div ref={ref} className="absolute inset-0">{title}</div>;
+  const R = LABEL + 10;
   const maxX = Math.max(1, ...lines.map(l => l.pts[l.pts.length - 1][0]));
   const ys = lines.flatMap(l => l.pts.map(p => p[1]));
   const lo = Math.min(0, ...ys), hi = Math.max(0, ...ys), span = hi - lo || 1;
@@ -79,46 +84,54 @@ function LandingChart({ models }: { models: ModelStats[] }) {
     const every = Math.max(1, Math.ceil(pts.length / 240));
     return pts.filter((_, i) => i % every === 0 || i === pts.length - 1).map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join('');
   };
+  // Each label's middle at its line's end, at least a row from the next, all between the top and the bottom: rows shrink
+  // when there are more labels than rows (a short chart, a full table), so none is pushed outside.
   const ends = lines.map(l => { const e = l.pts[l.pts.length - 1]; return { ...l, e, ty: y(e[1]) }; }).sort((a, b) => a.ty - b.ty);
-  for (let i = 1; i < ends.length; i++) ends[i].ty = Math.max(ends[i].ty, ends[i - 1].ty + ROW);
-  const over = ends.length ? ends[ends.length - 1].ty - (size.h - B) : 0;
-  if (over > 0) for (const e of ends) e.ty -= over;
-  for (let i = 0; i < ends.length; i++) ends[i].ty = Math.max(ends[i].ty, T + i * ROW);
-  const fmt = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v)).toLocaleString('en-US')}`;
+  const first = T + 8, last = size.h - B - 8;
+  const gap = ends.length > 1 ? Math.min(ROW, (last - first) / (ends.length - 1)) : ROW;
+  for (let i = 0; i < ends.length; i++) ends[i].ty = Math.max(ends[i].ty, i ? ends[i - 1].ty + gap : first);
+  for (let i = ends.length - 1; i >= 0; i--) ends[i].ty = Math.min(ends[i].ty, i < ends.length - 1 ? ends[i + 1].ty - gap : last);
   return (
     <div ref={ref} className="absolute inset-0">
-      <svg width={size.w} height={size.h} role="img" aria-label="Net big blinds over hands played, each seated model">
-        <text x={L} y={16} fontSize={11} fill={MUTED}>Net big blinds, all time</text>
+      {title}
+      <svg width={size.w} height={size.h} className="absolute inset-0" role="img" aria-label="Net big blinds over hands played, each seated model">
         <line x1={L} x2={size.w - R} y1={y(0)} y2={y(0)} stroke="rgba(55, 53, 47, 0.25)" strokeDasharray="3 3" />
         {lines.map(l => <path key={l.name} d={path(l.pts)} fill="none" stroke={l.color} strokeWidth={1.5} strokeLinejoin="round" />)}
         {ends.map(e => (
           <g key={e.name}>
-            <line x1={x(e.e[0])} y1={y(e.e[1])} x2={size.w - LABEL - 6} y2={e.ty} stroke={e.color} strokeOpacity={0.35} />
+            <line x1={x(e.e[0])} y1={y(e.e[1])} x2={size.w - LABEL - 4} y2={e.ty} stroke={e.color} strokeOpacity={0.35} />
             <circle cx={x(e.e[0])} cy={y(e.e[1])} r={2.5} fill={e.color} />
-            <text x={size.w - LABEL} y={e.ty + 4} fontSize={11} fill="rgb(55, 53, 47)">
-              <tspan fontWeight={700} fill={e.color}>{fmt(e.e[1])}</tspan> {shortName(e.name)}
-            </text>
           </g>
         ))}
       </svg>
+      {ends.map(e => (
+        <div key={e.name} className="absolute flex items-center gap-1 text-[13px] leading-4 font-bold tabular-nums whitespace-nowrap" style={{ left: size.w - LABEL, top: e.ty - 8, color: e.color }}>
+          <LLMLogo model={e.name} size={16} />
+          {signed(Math.round(e.e[1]), 0)}
+        </div>
+      ))}
     </div>
   );
 }
 
-// "Both": the graph, and under it this session's Profits & Losses as three short rows of three (no slide, no rolls).
+// "Both": under the graph, this session's Profits & Losses as three short rows of three, each seat's logo and figure (the
+// table above names them), re-sorting without a slide.
 function SessionGrid({ players }: { players: PlayerState[] }) {
+  const bb = useBigBlind();
   const ranked = [...players].sort((a, b) => (b.winnings || 0) - (a.winnings || 0));
   return (
-    <div className="w-full bg-white rounded px-2 py-1.5" style={RING}>
-      <div className="text-[11px] mb-1" style={{ color: MUTED }}>This session</div>
-      <ol className="grid grid-cols-3 gap-x-2 gap-y-1">
+    <div className="w-full bg-white rounded px-3 py-2" style={RING}>
+      <div className="flex justify-between mb-1.5 text-[13px] leading-4" style={{ color: MUTED }}>
+        <span>This session</span>
+        {bb && <span>BB</span>}
+      </div>
+      <ol className="grid grid-cols-3 gap-x-3 gap-y-1.5">
         {ranked.map(p => {
-          const v = p.winnings || 0, color = v > 0 ? 'rgb(15, 123, 108)' : v < 0 ? 'rgb(200, 50, 50)' : MUTED;
+          const v = p.winnings || 0;
           return (
-            <li key={p.id} className="flex items-center gap-1 min-w-0 text-[11px]">
-              <LLMLogo model={p.name} size={12} />
-              <span className="truncate min-w-0" style={{ color: 'rgb(55, 53, 47)' }}>{shortName(p.name)}</span>
-              <span className="ml-auto font-bold tabular-nums shrink-0" style={{ color }}>{v > 0 ? '+' : v < 0 ? '−' : ''}{Math.abs(v).toLocaleString('en-US')}</span>
+            <li key={p.id} className="flex items-center gap-1 text-[13px] leading-4 font-bold tabular-nums" style={{ color: netColor(v) }}>
+              <LLMLogo model={p.name} size={16} />
+              {v > 0 ? '+' : v < 0 ? '−' : ''}{formatAmount(Math.abs(v), bb, false)}
             </li>
           );
         })}

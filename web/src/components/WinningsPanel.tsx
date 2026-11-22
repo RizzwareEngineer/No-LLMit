@@ -11,13 +11,13 @@ import FitName from "@/components/FitName";
 
 interface WinningsPanelProps {
   players: PlayerState[];
-  still?: boolean; // re-sorts without the slide (phone draft A's landing)
+  landing?: boolean; // phone draft A's landing fill: rows spread over its height and re-sort without a slide, a small label
 }
 
-export default function WinningsPanel({ players, still = false }: WinningsPanelProps) {
+export default function WinningsPanel({ players, landing = false }: WinningsPanelProps) {
   const bb = useBigBlind();
   // No state yet: a blank box at its size (a phone's is as tall as its rows: remembered).
-  const [box, size, attrs] = useRememberedBox<HTMLDivElement>('pnl', players.length > 0);
+  const [box, size, attrs] = useRememberedBox<HTMLDivElement>(landing ? 'pnl-fill' : 'pnl', players.length > 0);
   useFillIn(box, players.length > 0);
   return (
     <div 
@@ -29,13 +29,13 @@ export default function WinningsPanel({ players, still = false }: WinningsPanelP
       <div className="flex items-start justify-between p-3 border-b border-notion">
         <div className="flex flex-col">
           {/* Phones: a Stats window's title, as Trends, Profiles and Matchups (the desktop sidebar keeps its small label). */}
-          <h2 className="text-[13px] leading-4 font-medium uppercase tracking-wider max-md:text-[20px] max-md:leading-8 max-md:font-bold max-md:normal-case max-md:tracking-normal" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
+          <h2 className={`text-[13px] leading-4 font-medium uppercase tracking-wider ${landing ? '' : 'max-md:text-[20px] max-md:leading-8 max-md:font-bold max-md:normal-case max-md:tracking-normal'}`} style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
         </div>
         {/* In big blinds the column's unit sits here, so the rows stay as narrow as in chips and no name is cut shorter. */}
         {bb && <span data-unit className="text-[13px] leading-4 font-medium uppercase tracking-wider" style={{ color: MUTED }}>BB</span>}
       </div>
-      <div className="flex-1 overflow-auto">
-        {players.length > 0 && <Rankings players={players} still={still} />}
+      <div className={landing ? 'flex-1 flex flex-col' : 'flex-1 overflow-auto'}>
+        {players.length > 0 && <Rankings players={players} landing={landing} />}
       </div>
     </div>
   );
@@ -65,14 +65,14 @@ function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
   );
 }
 
-// Sorted by winnings. motion's layout animation slides rows to their new rank; not draggable.
-function Rankings({ players, still }: { players: PlayerState[]; still: boolean }) {
+// Sorted by winnings. motion's layout animation slides rows to their new rank (not on the landing fill); not draggable.
+function Rankings({ players, landing }: { players: PlayerState[]; landing: boolean }) {
   const ranked = [...players].sort((a, b) => (b.winnings || 0) - (a.winnings || 0));
 
   return (
-    <ol className="flex flex-col divide-y divide-black/10">
+    <ol className={`flex flex-col divide-y divide-black/10 ${landing ? 'flex-1' : ''}`}>
       {ranked.map((player, index) => (
-        <motion.li key={player.id} layout={!still} transition={{ duration: 0.3 }}>
+        <motion.li key={player.id} layout={!landing} transition={{ duration: 0.3 }} className={landing ? 'flex-1 flex flex-col justify-center' : undefined}>
           <RankingItem player={player} rank={index + 1} />
         </motion.li>
       ))}
