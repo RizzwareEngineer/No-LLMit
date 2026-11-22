@@ -6,6 +6,8 @@ import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
+import LandingFill from "@/components/LandingFill";
+const noSub = () => () => {};
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
@@ -32,7 +34,7 @@ import { EARLY_STREAM } from "@/lib/api";
 import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
-import { PHONE, isPhone } from "@/lib/layout";
+import { PHONE, isPhone, isDraftA } from "@/lib/layout";
 import { useLayout } from "@/lib/tableSwitches";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
@@ -208,6 +210,7 @@ export default function Home() {
   const seatStats = useMemo(() => (stats ? Object.fromEntries(stats.models.map(m => [m.name, m])) : undefined), [stats]);
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
+  const draftA = useSyncExternalStore(noSub, isDraftA, () => false); // phone draft A (app/a): the landing fill under the caption
   // The URL names no stats screen: an old #stats, #race or #pairwise link opens the page at its top.
   useEffect(() => {
     if (!window.location.hash || isModelHash(window.location.hash)) return;
@@ -252,7 +255,7 @@ export default function Home() {
   useEffect(() => {
     let first = true;
     // The top 44px sit under the bar itself, so they do not count as visible. On a phone the row has no box of its own
-    // (it lets the caption sit between the table and the sidebar), so the phone table (data-oval) is watched too.
+    // (it lets the caption sit between the table and the sidebar), so the phone table (data-oval; draft A's, data-a-table) is watched too.
     const seen = new Map<Element, boolean>();
     const io = new IntersectionObserver(es => {
       for (const e of es) seen.set(e.target, e.isIntersecting);
@@ -261,7 +264,7 @@ export default function Home() {
       first = false;
     }, { rootMargin: '-44px 0px 0px 0px' });
     const row = tableRef.current;
-    if (row) [row, ...row.querySelectorAll('[data-oval]')].forEach(e => io.observe(e));
+    if (row) [row, ...row.querySelectorAll('[data-oval], [data-a-table]')].forEach(e => io.observe(e));
     return () => io.disconnect();
   }, [mounted]); // the phone table mounts and unmounts with the layout
 
@@ -443,7 +446,7 @@ export default function Home() {
     // Phones: on a Stats window already (Profits & Losses, Trends, Profiles, Matchups) the Stats tab does nothing, so a
     // tap just above the bar that touch adjustment hands to it never throws the viewer back to Profits & Losses.
     else if (isPhone() && tab === 'stats') return;
-    else pageTo('phone-stats');
+    else pageTo(draftA ? 'race' : 'phone-stats'); // draft A has no Profits & Losses window: Trends is the first
   };
 
   return (
@@ -539,9 +542,10 @@ export default function Home() {
                 turnKey={turnKey}
               />
             </div>}
-            {phone && <div className="md:hidden mt-1.5 w-full" style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
+            {phone && <div className={`md:hidden ${draftA ? 'mt-2' : 'mt-1.5'} w-full`} style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
               <Caption displayState={displayState} blank={players.length === 0} turnKey={turnKey} />
             </div>}
+            {phone && draftA && <LandingFill stats={stats} players={players} />}
           </div>
         </div>
 
