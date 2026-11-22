@@ -419,9 +419,12 @@ html.phone-a [data-felt] [data-bet] { zoom: 1.6; }
 /* The reasoning: the main thing to read, so larger (zoom 2.4: 14px text draws at 12.6px) with a narrower name column. */
 html.phone-a [data-reasoning] { order: 2; zoom: 2.4; width: 416.67px; }
 html.phone-a [data-reasoning] .w-\[200px\] { width: 118px; }
-html.phone-a [data-reasoning] .h-\[100px\] { height: auto; min-height: 100px; }
 /* Under the table: the phone's stats windows (Trends first), About and the drawer, zoomed to the table's proportion. */
 html.phone-a .stats-room { --top-h: 44px; }
+/* Trends hugs its card under the table, its chart at a chart's shape (a full screen made it a tall strip); Profiles,
+   Matchups and About stay a window each. */
+html.phone-a .stats-room > #race { height: auto; min-height: 0; }
+html.phone-a #race-panel .flex-1.min-h-\[160px\] { flex: none; height: 380px; }
 html.phone-a .stats-room > section[data-screen] > :is(#race-panel, #stats-panel, #pairwise-card) { zoom: 2; }
 html.phone-a .stats-room > #about > .panel-scroll > div { zoom: 2; }
 html.phone-a:has([data-screen]) { scroll-snap-type: y mandatory; }
