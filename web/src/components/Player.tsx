@@ -203,11 +203,14 @@ export default function Player({ player, active, position, winAmount, winDesc, i
               {narrow
                 ? <div title={player.name} className="text-[11px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }}>{seatLabel(player.name)}</div>
                 : <FitName name={player.name} className="text-[11px] font-bold" style={{ color: 'rgb(55, 53, 47)' }} />}
-              <div data-chips={player.stack} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
+              <div className={narrow ? 'flex items-center gap-1' : 'contents'}>
+                <div data-chips={player.stack} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
+                {narrow && badge}
+              </div>
             </div>
           </div>
-          {/* Position badge, top-right */}
-          {badge}
+          {/* Position badge, top-right (narrow: beside the stack) */}
+          {!narrow && badge}
         </div>
 
         {/* Bottom row: the action at the left, the hole cards at the right. */}

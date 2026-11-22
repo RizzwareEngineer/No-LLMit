@@ -3,7 +3,8 @@
 import type { Viewport } from "next";
 import Home from "../page";
 
-export const viewport: Viewport = { width: 1040, themeColor: "#ffffff", colorScheme: "light", viewportFit: "cover" };
+// Next adds initial-scale=1 unless told otherwise, which shows a 1:1 slice; below fit-to-width, a phone clamps to fit.
+export const viewport: Viewport = { width: 1040, initialScale: 0.3, themeColor: "#ffffff", colorScheme: "light", viewportFit: "cover" };
 
 export default function DraftA() {
   return (
