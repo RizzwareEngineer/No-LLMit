@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useReducedMotion } from "motion/react";
 import Player, { LOGO_RIM } from "@/components/Player";
 import TableFelt, { BetStack, FeltBet, GRID } from "@/components/TableFelt";
@@ -11,6 +11,8 @@ import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { FELT, LOGO, MIDDLE, POT_TOP, RADIUS, type Spot, css, seatPlace, seatSpots } from "@/lib/phoneTable";
 import { useLayout, usePhoneShape, useSeatDraft, usePhoneDraft } from "@/lib/tableSwitches";
 import SeatStats from "@/components/SeatStats";
+import { isDraftA } from "@/lib/layout";
+const noSub = () => () => {};
 import type { ButtonDetermination, Clock, DisplayState } from "@/lib/stream";
 
 interface PlayerLayout {
@@ -101,7 +103,7 @@ export default function PokerTable({
     return () => clearTimeout(t);
   }, [turn.bubble]);
 
-  const shape = usePhoneShape(), draft = useSeatDraft(), phoneDraft = usePhoneDraft();
+  const shape = usePhoneShape(), draft = useSeatDraft(), phoneDraft = usePhoneDraft(), draftA = useSyncExternalStore(noSub, isDraftA, () => false);
   // The phone seat whose stats are open (SeatStats), and the table's middle in the window then, where they show. The
   // popup is the phone table's: when the desktop table replaces it, it closes, and does not come back on the next switch.
   const [open, setOpen] = useState<{ seat: number; at: { x: number; y: number } } | null>(null);
@@ -189,64 +191,12 @@ export default function PokerTable({
   const tableWidth = numCols * 200;
   const line = '1px solid rgba(55, 53, 47, 0.09)';
 
-  return (
-    <>
-      {!blank && <TableMotion
-        players={players}
-        handNumber={handNumber}
-        boardCount={communityCards.length}
-        winnerIdxs={Object.keys(winnersByIdx).map(Number)}
-        nextDealAt={street === 'complete' ? nextDealAt : null}
-        onDeck={setDeck}
-        notice={!!notice}
-      />}
-      {/* Phones: one table and nothing else (owner 2026-11-14: "just do logos with positions and stack sizes and cards then pot
-          in the middle"): the felt a tall oval on the page (or a draft shape, ?shape=rect or ?shape=stadium) drawn as the
-          desktop's grid (owner 2026-11-15: "the felt, I think, should still be a grid"), each seat a round logo on its edge
-          with its position, stack, label and cards (Player's compact seat; phoneTable's geometry), each bet between its seat
-          and the pot, the pot and the board in the middle, the deck over the pot between hands. A logo taps open its model's
-          basic stats (SeatStats). data-oval: what the page watches for the bar. */}
-      {mounted !== 'desk' && phoneDraft && <div data-upright className="md:hidden w-full bg-white rounded overflow-hidden" style={{ ...cardStyle, marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
-        <div className="grid" style={{ gridTemplateColumns: '1fr 2fr 1fr', gridTemplateRows: `112px ${upRows * 112}px 112px` }}>
-          <div style={{ borderRight: line, borderBottom: line }} />
-          <div className="flex min-w-0" style={{ borderBottom: line }}>
-            {up.top.map((idx, i) => <div key={idx} className="flex-1 min-w-0" style={{ borderRight: i < up.top.length - 1 ? line : undefined }}>{seat(idx, undefined, true)}</div>)}
-          </div>
-          <div style={{ borderLeft: line, borderBottom: line }} />
-          <div className="flex flex-col min-w-0" style={{ borderRight: line, borderBottom: line }}>
-            {up.left.map((idx, i) => <div key={idx} className="flex-1 min-h-0" style={{ borderBottom: i < up.left.length - 1 ? line : undefined }}>{seat(idx, undefined, true)}</div>)}
-          </div>
-          <div className="min-w-0" style={{ borderBottom: line }}>{felt(false, true)}</div>
-          <div className="flex flex-col min-w-0" style={{ borderLeft: line, borderBottom: line }}>
-            {up.right.map((idx, i) => <div key={idx} className="flex-1 min-h-0" style={{ borderBottom: i < up.right.length - 1 ? line : undefined }}>{seat(idx, undefined, true)}</div>)}
-          </div>
-          <div style={{ borderRight: line }} />
-          <div className="flex min-w-0">
-            {up.bottom.map((idx, i) => <div key={idx} className="flex-1 min-w-0" style={{ borderRight: i < up.bottom.length - 1 ? line : undefined }}>{seat(idx, undefined, true)}</div>)}
-          </div>
-          <div style={{ borderLeft: line }} />
-        </div>
-      </div>}
-      {mounted !== 'desk' && !phoneDraft && <div ref={oval} data-oval data-shape={shape} data-seat-draft={draft} className="md:hidden relative w-full" style={{ height: 'var(--oval-h)', marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
-        <div data-felt-oval aria-hidden className="absolute bg-white" style={{ left: FELT.side, right: FELT.side, top: FELT.top, bottom: FELT.bottom, borderRadius: RADIUS[shape], ...GRID, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 6px 24px' }} />
-        <div className="absolute left-1/2 -translate-x-1/2 w-[180px] h-[116px]" style={{ top: css([MIDDLE[0], MIDDLE[1] + POT_TOP]) }}>{felt(true)}</div>
-        {!blank && seatSpots(players.length, shape, draft).map((spot, idx) => (
-          <BetStack key={idx} seat={idx} amount={players[idx]?.currentBet ?? 0} compact
-            style={{ left: css([spot.x[0], spot.x[1] + spot.bet[0]]), top: css([spot.y[0], spot.y[1] + spot.bet[1]]), transform: 'translate(-50%, -50%)' }} />
-        ))}
-        {seatSpots(players.length || 9, shape, draft).map((spot, idx) => blank ? (
-          // Until the first state: each seat's logo, blank, where it will be.
-          <div key={idx} data-seat={idx} className="absolute pointer-events-none" style={seatPlace(spot).style}>
-            <div className="absolute rounded-full bg-white" style={{ left: seatPlace(spot).logo[0] - LOGO / 2, top: seatPlace(spot).logo[1] - LOGO / 2, width: LOGO, height: LOGO, ...LOGO_RIM }} />
-          </div>
-        ) : <span key={players[idx]?.id ?? idx} className="contents">{seat(idx, spot)}</span>)}
-        {open && players[open.seat] && <SeatStats name={players[open.seat].name} stats={stats?.[players[open.seat].name]} at={open.at} onClose={closeStats} />}
-      </div>}
-
-      {/* md and up: seats around the felt. The table is only for layout. */}
-      {mounted !== 'phone' && <div
+  // The desktop table: seats round the felt; the table is only for layout. Phone draft A (app/a) draws it on a phone too,
+  // at its own proportions (200x128 cells), zoomed as one piece to the page's width (Fit).
+  const deskTable = (cls: string) => (
+      <div
         data-desk-table
-        className="hidden md:block relative bg-white shrink-0 self-stretch rounded"
+        className={`${cls} relative bg-white shrink-0 self-stretch rounded`}
         style={{ width: tableWidth, ...cardStyle }}
       >
         <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
@@ -321,7 +271,65 @@ export default function PokerTable({
             </tr>
           </tbody>
         </table>
+      </div>
+  );
+
+  return (
+    <>
+      {!blank && <TableMotion
+        players={players}
+        handNumber={handNumber}
+        boardCount={communityCards.length}
+        winnerIdxs={Object.keys(winnersByIdx).map(Number)}
+        nextDealAt={street === 'complete' ? nextDealAt : null}
+        onDeck={setDeck}
+        notice={!!notice}
+      />}
+      {/* Phones: one table and nothing else (owner 2026-11-14: "just do logos with positions and stack sizes and cards then pot
+          in the middle"): the felt a tall oval on the page (or a draft shape, ?shape=rect or ?shape=stadium) drawn as the
+          desktop's grid (owner 2026-11-15: "the felt, I think, should still be a grid"), each seat a round logo on its edge
+          with its position, stack, label and cards (Player's compact seat; phoneTable's geometry), each bet between its seat
+          and the pot, the pot and the board in the middle, the deck over the pot between hands. A logo taps open its model's
+          basic stats (SeatStats). data-oval: what the page watches for the bar. */}
+      {mounted !== 'desk' && draftA && <Fit w={tableWidth}>{deskTable('block')}</Fit>}
+      {mounted !== 'desk' && !draftA && phoneDraft && <div data-upright className="md:hidden w-full bg-white rounded overflow-hidden" style={{ ...cardStyle, marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
+        <div className="grid" style={{ gridTemplateColumns: '1fr 2fr 1fr', gridTemplateRows: `112px ${upRows * 112}px 112px` }}>
+          <div style={{ borderRight: line, borderBottom: line }} />
+          <div className="flex min-w-0" style={{ borderBottom: line }}>
+            {up.top.map((idx, i) => <div key={idx} className="flex-1 min-w-0" style={{ borderRight: i < up.top.length - 1 ? line : undefined }}>{seat(idx, undefined, true)}</div>)}
+          </div>
+          <div style={{ borderLeft: line, borderBottom: line }} />
+          <div className="flex flex-col min-w-0" style={{ borderRight: line, borderBottom: line }}>
+            {up.left.map((idx, i) => <div key={idx} className="flex-1 min-h-0" style={{ borderBottom: i < up.left.length - 1 ? line : undefined }}>{seat(idx, undefined, true)}</div>)}
+          </div>
+          <div className="min-w-0" style={{ borderBottom: line }}>{felt(false, true)}</div>
+          <div className="flex flex-col min-w-0" style={{ borderLeft: line, borderBottom: line }}>
+            {up.right.map((idx, i) => <div key={idx} className="flex-1 min-h-0" style={{ borderBottom: i < up.right.length - 1 ? line : undefined }}>{seat(idx, undefined, true)}</div>)}
+          </div>
+          <div style={{ borderRight: line }} />
+          <div className="flex min-w-0">
+            {up.bottom.map((idx, i) => <div key={idx} className="flex-1 min-w-0" style={{ borderRight: i < up.bottom.length - 1 ? line : undefined }}>{seat(idx, undefined, true)}</div>)}
+          </div>
+          <div style={{ borderLeft: line }} />
+        </div>
       </div>}
+      {mounted !== 'desk' && !draftA && !phoneDraft && <div ref={oval} data-oval data-shape={shape} data-seat-draft={draft} className="md:hidden relative w-full" style={{ height: 'var(--oval-h)', marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
+        <div data-felt-oval aria-hidden className="absolute bg-white" style={{ left: FELT.side, right: FELT.side, top: FELT.top, bottom: FELT.bottom, borderRadius: RADIUS[shape], ...GRID, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.06) 0px 6px 24px' }} />
+        <div className="absolute left-1/2 -translate-x-1/2 w-[180px] h-[116px]" style={{ top: css([MIDDLE[0], MIDDLE[1] + POT_TOP]) }}>{felt(true)}</div>
+        {!blank && seatSpots(players.length, shape, draft).map((spot, idx) => (
+          <BetStack key={idx} seat={idx} amount={players[idx]?.currentBet ?? 0} compact
+            style={{ left: css([spot.x[0], spot.x[1] + spot.bet[0]]), top: css([spot.y[0], spot.y[1] + spot.bet[1]]), transform: 'translate(-50%, -50%)' }} />
+        ))}
+        {seatSpots(players.length || 9, shape, draft).map((spot, idx) => blank ? (
+          // Until the first state: each seat's logo, blank, where it will be.
+          <div key={idx} data-seat={idx} className="absolute pointer-events-none" style={seatPlace(spot).style}>
+            <div className="absolute rounded-full bg-white" style={{ left: seatPlace(spot).logo[0] - LOGO / 2, top: seatPlace(spot).logo[1] - LOGO / 2, width: LOGO, height: LOGO, ...LOGO_RIM }} />
+          </div>
+        ) : <span key={players[idx]?.id ?? idx} className="contents">{seat(idx, spot)}</span>)}
+        {open && players[open.seat] && <SeatStats name={players[open.seat].name} stats={stats?.[players[open.seat].name]} at={open.at} onClose={closeStats} />}
+      </div>}
+
+      {mounted !== 'phone' && deskTable('hidden md:block')}
     </>
   );
 }
@@ -340,4 +348,24 @@ function getPlayerLayout(count: number): PlayerLayout {
     default:
       return { top: [], left: [], right: [], bottom: [] };
   }
+}
+
+// Phone draft A (app/a): the desktop table at its own proportions, zoomed as one piece to the phone page's width.
+function Fit({ w, children }: { w: number; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [z, setZ] = useState(0);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => setZ(el.clientWidth / w);
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [w]);
+  return (
+    <div ref={box} data-a-table className="md:hidden w-full">
+      <div style={{ width: w, zoom: z || undefined, visibility: z ? undefined : 'hidden' }}>{children}</div>
+    </div>
+  );
 }
