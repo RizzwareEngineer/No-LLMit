@@ -2,21 +2,20 @@
 
 // Phone draft A (app/a): under the table and its caption, the rest of the first screen holds one live thing, sized to the
 // space left (owner, 2026-11-22: "fill that space with either the P&L, or we just fill it with trends. If they click on
-// it, then they should get the expanded graph"). ?fill=graph (default: the Trends lines alone, no controls), pnl (Profits
-// & Losses, its rows re-sorting without a slide) or both (the graph, this session's P&L under it). A tap anywhere on it
-// opens the full Trends window.
+// it, then they should get the expanded graph"). ?fill=both (default: the Trends lines, as tall as the table at most so they
+// never dwarf it, and Profits & Losses under them in the rest), graph (the lines alone, the whole space) or pnl (Profits &
+// Losses alone). No controls, no slides: a tap anywhere on it opens the full Trends window.
 import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import WinningsPanel from '@/components/WinningsPanel';
 import { pageTo } from '@/components/Section';
-import { MUTED, netColor, seatedModels, signed, type ModelStats, type StatsResponse } from '@/lib/stats';
+import { MUTED, seatedModels, signed, type ModelStats, type StatsResponse } from '@/lib/stats';
 import { series } from '@/lib/series';
-import { formatAmount, useBigBlind } from '@/lib/amounts';
 import type { PlayerState } from '@/lib/api';
 
 type Fill = 'graph' | 'pnl' | 'both';
 const noSub = () => () => {};
-const useFill = () => useSyncExternalStore(noSub, (): Fill => { const f = new URLSearchParams(location.search).get('fill'); return f === 'pnl' || f === 'both' ? f : 'graph'; }, (): Fill => 'graph');
+const useFill = () => useSyncExternalStore(noSub, (): Fill => { const f = new URLSearchParams(location.search).get('fill'); return f === 'pnl' || f === 'graph' ? f : 'both'; }, (): Fill => 'both');
 const RING = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
 
 export default function LandingFill({ stats, players }: { stats: StatsResponse | null; players: PlayerState[] }) {
@@ -26,10 +25,14 @@ export default function LandingFill({ stats, players }: { stats: StatsResponse |
   // while iOS's address bar hides and shows) less --bar-h, which it inherits from the page (the tab bar, and the connection
   // bar while that shows). At least that: a short phone's P&L grows past the screen rather than cutting rows off.
   const [top, setTop] = useState<number | null>(null);
+  const [tableH, setTableH] = useState(0);
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    const at = () => setTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
+    const at = () => {
+      setTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
+      setTableH(Math.round(document.querySelector('[data-a-table]')?.getBoundingClientRect().height ?? 0));
+    };
     at();
     const ro = new ResizeObserver(at); // the table or the caption above changing height
     ro.observe(document.body);
@@ -44,12 +47,13 @@ export default function LandingFill({ stats, players }: { stats: StatsResponse |
     <div ref={box} data-landing-fill className="relative mt-2 w-full flex flex-col gap-2"
       style={top === null ? { visibility: 'hidden' } : { minHeight: `max(180px, calc(100svh - ${top}px - var(--bar-h, 0px) - 12px))` }}>
       {fill !== 'pnl' && (
-        <div className="relative flex-1 min-h-[180px] w-full bg-white rounded overflow-hidden" style={RING}>
+        // With P&L under it, the chart is the table's height (a short phone's down to 150px) and P&L takes the rest.
+        <div className={`relative w-full bg-white rounded overflow-hidden ${fill === 'both' ? 'shrink min-h-[150px]' : 'flex-1 min-h-[180px]'}`}
+          style={fill === 'both' ? { ...RING, flexBasis: tableH || 190 } : RING}>
           <LandingChart models={field} />
         </div>
       )}
-      {fill === 'pnl' && <WinningsPanel players={players} landing />}
-      {fill === 'both' && <SessionGrid players={players} />}
+      {fill !== 'graph' && <WinningsPanel players={players} landing />}
       {/* One button over the whole fill: what it shows stays readable text, and no part of it takes a tap of its own. */}
       <button type="button" onClick={open} aria-label="Open Trends" className="absolute inset-0 rounded [-webkit-tap-highlight-color:transparent] active:bg-black/[0.03]" />
     </div>
@@ -110,32 +114,6 @@ function LandingChart({ models }: { models: ModelStats[] }) {
           {signed(Math.round(e.e[1]), 0)}
         </div>
       ))}
-    </div>
-  );
-}
-
-// "Both": under the graph, this session's Profits & Losses as three short rows of three, each seat's logo and figure (the
-// table above names them), re-sorting without a slide.
-function SessionGrid({ players }: { players: PlayerState[] }) {
-  const bb = useBigBlind();
-  const ranked = [...players].sort((a, b) => (b.winnings || 0) - (a.winnings || 0));
-  return (
-    <div className="w-full bg-white rounded px-3 py-2" style={RING}>
-      <div className="flex justify-between mb-1.5 text-[13px] leading-4" style={{ color: MUTED }}>
-        <span>This session</span>
-        {bb && <span>BB</span>}
-      </div>
-      <ol className="grid grid-cols-3 gap-x-3 gap-y-1.5">
-        {ranked.map(p => {
-          const v = p.winnings || 0;
-          return (
-            <li key={p.id} className="flex items-center gap-1 text-[13px] leading-4 font-bold tabular-nums" style={{ color: netColor(v) }}>
-              <LLMLogo model={p.name} size={16} />
-              {v > 0 ? '+' : v < 0 ? '−' : ''}{formatAmount(Math.abs(v), bb, false)}
-            </li>
-          );
-        })}
-      </ol>
     </div>
   );
 }

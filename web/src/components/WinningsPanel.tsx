@@ -11,7 +11,7 @@ import FitName from "@/components/FitName";
 
 interface WinningsPanelProps {
   players: PlayerState[];
-  landing?: boolean; // phone draft A's landing fill: rows spread over its height and re-sort without a slide, a small label
+  landing?: boolean; // phone draft A's landing fill: a small label, short rows spread over its height, re-sorting without a slide
 }
 
 export default function WinningsPanel({ players, landing = false }: WinningsPanelProps) {
@@ -23,10 +23,10 @@ export default function WinningsPanel({ players, landing = false }: WinningsPane
     <div 
       ref={box}
       {...attrs}
-      className={`flex flex-col relative w-full bg-white flex-1 rounded overflow-hidden ${players.length ? '' : '[&>*]:invisible'}`}
+      className={`flex flex-col relative w-full bg-white flex-1 rounded ${landing ? '' : 'overflow-hidden'} ${players.length ? '' : '[&>*]:invisible'}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', ...size }}
     >
-      <div className="flex items-start justify-between p-3 border-b border-notion">
+      <div className={`flex items-start justify-between border-b border-notion ${landing ? 'px-3 py-2' : 'p-3'}`}>
         <div className="flex flex-col">
           {/* Phones: a Stats window's title, as Trends, Profiles and Matchups (the desktop sidebar keeps its small label). */}
           <h2 className={`text-[13px] leading-4 font-medium uppercase tracking-wider ${landing ? '' : 'max-md:text-[20px] max-md:leading-8 max-md:font-bold max-md:normal-case max-md:tracking-normal'}`} style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
@@ -41,7 +41,7 @@ export default function WinningsPanel({ players, landing = false }: WinningsPane
   );
 }
 
-function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
+function RankingItem({ player, rank, short = false }: { player: PlayerState; rank: number; short?: boolean }) {
   const bb = useBigBlind();
   const winnings = player.winnings || 0;
   const color = winnings > 0 ? 'rgb(15, 123, 108)' : winnings < 0 ? 'rgb(200, 50, 50)' : MUTED;
@@ -50,7 +50,7 @@ function RankingItem({ player, rank }: { player: PlayerState; rank: number }) {
     // The name takes all the row the rank, logo and number leave it (owner's audit: names were cut while there was room).
     // 4px between them: at 6px a five-digit figure left "DeepSeek Flash", the shortest form of "DeepSeek V4 Flash",
     // 100px of the 102 it needs (desktop-table-text), and it was cut.
-    <div className="flex flex-row items-center gap-1 p-2 px-2">
+    <div className={`flex flex-row items-center gap-1 px-2 ${short ? 'py-0.5' : 'py-2'}`}>
       <span className="text-[13px] min-w-3.5 font-bold tabular-nums shrink-0" style={{ color: MUTED }}>{rank}.</span>
       <LLMLogo model={player.name} size={18} />
       <div className="flex-1 min-w-0">
@@ -73,7 +73,7 @@ function Rankings({ players, landing }: { players: PlayerState[]; landing: boole
     <ol className={`flex flex-col divide-y divide-black/10 ${landing ? 'flex-1' : ''}`}>
       {ranked.map((player, index) => (
         <motion.li key={player.id} layout={!landing} transition={{ duration: 0.3 }} className={landing ? 'flex-1 flex flex-col justify-center' : undefined}>
-          <RankingItem player={player} rank={index + 1} />
+          <RankingItem player={player} rank={index + 1} short={landing} />
         </motion.li>
       ))}
     </ol>
