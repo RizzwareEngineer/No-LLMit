@@ -395,7 +395,7 @@ html:has([data-screen]) {
    scale (zoom 1040 / 390). From the mobile audit, 2026-11-22: one frame per cell edge, names whole, cards that read as cards,
    no rolling digits, no empty bands. */
 html.phone-a #phone-stats { display: none; }
-html.phone-a section[aria-label="Live table"][data-screen] { min-height: 0; justify-content: flex-start; padding-top: 24px; }
+html.phone-a section[aria-label="Live table"][data-screen] { min-height: 0; justify-content: flex-start; padding-top: 100px; } /* clear of the top bar (zoom 2) */
 html.phone-a section[aria-label="Live table"] > :not(.mt-6):not(button) { zoom: 1.8; max-width: 560px; }
 html.phone-a section[aria-label="Live table"] > button { display: none; }
 html.phone-a [data-session-progress][aria-hidden="true"] { display: none; }
@@ -421,6 +421,7 @@ html.phone-a [data-desk-seat] [data-seat-top] > div:first-child { width: 100%; g
 html.phone-a [data-desk-seat] [data-seat-top] .flex-col { flex: 1 1 0; min-width: 0; }
 html.phone-a [data-desk-seat] .text-\[11px\] { font-size: 24px; line-height: 28px; }
 html.phone-a [data-desk-seat] [data-seat-top] [data-chips] { padding-left: 42px; line-height: 36px; }
+html.phone-a [data-desk-seat] [data-seat-top] .font-bold.text-\[11px\] { font-size: 22px; } /* "Nemotron Super" fits the 180px row */
 html.phone-a [data-desk-seat] [data-seat-top] > div:first-child > :first-child { position: absolute; left: 10px; top: 40px; }
 html.phone-a [data-desk-seat] [data-seat-top] > [data-position] { position: absolute; right: 10px; top: 46px; }
 html.phone-a [data-desk-seat] [data-position] { font-size: 20px; line-height: 24px; }
