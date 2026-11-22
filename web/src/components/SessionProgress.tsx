@@ -35,7 +35,7 @@ export default function SessionProgress({ table }: { table?: UsageData['table'] 
   const ref = useRef<HTMLDivElement>(null);
   useFillIn(ref, fill !== null);
   return (
-    <div ref={ref} className="w-full max-w-[720px] mb-1.5" style={{ visibility: fill === null ? 'hidden' : undefined }} aria-hidden={fill === null}>
+    <div ref={ref} data-session-progress className="w-full max-w-[720px] mb-1.5" style={{ visibility: fill === null ? 'hidden' : undefined }} aria-hidden={fill === null}>
       <div
         className="h-[2px] w-full rounded-full overflow-hidden"
         style={{ background: 'rgba(55, 53, 47, 0.09)' }}

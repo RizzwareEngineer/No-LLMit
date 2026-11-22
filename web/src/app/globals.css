@@ -398,7 +398,7 @@ html.phone-a #phone-stats { display: none; }
 html.phone-a section[aria-label="Live table"][data-screen] { min-height: 0; justify-content: flex-start; padding-top: 24px; }
 html.phone-a section[aria-label="Live table"] > :not(.mt-6):not(button) { zoom: 1.8; max-width: 560px; }
 html.phone-a section[aria-label="Live table"] > button { display: none; }
-html.phone-a section[aria-label="Live table"] > div:has(> .max-w-\[720px\][aria-hidden="true"]) { display: none; }
+html.phone-a [data-session-progress][aria-hidden="true"] { display: none; }
 html.phone-a section[aria-label="Live table"] > .mt-6 { margin-top: 12px; }
 html.phone-a section[aria-label="Live table"] .flex-wrap > .h-4.w-px:nth-last-child(2) { display: none; }
 html.phone-a .btn-brutal-disabled { border-color: rgba(55, 53, 47, 0.16); color: rgba(55, 53, 47, 0.55); }
@@ -410,7 +410,7 @@ html.phone-a [data-reasoning] { order: 2; zoom: 1.6; width: 625px; }
 html.phone-a [data-reasoning] .border-r { border-right-width: 0; }
 html.phone-a [data-reasoning] .h-\[100px\] { box-shadow: 0 0 0 1.67px rgba(55, 53, 47, 0.14) !important; }
 /* One line per cell edge, heavy enough to read at 0.375; the seat's own frame goes (the seat on the clock keeps its outline). */
-html.phone-a #table div:has(> table[role=presentation]) { width: 1000px !important; box-shadow: 0 0 0 3px rgba(55, 53, 47, 0.14) !important; border-radius: 0; }
+html.phone-a [data-desk-table] { width: 1000px !important; box-shadow: 0 0 0 3px rgba(55, 53, 47, 0.14) !important; border-radius: 0; }
 html.phone-a #table td { border-width: 3px !important; border-color: rgba(55, 53, 47, 0.14) !important; }
 html.phone-a [data-desk-seat]:not(.border-animation) { box-shadow: none !important; border-radius: 0; }
 html.phone-a [data-felt] { background-image: linear-gradient(to right, rgba(0, 0, 0, 0.045) 3px, transparent 3px), linear-gradient(to bottom, rgba(0, 0, 0, 0.045) 3px, transparent 3px) !important; background-size: 60px 60px !important; }
@@ -435,14 +435,12 @@ html.phone-a [data-hole] [role=img] span, html.phone-a [data-felt-cards] [role=i
 html.phone-a [data-hole] [role=img] svg, html.phone-a [data-felt-cards] [role=img] svg { width: 28px; height: 28px; }
 html.phone-a .card-back::before { inset: 4px; border-width: 2px; border-radius: 4px; }
 /* The pot and the bets. */
-html.phone-a [data-felt] [aria-label^="Pot "] { zoom: 1.8; border-width: 1px; border-color: rgba(55, 53, 47, 0.35); box-shadow: none; }
+html.phone-a [data-felt] [aria-label^="Pot"] { zoom: 1.8; border-width: 1px; border-color: rgba(55, 53, 47, 0.35); box-shadow: none; }
 html.phone-a [data-felt] > div.h-\[74px\] { height: 136px; }
 html.phone-a [data-felt].pt-\[44px\] { padding-top: 64px; }
 html.phone-a [data-felt] [data-bet] { zoom: 1.6; }
 html.phone-a [data-bet] [data-chips] { font-size: 15px; }
 html.phone-a [data-bet] svg ellipse[stroke-width="0.6"] { stroke-width: 1.2px; }
-html.phone-a [data-felt] [data-bet][style*="left: 10px"] { left: 28px !important; }
-html.phone-a [data-felt] [data-bet][style*="right: 10px"] { right: 28px !important; }
 /* Under the table: the phone's stats windows (Trends first), About and the drawer, at the phone's scale. */
 html.phone-a .stats-room { --top-h: 44px; }
 html.phone-a .stats-room > section[data-screen] > :is(#race-panel, #stats-panel, #pairwise-card) { zoom: 2.6667; }

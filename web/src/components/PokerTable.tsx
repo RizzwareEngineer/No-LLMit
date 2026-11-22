@@ -245,6 +245,7 @@ export default function PokerTable({
 
       {/* md and up: seats around the felt. The table is only for layout. */}
       {mounted !== 'phone' && <div
+        data-desk-table
         className="hidden md:block relative bg-white shrink-0 self-stretch rounded"
         style={{ width: tableWidth, ...cardStyle }}
       >
