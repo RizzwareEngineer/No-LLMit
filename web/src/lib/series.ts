@@ -15,3 +15,20 @@ export function series(m: ModelStats, metric: Metric, bigBlind = 1, ev = false):
   const k = metric === 'chips' ? bigBlind : 1;
   return curve.map(([n, v]) => [n, v * k]);
 }
+
+// The y axis' range for a set of values, Arena style: their 5th to 95th percentile (so one spike
+// does not flatten the pack) and every value in `keep` (the lines' tips), plus 8% air each side.
+// A tip far outside the pack (more than the pack's own span beyond it) is left out, to sit at the
+// edge with an arrow rather than squash everyone. `must`: values
+// always inside, however far out (the lines' recent stretch, which is never clipped).
+export function robustRange(vs: number[], keep: number[] = [], must: number[] = []): [number, number] {
+  const s = (vs.some(Number.isFinite) ? vs : keep).filter(Number.isFinite).sort((p, q) => p - q);
+  if (!s.length) return [-1, 1];
+  const q = (f: number) => s[Math.round(f * (s.length - 1))];
+  const [q0, q1] = [q(0.05), q(0.95)], reach = Math.max(q1 - q0, 1e-9);
+  const near = keep.filter(v => v >= q0 - reach && v <= q1 + reach);
+  let [lo, hi] = [Math.min(q0, ...near, ...must), Math.max(q1, ...near, ...must)];
+  if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
+  const air = (hi - lo) * 0.08;
+  return [lo - air, hi + air];
+}

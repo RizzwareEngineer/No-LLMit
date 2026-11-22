@@ -10,7 +10,7 @@ import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import WinningsPanel from '@/components/WinningsPanel';
 import { pageTo } from '@/components/Section';
 import { MUTED, seatedModels, signed, type ModelStats, type StatsResponse } from '@/lib/stats';
-import { series } from '@/lib/series';
+import { RATE_FROM, robustRange, series } from '@/lib/series';
 import { replayStarted, skipReplay } from '@/lib/timeline';
 import type { PlayerState } from '@/lib/api';
 
@@ -90,8 +90,10 @@ function LandingChart({ models, labels }: { models: ModelStats[]; labels: boolea
   if (!size || !lines.length) return <div ref={ref} className="absolute inset-0">{title}</div>;
   const R = labels ? LABEL + 10 : 8;
   const maxX = Math.max(1, ...lines.map(l => l.pts[l.pts.length - 1][0]));
-  const ys = lines.flatMap(l => l.pts.map(p => p[1]));
-  const lo = Math.min(0, ...ys), hi = Math.max(0, ...ys), span = hi - lo || 1;
+  // Trends' own fit (robustRange): the rates from their RATE_FROM-th hand on, 5th to 95th percentile, and the lines' ends;
+  // the early swings outside it are cut at the plot's edge (clipPath), not let flatten the pack.
+  const [lo, hi] = robustRange(lines.flatMap(l => l.pts.filter(p => p[0] >= RATE_FROM).map(p => p[1])), lines.map(l => l.pts[l.pts.length - 1][1]));
+  const span = hi - lo || 1;
   const x = (v: number) => L + (v / maxX) * (size.w - L - R);
   const y = (v: number) => T + (1 - (v - lo) / span) * (size.h - T - B);
   const path = (pts: [number, number][]) => {
@@ -109,9 +111,12 @@ function LandingChart({ models, labels }: { models: ModelStats[]; labels: boolea
   return (
     <div ref={ref} className="absolute inset-0">
       {title}
-      <svg width={size.w} height={size.h} className="absolute inset-0" role="img" aria-label="Net big blinds over hands played, each seated model">
-        <line x1={L} x2={size.w - R} y1={y(0)} y2={y(0)} stroke="rgba(55, 53, 47, 0.25)" strokeDasharray="3 3" />
-        {lines.map(l => <path key={l.name} d={path(l.pts)} fill="none" stroke={l.color} strokeWidth={1.5} strokeLinejoin="round" />)}
+      <svg width={size.w} height={size.h} className="absolute inset-0" role="img" aria-label="bb/100 over hands played, each seated model">
+        <clipPath id="landing-plot"><rect x={0} y={T - 4} width={size.w} height={size.h - T - B + 8} /></clipPath>
+        {lo < 0 && hi > 0 && <line x1={L} x2={size.w - R} y1={y(0)} y2={y(0)} stroke="rgba(55, 53, 47, 0.25)" strokeDasharray="3 3" />}
+        <g clipPath="url(#landing-plot)">
+          {lines.map(l => <path key={l.name} d={path(l.pts)} fill="none" stroke={l.color} strokeWidth={1.5} strokeLinejoin="round" />)}
+        </g>
         {ends.map(e => <circle key={e.name} cx={x(e.e[0])} cy={y(e.e[1])} r={2.5} fill={e.color} />)}
         {tag.map(e => <line key={e.name} x1={x(e.e[0])} y1={y(e.e[1])} x2={size.w - LABEL - 4} y2={e.ty} stroke={e.color} strokeOpacity={0.35} />)}
       </svg>

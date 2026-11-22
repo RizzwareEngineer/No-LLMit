@@ -8,7 +8,7 @@ import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
 import { PLAY_MS, Timeline, playReplay, playedAt, replaySpeed, replayStarted, replayStep, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
 import { playSound } from '@/lib/sound';
-import { RATE_FROM, series, type Metric } from '@/lib/series';
+import { RATE_FROM, robustRange, series, type Metric } from '@/lib/series';
 
 export { RATE_FROM, series };
 
@@ -125,23 +125,6 @@ function gridTicks(a: number, b: number) {
     }
   }
   return best;
-}
-
-// The y axis' range for a set of values, Arena style: their 5th to 95th percentile (so one spike
-// does not flatten the pack) and every value in `keep` (the lines' tips), plus 8% air each side.
-// A tip far outside the pack (more than the pack's own span beyond it) is left out, to sit at the
-// edge with an arrow rather than squash everyone. `must`: values
-// always inside, however far out (the lines' recent stretch, which is never clipped).
-function robustRange(vs: number[], keep: number[] = [], must: number[] = []): [number, number] {
-  const s = (vs.some(Number.isFinite) ? vs : keep).filter(Number.isFinite).sort((p, q) => p - q);
-  if (!s.length) return [-1, 1];
-  const q = (f: number) => s[Math.round(f * (s.length - 1))];
-  const [q0, q1] = [q(0.05), q(0.95)], reach = Math.max(q1 - q0, 1e-9);
-  const near = keep.filter(v => v >= q0 - reach && v <= q1 + reach);
-  let [lo, hi] = [Math.min(q0, ...near, ...must), Math.max(q1, ...near, ...must)];
-  if (hi - lo < 1e-9) [lo, hi] = [lo - 1, hi + 1];
-  const air = (hi - lo) * 0.08;
-  return [lo - air, hi + air];
 }
 
 // Where two lines crossed: the last hand among `ns` (ascending) at which a stopped being below b,
