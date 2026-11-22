@@ -391,15 +391,14 @@ html:has([data-screen]) {
 }
 
 /* Phone draft A (app/a): the phone page with the desktop table at its own proportions (200x128 cells, 40x56 cards),
-   zoomed to the phone's width (PokerTable's Fit). The caption, stats, About and drawer are the phone's own. No Profits &
-   Losses (it jiggled; the owner wants Trends first), and the table screen hugs its content so Trends shows under it. */
+   zoomed to the phone's width (PokerTable's Fit). The caption, stats, About and drawer are the phone's own. The rest of
+   the first screen is the landing fill (LandingFill: the live graph, P&L or both); the Trends window under it is the
+   expanded graph. */
 html.phone-a #phone-stats { display: none; }
 html.phone-a section[aria-label="Live table"][data-screen] { min-height: 0; }
 html.phone-a [data-a-table] [data-hole] [role=img], html.phone-a [data-a-table] [data-felt-cards] [role=img] { width: 40px; height: 56px; }
 html.phone-a [data-a-table] [role=img] span { font-size: 14px; }
 html.phone-a [data-a-table] [role=img] svg { width: 12px; height: 12px; }
 html.phone-a [data-a-table] [data-bet] { display: flex !important; }
-html.phone-a .stats-room > #race { height: auto; min-height: 0; padding-top: 12px; } /* under the caption, not a full window under the bar */
 html.phone-a section[aria-label="Live table"][data-screen] { padding-bottom: 0; }
-html.phone-a #race-panel .flex-1.min-h-\[160px\] { flex: none; height: 360px; } /* room for the nine end labels */
 html.phone-a { --phone-slack: 0px !important; } /* the oval's centring gap; the desktop table has no use for it */

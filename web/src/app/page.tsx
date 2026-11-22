@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { Suspense, lazy, useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
+const LandingFill = lazy(() => import("@/components/LandingFill"));
+const noSub = () => () => {};
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
@@ -32,7 +34,7 @@ import { EARLY_STREAM } from "@/lib/api";
 import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
-import { PHONE, isPhone } from "@/lib/layout";
+import { PHONE, isPhone, isDraftA } from "@/lib/layout";
 import { useLayout } from "@/lib/tableSwitches";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
@@ -208,6 +210,7 @@ export default function Home() {
   const seatStats = useMemo(() => (stats ? Object.fromEntries(stats.models.map(m => [m.name, m])) : undefined), [stats]);
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
+  const draftA = useSyncExternalStore(noSub, isDraftA, () => false); // phone draft A (app/a): the landing fill under the caption
   // The URL names no stats screen: an old #stats, #race or #pairwise link opens the page at its top.
   useEffect(() => {
     if (!window.location.hash || isModelHash(window.location.hash)) return;
@@ -542,6 +545,7 @@ export default function Home() {
             {phone && <div className="md:hidden mt-1.5 w-full" style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
               <Caption displayState={displayState} blank={players.length === 0} turnKey={turnKey} />
             </div>}
+            {phone && draftA && <Suspense fallback={null}><LandingFill stats={stats} players={players} /></Suspense>}
           </div>
         </div>
 
