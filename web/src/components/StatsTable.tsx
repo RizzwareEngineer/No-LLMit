@@ -5,7 +5,7 @@ import { motion, type Transition } from 'motion/react';
 import { CaretDown, CaretUp, CaretUpDown, Info, Warning } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
 import NameForm from '@/components/NameForm';
-import { isPhone } from '@/lib/layout';
+import { isPhone, isDraftA } from '@/lib/layout';
 import { GLIDE, GLIDE_MS, NONE } from '@/components/Section';
 import { BLUE, MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
@@ -259,11 +259,11 @@ let fitObserved: Element | null = null, refit = () => {};
 function fitCardRows(t: HTMLTableElement | null, mini: boolean) {
   // The card only: on a phone it is #stats-panel; on a desktop #stats-panel is the Profiles tile, whose focused table
   // (non-mini) would write the card's --card-row fitted to the tile's overview cell.
-  const sc = t?.closest<HTMLElement>(isPhone() ? '#stats-panel .panel-scroll' : '#stats-card .panel-scroll'), card = sc?.parentElement, box = card?.parentElement;
+  const sc = t?.closest<HTMLElement>(isPhone() || isDraftA() ? '#stats-panel .panel-scroll' : '#stats-card .panel-scroll'), card = sc?.parentElement, box = card?.parentElement;
   if (mini || !t || !sc || !card || !box) return;
   const fit = () => {
     const root = document.documentElement.style;
-    if (isPhone()) {
+    if (isPhone() || isDraftA()) {
       // A phone's card: the table's own box (it scrolls sideways) shows whole rows at rest, never one cut by its foot
       // (the audit's half row above "All models"): rows stretch from 40px so the ones that fit fill it exactly.
       root.removeProperty('--card-row');

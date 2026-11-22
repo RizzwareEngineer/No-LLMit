@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { isPhone, onLayoutChange } from "@/lib/layout";
+import { isDraftA, isPhone, onLayoutChange } from "@/lib/layout";
 import type { SeatDraft } from "@/lib/phoneTable";
 
 // Card sizes in px, the card's 0.7 ratio: phones' 28x40 and desktop's 40x56 (the owner picked it, 2026-11-14). Every card on
@@ -12,7 +12,8 @@ export const CARD_CLASS = ['w-7 h-10', 'w-10 h-14'] as const;
 // Phones keep today's size: the phone table's seats are laid out for it (phoneTable.ts). The layout is lib/layout's.
 export const cardSizeNow = (): number => (isPhone() ? 0 : 1);
 // The deck's size in px: the hole cards'.
-export const deckSize = (size = cardSizeNow()) => CARD_SIZES[size];
+// Draft A (app/a) draws its cards 72x100 (globals.css): the deck and the dealt cards' flights follow.
+export const deckSize = (size = cardSizeNow()) => (isDraftA() ? { w: 72, h: 100 } : CARD_SIZES[size]);
 
 export const useCardSize = () => useSyncExternalStore(onLayoutChange, cardSizeNow, () => 0);
 

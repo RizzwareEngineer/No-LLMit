@@ -2,7 +2,7 @@
 
 import { memo, startTransition, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { StatsResponse } from '@/lib/stats';
-import { PHONE } from '@/lib/layout';
+import { PHONE, isDraftA } from '@/lib/layout';
 import { isPaging } from '@/components/Section';
 import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
 
@@ -23,7 +23,7 @@ let StatsSections: typeof import('@/components/StatsSections').default | null = 
 const loadStats = () => import('@/components/StatsSections').catch(() => import('@/components/StatsSections')).then(m => { StatsSections = m.default; });
 
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
-const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
+const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches || isDraftA(), () => false);
 
 export default memo(function StatsScreens(props: { stats: StatsResponse | null; error: string | null }) {
   const phone = usePhone();

@@ -10,4 +10,6 @@ export const SHORT_H = 500;
 export const DESK = `(min-width: ${DESK_MIN_W}px) and (min-height: ${SHORT_H + 1}px)`;
 export const PHONE = `not all and ${DESK}`;
 export const isPhone = () => window.matchMedia(PHONE).matches;
+// Phone draft A (app/a): the desktop table on a phone, laid out 1,040px wide; the stats, About and drawer under it are the phone's.
+export const isDraftA = () => typeof document !== 'undefined' && document.documentElement.classList.contains('phone-a');
 export const onLayoutChange = (cb: () => void) => { const m = window.matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };

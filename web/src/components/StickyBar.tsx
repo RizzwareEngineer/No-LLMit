@@ -8,6 +8,7 @@ import LLMLogo from '@/components/LLMLogo';
 import type { DisplayState } from '@/lib/stream';
 import { amountParts, formatAmount, useBigBlind } from '@/lib/amounts';
 import { BLUE, MUTED, TEXT } from '@/lib/stats';
+import { isDraftA } from '@/lib/layout';
 import { backToOverview, useScreen } from '@/components/Section';
 import SoundToggle, { UnitToggle } from '@/components/SoundToggle';
 import { useFillIn } from '@/lib/boxes';
@@ -39,6 +40,7 @@ function StickyBar({ show, slide = true, blank = false, pot, handNumber, display
     <AnimatePresence>
       {show && (
         <motion.div
+          data-desk-bar
           className="fixed top-0 inset-x-0 z-40 border-b border-notion bg-white/85 backdrop-blur-md max-md:hidden"
           initial={{ y: slide ? '-100%' : 0, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -52,7 +54,7 @@ function StickyBar({ show, slide = true, blank = false, pot, handNumber, display
             {handNumber > 0 && <span className="tabular-nums hidden sm:inline" style={{ color: MUTED }}>#{handNumber}</span>}
             <span className="tabular-nums shrink-0">
               <span style={{ color: MUTED }}>Pot </span>
-              <span className="font-bold"><NumberFlow locales="en-US" value={potIn.value} format={potIn.format} suffix={potIn.suffix} /></span>
+              <span className="font-bold"><NumberFlow animated={!isDraftA()} locales="en-US" value={potIn.value} format={potIn.format} suffix={potIn.suffix} /></span>
             </span>
             {display && doing && (
               <div className="flex items-center gap-1.5 min-w-0">

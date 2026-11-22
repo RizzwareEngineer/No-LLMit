@@ -47,9 +47,9 @@ const useNativeTimeline = () =>
 
 // Phones (lib/layout's PHONE) get their own stats: one full-screen window per part (PhoneStats); wider windows the overview and
 // its cards' loop. The prerender is the wide one (stats sit below the table screen, out of sight when a phone swaps them).
-import { PHONE } from '@/lib/layout';
+import { PHONE, isDraftA } from '@/lib/layout';
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
-const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
+const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches || isDraftA(), () => false);
 
 // The three panels under the live table, all time. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
@@ -660,7 +660,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     // Matchups' matrix (seated lineup) square, 40px cells at most, and no taller than its window leaves it (the top bar,
     // the card's padding, its two-line header and the column logos), so a swipe on it pages instead of scrolling it; never
     // under 26px cells (a short window scrolls it instead).
-    <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `clamp(${26 * Math.max(1, field.length)}px, max(100svh, var(--win-min, 0px)) - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 96px - 28px, ${40 * Math.max(1, field.length)}px)` } as React.CSSProperties}>
+    <StatsZoom><div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `clamp(${26 * Math.max(1, field.length)}px, max(100svh, var(--win-min, 0px)) - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 96px - 28px, ${40 * Math.max(1, field.length)}px)` } as React.CSSProperties}>
       <section id="race" data-screen aria-label="Trends" className={WINDOW}>
         <div id="stats" aria-hidden className="absolute top-0" />
         {card('race-panel', 'Trends', ready && <Leader tl={tl} models={field} />, ready ? (
@@ -708,7 +708,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
           </div>
         </div>
       </section>
-    </div>
+    </div></StatsZoom>
   );
 }
 

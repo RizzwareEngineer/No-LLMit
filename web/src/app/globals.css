@@ -390,30 +390,63 @@ html:has([data-screen]) {
 }
 }
 
-/* Draft A (app/a): the desktop page on a phone, without Profits & Losses. */
+/* Draft A (app/a): the desktop page on a phone, laid out 1,040px wide and drawn at 0.375. The table keeps the desktop's
+   look, scaled up inside its cells; under it the stats, About and the model drawer are the phone's own, drawn at the phone's
+   scale (zoom 1040 / 390). From the mobile audit, 2026-11-22: one frame per cell edge, names whole, cards that read as cards,
+   no rolling digits, no empty bands. */
 html.phone-a #phone-stats { display: none; }
-/* Draft A: the screen's height is the 1,040px layout's (about 2,250px on a phone), so the table screen hugs its content
-   instead of centring in it. */
-html.phone-a section[data-screen] { min-height: 0; justify-content: flex-start; padding-top: 24px; }
-
-/* Draft A scaled up (owner, 2026-11-22: "the table itself can just be bigger ... the cards can be in the middle ... scale it
-   up more"; live stats right under the table, then About). The table keeps its 1,000px width, the phone's limit, so its rows
-   grow instead: 200px tall, everything in a seat about twice the size, the hole cards centred over the action. */
+html.phone-a section[aria-label="Live table"][data-screen] { min-height: 0; justify-content: flex-start; padding-top: 24px; }
 html.phone-a section[aria-label="Live table"] > :not(.mt-6):not(button) { zoom: 1.8; max-width: 560px; }
-html.phone-a .stage-zoom { width: 1000px; zoom: 1 !important; } /* fitStage would zoom it to 1.25 and widen the page */
-html.phone-a { --sz: 0.66 !important; --stage-w: 1000px !important; } /* the wide stats (laid out at 1,480px) fit 1,000px */
 html.phone-a section[aria-label="Live table"] > button { display: none; }
+html.phone-a section[aria-label="Live table"] > div:has(> .max-w-\[720px\][aria-hidden="true"]) { display: none; }
+html.phone-a section[aria-label="Live table"] > .mt-6 { margin-top: 12px; }
+html.phone-a section[aria-label="Live table"] .flex-wrap > .h-4.w-px:nth-last-child(2) { display: none; }
+html.phone-a .btn-brutal-disabled { border-color: rgba(55, 53, 47, 0.16); color: rgba(55, 53, 47, 0.55); }
+html.phone-a [data-desk-bar] { zoom: 2; }
+html.phone-a .stage-zoom { width: 1000px; zoom: 1 !important; } /* fitStage would zoom it to 1.25 and widen the page */
+html.phone-a { --stage-w: 1000px !important; }
 html.phone-a #table { display: contents; }
 html.phone-a [data-reasoning] { order: 2; zoom: 1.6; width: 625px; }
-html.phone-a #phone-stats { display: flex; order: 3; width: 625px; margin-top: 16px; zoom: 1.6; }
-html.phone-a #phone-stats > :not(:first-child) { display: none; }
-html.phone-a #table td.h-\[128px\] { height: 200px; }
-html.phone-a [data-desk-seat] .text-\[11px\] { font-size: 20px; line-height: 24px; }
-html.phone-a [data-desk-seat] [data-position] { font-size: 17px; line-height: 22px; }
-html.phone-a [data-desk-seat] [data-seat-top] img { width: 30px !important; height: 30px !important; }
-html.phone-a [data-desk-seat] [data-seat-bottom] { flex-direction: column-reverse; align-items: center; gap: 6px; }
-html.phone-a [data-hole] [role=img], html.phone-a [data-felt-cards] [role=img] { width: 64px; height: 90px; }
-html.phone-a [data-hole] [role=img] span, html.phone-a [data-felt-cards] [role=img] span { font-size: 26px; }
-html.phone-a [data-hole] [role=img] svg, html.phone-a [data-felt-cards] [role=img] svg { width: 24px; height: 24px; }
-html.phone-a [data-felt] [data-pot] { zoom: 1.8; }
+html.phone-a [data-reasoning] .border-r { border-right-width: 0; }
+html.phone-a [data-reasoning] .h-\[100px\] { box-shadow: 0 0 0 1.67px rgba(55, 53, 47, 0.14) !important; }
+/* One line per cell edge, heavy enough to read at 0.375; the seat's own frame goes (the seat on the clock keeps its outline). */
+html.phone-a #table div:has(> table[role=presentation]) { width: 1000px !important; box-shadow: 0 0 0 3px rgba(55, 53, 47, 0.14) !important; border-radius: 0; }
+html.phone-a #table td { border-width: 3px !important; border-color: rgba(55, 53, 47, 0.14) !important; }
+html.phone-a [data-desk-seat]:not(.border-animation) { box-shadow: none !important; border-radius: 0; }
+html.phone-a [data-felt] { background-image: linear-gradient(to right, rgba(0, 0, 0, 0.045) 3px, transparent 3px), linear-gradient(to bottom, rgba(0, 0, 0, 0.045) 3px, transparent 3px) !important; background-size: 60px 60px !important; }
+/* Seats: 232px rows; the name has the whole first row, the logo, stack and badge the second; the cards centred over the action. */
+html.phone-a #table td.h-\[128px\] { height: 232px; }
+html.phone-a [data-desk-seat] [data-seat-top] { position: relative; padding: 10px 10px 0; }
+html.phone-a [data-desk-seat] [data-seat-top] > div:first-child { width: 100%; gap: 0; }
+html.phone-a [data-desk-seat] [data-seat-top] .flex-col { flex: 1 1 0; min-width: 0; }
+html.phone-a [data-desk-seat] .text-\[11px\] { font-size: 24px; line-height: 28px; }
+html.phone-a [data-desk-seat] [data-seat-top] [data-chips] { padding-left: 42px; line-height: 36px; }
+html.phone-a [data-desk-seat] [data-seat-top] > div:first-child > :first-child { position: absolute; left: 10px; top: 40px; }
+html.phone-a [data-desk-seat] [data-seat-top] > [data-position] { position: absolute; right: 10px; top: 46px; }
+html.phone-a [data-desk-seat] [data-position] { font-size: 20px; line-height: 24px; }
+html.phone-a [data-desk-seat] [data-seat-top] .rounded-sm { width: 34px !important; height: 34px !important; min-width: 34px !important; min-height: 34px !important; }
+html.phone-a [data-desk-seat] [data-seat-top] .rounded-sm img { width: 24px !important; height: 24px !important; }
+html.phone-a [data-desk-seat] [data-chips], html.phone-a [data-desk-seat] [data-action] { font-weight: 500; }
+html.phone-a [data-desk-seat] [data-seat-bottom] { flex-direction: column-reverse; align-items: center; gap: 6px; padding: 0 10px 10px; }
+/* Cards: a real card's ratio (0.72), the rank over the suit, an edge that reads. */
+html.phone-a [data-hole] [role=img], html.phone-a [data-felt-cards] [role=img] { width: 72px; height: 100px; border-radius: 7px; box-shadow: 0 0 0 2px rgba(55, 53, 47, 0.22) !important; }
+html.phone-a [data-hole] [role=img] > div, html.phone-a [data-felt-cards] [role=img] > div { flex-direction: column; gap: 2px; }
+html.phone-a [data-hole] [role=img] span, html.phone-a [data-felt-cards] [role=img] span { font-size: 36px; line-height: 36px; }
+html.phone-a [data-hole] [role=img] svg, html.phone-a [data-felt-cards] [role=img] svg { width: 28px; height: 28px; }
+html.phone-a .card-back::before { inset: 4px; border-width: 2px; border-radius: 4px; }
+/* The pot and the bets. */
+html.phone-a [data-felt] [aria-label^="Pot "] { zoom: 1.8; border-width: 1px; border-color: rgba(55, 53, 47, 0.35); box-shadow: none; }
+html.phone-a [data-felt] > div.h-\[74px\] { height: 136px; }
+html.phone-a [data-felt].pt-\[44px\] { padding-top: 64px; }
 html.phone-a [data-felt] [data-bet] { zoom: 1.6; }
+html.phone-a [data-bet] [data-chips] { font-size: 15px; }
+html.phone-a [data-bet] svg ellipse[stroke-width="0.6"] { stroke-width: 1.2px; }
+html.phone-a [data-felt] [data-bet][style*="left: 10px"] { left: 28px !important; }
+html.phone-a [data-felt] [data-bet][style*="right: 10px"] { right: 28px !important; }
+/* Under the table: the phone's stats windows (Trends first), About and the drawer, at the phone's scale. */
+html.phone-a .stats-room { --top-h: 44px; }
+html.phone-a .stats-room > section[data-screen] > :is(#race-panel, #stats-panel, #pairwise-card) { zoom: 2.6667; }
+html.phone-a .stats-room > #about > .panel-scroll > div { zoom: 2.6667; }
+html.phone-a:has([data-screen]) { scroll-snap-type: y mandatory; }
+html.phone-a dialog.drawer { margin: auto 0 0 0; width: 100vw; height: auto; max-height: 85dvh; padding-bottom: env(safe-area-inset-bottom); border-radius: 32px 32px 0 0; animation-name: sheet-in; }
+html.phone-a dialog.drawer > [data-scroll] { zoom: 2.6667; }

@@ -5,7 +5,7 @@ import NumberFlow from '@number-flow/react';
 import { CircleNotch, Moon } from "@phosphor-icons/react";
 import ChipStack from "@/components/ChipStack";
 import Link from "next/link";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence } from "motion/react";
 import { Deck, DeckPhase } from "@/components/TableMotion";
 import { TableNoticePayload } from "@/lib/api";
@@ -17,6 +17,8 @@ import { formatDuration, formatLocalTime } from "@/lib/time";
 import { useFillIn } from "@/lib/boxes";
 import { DECK } from "@/lib/phoneTable";
 import { CARD_CLASS, useCardSize } from "@/lib/tableSwitches";
+import { isDraftA } from "@/lib/layout";
+const noSub = () => () => {};
 
 interface WinnerDisplay {
   name: string;
@@ -124,7 +126,7 @@ export default function TableFelt({
   upright = false,
   fillIn = true,
 }: TableFeltProps) {
-  const bb = useBigBlind(), size = useCardSize();
+  const bb = useBigBlind(), size = useCardSize(), still = useSyncExternalStore(noSub, isDraftA, () => false);
   const potIn = amountParts(pot, bb);
   const collected = Math.max(0, pot - betsOut);
   // Show button determination if in progress
@@ -184,7 +186,7 @@ export default function TableFelt({
             <div data-chips={pot} className={`flex flex-row items-center gap-2 bg-white border-2 border-gray-700 shadow-sm ${compact ? 'h-[30px] px-3' : 'p-2 px-4'}`} aria-label={`Pot ${formatAmount(pot, bb)}`}>
               <div className={`${compact ? 'text-[11px]' : 'text-xs'} uppercase tracking-wider text-gray-600`}>POT</div>
               <div className={`${compact ? 'text-[15px] leading-5' : 'text-[20px] leading-7'} text-gray-700 font-bold tabular-nums`}>
-                <NumberFlow value={potIn.value} format={potIn.format} suffix={potIn.suffix} locales="en-US" />
+                <NumberFlow animated={!still} value={potIn.value} format={potIn.format} suffix={potIn.suffix} locales="en-US" />
               </div>
             </div>
             {/* data-pot: where TableMotion's chips land (the phone's: the pot itself; only the board is under it) */}
