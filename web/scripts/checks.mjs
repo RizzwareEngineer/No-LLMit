@@ -6895,6 +6895,65 @@ group(() => check('phone-rows-no-sticky-hover', 'At 390x844 (touch) on /a, a Pro
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
 
+// The owner's iPhone, 2026-11-22: draft A's table drawn "distorted and ugly as hell". CSS zoom shrank its font sizes with
+// it, and an iPhone browser draws zoomed text bigger than the zoom (11px at 0.4 came out twice its boxes: names cut to one
+// letter, badges sliced). The table is scaled as one picture instead: its drawn shape is its laid-out shape, no zoom.
+group(() => check('phone-a-true-scale', 'On /a at 390x651 and 430x739 (touch), the table is the desktop table scaled as one picture: its drawn height to width is its laid-out 1000px shape\'s, nothing in it is CSS-zoomed, every position badge\'s text sits inside its badge, and the page is no wider than the window', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[390, 651], [430, 739]]) {
+    const size = `${w}x${h}`, p = await phoneA(w, h);
+    try {
+      const r = await p.evaluate(() => {
+        const box = document.querySelector('[data-a-table]'), t = box?.firstElementChild;
+        if (!t) return null;
+        const b = box.getBoundingClientRect();
+        const zoomed = [t, ...t.querySelectorAll('*')].filter(e => getComputedStyle(e).zoom !== '1').length;
+        const badges = [...t.querySelectorAll('[data-position]')].filter(e => e.getBoundingClientRect().height).map(e => {
+          const g = document.createRange(); g.selectNodeContents(e);
+          const o = e.getBoundingClientRect(), i = g.getBoundingClientRect();
+          return { t: e.textContent, over: Math.max(o.top - i.top, i.bottom - o.bottom, o.left - i.left, i.right - o.right) };
+        });
+        return { drawn: b.height / b.width, laid: t.offsetHeight / t.offsetWidth, zoomed, badges, wide: document.documentElement.scrollWidth - innerWidth };
+      });
+      if (!r) { bad.push(`${size}: no draft A table`); continue; }
+      const out = r.badges.filter(x => x.over > 0.5);
+      seen.push(`${size}: shape ${r.drawn.toFixed(3)} (laid out ${r.laid.toFixed(3)}), ${r.badges.length} badges inside`);
+      if (Math.abs(r.drawn / r.laid - 1) > 0.005) bad.push(`${size}: drawn ${r.drawn.toFixed(3)} high per wide, laid out ${r.laid.toFixed(3)}`);
+      if (r.zoomed) bad.push(`${size}: ${r.zoomed} elements CSS-zoomed`);
+      if (!r.badges.length) bad.push(`${size}: no position badges`);
+      if (out.length) bad.push(`${size}: badge text outside its badge: ${out.slice(0, 3).map(x => `${x.t} by ${x.over.toFixed(1)}px`).join(', ')}`);
+      if (r.wide > 0) bad.push(`${size}: page ${r.wide}px wider than the window`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// The owner's iPhone, 2026-11-22: the landing fill's P&L ran under the tab bar. The checks before used the bare device
+// sizes (430x932); a phone's browser bars take about a fifth of that. These are iPhones' browser viewports, bars shown.
+group(() => check('phone-a-first-screen-fits', 'On /a at the iPhones\' browser viewports (375x629, 390x651, 393x659, 402x681, 430x739, 440x763, touch), the first screen ends 8-16px above the tab bar: the fill starts under the table, its lines are no taller than the table, Profits & Losses shows under them where 246px or more are left, and the page is no wider than the window', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[375, 629], [390, 651], [393, 659], [402, 681], [430, 739], [440, 763]]) {
+    const size = `${w}x${h}`, p = await phoneA(w, h);
+    try {
+      const r = await p.evaluate(() => {
+        const rect = s => document.querySelector(s)?.getBoundingClientRect();
+        const t = rect('[data-a-table]'), f = rect('[data-landing-fill]'), nav = rect('nav[aria-label=Sections]');
+        const cards = [...document.querySelectorAll('[data-landing-fill] > div')].map(e => e.getBoundingClientRect());
+        return t && f && nav && { tableB: t.bottom, tableH: t.height, fillT: f.top, fillB: f.bottom, fillH: f.height, navT: nav.top, cards: cards.map(c => c.height), wide: document.documentElement.scrollWidth - innerWidth };
+      });
+      if (!r) { bad.push(`${size}: no table, fill or tab bar`); continue; }
+      const gap = r.navT - r.fillB;
+      seen.push(`${size}: table ${r.tableH.toFixed(0)}, fill ${r.fillH.toFixed(0)} (${r.cards.map(c => c.toFixed(0)).join('+')}), ${gap.toFixed(0)}px above the tab bar`);
+      if (r.fillT < r.tableB - 0.5) bad.push(`${size}: the fill starts ${(r.tableB - r.fillT).toFixed(0)}px over the table`);
+      if (gap < 8 - 0.5 || gap > 16 + 0.5) bad.push(`${size}: the fill ends ${gap.toFixed(0)}px above the tab bar`);
+      if (!r.cards.length) bad.push(`${size}: an empty fill (${r.fillH.toFixed(0)}px)`);
+      else if (r.cards[0] > r.tableH + 1) bad.push(`${size}: the lines ${r.cards[0].toFixed(0)}px tall, the table ${r.tableH.toFixed(0)}px`);
+      if (r.fillH >= 246 && r.cards.length < 2) bad.push(`${size}: no Profits & Losses with ${r.fillH.toFixed(0)}px left`);
+      if (r.wide > 0) bad.push(`${size}: page ${r.wide}px wider than the window`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+
 // --lanes 1 runs one page at a time (the main page's steps, then each group, then each late): a timing check on the main
 // page (a 4x replay's splashes, a refresh's fade) misreads frames while a group films in a window beside it.
 const beside = LANES > 1 ? drain(groups, LANES - 1) : null;

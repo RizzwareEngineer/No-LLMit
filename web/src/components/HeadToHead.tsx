@@ -88,8 +88,9 @@ export default memo(function HeadToHead({
   // observer attaches when it does.
   const [square, setSquare] = useState<HTMLDivElement | null>(null);
   const [cell, setCell] = useState(0);
-  // A phone's figures: the largest size up to 14px at which a three-digit figure (+194) fills its cell, never under 12px.
-  const px = phone ? Math.max(12, Math.min(14, Math.floor((cell - 1) / figureEms('+000')))) : mini ? TILE_PX : 14;
+  // A phone's figures: the largest size up to 14px at which a three-digit figure (+194) fits its cell (10px in a short
+  // phone's 28px cells: at 12px "-380" ran into the next cell).
+  const px = phone ? Math.max(10, Math.min(14, Math.floor((cell - 1) / figureEms('+000')))) : mini ? TILE_PX : 14;
   const totals = mini ? 0 : TOTALS;
   const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
   const full = cell - 1; // the cell inside its spacing: a shortened figure (+1.5k) may use its padding (fitFigure)
