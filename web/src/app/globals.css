@@ -410,3 +410,6 @@ html.phone-a [data-page] { --phone-slack: 0px; }
 /* The Mac's stats overview, drawn at a third of its size (StatsSections' MacOverview): its Trends tile's Replay would be a
    7px target; the Trends card has its own. */
 [data-mac-overview] [data-tile-replay] { display: none; }
+/* The landing with no fill (?fill=none: the title, the table and the reasoning): centred between the bars (owner,
+   2026-11-23: "a lot of white space. let's center the table and model stuff"). */
+html.phone-a[data-fill=none] section[aria-label="Live table"][data-screen] { justify-content: center; padding-bottom: var(--bar-h, 0px); }

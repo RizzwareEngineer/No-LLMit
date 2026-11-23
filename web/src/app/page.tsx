@@ -6,7 +6,7 @@ import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
-import LandingFill from "@/components/LandingFill";
+import LandingFill, { useFill } from "@/components/LandingFill";
 const noSub = () => () => {};
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
@@ -68,6 +68,29 @@ const closeModel = () => {
   history.replaceState(null, "", window.location.pathname + window.location.search);
   window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
 };
+
+// The site's title over the table: No-LLMit and what it is, with About's link. On a phone (draft A) the line breaks at
+// its phrase, each half whole on its line (one sentence never wraps mid-way: it is wider than a phone at 14px).
+function TitleBlock({ phone = false, className }: { phone?: boolean; className: string }) {
+  return (
+    <div className={className}>
+      <h1 className="text-[28px] font-bold text-balance" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
+      <p className={phone ? 'mt-1 text-[14px] leading-snug' : 'text-[14px]'} style={{ color: MUTED }}>
+        {phone ? <span className="block">Spectate (or play against) SOTA LLMs</span> : 'Spectate (or play against) SOTA LLMs '}
+        in a No Limit Texas Hold&apos;em cash game.{' '}
+        {/* The home page's last screen; /about stays its own page (a new tab, a shared link). */}
+        <Link
+          href="/about"
+          onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about'); } }}
+          className="underline underline-offset-2 decoration-1 decoration-[rgba(31,111,196,0.4)]"
+          style={{ color: BLUE }}
+        >
+          ⓘ About
+        </Link>
+      </p>
+    </div>
+  );
+}
 
 // Fit-to-screen: the stage (table, sidebar, reasoning) takes one uniform zoom so the whole
 // table screen fits the window, up to 125% (the size the owner chose) and down to 75%; below
@@ -211,6 +234,7 @@ export default function Home() {
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
   const draftA = useSyncExternalStore(noSub, isDraftA, () => false); // phone draft A (app/a): the landing fill under the caption
+  const fill = useFill();
   // The URL names no stats screen: an old #stats, #race or #pairwise link opens the page at its top.
   useEffect(() => {
     if (!window.location.hash || isModelHash(window.location.hash)) return;
@@ -469,21 +493,7 @@ export default function Home() {
           scroll container there (clip, not auto: a snap point counts only in its nearest one). */}
       <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always max-md:snap-normal overflow-x-auto max-md:overflow-x-clip flex flex-col items-center-safe justify-center-safe max-md:justify-start pt-3 max-md:pt-[calc(48px+env(safe-area-inset-top))] pb-[calc(1rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
-        {desk && <><div className="mb-1 text-center max-md:hidden">
-          <h1 className="text-[28px] font-bold text-balance" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
-          <p className="text-[14px]" style={{ color: MUTED }}>
-            Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
-            {/* The home page's last screen; /about stays its own page (a new tab, a shared link). */}
-            <Link
-              href="/about"
-              onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about'); } }}
-              className="underline underline-offset-2 decoration-1 decoration-[rgba(31,111,196,0.4)]"
-              style={{ color: BLUE }}
-            >
-              ⓘ About
-            </Link>
-          </p>
-        </div>
+        {desk && <><TitleBlock className="mb-1 text-center max-md:hidden" />
 
         {/* Action buttons row */}
         <div className="mb-1.5 flex items-center justify-center gap-3 max-md:hidden">
@@ -496,6 +506,10 @@ export default function Home() {
           watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
 
         <div className="max-md:hidden"><SessionProgress table={usageError ? undefined : usage?.table} /></div></>}
+
+        {/* Phone draft A without a landing fill (?fill=none): the desktop's title over the table (owner, 2026-11-23: "the text
+            at the top for desktop why is it not there for mobile?"), the screen centred (globals.css, html[data-fill=none]). */}
+        {phone && draftA && fill === 'none' && <TitleBlock phone className="mb-3 text-center" />}
 
         {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
         <div className="mt-6 max-md:mt-0 flex items-center-safe justify-center-safe w-full md:w-auto">

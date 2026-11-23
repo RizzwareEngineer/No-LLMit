@@ -8,7 +8,8 @@ import Home from "../page";
 export default function DraftA() {
   return (
     <>
-      <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('phone-a')" }} />
+      {/* data-fill: which landing (LandingFill), for globals.css, before the first paint. */}
+      <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('phone-a');var f=new URLSearchParams(location.search).get('fill');document.documentElement.dataset.fill=f==='pnl'||f==='none'?f:'trends'" }} />
       <Home />
     </>
   );

@@ -20,7 +20,7 @@ import type { PlayerState } from '@/lib/api';
 type Fill = 'trends' | 'pnl' | 'none';
 const noSub = () => () => {};
 const fillOf = (): Fill => { const f = new URLSearchParams(location.search).get('fill'); return f === 'pnl' || f === 'none' ? f : 'trends'; };
-const useFill = () => useSyncExternalStore(noSub, fillOf, (): Fill => 'trends');
+export const useFill = () => useSyncExternalStore(noSub, fillOf, (): Fill => 'trends');
 // Under this the fill is nothing: P&L's rows under 18px; Trends' tile (its padding, title and gap, 52px, over its lines
 // at W x H across its width) cut.
 const LEAST = { trends: (w: number) => 52 + ((w - 24) * H) / W, pnl: () => 24 + 28 + 18 * 9 };
