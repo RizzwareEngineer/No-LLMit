@@ -94,8 +94,9 @@ export default memo(function HeadToHead({
   const totals = mini ? 0 : TOTALS;
   const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
   const full = cell - 1; // the cell inside its spacing: a shortened figure (+1.5k) may use its padding (fitFigure)
-  // A row's Total: in its own column (TOTALS wide), or a phone's key (a three-digit figure's room at 13px).
-  const totalFig = (n: number) => (phone ? fitFigure(n, 36, 13) : fitFigure(n, totals - 8, px));
+  // A row's Total: in its own column (TOTALS wide), or a phone's key (a three-digit figure's room at 12px: 12px names fit
+  // two to a line at 375, "DeepSeek Flash" and "Command R7B" whole).
+  const totalFig = (n: number) => (phone ? fitFigure(n, 34, 12) : fitFigure(n, totals - 8, px));
   // Every figure in the grid exactly as drawn (fitFigure's text), keyed row|column (row| for the Total); a pair that never
   // met, or a row with no hands together, has none. Compared as text: a rounded number missed changes the text shows
   // (+12 to +13 across 12.5, a sign at zero, a negative half rounded the other way), which then drew a frame before their flash.
@@ -283,13 +284,13 @@ export default memo(function HeadToHead({
       {/* A phone's key, under the grid: each row's logo, name and Total, in the grid's order, two to a line. It takes the
           card's height left under the grid (StatsSections leaves it 116px under the matrix), its lines spread over it. */}
       {phone && (
-        <ol className="sticky left-0 w-[100cqw] flex-1 mt-2 grid grid-cols-2 content-evenly gap-x-3 gap-y-0.5 text-[13px] tabular-nums">
+        <ol className="sticky left-0 w-[100cqw] flex-1 mt-2 grid grid-cols-2 content-evenly gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
           {sorted.map(row => {
             const t = among.get(row.name)!;
             const none = row.hands === 0 || t.hands === 0;
             return (
               <li key={row.name} className={`flex items-center gap-1.5 min-w-0 h-5 ${adds(row.name)}`}>
-                <LLMLogo model={row.name} size={20} />
+                <LLMLogo model={row.name} size={16} />
                 <a data-key-name href={modelHref(row.name)} title={row.name} translate="no" className="block min-w-0 max-w-full truncate rounded-sm px-0.5 font-medium" style={{ color: TEXT, background: row.name === leader ? HOT : undefined }}><NameForm name={row.name} /></a>
                 <span data-cell={`${row.name}|`} data-hands={t.hands} title={TOTAL_TITLE} className="ml-auto shrink-0 font-bold" style={{ color: none ? MUTED : netColor(t.bb100), opacity: !none && row.hands < MIN_HANDS ? FAINT : undefined }}>{none ? DASH : <><span aria-hidden>{totalFig(t.bb100)}</span><span className="sr-only">{row.name} {signed(t.bb100)} bb/100 against the models shown, over {plural(row.hands, 'hand')} played</span></>}</span>
               </li>
