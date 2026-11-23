@@ -644,11 +644,6 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     });
     return () => { ro.disconnect(); offs.forEach(o => o()); };
   }, [data, muLineup]);
-  // Matchups' names column at its longest name, whole (as the wide layout measures it).
-  useLayoutEffect(() => {
-    const names = [...document.querySelectorAll<HTMLElement>('#pairwise-card a [translate=no]')];
-    if (names.length) room.current?.style.setProperty('--mu-names', `${Math.max(...names.map(e => e.scrollWidth)) + 5}px`);
-  }, [data, muLineup]);
   const card = (id: string, title: string, aside: React.ReactNode, body: React.ReactNode, cls = '') => (
     <div id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className="flex-1 min-h-0 flex flex-col outline-none">
     {/* relative: the card holds what is placed in its coordinates (Matchups' readout), as the wide cards do. */}
@@ -662,10 +657,12 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     </div>
   );
   return (
-    // Matchups' matrix (seated lineup) square, 40px cells at most, and no taller than its window leaves it (the top bar,
-    // the card's padding, its two-line header and the column logos), so a swipe on it pages instead of scrolling it; never
-    // under 26px cells (a short window scrolls it instead).
-    <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `clamp(${26 * Math.max(1, field.length)}px, max(100svh, var(--win-min, 0px)) - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 96px - 28px, ${40 * Math.max(1, field.length)}px)` } as React.CSSProperties}>
+    // Matchups' matrix (seated lineup) square, 40px cells at most, no wider than its card leaves it beside the row logos
+    // (100cqw: the card body's width, resolved where HeadToHead uses it; 36px: a 24px logo, as the columns', and its padding), and no taller
+    // than its window leaves it (the top bar, the card's padding, its two-line header, the column logos and the key under
+    // the grid: five 20px lines and their gaps), so a swipe on it pages instead of scrolling it; never under 26px cells
+    // (a short window scrolls it instead).
+    <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `min(100cqw - 36px, clamp(${26 * Math.max(1, field.length)}px, max(100svh, var(--win-min, 0px)) - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 104px - 28px - 116px, ${40 * Math.max(1, field.length)}px))` } as React.CSSProperties}>
       <section id="race" data-screen aria-label="Trends" className={WINDOW}>
         <div id="stats" aria-hidden className="absolute top-0" />
         {card('race-panel', 'Trends', ready && <Leader tl={tl} models={field} />, ready ? (
@@ -699,11 +696,11 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
           <AtHand tl={tl} models={muModels}>
             {(ms, hand) => (
               <div {...syncAttrs(tl, hand)} className="contents">
-                <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} fitTo={field.map(m => m.name)} leader={leaderAt(tl, ms, hand)?.m.name} shorten />
+                <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} fitTo={field.map(m => m.name)} leader={leaderAt(tl, ms, hand)?.m.name} phone />
               </div>
             )}
           </AtHand>
-        ), '[&_.panel-scroll]:[container-type:inline-size] [&_a_[translate=no]]:max-w-[max(96px,40cqw)]')}
+        ), '[&_.panel-scroll]:[container-type:inline-size]')}
       </section>
       {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
       <section id="about" data-screen data-end aria-label="About" className={`${ABOUT_WINDOW} ${LAZY}`}>
