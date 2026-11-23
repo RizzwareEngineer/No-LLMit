@@ -88,9 +88,9 @@ export default memo(function HeadToHead({
   // observer attaches when it does.
   const [square, setSquare] = useState<HTMLDivElement | null>(null);
   const [cell, setCell] = useState(0);
-  // A phone's figures: the largest size up to 14px at which a three-digit figure (+194) fits its cell (10px in a short
-  // phone's 28px cells: at 12px "-380" ran into the next cell).
-  const px = phone ? Math.max(10, Math.min(14, Math.floor((cell - 1) / figureEms('+000')))) : mini ? TILE_PX : 14;
+  // A phone's figures: the largest size up to 14px at which a four-digit figure's short form (+1.5k: never +1k, 31% off)
+  // fits its cell whole, 5% over figureEms (drawn, +1.5k is 2.76em) and 2px short of the cell (it measures a little wide).
+  const px = phone ? Math.max(9, Math.min(14, Math.floor((cell - 3) / (figureEms('+1.5k') * 1.05)))) : mini ? TILE_PX : 14;
   const totals = mini ? 0 : TOTALS;
   const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
   const full = cell - 1; // the cell inside its spacing: a shortened figure (+1.5k) may use its padding (fitFigure)
@@ -290,7 +290,7 @@ export default memo(function HeadToHead({
             return (
               <li key={row.name} className={`flex items-center gap-1.5 min-w-0 h-5 ${adds(row.name)}`}>
                 <LLMLogo model={row.name} size={20} />
-                <a href={modelHref(row.name)} title={row.name} translate="no" className="block min-w-0 max-w-full truncate rounded-sm px-0.5 font-medium" style={{ color: TEXT, background: row.name === leader ? HOT : undefined }}><NameForm name={row.name} /></a>
+                <a data-key-name href={modelHref(row.name)} title={row.name} translate="no" className="block min-w-0 max-w-full truncate rounded-sm px-0.5 font-medium" style={{ color: TEXT, background: row.name === leader ? HOT : undefined }}><NameForm name={row.name} /></a>
                 <span data-cell={`${row.name}|`} data-hands={t.hands} title={TOTAL_TITLE} className="ml-auto shrink-0 font-bold" style={{ color: none ? MUTED : netColor(t.bb100), opacity: !none && row.hands < MIN_HANDS ? FAINT : undefined }}>{none ? DASH : <><span aria-hidden>{totalFig(t.bb100)}</span><span className="sr-only">{row.name} {signed(t.bb100)} bb/100 against the models shown, over {plural(row.hands, 'hand')} played</span></>}</span>
               </li>
             );

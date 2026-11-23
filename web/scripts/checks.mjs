@@ -1235,9 +1235,9 @@ group(() => check('trends-chart-fills', 'At 1440x900 at 200% and 300% (the phone
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join(', ') };
 }));
 
-// A2, A8: the phone Matchups row names: no more than one in five cut on a phone, and none cut while the matrix leaves
-// room at the card's right (a zoomed laptop's 720px window).
-group(() => check('matchups-row-names', 'At 375x667 and 390x844 (touch), at most 20% of the Matchups row names are cut, and at 1440x900 at 200% and 300% none is cut while the grid ends more than 48px short of the card\'s right edge', async () => {
+// A2, A8: the phone Matchups names: no more than one in five cut on a phone, and none cut while the matrix leaves room at
+// the card's right (a zoomed laptop's 720px window). Phones head the rows with logos (2026-11-22): the names are the key's.
+group(() => check('matchups-row-names', 'At 375x667 and 390x844 (touch), at most 20% of the names in the Matchups key (the rows are logos) are cut, and at 1440x900 at 200% and 300% none is cut while the grid ends more than 48px short of the card\'s right edge', async () => {
   const bad = [], seen = [];
   for (const [w, h, z] of [[375, 667, 1], [390, 844, 1], [1440, 900, 2], [1440, 900, 3]]) {
     const p = await polishPage(w, h, { phone: z === 1, z });
@@ -1245,7 +1245,7 @@ group(() => check('matchups-row-names', 'At 375x667 and 390x844 (touch), at most
       await polishGo(p, 'pairwise');
       const r = await p.evaluate(() => {
         const card = document.querySelector('#pairwise .card-chrome'); if (!card) return null;
-        const names = [...card.querySelectorAll('a[data-row-name] [translate=no]')].filter(e => e.getBoundingClientRect().width > 0);
+        const names = [...card.querySelectorAll('[data-key-name]')].filter(e => e.getBoundingClientRect().width > 0);
         const cut = names.filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.closest('a').title);
         const cs = getComputedStyle(card), right = card.getBoundingClientRect().right - parseFloat(cs.paddingRight);
         const grid = Math.max(...[...card.querySelectorAll('table, [data-cell]')].map(e => e.getBoundingClientRect().right));
@@ -1260,7 +1260,7 @@ group(() => check('matchups-row-names', 'At 375x667 and 390x844 (touch), at most
   }
   // A phone turned (fix-final #1): the names refit against the new window's cap, not the one before the turn, so each row
   // shows the form a page loaded at that size shows ('Cohere Comman…' after a turn upright where 'Command R7B' fits).
-  const forms = p => p.evaluate(() => Object.fromEntries([...document.querySelectorAll('#pairwise a[data-row-name]')].filter(a => a.getBoundingClientRect().width > 0).map(a => [a.title, a.querySelector('[translate=no]').textContent])));
+  const forms = p => p.evaluate(() => Object.fromEntries([...document.querySelectorAll('#pairwise [data-key-name]')].filter(a => a.getBoundingClientRect().width > 0).map(a => [a.title, a.textContent])));
   for (const [[w0, h0], [w1, h1]] of [[[844, 390], [390, 844]], [[390, 844], [844, 390]]]) {
     const fresh = await polishPage(w1, h1, { phone: true, script: true }), turned = await polishPage(w0, h0, { phone: true, script: true });
     try {
@@ -6898,7 +6898,7 @@ group(() => check('phone-rows-no-sticky-hover', 'At 390x844 (touch) on /a, a Pro
 // The owner's iPhone, 2026-11-22: draft A's table drawn "distorted and ugly as hell". CSS zoom shrank its font sizes with
 // it, and an iPhone browser draws zoomed text bigger than the zoom (11px at 0.4 came out twice its boxes: names cut to one
 // letter, badges sliced). The table is scaled as one picture instead: its drawn shape is its laid-out shape, no zoom.
-group(() => check('phone-a-true-scale', 'On /a at 390x651 and 430x739 (touch), the table is the desktop table scaled as one picture: its drawn height to width is its laid-out 1000px shape\'s, nothing in it is CSS-zoomed, every position badge\'s text sits inside its badge, and the page is no wider than the window', async () => {
+group(() => check('phone-a-true-scale', 'On /a at 390x651 and 430x739 (touch), the table is the desktop table scaled as one picture: drawn, it fills its box at its laid-out 1000px shape, nothing in it is CSS-zoomed, every position badge\'s text sits inside its badge, and the page is no wider than the window', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[390, 651], [430, 739]]) {
     const size = `${w}x${h}`, p = await phoneA(w, h);
@@ -6906,19 +6906,20 @@ group(() => check('phone-a-true-scale', 'On /a at 390x651 and 430x739 (touch), t
       const r = await p.evaluate(() => {
         const box = document.querySelector('[data-a-table]'), t = box?.firstElementChild;
         if (!t) return null;
-        const b = box.getBoundingClientRect();
+        const b = box.getBoundingClientRect(), d = t.getBoundingClientRect(); // the box, and the table as drawn in it
         const zoomed = [t, ...t.querySelectorAll('*')].filter(e => getComputedStyle(e).zoom !== '1').length;
         const badges = [...t.querySelectorAll('[data-position]')].filter(e => e.getBoundingClientRect().height).map(e => {
           const g = document.createRange(); g.selectNodeContents(e);
           const o = e.getBoundingClientRect(), i = g.getBoundingClientRect();
           return { t: e.textContent, over: Math.max(o.top - i.top, i.bottom - o.bottom, o.left - i.left, i.right - o.right) };
         });
-        return { drawn: b.height / b.width, laid: t.offsetHeight / t.offsetWidth, zoomed, badges, wide: document.documentElement.scrollWidth - innerWidth };
+        return { drawn: d.height / d.width, laid: t.offsetHeight / t.offsetWidth, fills: Math.max(Math.abs(d.left - b.left), Math.abs(d.top - b.top), Math.abs(d.right - b.right), Math.abs(d.bottom - b.bottom)), zoomed, badges, wide: document.documentElement.scrollWidth - innerWidth };
       });
       if (!r) { bad.push(`${size}: no draft A table`); continue; }
       const out = r.badges.filter(x => x.over > 0.5);
       seen.push(`${size}: shape ${r.drawn.toFixed(3)} (laid out ${r.laid.toFixed(3)}), ${r.badges.length} badges inside`);
       if (Math.abs(r.drawn / r.laid - 1) > 0.005) bad.push(`${size}: drawn ${r.drawn.toFixed(3)} high per wide, laid out ${r.laid.toFixed(3)}`);
+      if (r.fills > 0.5) bad.push(`${size}: the drawn table is ${r.fills.toFixed(1)}px off its box`);
       if (r.zoomed) bad.push(`${size}: ${r.zoomed} elements CSS-zoomed`);
       if (!r.badges.length) bad.push(`${size}: no position badges`);
       if (out.length) bad.push(`${size}: badge text outside its badge: ${out.slice(0, 3).map(x => `${x.t} by ${x.over.toFixed(1)}px`).join(', ')}`);
