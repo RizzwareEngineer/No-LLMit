@@ -36,7 +36,8 @@ export function Tile({ part, id, title, note, label, className = '', children }:
 export function PhoneOverview({ models, bigBlind, blank, message }: { models: ModelStats[]; bigBlind: number; blank: boolean; message: ReactNode }) {
   const body = (b: ReactNode) => (message ? null : blank ? null : b);
   return (
-    <div data-overview className="flex-1 min-h-0 grid grid-cols-2 gap-2" style={{ gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1.15fr)' }}>
+    // Profiles the wider: its names whole at 375px (12px type), Matchups' cells 12px wide at the least.
+    <div data-overview className="flex-1 min-h-0 grid gap-2" style={{ gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1.15fr)' }}>
       <Tile part="race" id="tile-race" title="Trends" note="bb/100" label="Open Trends" className="col-span-2">{message || body(<LandingChart models={models} />)}</Tile>
       <Tile part="stats-table" id="tile-stats-table" title="Profiles" label="Open Profiles">{body(<MiniProfiles models={models} />)}</Tile>
       <Tile part="pairwise" id="tile-pairwise" title="Matchups" label="Open Matchups">{body(<MiniMatchups models={models} bigBlind={bigBlind} />)}</Tile>

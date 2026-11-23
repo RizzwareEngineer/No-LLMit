@@ -7,7 +7,7 @@ import LLMLogo from '@/components/LLMLogo';
 import About from '@/components/About';
 import { PageStats } from '@/components/about/content';
 import { ArrowDown, CaretLeft, Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OUT, Segmented, StatsZoom, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OUT, Segmented, StatsZoom, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging, takePart } from '@/components/Section';
 import { PhoneOverview } from '@/components/PhoneTiles';
 import CumulativeChart, { H, LEGEND_H, W, sampleAt } from '@/components/CumulativeChart';
 import StatsTable, { MINI_CHROME, SLIDE, TABLE_VIEW, type TableView } from '@/components/StatsTable';
@@ -615,7 +615,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
   // back button and the Stats tab tapped on Stats ('overview', backToOverview) go back. Focus follows: to the card opened,
   // and back to the tile it was opened from.
   const draftA = useSyncExternalStore(noop, isDraftA, () => false);
-  const [open, setOpen] = useState<Part | null>(null);
+  const [open, setOpen] = useState<Part | null>(() => { const p = takePart(); return p && p in PARTS ? (p as Part) : null; });
   const was = useRef<Part | null>(null);
   useEffect(() => {
     if (!draftA) return;
