@@ -6,8 +6,9 @@ import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react'
 import LLMLogo from '@/components/LLMLogo';
 import About from '@/components/About';
 import { PageStats } from '@/components/about/content';
-import { ArrowDown, Warning } from '@phosphor-icons/react';
+import { ArrowDown, CaretLeft, Warning } from '@phosphor-icons/react';
 import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OUT, Segmented, StatsZoom, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
+import { PhoneOverview } from '@/components/PhoneTiles';
 import CumulativeChart, { H, LEGEND_H, W, sampleAt } from '@/components/CumulativeChart';
 import StatsTable, { MINI_CHROME, SLIDE, TABLE_VIEW, type TableView } from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
@@ -47,7 +48,7 @@ const useNativeTimeline = () =>
 
 // Phones (lib/layout's PHONE) get their own stats: one full-screen window per part (PhoneStats); wider windows the overview and
 // its cards' loop. The prerender is the wide one (stats sit below the table screen, out of sight when a phone swaps them).
-import { PHONE } from '@/lib/layout';
+import { PHONE, isDraftA } from '@/lib/layout';
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
 const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
 
@@ -588,6 +589,9 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
 // On the card's body (which clips already), not the window: its paint containment would clip the card's ring and side
 // shadow at the window's edges (WINDOW has no side padding).
 const LAZY = '[content-visibility:auto] [contain-intrinsic-size:auto_100svh]';
+// Draft A's parts, each with the card that takes focus when it opens.
+const PARTS = { race: 'race-panel', 'stats-table': 'stats-panel', pairwise: 'pairwise-card' } as const;
+type Part = keyof typeof PARTS;
 const LAZY_BODY = '[content-visibility:auto] [contain-intrinsic-size:auto_0px]';
 function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
   const ready = !!data;
@@ -605,10 +609,32 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
   const muModels = muLineup === 'all' ? models : field;
   const profView = useState<TableView>(TABLE_VIEW);
   const room = useRef<HTMLDivElement>(null);
+  // Phone draft A (owner, 2026-11-23: "the next page should be all 3 stats in one view"): one window under the table,
+  // the overview of the three parts (PhoneTiles), or the part a tile opened, in its place, with a way back; the oval
+  // layout (/) keeps a window per part. The tiles and the landing fill open a part ('tileopen', Section's openPart); the
+  // back button and the Stats tab tapped on Stats ('overview', backToOverview) go back. Focus follows: to the card opened,
+  // and back to the tile it was opened from.
+  const draftA = useSyncExternalStore(noop, isDraftA, () => false);
+  const [open, setOpen] = useState<Part | null>(null);
+  const was = useRef<Part | null>(null);
+  useEffect(() => {
+    if (!draftA) return;
+    const onOpen = (e: Event) => { const t = (e as CustomEvent<string>).detail; if (t in PARTS) setOpen(t as Part); };
+    const onBack = () => setOpen(null);
+    window.addEventListener('tileopen', onOpen);
+    window.addEventListener('overview', onBack);
+    return () => { window.removeEventListener('tileopen', onOpen); window.removeEventListener('overview', onBack); };
+  }, [draftA]);
+  useEffect(() => {
+    const id = open ? PARTS[open] : was.current && `tile-${was.current}`;
+    if (id) document.getElementById(id)?.focus({ preventScroll: true });
+    was.current = open;
+  }, [open]);
+  const shown = (id: Part) => !draftA || open === id;
 
   // The window crossing the middle of the screen is the page's screen (the tab bar's Stats or About).
   useEffect(() => {
-    const els = room.current ? [...room.current.querySelectorAll<HTMLElement>(':scope > [data-screen]')] : [];
+    const els = room.current ? [...room.current.querySelectorAll<HTMLElement>(':scope > section')] : [];
     // A window leaving the middle clears the screen it set (an instant jump from About to Profits & Losses crosses none).
     const io = new IntersectionObserver(es => es.forEach(e => {
       const id = e.target.id === 'about' ? 'about' : `phone-${e.target.id}`;
@@ -649,7 +675,11 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     {/* relative: the card holds what is placed in its coordinates (Matchups' readout), as the wide cards do. */}
     <div className={`${CARD} relative flex-1 ${blank ? '[&>*]:invisible' : ''} ${cls}`} style={{ boxShadow: CARD_SHADOW }}>
       <div className={HEADER}>
-        <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
+        <div className="flex items-center gap-1 min-w-0">
+          {/* 32px drawn, 44px to a touch (its ::before). */}
+          {draftA && <button type="button" onClick={backToOverview} aria-label="Back to the stats" className="relative -ml-2 size-8 shrink-0 flex items-center justify-center rounded before:absolute before:-inset-1.5 before:content-[''] [-webkit-tap-highlight-color:transparent] active:bg-black/[0.05]"><CaretLeft size={20} weight="bold" style={{ color: TEXT }} aria-hidden /></button>}
+          <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
+        </div>
         {aside && <div className={ASIDE}>{aside}</div>}
       </div>
       <div className={`panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto ${LAZY_BODY}`}>{body}</div>
@@ -663,13 +693,18 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     // the grid: five 20px lines and their gaps), so a swipe on it pages instead of scrolling it; never under 26px cells
     // (a short window scrolls it instead).
     <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `min(100cqw - 36px, clamp(${26 * Math.max(1, field.length)}px, max(100svh, var(--win-min, 0px)) - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 104px - 28px - 116px, ${40 * Math.max(1, field.length)}px))` } as React.CSSProperties}>
-      <section id="race" data-screen aria-label="Trends" className={WINDOW}>
-        <div id="stats" aria-hidden className="absolute top-0" />
+      {draftA && (
+        <section id="stats" data-screen={!open || undefined} hidden={!!open} aria-label="Stats" className={WINDOW}>
+          <PhoneOverview models={field} bigBlind={bigBlind} blank={blank} message={ready ? null : message} />
+        </section>
+      )}
+      <section id="race" data-screen={shown('race') || undefined} hidden={!shown('race')} aria-label="Trends" className={WINDOW}>
+        {!draftA && <div id="stats" aria-hidden className="absolute top-0" />}
         {card('race-panel', 'Trends', ready && <Leader tl={tl} models={field} />, ready ? (
           <CumulativeChart race compact bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
         ) : message)}
       </section>
-      <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW}>
+      <section id="stats-table" data-screen={shown('stats-table') || undefined} hidden={!shown('stats-table')} aria-label="Profiles" className={WINDOW}>
         {card('stats-panel', 'Profiles', ready && <Leader tl={tl} models={field} />, !ready ? message : (
           <>
             <Definition>
@@ -682,7 +717,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
           </>
         ))}
       </section>
-      <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW}>
+      <section id="pairwise" data-screen={shown('pairwise') || undefined} hidden={!shown('pairwise')} aria-label="Matchups" className={WINDOW}>
         {card('pairwise-card', 'Matchups', ready && (
           <>
             {/* Wraps (the switch under its label) where the row does not fit: never past the card's edge. */}

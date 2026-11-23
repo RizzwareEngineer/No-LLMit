@@ -6817,15 +6817,15 @@ const tapTab = async (p, tab) => {
   const t = await p.evaluate(tab => { const b = [...document.querySelectorAll('nav[aria-label=Sections] button')].find(e => e.textContent.trim() === tab).getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, tab);
   await p.touchscreen.tap(t[0], t[1]);
 };
-const phoneA = async (w, h) => {
+const phoneA = async (w, h, query = '') => {
   const p = await newPage();
   await p.emulate({ viewport: { width: w, height: h, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: (await browser.userAgent()) });
-  await p.goto(`${BASE}/a`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p.goto(`${BASE}/a${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await p.waitForFunction(() => document.querySelector('[data-landing-fill]') && document.querySelector('#race'), { timeout: 90000 }).catch(() => {});
   await sleep(2500);
   return p;
 };
-group(() => check('phone-a-tabs', 'On /a at 390x844 and 430x932 (touch), the tab bar marks Table while the table shows; Stats lands on Trends, then About on About, then Table on the table\'s top, each in one jump (no window between crosses the middle of the screen) and each marking its own tab', async () => {
+group(() => check('phone-a-tabs', 'On /a at 390x844 and 430x932 (touch), the tab bar marks Table while the table shows; Stats lands on the stats overview, then About on About, then Table on the table\'s top, each in one jump (no window between crosses the middle of the screen) and each marking its own tab', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[390, 844], [430, 932]]) {
     const size = `${w}x${h}`, p = await phoneA(w, h);
@@ -6833,7 +6833,7 @@ group(() => check('phone-a-tabs', 'On /a at 390x844 and 430x932 (touch), the tab
       const current = () => p.evaluate(() => document.querySelector('nav[aria-label=Sections] [aria-current=page]')?.textContent.trim() ?? 'none');
       const first = await current();
       if (first !== 'Table') bad.push(`${size}: on load ${first} marked`);
-      for (const [tab, want] of [['Stats', 'race'], ['About', 'about'], ['Table', null]]) {
+      for (const [tab, want] of [['Stats', 'stats'], ['About', 'about'], ['Table', null]]) {
         await p.evaluate(() => {
           window.__mids = [];
           const loop = () => {
@@ -6861,6 +6861,8 @@ group(() => check('phone-rows-no-sticky-hover', 'At 390x844 (touch) on /a, a Pro
   const bad = [], seen = [];
   const p = await phoneA(390, 844);
   try {
+    await p.evaluate(() => { window.dispatchEvent(new CustomEvent('tileopen', { detail: 'stats-table' })); });
+    await sleep(300);
     await p.evaluate(() => window.scrollTo({ top: document.getElementById('stats-table').getBoundingClientRect().top + scrollY, behavior: 'instant' }));
     await p.waitForFunction(() => [...document.querySelectorAll('#stats-panel tr.lift')].some(e => e.getBoundingClientRect().height), { timeout: 30000 }).catch(() => {});
     await sleep(1200);
@@ -6930,26 +6932,97 @@ group(() => check('phone-a-true-scale', 'On /a at 390x651 and 430x739 (touch), t
 }));
 // The owner's iPhone, 2026-11-22: the landing fill's P&L ran under the tab bar. The checks before used the bare device
 // sizes (430x932); a phone's browser bars take about a fifth of that. These are iPhones' browser viewports, bars shown.
-group(() => check('phone-a-first-screen-fits', 'On /a at the iPhones\' browser viewports (375x629, 390x651, 393x659, 402x681, 430x739, 440x763, touch), the first screen ends 8-16px above the tab bar: the fill starts under the table, its lines are no taller than the table, Profits & Losses shows under them where 246px or more are left, and the page is no wider than the window', async () => {
+// 2026-11-23: one thing in the fill, Trends' lines or (?fill=pnl) this session's P&L, never both.
+const IPHONES = [[375, 629], [390, 651], [393, 659], [402, 681], [430, 739], [440, 763]];
+group(() => check('phone-a-first-screen-fits', 'On /a and /a?fill=pnl at the iPhones\' browser viewports (375x629, 390x651, 393x659, 402x681, 430x739, 440x763, touch), the first screen ends 8-16px above the tab bar: the fill starts under the table and holds one tile, Trends\' lines on /a and Profits & Losses at ?fill=pnl with every seat\'s row whole inside it (name and figure); a tap on it shows the Trends card at the top of the window; the page is no wider than the window', async () => {
   const bad = [], seen = [];
-  for (const [w, h] of [[375, 629], [390, 651], [393, 659], [402, 681], [430, 739], [440, 763]]) {
-    const size = `${w}x${h}`, p = await phoneA(w, h);
+  for (const query of ['', '?fill=pnl']) for (const [w, h] of IPHONES) {
+    const size = `${query || '/a'} ${w}x${h}`, p = await phoneA(w, h, query);
     try {
       const r = await p.evaluate(() => {
         const rect = s => document.querySelector(s)?.getBoundingClientRect();
         const t = rect('[data-a-table]'), f = rect('[data-landing-fill]'), nav = rect('nav[aria-label=Sections]');
-        const cards = [...document.querySelectorAll('[data-landing-fill] > div')].map(e => e.getBoundingClientRect());
-        return t && f && nav && { tableB: t.bottom, tableH: t.height, fillT: f.top, fillB: f.bottom, fillH: f.height, navT: nav.top, cards: cards.map(c => c.height), wide: document.documentElement.scrollWidth - innerWidth };
+        const fill = document.querySelector('[data-landing-fill]'), tiles = [...fill?.children ?? []].map(e => e.getBoundingClientRect());
+        const tile = fill?.firstElementChild?.getBoundingClientRect();
+        // P&L's rows: each one's name and figure inside the tile, the name whole (FitName picks a form that fits).
+        const rows = [...fill?.querySelectorAll('li') ?? []].map(li => { const b = li.getBoundingClientRect(), n = li.querySelector('[data-chips]')?.getBoundingClientRect(); return { in: tile && b.top >= tile.top - 0.5 && b.bottom <= tile.bottom + 0.5 && n && n.right <= tile.right + 0.5, cut: [...li.querySelectorAll('*')].some(e => e.clientWidth > 0 && getComputedStyle(e).visibility !== 'hidden' && e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'visible') }; });
+        return t && f && nav && { kind: fill.dataset.landingFill, tableB: t.bottom, tableH: t.height, fillT: f.top, fillB: f.bottom, fillH: f.height, navT: nav.top, tiles: tiles.map(c => c.height), svg: !!fill.querySelector('svg path'), rows, seats: document.querySelectorAll('[data-a-table] [data-position]').length, wide: document.documentElement.scrollWidth - innerWidth };
       });
       if (!r) { bad.push(`${size}: no table, fill or tab bar`); continue; }
       const gap = r.navT - r.fillB;
-      seen.push(`${size}: table ${r.tableH.toFixed(0)}, fill ${r.fillH.toFixed(0)} (${r.cards.map(c => c.toFixed(0)).join('+')}), ${gap.toFixed(0)}px above the tab bar`);
+      seen.push(`${size}: table ${r.tableH.toFixed(0)}, ${r.kind} ${r.fillH.toFixed(0)}, ${gap.toFixed(0)}px above the tab bar`);
+      if (r.kind !== (query ? 'pnl' : 'trends')) bad.push(`${size}: the fill holds ${r.kind}`);
       if (r.fillT < r.tableB - 0.5) bad.push(`${size}: the fill starts ${(r.tableB - r.fillT).toFixed(0)}px over the table`);
       if (gap < 8 - 0.5 || gap > 16 + 0.5) bad.push(`${size}: the fill ends ${gap.toFixed(0)}px above the tab bar`);
-      if (!r.cards.length) bad.push(`${size}: an empty fill (${r.fillH.toFixed(0)}px)`);
-      else if (r.cards[0] > r.tableH + 1) bad.push(`${size}: the lines ${r.cards[0].toFixed(0)}px tall, the table ${r.tableH.toFixed(0)}px`);
-      if (r.fillH >= 246 && r.cards.length < 2) bad.push(`${size}: no Profits & Losses with ${r.fillH.toFixed(0)}px left`);
+      if (r.tiles.length !== 1) bad.push(`${size}: ${r.tiles.length} tiles in the fill`);
+      if (!query && !r.svg) bad.push(`${size}: no Trends lines`);
+      if (query && (!r.rows.length || r.rows.some(x => !x.in || x.cut))) bad.push(`${size}: P&L rows ${r.rows.length}, ${r.rows.filter(x => !x.in).length} outside the tile, ${r.rows.filter(x => x.cut).length} cut`);
       if (r.wide > 0) bad.push(`${size}: page ${r.wide}px wider than the window`);
+      if (w === 390) {
+        const at = await p.evaluate(() => { const b = document.querySelector('[data-landing-fill] > div').getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; });
+        await p.touchscreen.tap(at[0], at[1]); await sleep(1500);
+        const o = await p.evaluate(() => { const e = document.getElementById('race'); return { shown: !!e?.offsetHeight, top: Math.round(e?.getBoundingClientRect().top ?? NaN) }; });
+        if (!o.shown || Math.abs(o.top) > 2) bad.push(`${size}: a tap on the fill left Trends ${o.shown ? `${o.top}px from the top` : 'hidden'}`);
+      }
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+
+// 2026-11-23: "when I scroll down from that home page / landing page, the next page should be all 3 stats in one view".
+group(() => check('phone-a-stats-overview', 'On /a at the iPhones\' browser viewports (touch), the window under the first screen is the stats overview: the Trends, Profiles and Matchups tiles all between the top bar and the tab bar, everything in each inside it, no text under 11px, no name cut, the Profiles and Matchups rows level; a tap on each tile shows its card in that window\'s place with a back button 44px to a touch, and the back button (focus back on the tile) and, from an open card, the Stats tab each bring the overview back', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of IPHONES) {
+    const size = `${w}x${h}`, p = await phoneA(w, h);
+    try {
+      await tapTab(p, 'Stats'); await sleep(1500);
+      await p.waitForFunction(() => document.querySelector('[data-overview] svg path') && document.querySelector('[data-overview] [data-row]'), { timeout: 30000 }).catch(() => {});
+      const r = await p.evaluate(() => {
+        const win = document.getElementById('stats');
+        if (!win?.offsetHeight) return null;
+        const top = document.querySelector('header[aria-label="Table status"] > *').getBoundingClientRect().bottom, nav = document.querySelector('nav[aria-label=Sections]').getBoundingClientRect().top;
+        const tiles = [...win.querySelectorAll('[data-overview] > div')];
+        const out = [], small = [], cut = [];
+        for (const t of tiles) {
+          const tb = t.getBoundingClientRect();
+          for (const e of t.querySelectorAll('*')) {
+            const b = e.getBoundingClientRect();
+            // Not the tile's button, FitName's unseen forms, nor a chart line (its box runs past the clip that cuts it).
+            if (!b.width || !b.height || e.tagName === 'BUTTON' || getComputedStyle(e).visibility === 'hidden' || (e.closest('svg') && e.tagName.toLowerCase() !== 'svg')) continue;
+            if (b.left < tb.left - 0.5 || b.right > tb.right + 0.5 || b.top < tb.top - 0.5 || b.bottom > tb.bottom + 0.5) out.push(`${e.tagName} ${e.textContent.slice(0, 16)}`);
+            if ([...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 11) small.push(e.textContent.slice(0, 16));
+            if (e.scrollWidth > e.clientWidth + 1 && /hidden|clip/.test(getComputedStyle(e).overflow)) cut.push(e.textContent.slice(0, 16));
+          }
+        }
+        const level = [...win.querySelectorAll('[data-overview] > div:nth-child(2) [data-row]')].map(e => { const m = win.querySelector(`[data-overview] > div:nth-child(3) [data-row="${CSS.escape(e.dataset.row)}"]`); return m ? Math.abs(e.getBoundingClientRect().top - m.getBoundingClientRect().top) : 99; });
+        return { winTop: win.getBoundingClientRect().top, top, nav, tiles: tiles.map(t => { const b = t.getBoundingClientRect(); return [b.top, b.bottom, b.width]; }), out, small, cut, level, rows: level.length };
+      });
+      if (!r) { bad.push(`${size}: no overview window`); continue; }
+      seen.push(`${size}: tiles ${r.tiles.map(t => `${(t[1] - t[0]).toFixed(0)}x${t[2].toFixed(0)}`).join(', ')}, ${r.rows} rows`);
+      if (Math.abs(r.winTop) > 2) bad.push(`${size}: the Stats tab left the overview ${r.winTop.toFixed(0)}px from the top`);
+      if (r.tiles.length !== 3) bad.push(`${size}: ${r.tiles.length} tiles`);
+      if (r.tiles.some(t => t[0] < r.top - 0.5 || t[1] > r.nav + 0.5)) bad.push(`${size}: a tile outside the window (${r.tiles.map(t => `${t[0].toFixed(0)}-${t[1].toFixed(0)}`).join(', ')}; bars ${r.top.toFixed(0)}, ${r.nav.toFixed(0)})`);
+      if (r.out.length) bad.push(`${size}: outside its tile: ${r.out.slice(0, 3).join(', ')}`);
+      if (r.small.length) bad.push(`${size}: text under 11px: ${r.small.slice(0, 3).join(', ')}`);
+      if (r.cut.length) bad.push(`${size}: cut: ${r.cut.slice(0, 3).join(', ')}`);
+      if (!r.rows || r.level.some(d => d > 1)) bad.push(`${size}: Profiles and Matchups rows off level by up to ${Math.max(...r.level).toFixed(1)}px (${r.rows} rows)`);
+      for (const part of ['race', 'stats-table', 'pairwise']) {
+        const at = await p.evaluate(part => { const b = document.getElementById(`tile-${part}`).getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, part);
+        await p.touchscreen.tap(at[0], at[1]); await sleep(900);
+        const o = await p.evaluate(part => {
+          const e = document.getElementById(part), back = e?.querySelector('button[aria-label="Back to the stats"]');
+          const b = back?.getBoundingClientRect(), hit = back && getComputedStyle(back, '::before');
+          return { shown: !!e?.offsetHeight, over: !!document.getElementById('stats')?.offsetHeight, top: Math.round(e?.getBoundingClientRect().top ?? NaN), back: b && [b.left + b.width / 2, b.top + b.height / 2], touch: b && b.height - 2 * parseFloat(hit.top) };
+        }, part);
+        if (!o.shown || o.over || Math.abs(o.top) > 2) { bad.push(`${size}: ${part}'s tile left it ${o.shown ? `${o.top}px from the top` : 'hidden'}${o.over ? ', the overview still shown' : ''}`); continue; }
+        if (!o.back) { bad.push(`${size}: ${part} has no back button`); continue; }
+        if (o.touch < 44 - 0.5) bad.push(`${size}: ${part}'s back button ${o.touch.toFixed(0)}px to a touch`);
+        if (part === 'stats-table') { await tapTab(p, 'Stats'); await sleep(800); }
+        else { await p.touchscreen.tap(o.back[0], o.back[1]); await sleep(800); }
+        const c = await p.evaluate(part => ({ over: Math.round(document.getElementById('stats')?.getBoundingClientRect().top ?? NaN), shown: !!document.getElementById('stats')?.offsetHeight, focus: document.activeElement?.id, part: !!document.getElementById(part)?.offsetHeight }), part);
+        if (!c.shown || c.part || Math.abs(c.over) > 2) bad.push(`${size}: ${part === 'stats-table' ? 'the Stats tab' : 'back'} from ${part} left the overview ${c.shown ? `${c.over}px from the top` : 'hidden'}`);
+        else if (part !== 'stats-table' && c.focus !== `tile-${part}`) bad.push(`${size}: back from ${part} put focus on ${c.focus || 'nothing'}`);
+      }
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };

@@ -1,6 +1,7 @@
 'use client';
 
 import { useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
 import { AnimatePresence, MotionConfig, PresenceContext, cubicBezier, motion, usePresence } from 'motion/react';
 import { BLUE, MUTED, TEXT } from '@/lib/stats';
 import { useRememberedBox } from '@/lib/boxes';
@@ -82,6 +83,15 @@ const subscribe = (l: () => void) => {
 export const useScreen = () => useSyncExternalStore(subscribe, currentScreen, () => '');
 // Glides the detail screen's card back to its overview tile (StatsSections listens).
 export const backToOverview = () => window.dispatchEvent(new Event('overview'));
+// Phone draft A (StatsSections' PhoneStats): the stats are one window, the overview of the three parts or the part opened
+// from it in its place. openPart opens one there (now, so the page can go to it) and pages to it unless it is in view;
+// pageToStats pages to the window as it is (a native tab bar's tab keeps the part it was left on).
+export function openPart(part: string) {
+  flushSync(() => window.dispatchEvent(new CustomEvent('tileopen', { detail: part })));
+  const el = document.getElementById(part);
+  if (el && Math.abs(el.getBoundingClientRect().top) > 1) pageTo(part);
+}
+export const pageToStats = (instant = false) => pageTo(document.querySelector('.stats-room > section[data-screen]:not(#about)')?.id ?? 'stats', instant);
 
 // A paged scroll is underway (it ends on a screen edge by itself).
 export const isPaging = () => pendingId !== null;

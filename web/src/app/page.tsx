@@ -31,7 +31,7 @@ import { setTypingPace } from "@/components/TypewriterText";
 import { isSoundOn, unlockOnFirstGesture } from "@/lib/sound";
 import { useGameState } from "@/hooks/useGameState";
 import { EARLY_STREAM } from "@/lib/api";
-import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
+import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, pageToStats, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
@@ -445,9 +445,11 @@ export default function Home() {
     else if (t === 'about') pageTo('about', isPhone());
     else if (!isPhone() && (screen === 'race' || screen === 'stats-table' || screen === 'pairwise')) backToOverview();
     // Phones: on a Stats window already (Profits & Losses, Trends, Profiles, Matchups) the Stats tab does nothing, so a
-    // tap just above the bar that touch adjustment hands to it never throws the viewer back to Profits & Losses.
-    else if (isPhone() && tab === 'stats') return;
-    else pageTo(draftA ? 'race' : 'phone-stats', true); // draft A has no Profits & Losses window: Trends is the first
+    // tap just above the bar that touch adjustment hands to it never throws the viewer back to Profits & Losses. Draft A's
+    // goes back from a part to the overview, as a native tab bar's tab tapped again goes back to its first screen.
+    else if (isPhone() && tab === 'stats') { if (draftA) backToOverview(); }
+    else if (draftA) pageToStats(true); // draft A: the stats window as it was left (the overview, or the part open)
+    else pageTo('phone-stats', true);
   };
 
   return (

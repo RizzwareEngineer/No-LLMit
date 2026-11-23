@@ -39,7 +39,14 @@ const PAD = 2.5;
 const TOTAL_TITLE = 'Big blinds won from the models shown per 100 hands dealt in with one of them.\nThe row\'s cells averaged, each weighted by their hands together.';
 const NEVER_MET = 'never sat together';
 // A pair's or a row's figure under its sample rule is drawn at this opacity.
-const FAINT = 0.4;
+export const FAINT = 0.4;
+// Diverging tint: green when the row model won, red when it lost, stronger with the bb/100, on the scale of
+// the pairs past the sample rule (a thin pair's wild figure never flattens the rest; it is capped at the top).
+export function pairTint(cells: { bb: number | null; hands: number }[]) {
+  const bbs = cells.filter(c => c.bb !== null);
+  const maxCell = Math.max(1, ...(bbs.some(c => c.hands >= MIN_PAIR_HANDS) ? bbs.filter(c => c.hands >= MIN_PAIR_HANDS) : bbs).map(c => Math.abs(c.bb!)));
+  return (n: number) => `rgba(${n > 0 ? '15, 123, 108' : '200, 50, 50'}, ${(0.08 + 0.5 * Math.sqrt(Math.min(1, Math.abs(n) / maxCell))).toFixed(3)})`;
+}
 // The cell readout hugs its longest line (two long names around a figure), up to TIP_MAX; it wraps only in a box
 // narrower than that (a phone). It keeps TIP_M clear of the card's and the window's edges, TIP_GAP off its cell.
 const TIP_MAX = 480;
@@ -147,11 +154,7 @@ export default memo(function HeadToHead({
     return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
   }
 
-  // Diverging tint: green when the row model won, red when it lost, stronger with the bb/100, on the scale of
-  // the pairs past the sample rule (a thin pair's wild figure never flattens the rest; it is capped at the top).
-  const bbs = sorted.flatMap(row => sorted.map(col => cellOf(row, col.name))).filter(c => c.bb !== null);
-  const maxCell = Math.max(1, ...(bbs.some(c => c.hands >= MIN_PAIR_HANDS) ? bbs.filter(c => c.hands >= MIN_PAIR_HANDS) : bbs).map(c => Math.abs(c.bb!)));
-  const tint = (n: number) => `rgba(${n > 0 ? '15, 123, 108' : '200, 50, 50'}, ${(0.08 + 0.5 * Math.sqrt(Math.min(1, Math.abs(n) / maxCell))).toFixed(3)})`;
+  const tint = pairTint(sorted.flatMap(row => sorted.map(col => cellOf(row, col.name))));
   const show = (e: React.MouseEvent, row: string, col: string) => {
     // Not until the pointer has moved since a tile opened or closed (StatsSections' data-still), nor twice for one cell.
     if (outer.current!.closest('[data-still]') || (tip?.row === row && tip.col === col)) return;
