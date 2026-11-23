@@ -26,6 +26,8 @@ export default function NameForm({ name }: { name: string }) {
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(host.closest(".card-chrome") ?? document.documentElement);
+    // Its own box too: a sibling filling in later (the Matchups key's Total) narrows it inside an unchanged card.
+    ro.observe(host);
     return () => ro.disconnect();
   }, [name]);
   return <span ref={ref}>{form}</span>;

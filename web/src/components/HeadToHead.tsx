@@ -7,7 +7,7 @@ import { GLIDE, NONE } from '@/components/Section';
 import LLMLogo from '@/components/LLMLogo';
 import NameForm from '@/components/NameForm';
 import { DASH, MIN_HANDS, MIN_PAIR_HANDS, MUTED, ModelStats, TEXT, bb100Among, bb100Of, chips, modelHref, netColor, plural, signed, useChanges } from '@/lib/stats';
-import { fitFigure } from '@/lib/format';
+import { figureEms, fitFigure } from '@/lib/format';
 
 // A cell's figure: lib/format's fitFigure (in full where it fits, never a form the cell clips). Screen readers get the full figure.
 // On the tile↔card glide the figure travels with the matrix and grows from the tile's size to the card's (motion
@@ -56,7 +56,7 @@ export default memo(function HeadToHead({
   hand = null,
   fitTo,
   leader,
-  shorten = false,
+  phone = false,
 }: {
   models: ModelStats[];
   bigBlind: number; // the big blind, for bb/100
@@ -65,7 +65,7 @@ export default memo(function HeadToHead({
   hand?: number | null; // the hand History is replaying, when `models` are as of then (null: now)
   fitTo?: string[]; // the seated lineup: the card's matrix box holds them; more keep that cell size and scroll, and fade in as the card adds them
   leader?: string | null; // the Leader line's model: its row, and the opponent it did best against, are marked
-  shorten?: boolean; // a phone's card: a row name too long for its capped column shows a shorter whole form (NameForm)
+  phone?: boolean; // a phone's card: logos for row names and no Total column, so nine columns fit its width; a key under the grid names each row with its Total
 }) {
   const outer = useRef<HTMLDivElement>(null);
   // The hovered cell, its box on screen, and the card's chrome the readout is drawn in (outside the card's scroller,
@@ -88,10 +88,15 @@ export default memo(function HeadToHead({
   // observer attaches when it does.
   const [square, setSquare] = useState<HTMLDivElement | null>(null);
   const [cell, setCell] = useState(0);
-  const px = mini ? TILE_PX : 14;
+  // A phone's figures: the largest size up to 14px at which a four-digit figure's short form (+1.5k: never +1k, 31% off)
+  // fits its cell whole, 5% over figureEms (drawn, +1.5k is 2.76em) and 2px short of the cell (it measures a little wide).
+  const px = phone ? Math.max(9, Math.min(14, Math.floor((cell - 3) / (figureEms('+1.5k') * 1.05)))) : mini ? TILE_PX : 14;
   const totals = mini ? 0 : TOTALS;
   const room = cell - 1 - 2 * PAD; // the cell inside its 1px spacing and its padding
   const full = cell - 1; // the cell inside its spacing: a shortened figure (+1.5k) may use its padding (fitFigure)
+  // A row's Total: in its own column (TOTALS wide), or a phone's key (a three-digit figure's room at 12px: 12px names fit
+  // two to a line at 375, "DeepSeek Flash" and "Command R7B" whole).
+  const totalFig = (n: number) => (phone ? fitFigure(n, 34, 12) : fitFigure(n, totals - 8, px));
   // Every figure in the grid exactly as drawn (fitFigure's text), keyed row|column (row| for the Total); a pair that never
   // met, or a row with no hands together, has none. Compared as text: a rounded number missed changes the text shows
   // (+12 to +13 across 12.5, a sign at zero, a negative half rounded the other way), which then drew a frame before their flash.
@@ -99,7 +104,7 @@ export default memo(function HeadToHead({
   for (const row of sorted) {
     for (const col of sorted) { const bb = col !== row ? cellOf(row, col.name).bb : null; if (bb !== null) shown[`${row.name}|${col.name}`] = fitFigure(bb, room, px, full); }
     const t = among.get(row.name)!;
-    if (!mini && row.hands > 0 && t.hands > 0) shown[`${row.name}|`] = fitFigure(t.bb100, totals - 8, px);
+    if (!mini && row.hands > 0 && t.hands > 0) shown[`${row.name}|`] = totalFig(t.bb100);
   }
   // The cells whose figure changed (a hand History replays, or a new hand) flash once each, all together, in the
   // frame their figures change (a layout effect: before that frame is painted). A new cell size (the glide, a resize)
@@ -186,10 +191,10 @@ export default memo(function HeadToHead({
   const move = snap ? NONE : GLIDE;
   return (
     // `adds`: All models' rows and columns fade in once, from here, as they first show (globals.css).
-    <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : 'w-max'} ${extras ? 'adds' : ''}`}>{/* w-max: as wide as the grid, so the pinned names can follow a sideways scroll */}
+    <div ref={outer} className={`relative flex flex-col ${mini ? 'flex-1 min-h-0' : phone ? 'w-max flex-1' : 'w-max'} ${extras ? 'adds' : ''}`}>{/* w-max: as wide as the grid, so the pinned names can follow a sideways scroll */}
       {/* On the tile, a size container: the matrix takes what its names leave. No scroller of its own. */}
       {/* Centred, but never past the left edge: a card that scrolls (a phone, All models) keeps the names pinned. */}
-      <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : 'text-[14px] md:text-[13px]'}`} style={{ containerType: mini ? 'size' : undefined, fontSize: mini ? px : undefined }} onMouseLeave={() => setTip(null)}>
+      <div className={`flex justify-center-safe tabular-nums ${mini ? 'flex-1 min-h-0' : 'text-[14px] md:text-[13px]'}`} style={{ containerType: mini ? 'size' : undefined, fontSize: mini || phone ? px : undefined }} onMouseLeave={() => setTip(null)}>
         {/* No overflow-hidden: in the card it would make the column the sticky container of its own top spacer, and on the tile
             it cut the names gliding back from the card's wider column (a phone's: each name truncates itself). */}
         <div className={`shrink-0 flex flex-col ${mini ? '' : `${pin} left-0 z-[2]`}`} style={{ width: namesW }}>
@@ -199,8 +204,8 @@ export default memo(function HeadToHead({
           {sorted.map(row => (
             // One element on the tile and in the card (no remount as the glide runs): a real link (never an anchor without an href).
             // On the tile it is no tab stop and lets a click through to the tile, which opens the card.
-            <a key={row.name} data-row-name href={modelHref(row.name)} tabIndex={mini ? -1 : undefined} style={{ ...slot, color: TEXT }} title={row.name} className={`${mini ? 'pointer-events-none' : ''} flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[13px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
-              <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{shorten ? <NameForm name={row.name} /> : row.name}</motion.span>
+            <a key={row.name} data-row-name href={modelHref(row.name)} tabIndex={mini ? -1 : undefined} style={{ ...slot, color: TEXT }} title={row.name} aria-label={phone ? row.name : undefined} className={`${mini ? 'pointer-events-none' : ''} flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[13px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
+              <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{phone ? <LLMLogo model={row.name} size={24} /> : row.name}</motion.span>
             </a>
           ))}
         </div>
@@ -258,7 +263,7 @@ export default memo(function HeadToHead({
         </motion.div>
         {/* The row's bb/100 against the models shown, bold in its colour. The card only. */}
         {/* Pinned at the right from md; a phone's card is too narrow to give it a lane of its own (scroll to it, as before). */}
-        {!mini && <motion.div layout="position" layoutDependency={mini} transition={move} className="add-in shrink-0 flex flex-col font-bold md:font-medium md:sticky md:right-0 md:bg-white z-[2]" style={{ width: totals }}>
+        {!mini && !phone && <motion.div layout="position" layoutDependency={mini} transition={move} className="add-in shrink-0 flex flex-col font-bold md:font-medium md:sticky md:right-0 md:bg-white z-[2]" style={{ width: totals }}>
           {/* A column header: 13px muted, like Profiles'. */}
           <span style={{ height: strip, color: MUTED }} className={`shrink-0 flex items-end pl-2 text-[13px] leading-none font-medium ${pin} top-0`} title={TOTAL_TITLE}>Total</span>
           {sorted.map(row => {
@@ -268,7 +273,7 @@ export default memo(function HeadToHead({
             return (
               <div key={row.name} data-cell={`${row.name}|`} data-hands={t.hands} style={{ ...slot, color: none ? MUTED : netColor(t.bb100), opacity: !none && row.hands < MIN_HANDS ? FAINT : undefined }} className={`flex items-center pl-2 whitespace-nowrap ${adds(row.name)}`}>
                 {none ? DASH : <>
-                  <span aria-hidden>{fitFigure(t.bb100, totals - 8, px)}</span>
+                  <span aria-hidden>{totalFig(t.bb100)}</span>
                   <span className="sr-only">{row.name} {signed(t.bb100)} bb/100 against the models shown, over {plural(row.hands, 'hand')} played</span>
                 </>}
               </div>
@@ -276,6 +281,23 @@ export default memo(function HeadToHead({
           })}
         </motion.div>}
       </div>
+      {/* A phone's key, under the grid: each row's logo, name and Total, in the grid's order, two to a line. It takes the
+          card's height left under the grid (StatsSections leaves it 116px under the matrix), its lines spread over it. */}
+      {phone && (
+        <ol className="sticky left-0 w-[100cqw] flex-1 mt-2 grid grid-cols-2 content-evenly gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
+          {sorted.map(row => {
+            const t = among.get(row.name)!;
+            const none = row.hands === 0 || t.hands === 0;
+            return (
+              <li key={row.name} className={`flex items-center gap-1.5 min-w-0 h-5 ${adds(row.name)}`}>
+                <LLMLogo model={row.name} size={16} />
+                <a data-key-name href={modelHref(row.name)} title={row.name} translate="no" className="block min-w-0 max-w-full truncate rounded-sm px-0.5 font-medium" style={{ color: TEXT, background: row.name === leader ? HOT : undefined }}><NameForm name={row.name} /></a>
+                <span data-cell={`${row.name}|`} data-hands={t.hands} title={TOTAL_TITLE} className="ml-auto shrink-0 font-bold" style={{ color: none ? MUTED : netColor(t.bb100), opacity: !none && row.hands < MIN_HANDS ? FAINT : undefined }}>{none ? DASH : <><span aria-hidden>{totalFig(t.bb100)}</span><span className="sr-only">{row.name} {signed(t.bb100)} bb/100 against the models shown, over {plural(row.hands, 'hand')} played</span></>}</span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
       {/* The hovered cell's readout floats over the card (placed by the layout effect above). One sentence per line. */}
       {tip && tipCell && createPortal(
         <div
