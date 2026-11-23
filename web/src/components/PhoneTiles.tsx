@@ -39,7 +39,7 @@ export function PhoneOverview({ models, bigBlind, blank, message }: { models: Mo
     // Profiles the wider: its names whole at 375px (12px type), Matchups' cells 12px wide at the least.
     <div data-overview className="flex-1 min-h-0 grid gap-2" style={{ gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1.15fr)' }}>
       <Tile part="race" id="tile-race" title="Trends" note="bb/100" label="Open Trends" className="col-span-2">{message || body(<LandingChart models={models} />)}</Tile>
-      <Tile part="stats-table" id="tile-stats-table" title="Profiles" label="Open Profiles">{body(<MiniProfiles models={models} />)}</Tile>
+      <Tile part="stats-table" id="tile-stats-table" title="Profiles" note="VPIP/PFR" label="Open Profiles">{body(<MiniProfiles models={models} />)}</Tile>
       <Tile part="pairwise" id="tile-pairwise" title="Matchups" label="Open Matchups">{body(<MiniMatchups models={models} bigBlind={bigBlind} />)}</Tile>
     </div>
   );
@@ -49,13 +49,14 @@ export function PhoneOverview({ models, bigBlind, blank, message }: { models: Mo
 const rowsOf = (n: number) => `16px repeat(${n}, minmax(0, 1fr))`;
 const byRate = (models: ModelStats[]) => [...models].sort((a, b) => b.bb100 - a.bb100);
 
-// Profiles in brief: each model's VPIP/PFR (how often it plays a hand / raises before the flop), as a HUD reads them.
+// Profiles in brief: each model's VPIP/PFR (how often it plays a hand / raises before the flop), as a HUD reads them. The
+// label is the tile's note, so the figures' column is only as wide as its figures and the names keep the rest.
 function MiniProfiles({ models }: { models: ModelStats[] }) {
   const rows = byRate(models);
   return (
     <div className="absolute inset-0 grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-px text-[12px] tabular-nums" style={{ gridTemplateRows: rowsOf(rows.length), color: TEXT }}>
       <span className="text-[11px] leading-4" style={{ color: MUTED }}>Model</span>
-      <span className="text-[11px] leading-4 text-right" style={{ color: MUTED }}>VPIP/PFR</span>
+      <span />
       {rows.map(m => (
         <Fragment key={m.name}>
           <span data-row={m.name} className="flex items-center gap-1.5 min-w-0">
