@@ -192,7 +192,7 @@ export default function PokerTable({
   const line = '1px solid rgba(55, 53, 47, 0.09)';
 
   // The desktop table: seats round the felt; the table is only for layout. Phone draft A (app/a) draws it on a phone too,
-  // at its own proportions (200x128 cells), zoomed as one piece to the page's width (Fit).
+  // at its own proportions (200x128 cells), scaled as one picture to the page's width (Fit).
   const deskTable = (cls: string) => (
       <div
         data-desk-table
@@ -350,22 +350,29 @@ function getPlayerLayout(count: number): PlayerLayout {
   }
 }
 
-// Phone draft A (app/a): the desktop table at its own proportions, zoomed as one piece to the phone page's width.
+// Phone draft A (app/a): the desktop table at its own proportions, scaled as one picture to the phone page's width.
+// A transform, not CSS zoom: zoom shrinks each font size too, and an iPhone browser draws zoomed text no smaller than its
+// minimum (owner's iPhone, 2026-11-22: 11px text at 0.4 drew twice its boxes, names cut to "L.", badges sliced). A
+// transform draws the 1000px table as laid out, smaller; text-size-adjust keeps a browser's text zoom off the picture.
 function Fit({ w, children }: { w: number; children: ReactNode }) {
-  const box = useRef<HTMLDivElement>(null);
-  const [z, setZ] = useState(0);
+  const box = useRef<HTMLDivElement>(null), table = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState<{ z: number; h: number } | null>(null);
   useLayoutEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const fit = () => setZ(el.clientWidth / w);
-    fit();
-    const ro = new ResizeObserver(fit);
+    const el = box.current, t = table.current;
+    if (!el || !t) return;
+    const measure = () => {
+      const z = el.clientWidth / w, h = t.offsetHeight;
+      setFit(f => (f && f.z === z && f.h === h ? f : { z, h }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
+    ro.observe(t); // the table's own height (a seat's row growing) sets the box's
     return () => ro.disconnect();
   }, [w]);
   return (
-    <div ref={box} data-a-table className="md:hidden w-full">
-      <div style={{ width: w, zoom: z || undefined, visibility: z ? undefined : 'hidden' }}>{children}</div>
+    <div ref={box} data-a-table className="md:hidden w-full" style={{ height: fit ? fit.h * fit.z : undefined }}>
+      <div ref={table} style={{ width: w, transform: fit ? `scale(${fit.z})` : undefined, transformOrigin: '0 0', visibility: fit ? undefined : 'hidden', WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}>{children}</div>
     </div>
   );
 }
