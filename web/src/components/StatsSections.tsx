@@ -754,7 +754,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
         </section>
       </> : <section id="about" data-screen data-end aria-label="About" className={`${ABOUT_WINDOW} ${LAZY}`}>
         {aboutLayout === 'desk' ? (
-          <div className="h-full flex flex-col px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+16px)]">
+          <div className="h-full flex flex-col px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+8px)]">
             <div data-mac-about className="flex-1 min-h-0 flex flex-col justify-center">
               <Fit w={ABOUT_MAC_W} contain><PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider></Fit>
             </div>

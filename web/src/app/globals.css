@@ -412,4 +412,6 @@ html.phone-a [data-page] { --phone-slack: 0px; }
 [data-mac-overview] [data-tile-replay] { display: none; }
 /* The landing with no fill (?fill=none: the title, the table and the reasoning): centred between the bars (owner,
    2026-11-23: "a lot of white space. let's center the table and model stuff"). */
-html.phone-a[data-fill=none] section[aria-label="Live table"][data-screen] { justify-content: center; padding-bottom: var(--bar-h, 0px); }
+html.phone-a[data-fill=none] section[aria-label="Live table"][data-screen] { justify-content: center; padding-top: env(safe-area-inset-top); padding-bottom: var(--bar-h, 0px); }
+/* Its top bar is out of the screen while the table shows (StickyBar's PhoneBar), from the first paint. */
+html.phone-a[data-fill=none] [data-phone-bar] { transform: translateY(-100%); }

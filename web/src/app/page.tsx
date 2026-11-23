@@ -7,6 +7,13 @@ import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import LandingFill, { useFill } from "@/components/LandingFill";
+import Fit from "@/components/Fit";
+// The table's width on the owner's Mac (1440x790): 1000px at the stage's zoom, 0.819. Phone draft A's header is laid out
+// this wide, so beside the table (drawn from 1000px) it keeps the Mac's size and distance.
+const MAC_TABLE_W = 819;
+// Its switches (Chips/BB, Sound) drawn at under half size: each hit area reaches 24 layout px above and below (about 11px
+// on a phone each way), within the gaps around the status row, as the top bar's TAP does for its own (StickyBar).
+const PICTURED_TAP = "[&_button]:relative [&_button]:after:absolute [&_button]:after:-inset-x-1 [&_button]:after:-inset-y-[24px] [&_button]:after:content-['']";
 const noSub = () => () => {};
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
@@ -69,19 +76,18 @@ const closeModel = () => {
   window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
 };
 
-// The site's title over the table: No-LLMit and what it is, with About's link. On a phone (draft A) the line breaks at
-// its phrase, each half whole on its line (one sentence never wraps mid-way: it is wider than a phone at 14px).
-function TitleBlock({ phone = false, className }: { phone?: boolean; className: string }) {
+// The site's title: No-LLMit and what it is, with About's link (the desktop's header, and phone draft A's: page's head).
+// `as`: a phone's page has its own (screen-reader) h1, so its pictured title is not a second one.
+function TitleBlock({ as: H = 'h1', className }: { as?: 'h1' | 'p'; className: string }) {
   return (
     <div className={className}>
-      <h1 className="text-[28px] font-bold text-balance" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
-      <p className={phone ? 'mt-1 text-[14px] leading-snug' : 'text-[14px]'} style={{ color: MUTED }}>
-        {phone ? <span className="block">Spectate (or play against) SOTA LLMs</span> : 'Spectate (or play against) SOTA LLMs '}
-        in a No Limit Texas Hold&apos;em cash game.{' '}
+      <H className="text-[28px] font-bold text-balance" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</H>
+      <p className="text-[14px]" style={{ color: MUTED }}>
+        Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
         {/* The home page's last screen; /about stays its own page (a new tab, a shared link). */}
         <Link
           href="/about"
-          onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about'); } }}
+          onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about', isPhone()); } }}
           className="underline underline-offset-2 decoration-1 decoration-[rgba(31,111,196,0.4)]"
           style={{ color: BLUE }}
         >
@@ -476,6 +482,27 @@ export default function Home() {
     else pageTo('phone-stats', true);
   };
 
+  // The desktop's header: the title, Play (soon), the status row (live, hand, blinds, clock, units, sound) and the session's
+  // progress; the desktop's over its stage, and phone draft A's (?fill=none) over its table (Fit).
+  // Each part is the screen's own child (fitStage measures the screen from its first child's box; a display: contents
+  // wrapper has none, and the desktop table shrank), `hide` its rule under md (the desktop's, for the prerender on a phone).
+  const head = (hide: string, phone = false) => (
+    <>
+      <TitleBlock as={phone ? 'p' : 'h1'} className={`mb-1 text-center ${hide}`} />
+
+      {/* Action buttons row */}
+      <div className={`mb-1.5 flex items-center justify-center gap-3 ${hide}`}>
+        <PlaySoonButton />
+      </div>
+
+      {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
+          it when a window crosses into the desktop layout. */}
+      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+        watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
+
+      <div className={hide}><SessionProgress table={usageError ? undefined : usage?.table} /></div>
+    </>
+  );
   return (
     <MotionConfig reducedMotion="user">
     {/* --bar-h: room the connection bar (and a phone's tab bar, --tab-h in globals.css) takes at the bottom, so it never
@@ -493,23 +520,14 @@ export default function Home() {
           scroll container there (clip, not auto: a snap point counts only in its nearest one). */}
       <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always max-md:snap-normal overflow-x-auto max-md:overflow-x-clip flex flex-col items-center-safe justify-center-safe max-md:justify-start pt-3 max-md:pt-[calc(48px+env(safe-area-inset-top))] pb-[calc(1rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
-        {desk && <><TitleBlock className="mb-1 text-center max-md:hidden" />
+        {desk && head('max-md:hidden')}
 
-        {/* Action buttons row */}
-        <div className="mb-1.5 flex items-center justify-center gap-3 max-md:hidden">
-          <PlaySoonButton />
-        </div>
-
-        {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
-            it when a window crosses into the desktop layout. */}
-        <StatusRow statusKnown={statusKnown} handKnown={handKnown} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
-          watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
-
-        <div className="max-md:hidden"><SessionProgress table={usageError ? undefined : usage?.table} /></div></>}
-
-        {/* Phone draft A without a landing fill (?fill=none): the desktop's title over the table (owner, 2026-11-23: "the text
-            at the top for desktop why is it not there for mobile?"), the screen centred (globals.css, html[data-fill=none]). */}
-        {phone && draftA && fill === 'none' && <TitleBlock phone className="mb-3 text-center" />}
+        {/* Phone draft A without a landing fill (?fill=none): the desktop's header over the table, as on the owner's Mac
+            (owner, 2026-11-23: "the text at the top for desktop why is it not there for mobile?", then "text too close to the
+            table why cant it be same dist as the desktop?"): laid out MAC_TABLE_W across, the table's width there, and drawn
+            at the phone's width, so it keeps the Mac's size and distance beside the table (its pb-6, the main content's mt-6
+            there). The screen is centred (globals.css, html[data-fill=none]). */}
+        {phone && draftA && fill === 'none' && <Fit w={MAC_TABLE_W} data-a-head><div className={`flex flex-col items-center pb-6 ${PICTURED_TAP}`}>{head('', true)}</div></Fit>}
 
         {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
         <div className="mt-6 max-md:mt-0 flex items-center-safe justify-center-safe w-full md:w-auto">
@@ -580,7 +598,7 @@ export default function Home() {
       {/* The status bars in a landmark of their own (their boxes are fixed: the header adds no box). */}
       <header aria-label="Table status">
         {desk && <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />}
-        {phone && <PhoneBar blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />}
+        {phone && <PhoneBar show={!(draftA && fill === 'none') || !tableInView} blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />}
       </header>
       {phone && <TabBar tab={tab} onTab={onTab} />}
       {/* No floating back-to-top button on phones: it covered text, logos and chart marks. The tab bar's Table tab is the way
@@ -623,8 +641,8 @@ export default function Home() {
 
 // The desktop status row. Its hooks live here, not in Table, so they run when the row mounts: a window that loads in
 // the phone layout and widens past the switch still remembers the label and hand number boxes.
-function StatusRow({ statusKnown, handKnown, isLive, label, watching, handNumber, stakes, elapsedTime }: {
-  statusKnown: boolean; handKnown: boolean; isLive: boolean; label: string; watching: number | undefined;
+function StatusRow({ className = '', statusKnown, handKnown, isLive, label, watching, handNumber, stakes, elapsedTime }: {
+  className?: string; statusKnown: boolean; handKnown: boolean; isLive: boolean; label: string; watching: number | undefined;
   handNumber: number; stakes: { smallBlind: number; bigBlind: number }; elapsedTime: string;
 }) {
   const labelRef = useRef<HTMLDivElement>(null), handRef = useRef<HTMLDivElement>(null);
@@ -633,7 +651,7 @@ function StatusRow({ statusKnown, handKnown, isLive, label, watching, handNumber
   const [labelBox, labelSize, labelAttrs] = useRememberedBox<HTMLSpanElement>('status-label', statusKnown, 'wh');
   const [handBox, handSize, handAttrs] = useRememberedBox<HTMLSpanElement>('hand-no', handKnown, 'wh');
   return (
-    <div className="mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 max-md:hidden">
+    <div className={`mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 ${className}`}>
       {/* Live indicator */}
       <div ref={labelRef} className={`flex items-center gap-2 ${statusKnown ? '' : '[&>*]:invisible'}`}>
         <span
