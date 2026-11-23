@@ -3,6 +3,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { MUTED, TEXT } from '@/lib/stats';
 import { Caveats, Eyebrow, Footer, Hours, How, Intro, LABEL, Next, RULE, Race, Support, Thesis } from '@/components/about/content';
+import { aboutLayout, type AboutLayout } from '@/lib/statsScreens';
 
 // About's layout, a "spec sheet": the thesis, then the topics on a dial, each with its name in a gutter on the left (Arena's
 // labelled rules); the ask and the race in a column of their own on the right. On a phone: the thesis, the ask, the
@@ -184,20 +185,26 @@ function Dial({ as, rest = false, className = '' }: { as: 'h2' | 'h3'; rest?: bo
 //   1: How it works (the dial, opening on it), then the race graphic, then the ask.
 //   2: a short strip of the race graphic, then How it works, then the ask.
 //   3: How it works open as plain text (no turning to read it), the race, the ask, then the other topics on the dial.
+//   desk: the desktop's two columns (owner, 2026-11-23: "if we cant then we can just copy desktop"), which PhoneStats lays
+//   out at the Mac's width and draws at the phone's (Fit), as the stats overview.
+//   split: the Mac's two columns as two windows (PhoneAbout): read (the thesis, the topics on tabs), then ask.
 const noSub = () => () => {};
 import { PHONE } from '@/lib/layout';
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
-const useLayout = () => useSyncExternalStore(noSub, (): '1' | '2' | '3' => { const v = new URLSearchParams(location.search).get('about'); return v === '2' || v === '3' ? v : '1'; }, (): '1' | '2' | '3' => '1');
+export const useAboutLayout = () => useSyncExternalStore(noSub, aboutLayout, (): AboutLayout => '1');
 const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
 const ORDER = {
   '1': { dial: 'max-md:order-1', race: 'max-md:order-2', support: 'max-md:order-3', art: '' },
   '2': { dial: 'max-md:order-2', race: 'max-md:order-1', support: 'max-md:order-3', art: 'max-md:h-[148px]' },
   '3': { dial: 'max-md:order-4', race: 'max-md:order-2', support: 'max-md:order-3', art: '' },
+  desk: { dial: '', race: '', support: '', art: '' },
+  split: { dial: 'max-md:order-1', race: 'max-md:order-2', support: 'max-md:order-3', art: '' }, // one column (/about): as 1
 } as const;
 
-export default memo(function About({ heading = 'h1' }: { heading?: 'h1' | 'h2' }) {
+export default memo(function About({ heading = 'h1', part }: { heading?: 'h1' | 'h2'; part?: 'read' | 'ask' }) {
   const Sub = heading === 'h1' ? 'h2' : 'h3';
-  const layout = useLayout(), phone = usePhone();
+  const layout = useAboutLayout(), phone = usePhone();
+  if (part) return <PhoneAbout part={part} as={heading} sub={Sub} />;
   const o = ORDER[layout];
   const open = layout === '3' && phone; // How it works out of the dial, open
   return (
@@ -228,3 +235,69 @@ export default memo(function About({ heading = 'h1' }: { heading?: 'h1' | 'h2' }
     </article>
   );
 });
+
+// About on a phone at ?about=split (owner, 2026-11-23: "we need to figure out a better way to lay it out"): the Mac's two
+// columns as two windows, each whole at reading size with nothing scrolling inside it. 'read': the thesis, then the topics on
+// tabs, one shown at a time in a cell as tall as the tallest (a switch moves nothing; How it works is open on arrival);
+// 'ask': the donation card, the race and the footer, as the Mac's right column.
+function PhoneAbout({ part, as, sub }: { part: 'read' | 'ask'; as: 'h1' | 'h2'; sub: 'h2' | 'h3' }) {
+  const [at, setAt] = useState(0);
+  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
+  // ← → move the choice and the focus along the tabs (one tab stop: the one chosen).
+  const onKey = (e: React.KeyboardEvent) => {
+    const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    const i = (at + d + TOPICS.length) % TOPICS.length;
+    setAt(i);
+    tabs.current[i]?.focus();
+  };
+  return (
+    <article data-about data-about-part={part} className="@container flex flex-col text-[16px] leading-normal [&_p]:text-balance" style={{ color: TEXT }}>
+      {part === 'read' ? <>
+        <header className="flex flex-col gap-3">
+          <Eyebrow />
+          <Thesis as={as} />
+          <Intro />
+        </header>
+        {/* 48px a tab (its 18px label and 14px above and below): a thumb's target. */}
+        <div role="tablist" aria-label="About topics" onKeyDown={onKey} className="mt-5 flex justify-between border-b" style={{ borderColor: RULE }}>
+          {TOPICS.map(([title], i) => (
+            <button
+              key={title}
+              ref={el => { tabs.current[i] = el; }}
+              type="button"
+              role="tab"
+              id={`about-tab-${i}`}
+              aria-selected={i === at}
+              aria-controls={`about-topic-${i}`}
+              tabIndex={i === at ? 0 : -1}
+              onClick={() => setAt(i)}
+              className={`${LABEL} -mb-px py-3.5 border-b-2 whitespace-nowrap [-webkit-tap-highlight-color:transparent]`}
+              style={{ color: i === at ? TEXT : MUTED, borderColor: i === at ? TEXT : 'transparent' }}
+            >
+              {title}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3.5 grid items-start [&>*]:[grid-area:1/1]">
+          {TOPICS.map(([title, Body], i) => (
+            <section
+              key={title}
+              role="tabpanel"
+              id={`about-topic-${i}`}
+              aria-labelledby={`about-tab-${i}`}
+              className={`motion-safe:transition-[opacity,visibility] ${i === at ? 'motion-safe:duration-200 motion-safe:delay-150' : 'invisible opacity-0 motion-safe:duration-150'}`}
+            >
+              <Body />
+            </section>
+          ))}
+        </div>
+      </> : <>
+        <Support as={sub} />
+        <Race className="mt-4" art="h-[calc(clamp(200px,40cqw,300px)_+_59px)]" />
+        <div className="mt-2"><Footer /></div>
+      </>}
+    </article>
+  );
+}

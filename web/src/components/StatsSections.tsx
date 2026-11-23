@@ -4,7 +4,7 @@ import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, use
 import { flushSync } from 'react-dom';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
-import About from '@/components/About';
+import About, { useAboutLayout } from '@/components/About';
 import { PageStats } from '@/components/about/content';
 import { ArrowDown, CaretLeft, Warning } from '@phosphor-icons/react';
 import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OPEN, OUT, Segmented, StatsZoom, TITLE, backToOverview, currentScreen, hold, openPart, pageBy, setScreen, stopPaging, takePart } from '@/components/Section';
@@ -15,7 +15,7 @@ import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
 import { StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, StatsResponse } from '@/lib/stats';
 import { remember, remembered, useRememberedBox } from '@/lib/boxes';
-import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
+import { ABOUT_PART, ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
 
 // Screens 2-6, each an empty full-height snap point in the page flow. Over them sits one layer:
@@ -631,16 +631,22 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     was.current = open;
   }, [open]);
   const shown = (id: Part) => !draftA || open === id;
+  const aboutLayout = useAboutLayout();
 
   // The window crossing the middle of the screen is the page's screen (the tab bar's Stats or About).
   useEffect(() => {
     const els = room.current ? [...room.current.querySelectorAll<HTMLElement>(':scope > section')] : [];
     // A window leaving the middle clears the screen it set (an instant jump from About to Profits & Losses crosses none).
-    const io = new IntersectionObserver(es => es.forEach(e => {
-      const id = e.target.id === 'about' ? 'about' : `phone-${e.target.id}`;
-      if (e.isIntersecting) setScreen(id);
-      else if (currentScreen() === id) setScreen('');
-    }), { rootMargin: '-50% 0px -50% 0px' });
+    // From the windows on the middle line now, not each change alone: About's two windows (?about=split) are both 'about',
+    // and the first leaving in a later callback than the second arrived cleared it (the tab bar then lit Stats).
+    const idOf = (el: Element) => (el.id.startsWith('about') ? 'about' : `phone-${el.id}`);
+    const on = new Set<Element>();
+    const io = new IntersectionObserver(es => {
+      es.forEach(e => (e.isIntersecting ? on.add(e.target) : on.delete(e.target)));
+      const now = [...on].pop();
+      if (now) setScreen(idOf(now));
+      else if (els.some(el => idOf(el) === currentScreen())) setScreen('');
+    }, { rootMargin: '-50% 0px -50% 0px' });
     els.forEach(e => io.observe(e));
     return () => { io.disconnect(); setScreen(''); };
   }, [open]); // draft A mounts one stats window at a time
@@ -737,14 +743,30 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
           </AtHand>
         ), '[&_.panel-scroll]:[container-type:inline-size]')}
       </section>}
-      {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
-      <section id="about" data-screen data-end aria-label="About" className={`${ABOUT_WINDOW} ${LAZY}`}>
-        <div className="panel-scroll h-full overflow-auto">
-          <div className="px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+16px)]">
-            <PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider>
+      {/* About: the page's last window, scrolling inside itself (it is taller than a phone); at ?about=desk the desktop's
+          About as on the owner's Mac (ABOUT_MAC_W across, its two columns), drawn as one picture at the phone's width and
+          centred in the window, as the stats overview is. */}
+      {aboutLayout === 'split' ? <>
+        {/* ?about=split: the Mac's two columns as two windows (About.tsx's PhoneAbout), the second the page's last. */}
+        <section id="about" data-screen aria-label="About" className={`${ABOUT_PART} ${LAZY}`}><About heading="h2" part="read" /></section>
+        <section id="about-ask" data-screen data-end aria-label="About, continued" className={`${ABOUT_PART} ${LAZY}`}>
+          <PageStats.Provider value={pageStats}><About heading="h2" part="ask" /></PageStats.Provider>
+        </section>
+      </> : <section id="about" data-screen data-end aria-label="About" className={`${ABOUT_WINDOW} ${LAZY}`}>
+        {aboutLayout === 'desk' ? (
+          <div className="h-full flex flex-col px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+16px)]">
+            <div data-mac-about className="flex-1 min-h-0 flex flex-col justify-center">
+              <Fit w={ABOUT_MAC_W} contain><PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider></Fit>
+            </div>
           </div>
-        </div>
-      </section>
+        ) : (
+          <div className="panel-scroll h-full overflow-auto">
+            <div className="px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+16px)]">
+              <PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider>
+            </div>
+          </div>
+        )}
+      </section>}
     </div>
   );
 }
@@ -759,6 +781,8 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
 // MAC: WideStats' block at 1440x790 (a MacBook's browser window): 1218px across, its two rows 797px together. Profiles'
 // width and Matchups' names column are measured here as WideStats measures them (the longest names, in layout px).
 const MAC = { w: 1218, rows: 797 };
+// About's block on that Mac: the table stage's column (--stage-w at 1440x790), unzoomed.
+const ABOUT_MAC_W = 1035;
 function MacOverview({ ready, blank, message, tl, models, field, seated, bigBlind, profView }: { ready: boolean; blank: boolean; message: React.ReactNode; tl: Timeline | null; models: ModelStats[]; field: ModelStats[]; seated?: string[]; bigBlind: number; profView: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
   const room = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
