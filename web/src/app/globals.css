@@ -395,9 +395,9 @@ html:has([data-screen]) {
 }
 
 /* Phone draft A (app/a): the phone page with the desktop table at its own proportions (200x128 cells, 40x56 cards),
-   zoomed to the phone's width (PokerTable's Fit). The caption, stats, About and drawer are the phone's own. The rest of
-   the first screen is the landing fill (LandingFill: the live graph, P&L or both); the Trends window under it is the
-   expanded graph. */
+   drawn at the phone's width (Fit). The caption, the opened stats cards, About and drawer are the phone's own. The rest of
+   the first screen is the landing fill (LandingFill: Trends, P&L or nothing); the stats window under it is the Mac's
+   overview, drawn the same way (StatsSections' MacOverview). */
 html.phone-a #phone-stats { display: none; }
 html.phone-a [data-a-table] [data-hole] [role=img], html.phone-a [data-a-table] [data-felt-cards] [role=img] { width: 40px; height: 56px; }
 html.phone-a [data-a-table] [role=img] span { font-size: 14px; }
@@ -407,3 +407,6 @@ html.phone-a section[aria-label="Live table"][data-screen] { padding-bottom: 0; 
 /* The oval's centring gap: the desktop table has no use for it. On the page itself, where [data-page] sets it (on <html>
    it never reached the page: the caption kept 6px of it, 14px over the fill, not 8). */
 html.phone-a [data-page] { --phone-slack: 0px; }
+/* The Mac's stats overview, drawn at a third of its size (StatsSections' MacOverview): its Trends tile's Replay would be a
+   7px target; the Trends card has its own. */
+[data-mac-overview] [data-tile-replay] { display: none; }

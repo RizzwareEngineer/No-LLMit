@@ -295,7 +295,7 @@ export default function Panel({
   );
 }
 
-const OPEN = <span aria-hidden className="text-[14px] font-medium whitespace-nowrap" style={{ color: BLUE }}>Open ↓</span>;
+export const OPEN = <span aria-hidden className="text-[14px] font-medium whitespace-nowrap" style={{ color: BLUE }}>Open ↓</span>;
 // A header extra or "Open ↓" coming or going: fades in place; one leaving steps out of the header's flow at its right
 // end, so the header never wraps or shifts while the two cross-fade. `stay`: it leaves where it was in the tile ("Open ↓"
 // as the tile opens: the header takes the card's width at once, and its right end lies outside the tile's box).

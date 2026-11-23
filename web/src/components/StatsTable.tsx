@@ -365,16 +365,17 @@ function Grid({
   };
   // Sticky: the header stays put while the card scrolls the rows under it.
   const head = `sticky top-0 z-10 bg-white text-[13px] ${mini ? 'px-1 @sm:px-2 py-0' : 'px-2 md:px-1.5 py-1.5'}`; // column headers: 13px muted, tile and card (from md 6px a side: every header on one line at the wide stats' reference width)
-  // The card's rows breathe; the tile's split its height evenly from md (a phone's tile is as tall as its rows). From md
-  // the card's rows give up to 8px each (--card-row, fitCardRows) so the card fits its block at every window shape.
-  const rowH = mini ? 'h-9 md:h-(--mini-row) text-[14px] md:text-[13px]' : 'card-row h-[var(--phone-row,40px)] md:h-[var(--card-row,40px)]';
+  // The card's rows breathe; the tile's split its height evenly. The tile is the wide overview's, at its sizes on every
+  // screen (phone draft A draws that overview on a phone, scaled: StatsSections' MacOverview). From md the card's rows give
+  // up to 8px each (--card-row, fitCardRows) so the card fits its block at every window shape.
+  const rowH = mini ? 'h-(--mini-row) text-[13px]' : 'card-row h-[var(--phone-row,40px)] md:h-[var(--card-row,40px)]';
   // Columns the card adds to the tile's fade in as it opens.
   const added = (c: Column) => (!mini && !MINI[0].columns.includes(c) ? 'add-in' : '');
   // The tile pads by its own width (a narrow tile keeps every header whole).
   const cell = mini ? 'px-1 @sm:px-2' : 'px-2 md:px-1.5';
   // Under md the card scrolls sideways (a phone, or a laptop at 200% zoom): the names stay, in a sticky Model column.
   const pin = mini ? '' : 'max-md:sticky max-md:left-0 max-md:bg-white';
-  const nameCell = `${cell} ${pin} ${pin && 'max-md:z-[1]'} w-px whitespace-nowrap text-left font-bold md:font-medium`;
+  const nameCell = `${cell} ${pin} ${pin && 'max-md:z-[1]'} w-px whitespace-nowrap text-left ${mini ? 'font-medium' : 'font-bold md:font-medium'}`;
   const row = (m: ModelStats, i: number | null) => {
     // What moves the row's content: the glide, a re-sort, or the row changing place.
     const at = `${mini}|${sort.key}|${sort.desc}|${i}`;
@@ -412,7 +413,7 @@ function Grid({
     // Auto layout: the Model column hugs the names (w-px) and the figures share the rest, each column at least as
     // wide as its figures and its header's longest word (headers wrap), so nothing is clipped. Where that is wider
     // than the card (a phone), the table scrolls sideways.
-    <table ref={table} className="w-full table-auto tabular-nums text-[14px] md:text-[13px]">
+    <table ref={table} className={`w-full table-auto tabular-nums ${mini ? 'text-[13px]' : 'text-[14px] md:text-[13px]'}`}>
       <caption className="sr-only">Profiles per model. Column headers sort the table; the info buttons explain each stat.</caption>
       <thead>
         {!mini && (

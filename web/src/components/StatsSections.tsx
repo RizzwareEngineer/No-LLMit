@@ -7,8 +7,8 @@ import LLMLogo from '@/components/LLMLogo';
 import About from '@/components/About';
 import { PageStats } from '@/components/about/content';
 import { ArrowDown, CaretLeft, Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OUT, Segmented, StatsZoom, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging, takePart } from '@/components/Section';
-import { PhoneOverview } from '@/components/PhoneTiles';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OPEN, OUT, Segmented, StatsZoom, TITLE, backToOverview, currentScreen, hold, openPart, pageBy, setScreen, stopPaging, takePart } from '@/components/Section';
+import Fit from '@/components/Fit';
 import CumulativeChart, { H, LEGEND_H, W, sampleAt } from '@/components/CumulativeChart';
 import StatsTable, { MINI_CHROME, SLIDE, TABLE_VIEW, type TableView } from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
@@ -695,7 +695,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `min(100cqw - 36px, clamp(${26 * Math.max(1, field.length)}px, max(100svh, var(--win-min, 0px)) - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 104px - 28px - 116px, ${40 * Math.max(1, field.length)}px))` } as React.CSSProperties}>
       {draftA && !open && (
         <section id="stats" data-screen aria-label="Stats" className={WINDOW}>
-          <PhoneOverview models={field} bigBlind={bigBlind} blank={blank} message={ready ? null : message} />
+          <MacOverview ready={ready} blank={blank} message={message} tl={tl} models={models} field={field} seated={seated} bigBlind={bigBlind} profView={profView} />
         </section>
       )}
       {shown('race') && <section id="race" data-screen aria-label="Trends" className={WINDOW}>
@@ -745,6 +745,80 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+// Phone draft A's stats overview (owner, 2026-11-23, of the phone's own tiles: "why do you stretch shit out like this?
+// why cant the view be just like the same proportions on mac? i know it's gonna be less visible"): the wide overview's
+// three tiles, laid out as WideStats lays them out on the owner's Mac (MAC) and drawn as one picture at the phone's width
+// (Fit), as the table above it is (no taller than its window: a phone held sideways); centred in its window, as the Mac
+// centres it in the window. A tap on a tile opens its part's phone card in the window's place (openPart), and focus comes
+// back to the tile (PhoneStats). The Trends tile's Replay is not shown (globals.css): about 7px tall here, a tap meant for
+// it opened the card; the card has its own.
+// MAC: WideStats' block at 1440x790 (a MacBook's browser window): 1218px across, its two rows 797px together. Profiles'
+// width and Matchups' names column are measured here as WideStats measures them (the longest names, in layout px).
+const MAC = { w: 1218, rows: 797 };
+function MacOverview({ ready, blank, message, tl, models, field, seated, bigBlind, profView }: { ready: boolean; blank: boolean; message: React.ReactNode; tl: Timeline | null; models: ModelStats[]; field: ModelStats[]; seated?: string[]; bigBlind: number; profView: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
+  const room = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = room.current;
+    if (!el) return;
+    const measure = () => {
+      // Before the names are in, the widths they last had (lib/boxes, shared with WideStats: the same names and fonts).
+      const widest = (sel: string, plus: number, v: string) => {
+        const names = [...el.querySelectorAll<HTMLElement>(sel)];
+        const w = names.length ? Math.max(...names.map(e => e.scrollWidth)) + plus : remembered(v)?.[0];
+        if (names.length) remember(v, w!, 0);
+        if (w) el.style.setProperty(v, `${w}px`);
+      };
+      widest('#tile-stats-table tbody th [translate=no]', MINI_CHROME, '--prof-w');
+      widest('#tile-pairwise [data-row-name] [translate=no]', 5, '--mu-names');
+    };
+    measure();
+    document.fonts?.ready.then(measure);
+  }, [ready, models, field]);
+  const seatedNames = useMemo(() => field.map(m => m.name), [field]);
+  // A tile as the wide overview's (Section's Panel at rest): its title, the Trends Leader, "Open ↓", and its body, which
+  // never scrolls. The whole tile is the tap target and one tab stop (a control inside it, Trends' Replay, keeps its own).
+  const tile = (part: Part, title: string, cls: string, body: React.ReactNode, aside?: React.ReactNode) => (
+    <div className={`flex flex-col min-h-0 min-w-0 ${cls}`}>
+      <section
+        id={`tile-${part}`}
+        tabIndex={0}
+        aria-labelledby={`tile-${part}-title`}
+        onClick={e => !(e.target as Element).closest('a, button, select, input, label') && openPart(part)}
+        onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); openPart(part); } }}
+        className={`${CARD} overflow-hidden relative flex-1 cursor-pointer [-webkit-tap-highlight-color:transparent] ${blank ? '[&>*]:invisible' : ''}`}
+        style={{ boxShadow: CARD_SHADOW }}
+      >
+        <div className={HEADER}>
+          <h2 id={`tile-${part}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
+          <div className="relative flex items-center gap-4 min-w-0">{aside}{OPEN}</div>
+        </div>
+        <div className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-hidden">{body}</div>
+      </section>
+    </div>
+  );
+  return (
+    <div data-mac-overview className="flex-1 min-h-0 flex flex-col justify-center">
+      <Fit w={MAC.w} contain>
+        <div ref={room} className="@container" style={{ ...BLOCK_VARS, '--block-w': `${MAC.w}px`, '--rows': `${MAC.rows}px` } as React.CSSProperties}>
+          <div className="relative grid gap-3 h-(--block-h) grid-cols-[var(--p)_minmax(0,1fr)] grid-rows-[var(--row1)_var(--row2)]">
+            {tile('race', 'Trends', 'col-span-2', ready ? <CumulativeChart race mini bigBlind={bigBlind} models={field} everyone={models} timeline={tl} /> : message, ready && <Leader tl={tl} models={field} />)}
+            {tile('stats-table', 'Profiles', 'row-start-2 col-start-1', ready ? <SyncedProfiles tl={tl} models={models} seated={seated} mini view={profView} /> : message)}
+            {tile('pairwise', 'Matchups', 'row-start-2 col-start-2', ready ? (
+              <AtHand tl={tl} models={field}>
+                {(ms, hand) => (
+                  <div {...syncAttrs(tl, hand)} className="contents">
+                    <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} mini fitTo={seatedNames} leader={leaderAt(tl, ms, hand)?.m.name} />
+                  </div>
+                )}
+              </AtHand>
+            ) : message)}
+          </div>
+        </div>
+      </Fit>
     </div>
   );
 }

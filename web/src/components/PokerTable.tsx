@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useReducedMotion } from "motion/react";
 import Player, { LOGO_RIM } from "@/components/Player";
 import TableFelt, { BetStack, FeltBet, GRID } from "@/components/TableFelt";
@@ -12,6 +12,7 @@ import { FELT, LOGO, MIDDLE, POT_TOP, RADIUS, type Spot, css, seatPlace, seatSpo
 import { useLayout, usePhoneShape, useSeatDraft, usePhoneDraft } from "@/lib/tableSwitches";
 import SeatStats from "@/components/SeatStats";
 import { isDraftA } from "@/lib/layout";
+import Fit from "@/components/Fit";
 const noSub = () => () => {};
 import type { ButtonDetermination, Clock, DisplayState } from "@/lib/stream";
 
@@ -291,7 +292,7 @@ export default function PokerTable({
           with its position, stack, label and cards (Player's compact seat; phoneTable's geometry), each bet between its seat
           and the pot, the pot and the board in the middle, the deck over the pot between hands. A logo taps open its model's
           basic stats (SeatStats). data-oval: what the page watches for the bar. */}
-      {mounted !== 'desk' && draftA && <Fit w={tableWidth}>{deskTable('block')}</Fit>}
+      {mounted !== 'desk' && draftA && <Fit w={tableWidth} data-a-table className="md:hidden">{deskTable('block')}</Fit>}
       {mounted !== 'desk' && !draftA && phoneDraft && <div data-upright className="md:hidden w-full bg-white rounded overflow-hidden" style={{ ...cardStyle, marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
         <div className="grid" style={{ gridTemplateColumns: '1fr 2fr 1fr', gridTemplateRows: `112px ${upRows * 112}px 112px` }}>
           <div style={{ borderRight: line, borderBottom: line }} />
@@ -350,29 +351,3 @@ function getPlayerLayout(count: number): PlayerLayout {
   }
 }
 
-// Phone draft A (app/a): the desktop table at its own proportions, scaled as one picture to the phone page's width.
-// A transform, not CSS zoom: zoom shrinks each font size too, and an iPhone browser draws zoomed text no smaller than its
-// minimum (owner's iPhone, 2026-11-22: 11px text at 0.4 drew twice its boxes, names cut to "L.", badges sliced). A
-// transform draws the 1000px table as laid out, smaller; text-size-adjust keeps a browser's text zoom off the picture.
-function Fit({ w, children }: { w: number; children: ReactNode }) {
-  const box = useRef<HTMLDivElement>(null), table = useRef<HTMLDivElement>(null);
-  const [fit, setFit] = useState<{ z: number; h: number } | null>(null);
-  useLayoutEffect(() => {
-    const el = box.current, t = table.current;
-    if (!el || !t) return;
-    const measure = () => {
-      const z = el.clientWidth / w, h = t.offsetHeight;
-      setFit(f => (f && f.z === z && f.h === h ? f : { z, h }));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    ro.observe(t); // the table's own height (a seat's row growing) sets the box's
-    return () => ro.disconnect();
-  }, [w]);
-  return (
-    <div ref={box} data-a-table className="md:hidden w-full" style={{ height: fit ? fit.h * fit.z : undefined }}>
-      <div ref={table} style={{ width: w, transform: fit ? `scale(${fit.z})` : undefined, transformOrigin: '0 0', visibility: fit ? undefined : 'hidden', WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}>{children}</div>
-    </div>
-  );
-}

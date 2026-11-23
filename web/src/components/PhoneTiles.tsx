@@ -1,23 +1,20 @@
 'use client'
 
-// Phone draft A's tiles: the landing fill under the table (LandingFill) and the stats overview, the window under it
-// (StatsSections' PhoneStats; owner, 2026-11-23: "the next page should be all 3 stats in one view"). Each tile is a
-// small, still picture of its part, sized to the box it is given; a tap anywhere on it opens the part (openPart).
-import { Fragment, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+// Phone draft A's landing tile (LandingFill): a small, still picture of a part under the table, a tap anywhere on it
+// opening the part (openPart). The stats overview under the first screen is the Mac's, scaled (StatsSections' MacOverview).
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { CaretRight } from '@phosphor-icons/react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
-import FitName from '@/components/FitName';
-import { pairTint, FAINT } from '@/components/HeadToHead';
 import { openPart } from '@/components/Section';
-import { MIN_PAIR_HANDS, MUTED, TEXT, bb100Of, signed, type ModelStats } from '@/lib/stats';
+import { MUTED, TEXT, signed, type ModelStats } from '@/lib/stats';
 import { RATE_FROM, robustRange, series } from '@/lib/series';
 
 // The caption's frame (ReasoningPanel), so the landing's caption and its fill are one family.
-export const RING = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
+const RING = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
 
 // A part's tile: its title (and a muted note) over its picture, a caret saying it opens. One button over the whole
 // tile: what it shows stays readable text, and no part of it takes a tap of its own.
-export function Tile({ part, id, title, note, label, className = '', children }: { part: string; id?: string; title: string; note?: string; label: string; className?: string; children?: ReactNode }) {
+export function Tile({ part, title, note, label, className = '', children }: { part: string; title: string; note?: string; label: string; className?: string; children?: ReactNode }) {
   return (
     <div className={`relative flex flex-col min-h-0 min-w-0 bg-white rounded p-3 ${className}`} style={RING}>
       <div className="h-5 flex items-center gap-1.5 min-w-0 whitespace-nowrap">
@@ -26,72 +23,7 @@ export function Tile({ part, id, title, note, label, className = '', children }:
         <CaretRight size={14} weight="bold" className="ml-auto shrink-0" style={{ color: MUTED }} aria-hidden />
       </div>
       <div className="relative flex-1 min-h-0 mt-2">{children}</div>
-      <button id={id} type="button" onClick={() => openPart(part)} aria-label={label} className="absolute inset-0 rounded [-webkit-tap-highlight-color:transparent] active:bg-black/[0.03]" />
-    </div>
-  );
-}
-
-// The overview: Trends across the top, Profiles and Matchups side by side under it, their rows level (both list the
-// seated models by bb/100, best first). It fills the window it is in; the rows share the height.
-export function PhoneOverview({ models, bigBlind, blank, message }: { models: ModelStats[]; bigBlind: number; blank: boolean; message: ReactNode }) {
-  const body = (b: ReactNode) => (message ? null : blank ? null : b);
-  return (
-    // Profiles the wider: its names whole at 375px (12px type), Matchups' cells 12px wide at the least.
-    <div data-overview className="flex-1 min-h-0 grid gap-2" style={{ gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1.15fr)' }}>
-      <Tile part="race" id="tile-race" title="Trends" note="bb/100" label="Open Trends" className="col-span-2">{message || body(<LandingChart models={models} />)}</Tile>
-      <Tile part="stats-table" id="tile-stats-table" title="Profiles" note="VPIP/PFR" label="Open Profiles">{body(<MiniProfiles models={models} />)}</Tile>
-      <Tile part="pairwise" id="tile-pairwise" title="Matchups" label="Open Matchups">{body(<MiniMatchups models={models} bigBlind={bigBlind} />)}</Tile>
-    </div>
-  );
-}
-
-// The rows' shared grid: a 16px header line, then one row per model taking an equal share of the height, 1px apart.
-const rowsOf = (n: number) => `16px repeat(${n}, minmax(0, 1fr))`;
-const byRate = (models: ModelStats[]) => [...models].sort((a, b) => b.bb100 - a.bb100);
-
-// Profiles in brief: each model's VPIP/PFR (how often it plays a hand / raises before the flop), as a HUD reads them. The
-// label is the tile's note, so the figures' column is only as wide as its figures and the names keep the rest.
-function MiniProfiles({ models }: { models: ModelStats[] }) {
-  const rows = byRate(models);
-  return (
-    <div className="absolute inset-0 grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-px text-[12px] tabular-nums" style={{ gridTemplateRows: rowsOf(rows.length), color: TEXT }}>
-      <span className="text-[11px] leading-4" style={{ color: MUTED }}>Model</span>
-      <span />
-      {rows.map(m => (
-        <Fragment key={m.name}>
-          <span data-row={m.name} className="flex items-center gap-1.5 min-w-0">
-            <LLMLogo model={m.name} size={14} />
-            <span className="flex-1 min-w-0"><FitName name={m.name} className="font-medium" /></span>
-          </span>
-          <span className="self-center text-right">{Math.round(m.vpip * 100)}/{Math.round(m.pfr * 100)}</span>
-        </Fragment>
-      ))}
-    </div>
-  );
-}
-
-// Matchups in brief: the grid's colours alone (green: the row's model won against the column's, red: lost; faint: under
-// MIN_PAIR_HANDS together), logos heading the rows and the columns as on the phone's Matchups card.
-function MiniMatchups({ models, bigBlind }: { models: ModelStats[]; bigBlind: number }) {
-  const rows = byRate(models), n = rows.length;
-  const cell = (r: ModelStats, col: string) => {
-    const v = r.vs?.[col], hands = v?.hands ?? 0;
-    return { hands, bb: v ? bb100Of(v.net_chips, bigBlind, hands) : null };
-  };
-  const tint = pairTint(rows.flatMap(r => rows.map(c => cell(r, c.name))));
-  return (
-    <div aria-hidden className="absolute inset-0 grid gap-px" style={{ gridTemplateColumns: `16px repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: rowsOf(n) }}>
-      <span />
-      {rows.map(c => <span key={c.name} className="flex items-center justify-center"><LLMLogo model={c.name} size={12} /></span>)}
-      {rows.map(r => (
-        <Fragment key={r.name}>
-          <span data-row={r.name} className="flex items-center"><LLMLogo model={r.name} size={14} /></span>
-          {rows.map(c => {
-            const self = r.name === c.name, { bb, hands } = cell(r, c.name);
-            return <span key={c.name} className="rounded-sm" style={{ background: self ? 'rgba(55, 53, 47, 0.16)' : bb === null ? 'rgba(55, 53, 47, 0.04)' : tint(bb), opacity: !self && bb !== null && hands < MIN_PAIR_HANDS ? FAINT : undefined }} />;
-          })}
-        </Fragment>
-      ))}
+      <button type="button" onClick={() => openPart(part)} aria-label={label} className="absolute inset-0 rounded [-webkit-tap-highlight-color:transparent] active:bg-black/[0.03]" />
     </div>
   );
 }
