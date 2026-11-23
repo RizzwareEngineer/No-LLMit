@@ -6934,7 +6934,7 @@ group(() => check('phone-a-true-scale', 'On /a at 390x651 and 430x739 (touch), t
 // sizes (430x932); a phone's browser bars take about a fifth of that. These are iPhones' browser viewports, bars shown.
 // 2026-11-23: one thing in the fill, Trends' lines or (?fill=pnl) this session's P&L, never both.
 const IPHONES = [[375, 629], [390, 651], [393, 659], [402, 681], [430, 739], [440, 763]];
-group(() => check('phone-a-first-screen-fits', 'On /a, /a?fill=pnl and /a?fill=none at the iPhones\' browser viewports (375x629, 390x651, 393x659, 402x681, 430x739, 440x763, touch), the first screen ends above the tab bar: on /a and ?fill=pnl the fill starts under the table, ends 8-16px above the tab bar and holds one tile, Trends\' lines on /a at their design shape (W x H, never stretched) at the fill\'s top and Profits & Losses at ?fill=pnl with every seat\'s row whole inside it (name and figure), a tap on it showing the Trends card at the top of the window; at ?fill=none there is no fill, the caption is the last thing under the table and ends above the tab bar; the page is no wider than the window', async () => {
+group(() => check('phone-a-first-screen-fits', 'On /a, /a?fill=pnl and /a?fill=none at the iPhones\' browser viewports (375x629, 390x651, 393x659, 402x681, 430x739, 440x763, touch), the first screen ends above the tab bar: on /a and ?fill=pnl the fill starts under the table, ends 8-16px above the tab bar and holds one tile, Trends\' lines on /a at their design shape (W x H, never stretched) at the fill\'s top and Profits & Losses at ?fill=pnl with every seat\'s row whole inside it (name and figure), a tap on it showing the Trends card at the top of the window; at ?fill=none there is no fill: the desktop\'s title (its tagline in two whole lines), the table and the caption, centred between the top bar and the tab bar (within 16px); the page is no wider than the window', async () => {
   const bad = [], seen = [];
   for (const query of ['', '?fill=pnl', '?fill=none']) for (const [w, h] of IPHONES) {
     const size = `${query || '/a'} ${w}x${h}`, p = await phoneA(w, h, query);
@@ -6945,21 +6945,30 @@ group(() => check('phone-a-first-screen-fits', 'On /a, /a?fill=pnl and /a?fill=n
         const fill = document.querySelector('[data-landing-fill]'), tiles = [...fill?.children ?? []].map(e => e.getBoundingClientRect());
         const tile = fill?.firstElementChild?.getBoundingClientRect();
         // Trends' lines: their box's shape (the aspect box around LandingChart).
-        const lines = fill?.querySelector('[style*="aspect-ratio"]')?.getBoundingClientRect();
+        const shape = fill?.querySelector('[style*="aspect-ratio"]')?.getBoundingClientRect();
         // P&L's rows: each one's name and figure inside the tile, the name whole (FitName picks a form that fits).
         const rows = [...fill?.querySelectorAll('li') ?? []].map(li => { const b = li.getBoundingClientRect(), n = li.querySelector('[data-chips]')?.getBoundingClientRect(); return { in: tile && b.top >= tile.top - 0.5 && b.bottom <= tile.bottom + 0.5 && n && n.right <= tile.right + 0.5, cut: [...li.querySelectorAll('*')].some(e => e.clientWidth > 0 && getComputedStyle(e).visibility !== 'hidden' && e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'visible') }; });
         // The first screen's last box: the stage's last child with a height (the fill, or with none the caption).
         const stage = document.querySelector('.stage-zoom'), last = [...stage?.children ?? []].filter(e => e.getBoundingClientRect().height).pop()?.getBoundingClientRect();
-        return t && nav && { kind: fill?.dataset.landingFill ?? 'none', tableB: t.bottom, tableH: t.height, fillT: f?.top, fillB: f?.bottom, fillH: f?.height, lastB: last?.bottom, navT: nav.top, tiles: tiles.map(c => c.height), tileT: tile?.top, lines: lines && [lines.width, lines.height], svg: !!fill?.querySelector('svg path'), rows, wide: document.documentElement.scrollWidth - innerWidth };
+        // ?fill=none: the desktop's title over the table, its tagline in two whole lines; the top bar's bottom (it scrolls away
+        // on a short window: then the screen's top).
+        const head = document.querySelector('section[aria-label="Live table"] h1')?.parentElement, tag = head?.querySelector('p');
+        const barB = Math.max(0, document.querySelector('header[aria-label="Table status"] > *')?.getBoundingClientRect().bottom ?? 0);
+        const lines = tag && Math.round(tag.getBoundingClientRect().height / parseFloat(getComputedStyle(tag).lineHeight));
+        return t && nav && { kind: fill?.dataset.landingFill ?? 'none', tableB: t.bottom, tableH: t.height, fillT: f?.top, fillB: f?.bottom, fillH: f?.height, lastB: last?.bottom, navT: nav.top, barB, headT: head?.getBoundingClientRect().top, title: head?.querySelector('h1')?.textContent, tagLines: lines, tiles: tiles.map(c => c.height), tileT: tile?.top, lines: shape && [shape.width, shape.height], svg: !!fill?.querySelector('svg path'), rows, wide: document.documentElement.scrollWidth - innerWidth };
       });
       if (!r) { bad.push(`${size}: no table or tab bar`); continue; }
       const want = query === '?fill=pnl' ? 'pnl' : query === '?fill=none' ? 'none' : 'trends';
       if (r.kind !== want) { bad.push(`${size}: the fill holds ${r.kind}`); continue; }
       if (r.wide > 0) bad.push(`${size}: page ${r.wide}px wider than the window`);
       if (want === 'none') {
-        seen.push(`${size}: table ${r.tableH.toFixed(0)}, caption to ${(r.navT - r.lastB).toFixed(0)}px above the tab bar`);
+        const above = r.headT - r.barB, below = r.navT - r.lastB;
+        seen.push(`${size}: title, table ${r.tableH.toFixed(0)} and caption, ${above.toFixed(0)}/${below.toFixed(0)}px above/below`);
+        if (r.title !== 'No-LLMit') bad.push(`${size}: no title over the table`);
+        if (r.tagLines !== 2) bad.push(`${size}: the tagline in ${r.tagLines} lines`);
         if (!(r.lastB > r.tableB)) bad.push(`${size}: nothing under the table (no caption)`);
         if (r.lastB > r.navT + 0.5) bad.push(`${size}: the caption runs ${(r.lastB - r.navT).toFixed(0)}px under the tab bar`);
+        if (Math.abs(above - below) > 16) bad.push(`${size}: not centred between the bars: ${above.toFixed(0)}px above, ${below.toFixed(0)}px below`);
         continue;
       }
       const gap = r.navT - r.fillB;
@@ -7062,6 +7071,93 @@ group(() => check('phone-a-stats-overview', 'On /a at the iPhones\' browser view
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `Mac block ${mac.grid.join('x')}, row ${mac.row}, matrix ${mac.matrix?.join('x')} | ${seen.join(' | ')}` };
+}));
+
+// 2026-11-23: "about page we need to figure out a better way to lay it out. if we cant then we can just copy desktop".
+// Two drafts: ?about=split (the Mac's two columns as two windows, About.tsx's PhoneAbout) and ?about=desk (the Mac's About
+// drawn at the phone's width).
+group(() => check('about-phone-windows', 'On /a?about=split at the iPhones\' browser viewports (touch), About is two windows, each the screen\'s height with nothing scrolling inside it, its content centred between the bars (2px): Read (no text under 13px; eyebrow, thesis, tab labels one line each; four tabs 44px tall at least, How it works open; a tap on each shows its topic alone and moves nothing else) and Ask (the donation card, the race drawing 200px tall or 179 with its note, the footer); one swipe up from Read lands Ask, the tab bar marks About on both, and Ask is the page\'s last window', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of IPHONES) {
+    const size = `${w}x${h}`, p = await phoneA(w, h, '?fill=none&about=split');
+    try {
+      await tapTab(p, 'About'); await sleep(1500);
+      await p.waitForFunction(() => document.querySelector('#about [data-about-part=read]') && document.querySelector('#about-ask [data-about-part=ask]'), { timeout: 30000 }).catch(() => {});
+      const r = await p.evaluate(() => {
+        const read = document.getElementById('about'), ask = document.getElementById('about-ask');
+        if (!read || !ask) return null;
+        const barB = Math.max(0, document.querySelector('header[aria-label="Table status"] > *').getBoundingClientRect().bottom), navT = document.querySelector('nav[aria-label=Sections]').getBoundingClientRect().top;
+        const inner = sec => [...sec.querySelectorAll('*')].filter(e => !e.closest('dialog, pre') && /auto|scroll/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1).map(e => e.tagName);
+        const centre = sec => { const a = sec.querySelector('[data-about]').getBoundingClientRect(), b = sec.getBoundingClientRect(), cs = getComputedStyle(sec); return [a.top - (b.top + parseFloat(cs.paddingTop)), b.bottom - parseFloat(cs.paddingBottom) - a.bottom]; };
+        const small = [...read.querySelectorAll('*'), ...ask.querySelectorAll('*')].filter(e => getComputedStyle(e).visibility !== 'hidden' && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 13).map(e => e.textContent.slice(0, 20));
+        // The text's own lines (a range over it), not its box (a tab's padding).
+        const oneLine = e => { if (!e) return false; const rg = document.createRange(); rg.selectNodeContents(e); return rg.getBoundingClientRect().height <= 1.5 * parseFloat(getComputedStyle(e).lineHeight); };
+        const tabs = [...read.querySelectorAll('[role=tab]')].map(t => ({ label: t.textContent, h: t.getBoundingClientRect().height, sel: t.getAttribute('aria-selected'), one: oneLine(t) }));
+        const art = ask.querySelector('[data-about-part=ask] > section ~ *')?.firstElementChild?.getBoundingClientRect().height;
+        return { readH: read.getBoundingClientRect().height, askH: ask.getBoundingClientRect().height, vh: innerHeight, end: [read.hasAttribute('data-end'), ask.hasAttribute('data-end'), read.nextElementSibling === ask], inner: [...inner(read), ...inner(ask)], cRead: centre(read), cAsk: centre(ask), small, lines: [oneLine(read.querySelector('header p')), oneLine(read.querySelector('header h2')), oneLine(ask.querySelector('footer p'))], tabs, art, barB, navT };
+      });
+      if (!r) { bad.push(`${size}: no Read and Ask windows`); continue; }
+      seen.push(`${size}: Read ${r.cRead.map(v => v.toFixed(0)).join('/')}, Ask ${r.cAsk.map(v => v.toFixed(0)).join('/')}px above/below, race ${r.art?.toFixed(0)}`);
+      if (r.end.join() !== 'false,true,true') bad.push(`${size}: windows ${r.end.join(',')} (want Read, then Ask the last)`);
+      if (Math.abs(r.readH - r.vh) > 1 || Math.abs(r.askH - r.vh) > 1) bad.push(`${size}: windows ${r.readH.toFixed(0)} and ${r.askH.toFixed(0)}px tall in a ${r.vh}px screen`);
+      if (r.inner.length) bad.push(`${size}: scrolls inside: ${r.inner.slice(0, 3).join(', ')}`);
+      if (Math.abs(r.cRead[0] - r.cRead[1]) > 2 || Math.abs(r.cAsk[0] - r.cAsk[1]) > 2 || Math.min(...r.cRead, ...r.cAsk) < -0.5) bad.push(`${size}: not centred: Read ${r.cRead.map(v => v.toFixed(0)).join('/')}, Ask ${r.cAsk.map(v => v.toFixed(0)).join('/')}`);
+      if (r.small.length) bad.push(`${size}: text under 13px: ${r.small.slice(0, 3).join(', ')}`);
+      if (r.lines.some(x => !x)) bad.push(`${size}: eyebrow, thesis or footer on more than one line (${r.lines.join(',')})`);
+      if (r.tabs.length !== 4 || r.tabs.some(t => t.h < 44 - 0.5 || !t.one) || r.tabs[0].sel !== 'true') bad.push(`${size}: tabs ${JSON.stringify(r.tabs)}`);
+      if (!r.art || (Math.abs(r.art - 200) > 1 && Math.abs(r.art - 179) > 1)) bad.push(`${size}: race drawing ${r.art?.toFixed(1)}px tall`);
+      // Each tab: its topic alone, and nothing else moves.
+      const rects = () => p.evaluate(() => ['#about header', '#about [role=tablist]', '#about [role=tablist] + div'].map(q => { const b = document.querySelector(q).getBoundingClientRect(); return [b.top, b.height]; }));
+      const before = await rects();
+      for (let i = 0; i < 4; i++) {
+        const at = await p.evaluate(i => { const b = document.getElementById(`about-tab-${i}`).getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, i);
+        await p.touchscreen.tap(at[0], at[1]); await sleep(500);
+        const v = await p.evaluate(() => [...document.querySelectorAll('#about [role=tabpanel]')].map(e => getComputedStyle(e).visibility === 'visible' && parseFloat(getComputedStyle(e).opacity) > 0.99));
+        if (v.filter(Boolean).length !== 1 || !v[i]) bad.push(`${size}: tab ${i} shows panels ${v.join(',')}`);
+        const now = await rects();
+        if (now.some((x, k) => Math.abs(x[0] - before[k][0]) > 0.5 || Math.abs(x[1] - before[k][1]) > 0.5)) bad.push(`${size}: tab ${i} moved the window (${JSON.stringify(now)})`);
+      }
+      // One swipe up: Ask, with About still marked; then up again stays (the page's last window).
+      const swipe = async (y0, y1) => { await p.touchscreen.touchStart(w / 2, y0); for (let i = 1; i <= 12; i++) { await p.touchscreen.touchMove(w / 2, y0 + ((y1 - y0) * i) / 12); await sleep(16); } await p.touchscreen.touchEnd(); await sleep(1400); };
+      const where = () => p.evaluate(() => ({ ask: Math.round(document.getElementById('about-ask').getBoundingClientRect().top), tab: document.querySelector('nav[aria-label=Sections] [aria-current]')?.textContent.trim() }));
+      const tabOn = await where();
+      if (tabOn.tab !== 'About') bad.push(`${size}: on Read the tab bar marks ${tabOn.tab}`);
+      await swipe(h * 0.85, h * 0.15);
+      const a = await where();
+      if (Math.abs(a.ask) > 2 || a.tab !== 'About') bad.push(`${size}: a swipe from Read left Ask ${a.ask}px from the top, the tab bar on ${a.tab}`);
+      await swipe(h * 0.85, h * 0.15);
+      const a2 = await where();
+      if (Math.abs(a2.ask) > 2) bad.push(`${size}: a swipe on Ask moved it to ${a2.ask}px`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+
+group(() => check('about-phone-desk', 'On /a?about=desk at the iPhones\' browser viewports (touch), About is one window, the page\'s last: the desktop\'s two columns laid out 1035px across (the Mac\'s, at 1440x790) and drawn as one picture at the window\'s width (a uniform transform scale), centred between the bars (1px), nothing scrolling inside it', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of IPHONES) {
+    const size = `${w}x${h}`, p = await phoneA(w, h, '?fill=none&about=desk');
+    try {
+      await tapTab(p, 'About'); await sleep(1500);
+      await p.waitForFunction(() => document.querySelector('[data-mac-about] [data-about]'), { timeout: 30000 }).catch(() => {});
+      const r = await p.evaluate(() => {
+        const win = document.getElementById('about'), box = win?.querySelector('[data-mac-about]'), pic = box?.firstElementChild, inner = pic?.firstElementChild;
+        if (!inner) return null;
+        const m = new DOMMatrix(getComputedStyle(inner).transform), d = inner.getBoundingClientRect(), b = box.getBoundingClientRect(), art = inner.querySelector('[data-about]');
+        const cols = getComputedStyle(art.firstElementChild).gridTemplateColumns.split(' ').length;
+        const scroll = [...win.querySelectorAll('*')].filter(e => /auto|scroll/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1).length;
+        return { end: win.hasAttribute('data-end'), ask: !!document.getElementById('about-ask'), laid: inner.offsetWidth, scale: [m.a, m.d, m.b, m.c], drawn: [d.top, d.bottom, d.width], box: [b.top, b.bottom, b.width], cols, scroll };
+      });
+      if (!r) { bad.push(`${size}: no scaled About`); continue; }
+      seen.push(`${size}: ${r.drawn[2].toFixed(0)}x${(r.drawn[1] - r.drawn[0]).toFixed(0)} at ${r.scale[0].toFixed(3)}, ${(r.drawn[0] - r.box[0]).toFixed(0)}/${(r.box[1] - r.drawn[1]).toFixed(0)}px above/below`);
+      if (!r.end || r.ask) bad.push(`${size}: About not the one last window (data-end ${r.end}, Ask ${r.ask})`);
+      if (r.laid !== 1035 || r.cols !== 2) bad.push(`${size}: laid out ${r.laid}px, ${r.cols} columns`);
+      if (Math.abs(r.scale[0] - r.scale[1]) > 1e-4 || r.scale[2] || r.scale[3]) bad.push(`${size}: not one uniform scale (${r.scale.map(v => v.toFixed(3)).join(', ')})`);
+      if (r.drawn[0] < r.box[0] - 0.5 || r.drawn[1] > r.box[1] + 0.5 || Math.abs((r.drawn[0] - r.box[0]) - (r.box[1] - r.drawn[1])) > 1) bad.push(`${size}: drawn ${r.drawn[0].toFixed(0)}-${r.drawn[1].toFixed(0)} in ${r.box[0].toFixed(0)}-${r.box[1].toFixed(0)}, not centred inside`);
+      if (r.scroll) bad.push(`${size}: ${r.scroll} boxes scroll inside`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
 
 // --lanes 1 runs one page at a time (the main page's steps, then each group, then each late): a timing check on the main
