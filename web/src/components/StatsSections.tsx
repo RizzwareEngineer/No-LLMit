@@ -625,7 +625,12 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     const fade = (el: HTMLElement) => {
       const more = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
       el.toggleAttribute('data-more-right', more);
-      el.style.maskImage = more ? 'linear-gradient(to right, #000 calc(100% - 32px), transparent)' : '';
+      // Over the column cut at the edge only, at its visible width: on a 390px phone Profiles' next column starts at the
+      // edge, and a fixed 32px fade lay over bb/100's figures.
+      const edge = el.getBoundingClientRect().right;
+      const cut = [...el.querySelectorAll<HTMLElement>(':scope > table > thead > tr:last-child > *')].find(c => c.getBoundingClientRect().right > edge + 1);
+      const w = cut ? Math.min(32, Math.max(8, edge - cut.getBoundingClientRect().left)) : 32;
+      el.style.maskImage = more ? `linear-gradient(to right, #000 calc(100% - ${w}px), transparent)` : '';
     };
     const ro = new ResizeObserver(es => es.forEach(e => fade(e.target as HTMLElement)));
     // Its content's boxes (through display: contents wrappers), and the moment content-visibility lays it out.

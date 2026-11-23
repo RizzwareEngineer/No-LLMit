@@ -116,10 +116,11 @@ export function PhoneBar({ blank = false, live, watching, handNumber, bigBlind }
         <span data-watching className="flex items-center gap-1.5 tabular-nums" title={watching === undefined ? undefined : `${watching.toLocaleString('en-US')} watching`}
           aria-label={`${live ? 'Live' : 'Not live'}${watching !== undefined ? `, ${watching.toLocaleString('en-US')} watching` : ''}`} role="status">
           <span aria-hidden className="inline-block w-2 h-2 rounded-full" style={{ background: live ? 'rgb(220, 38, 38)' : MUTED }} />
-          {watching !== undefined && <span aria-hidden>{watching.toLocaleString('en-US')}<span className="max-[400px]:hidden"> watching</span></span>}
+          {watching !== undefined && <span aria-hidden>{watching.toLocaleString('en-US')}<span className="max-[374px]:hidden"> watching</span></span>}
         </span>
-        {/* Under 360px (a laptop at 500%) the hand number gives way, so the bar never runs past the window. */}
-        {handNumber > 0 && !detail && <span className="tabular-nums max-[359px]:hidden" style={{ color: MUTED }}>Hand #{handNumber}</span>}
+        {/* Under 430px the hand reads "#240" (the desktop bar's form), so a 390px phone keeps "1 watching" whole; under 360px
+            (a laptop at 500%) the hand number gives way, so the bar never runs past the window. */}
+        {handNumber > 0 && !detail && <span className="tabular-nums max-[359px]:hidden" style={{ color: MUTED }}><span className="max-[429px]:hidden">Hand </span>#{handNumber}</span>}
         {detail && (
           <button onClick={backToOverview} className="shrink-0 flex items-center gap-1 rounded px-2 h-11 font-medium" style={{ color: BLUE }}>
             <SquaresFour size={13} weight="bold" aria-hidden />Overview

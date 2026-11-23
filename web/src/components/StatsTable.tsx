@@ -206,7 +206,7 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
   return (
     // `adds`: the extra cells of each row fade in once per open, from here (globals.css), not again when a re-sort moves a row.
     <div className={`flex-1 min-h-0 flex flex-col ${mini ? '' : 'adds'}`}>
-      <div className={`@container relative min-w-0 ${mini ? '' : 'max-md:overflow-x-auto'}`}>
+      <div className={`@container relative min-w-0 ${mini ? '' : 'max-md:overflow-x-auto max-md:flex-1'}`}>
         <Grid groups={mini ? MINI : GROUPS} rows={atTable} noHands={noHands} rest={everyone && !mini ? rest : []} waiting={!mini && (everyone || !seated) ? unseated : []} sort={sort} onSort={toggleSort} picked={picked} onPick={isolate} mini={mini} snap={snap} />
       </div>
       {!mini && <div className="add-in mt-2 flex flex-wrap gap-x-5 gap-y-1">
@@ -254,7 +254,8 @@ function Name({ href, name, mini = false, children }: { href?: string; name: str
 // The card sets --card-row on the page, so its rows and the tile gliding into it (also non-mini) share one height: 40px
 // where everything fits, else what fits down to 32px, else 40px again; and 40px whenever All models adds its rows under
 // the divider (a longer list that scrolls by design, its rows as they were). Layout px throughout, as the zoom has them.
-const CARD_ROW = 40, CARD_ROW_MIN = 32;
+// CARD_ROW_MAX: a phone's rows grow to fill its card when they all fit, up to 1.2 times their height (no tall rows for a short list).
+const CARD_ROW = 40, CARD_ROW_MIN = 32, CARD_ROW_MAX = 48;
 let fitObserved: Element | null = null, refit = () => {};
 function fitCardRows(t: HTMLTableElement | null, mini: boolean) {
   // The card only: on a phone it is #stats-panel; on a desktop #stats-panel is the Profiles tile, whose focused table
@@ -283,7 +284,7 @@ function fitCardRows(t: HTMLTableElement | null, mini: boolean) {
       }
       k = Math.max(1, k);
       const avail = room - other;
-      const per = rows > k ? avail / k : CARD_ROW; // exact: a rounded height left a sliver of the next row
+      const per = rows > k ? avail / k : Math.min(avail / k, CARD_ROW_MAX); // exact: a rounded height left a sliver of the next row
       if (root.getPropertyValue('--phone-row') !== `${per}px`) root.setProperty('--phone-row', `${per}px`);
       return;
     }

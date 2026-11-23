@@ -1,30 +1,39 @@
 'use client'
 
-// Phone draft A (app/a): under the table and its caption, the rest of the first screen above the tab bar holds Trends' lines
-// (owner, 2026-11-22: "fill that space with either the P&L, or we just fill it with trends. If they click on it, then they
-// should get the expanded graph"), sized to exactly that space: on a real phone (its browser's bars take about a fifth of
-// the screen) it is 90 to 170px tall, never under the tab bar. Where less than MIN_H is left, nothing: Trends is the next
-// window. No controls: a tap opens the Trends window.
+// Phone draft A (app/a): under the table and its caption, the rest of the first screen above the tab bar (owner, 2026-11-22:
+// "fill that space with either the P&L, or we just fill it with trends. If they click on it, then they should get the
+// expanded graph"; "Why is the table so small in relation to the graph?"). Exactly that space, never under the tab bar: on
+// a real phone (its browser's bars take about a fifth of the screen) 250 to 350px, so Trends' lines no taller than the
+// table, and this session's Profits & Losses under them in the rest. A tap anywhere on it opens the Trends window.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
+import FitName from '@/components/FitName';
 import { pageTo } from '@/components/Section';
 import { MUTED, seatedModels, signed, type ModelStats, type StatsResponse } from '@/lib/stats';
 import { RATE_FROM, robustRange, series } from '@/lib/series';
 import { replayStarted, skipReplay } from '@/lib/timeline';
+import { formatAmount, useBigBlind } from '@/lib/amounts';
+import type { PlayerState } from '@/lib/api';
 
 const RING = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
-const MIN_H = 80; // under this the plot is a smear under its title
+const MIN_H = 80; // a chart under this is a smear under its title: nothing
+const MIN_CHART = 110, PNL_H = 128; // with P&L: the lines at least this tall, P&L's title and five rows of two
 
-export default function LandingFill({ stats }: { stats: StatsResponse | null }) {
+export default function LandingFill({ stats, players }: { stats: StatsResponse | null; players: PlayerState[] }) {
   const box = useRef<HTMLDivElement>(null);
-  // Where the fill starts on the page, and the height that leaves it: 100svh (steady while iOS's address bar hides and
-  // shows) less --bar-h, which it inherits from the page (the tab bar, and the connection bar while that shows).
+  // Where the fill starts on the page, the height that leaves it (100svh, steady while iOS's address bar hides and shows,
+  // less --bar-h, which it inherits from the page: the tab bar, and the connection bar while that shows), and the table's.
   const [top, setTop] = useState<number | null>(null);
   const [h, setH] = useState(0);
+  const [tableH, setTableH] = useState(0);
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    const at = () => { setTop(Math.round(el.getBoundingClientRect().top + window.scrollY)); setH(el.clientHeight); };
+    const at = () => {
+      setTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
+      setH(el.clientHeight);
+      setTableH(Math.round(document.querySelector('[data-a-table]')?.getBoundingClientRect().height ?? 0));
+    };
     at();
     // The table or the caption above changing height moves the fill; its own height follows from that.
     const ro = new ResizeObserver(at);
@@ -41,18 +50,49 @@ export default function LandingFill({ stats }: { stats: StatsResponse | null }) 
     document.getElementById('race-panel')?.focus({ preventScroll: true });
     pageTo('race');
   };
+  // The lines no taller than the table (a graph never dwarfs it), P&L the rest; on a phone with no room for both, the lines.
+  const cap = tableH || h, both = players.length > 0 && h >= MIN_CHART + 8 + PNL_H;
+  const chartH = both ? Math.min(cap, h - 8 - PNL_H) : Math.min(cap, h);
   return (
-    <div ref={box} data-landing-fill className="relative w-full"
+    <div ref={box} data-landing-fill className="relative w-full flex flex-col gap-2"
       style={top === null ? { visibility: 'hidden' } : { height: `max(0px, calc(100svh - ${top}px - var(--bar-h, 0px) - 12px))` }}>
-      {h >= MIN_H && (
+      {chartH >= MIN_H && (
         <>
-          <div className="absolute inset-0 bg-white rounded overflow-hidden" style={RING}>
+          <div className="relative w-full shrink-0 bg-white rounded overflow-hidden" style={{ ...RING, height: chartH }}>
             <LandingChart models={field} />
           </div>
+          {both && <div className="relative w-full flex-1 bg-white rounded overflow-hidden" style={RING}><Pnl players={players} /></div>}
           {/* One button over the whole fill: no part of it takes a tap of its own. */}
           <button type="button" onClick={open} aria-label="Open Trends" className="absolute inset-0 rounded [-webkit-tap-highlight-color:transparent] active:bg-black/[0.03]" />
         </>
       )}
+    </div>
+  );
+}
+
+// This session's Profits & Losses (WinningsPanel's figures) in two columns, ranked, each with its line's colour; a new
+// rank moves a row at once (the panel's sliding rows "jiggle", owner 2026-11-22). Its rows share the height it is given.
+function Pnl({ players }: { players: PlayerState[] }) {
+  const bb = useBigBlind();
+  const ranked = [...players].sort((a, b) => (b.winnings || 0) - (a.winnings || 0));
+  return (
+    <div className="absolute inset-0 flex flex-col px-3 pt-1.5 pb-1">
+      <div className="text-[13px] leading-4" style={{ color: MUTED }}>Profits &amp; Losses · this session{bb ? ' · BB' : ''}</div>
+      <ol className="flex-1 grid grid-cols-2 grid-flow-col gap-x-4" style={{ gridTemplateRows: `repeat(${Math.ceil(ranked.length / 2)}, 1fr)` }}>
+        {ranked.map(p => {
+          const w = p.winnings || 0;
+          return (
+            <li key={p.id} className="flex items-center gap-1.5 min-w-0">
+              <span aria-hidden className="w-[3px] h-3.5 rounded-full shrink-0" style={{ background: modelColor(p.name) }} />
+              <LLMLogo model={p.name} size={14} />
+              <div className="flex-1 min-w-0"><FitName name={p.name} className="text-[12px] font-medium" style={{ color: 'rgb(55, 53, 47)' }} /></div>
+              <span data-chips={Math.abs(w)} className="text-[12px] font-bold tabular-nums shrink-0" style={{ color: w > 0 ? 'rgb(15, 123, 108)' : w < 0 ? 'rgb(200, 50, 50)' : MUTED }}>
+                {w > 0 ? '+' : w < 0 ? '−' : ''}{formatAmount(Math.abs(w), bb, false)}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
