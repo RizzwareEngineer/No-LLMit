@@ -285,16 +285,17 @@ export default memo(function HeadToHead({
         </motion.div>}
       </div>
       {/* A phone's key, under the grid: each row's logo, name and Total, in the grid's order, two to a line. It takes the
-          card's height left under the grid (StatsSections leaves it 116px under the matrix), its lines spread over it. */}
+          card's height left under the grid (StatsSections leaves it 116px under the matrix), its lines spread over it. Tight
+          gaps and 14px logos: "Nemotron Super" and "DeepSeek Flash" fit whole at 375. */}
       {phone && (
-        <ol className="sticky left-0 w-[100cqw] flex-1 mt-2 grid grid-cols-2 content-evenly gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
+        <ol className="sticky left-0 w-[100cqw] flex-1 mt-2 grid grid-cols-2 content-evenly gap-x-2 gap-y-0.5 text-[12px] tabular-nums">
           {sorted.map(row => {
             const t = among.get(row.name)!;
             const none = row.hands === 0 || t.hands === 0;
             return (
-              <li key={row.name} className={`flex items-center gap-1.5 min-w-0 h-5 ${adds(row.name)}`}>
-                <LLMLogo model={row.name} size={16} />
-                <a data-key-name href={modelHref(row.name)} title={row.name} translate="no" className="block min-w-0 max-w-full truncate rounded-sm px-0.5 font-medium" style={{ color: TEXT, background: row.name === leader ? HOT : undefined }}><NameForm name={row.name} /></a>
+              <li key={row.name} className={`flex items-center gap-1 min-w-0 h-5 ${adds(row.name)}`}>
+                <LLMLogo model={row.name} size={14} />
+                <a data-key-name href={modelHref(row.name)} title={row.name} translate="no" className="block min-w-0 max-w-full truncate rounded-sm px-px font-medium" style={{ color: TEXT, background: row.name === leader ? HOT : undefined }}><NameForm name={row.name} /></a>
                 <span data-cell={`${row.name}|`} data-hands={t.hands} title={TOTAL_TITLE} className="ml-auto shrink-0 font-bold" style={{ color: none ? MUTED : netColor(t.bb100), opacity: !none && row.hands < MIN_HANDS ? FAINT : undefined }}>{none ? DASH : <><span aria-hidden>{totalFig(t.bb100)}</span><span className="sr-only">{row.name} {signed(t.bb100)} bb/100 against the models shown, over {plural(row.hands, 'hand')} played</span></>}</span>
               </li>
             );
