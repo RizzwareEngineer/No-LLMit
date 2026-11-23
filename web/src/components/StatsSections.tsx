@@ -643,7 +643,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     }), { rootMargin: '-50% 0px -50% 0px' });
     els.forEach(e => io.observe(e));
     return () => { io.disconnect(); setScreen(''); };
-  }, []);
+  }, [open]); // draft A mounts one stats window at a time
   // A card body wider than its window (Profiles' columns, Matchups' matrix) fades out at its right edge while more lies
   // that way, so a column cut at the edge reads as "scroll for more", not as broken text (the audit's clipped columns).
   useEffect(() => {
@@ -669,7 +669,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
       return () => { el.removeEventListener('scroll', f); el.removeEventListener('contentvisibilityautostatechange', f); };
     });
     return () => { ro.disconnect(); offs.forEach(o => o()); };
-  }, [data, muLineup]);
+  }, [data, muLineup, open]);
   const card = (id: string, title: string, aside: React.ReactNode, body: React.ReactNode, cls = '') => (
     <div id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className="flex-1 min-h-0 flex flex-col outline-none">
     {/* relative: the card holds what is placed in its coordinates (Matchups' readout), as the wide cards do. */}
@@ -693,18 +693,18 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     // the grid: five 20px lines and their gaps), so a swipe on it pages instead of scrolling it; never under 26px cells
     // (a short window scrolls it instead).
     <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `min(100cqw - 36px, clamp(${26 * Math.max(1, field.length)}px, max(100svh, var(--win-min, 0px)) - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 104px - 28px - 116px, ${40 * Math.max(1, field.length)}px))` } as React.CSSProperties}>
-      {draftA && (
-        <section id="stats" data-screen={!open || undefined} hidden={!!open} aria-label="Stats" className={WINDOW}>
+      {draftA && !open && (
+        <section id="stats" data-screen aria-label="Stats" className={WINDOW}>
           <PhoneOverview models={field} bigBlind={bigBlind} blank={blank} message={ready ? null : message} />
         </section>
       )}
-      <section id="race" data-screen={shown('race') || undefined} hidden={!shown('race')} aria-label="Trends" className={WINDOW}>
+      {shown('race') && <section id="race" data-screen aria-label="Trends" className={WINDOW}>
         {!draftA && <div id="stats" aria-hidden className="absolute top-0" />}
         {card('race-panel', 'Trends', ready && <Leader tl={tl} models={field} />, ready ? (
           <CumulativeChart race compact bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
         ) : message)}
-      </section>
-      <section id="stats-table" data-screen={shown('stats-table') || undefined} hidden={!shown('stats-table')} aria-label="Profiles" className={WINDOW}>
+      </section>}
+      {shown('stats-table') && <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW}>
         {card('stats-panel', 'Profiles', ready && <Leader tl={tl} models={field} />, !ready ? message : (
           <>
             <Definition>
@@ -716,8 +716,8 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
             <SyncedProfiles tl={tl} models={models} seated={seated} view={profView} />
           </>
         ))}
-      </section>
-      <section id="pairwise" data-screen={shown('pairwise') || undefined} hidden={!shown('pairwise')} aria-label="Matchups" className={WINDOW}>
+      </section>}
+      {shown('pairwise') && <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW}>
         {card('pairwise-card', 'Matchups', ready && (
           <>
             {/* Wraps (the switch under its label) where the row does not fit: never past the card's edge. */}
@@ -736,7 +736,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
             )}
           </AtHand>
         ), '[&_.panel-scroll]:[container-type:inline-size]')}
-      </section>
+      </section>}
       {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
       <section id="about" data-screen data-end aria-label="About" className={`${ABOUT_WINDOW} ${LAZY}`}>
         <div className="panel-scroll h-full overflow-auto">

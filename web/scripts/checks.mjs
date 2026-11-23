@@ -6821,7 +6821,7 @@ const phoneA = async (w, h, query = '') => {
   const p = await newPage();
   await p.emulate({ viewport: { width: w, height: h, isMobile: true, hasTouch: true, deviceScaleFactor: 1 }, userAgent: (await browser.userAgent()) });
   await p.goto(`${BASE}/a${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await p.waitForFunction(() => document.querySelector('[data-landing-fill]') && document.querySelector('#race'), { timeout: 90000 }).catch(() => {});
+  await p.waitForFunction(() => document.querySelector('[data-landing-fill]') && document.querySelector('#stats [data-overview], #race'), { timeout: 90000 }).catch(() => {});
   await sleep(2500);
   return p;
 };
