@@ -28,6 +28,8 @@ export const useSeatDraft = () => useSyncExternalStore(noSub, () => { const s = 
 // ?phone=b: the phone table's draft B (owner, 2026-11-21: "go for both let's see it"), the desktop table turned upright
 // (PokerTable). Draft A is its own page, /a.
 export const usePhoneDraft = () => useSyncExternalStore(noSub, () => query('phone') === 'b', () => false);
+// ?table=tall on draft A (/a): the tall table, the desktop's seat cards round a felt drawn tilted away (PokerTable).
+export const useTallTable = () => useSyncExternalStore(noSub, () => query('table') === 'tall', () => false);
 export const usePhoneShape = () => useSyncExternalStore(noSub, () => { const s = query('shape'); return (s === 'rect' || s === 'stadium' ? s : 'oval') as PhoneShape; }, () => 'oval' as PhoneShape);
 
 // Which layout's tree to mount (lib/layout's switch): 'phone' or 'desk' once the page runs; null in the prerendered page

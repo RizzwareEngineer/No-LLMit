@@ -42,7 +42,7 @@ import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, page
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
-import { useLayout } from "@/lib/tableSwitches";
+import { useLayout, useTallTable } from "@/lib/tableSwitches";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -241,6 +241,7 @@ export default function Home() {
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
   const draftA = useSyncExternalStore(noSub, isDraftA, () => false); // phone draft A (app/a): the landing fill under the caption
   const fill = useFill();
+  const tall = useTallTable(); // draft A's tall table (?table=tall): the first screen is the table and its caption, no fill or header
   // The URL names no stats screen: an old #stats, #race or #pairwise link opens the page at its top.
   useEffect(() => {
     if (!window.location.hash || isModelHash(window.location.hash)) return;
@@ -296,7 +297,7 @@ export default function Home() {
     const row = tableRef.current;
     if (row) [row, ...row.querySelectorAll('[data-oval], [data-a-table]')].forEach(e => io.observe(e));
     return () => io.disconnect();
-  }, [mounted]); // the phone table mounts and unmounts with the layout
+  }, [mounted, tall]); // the phone table mounts and unmounts with the layout (and draft A's with ?table=tall)
 
   // The stage's fit (fitStage), kept as the window, the stage or the screen change size.
   const stageRef = useRef<HTMLDivElement>(null);
@@ -527,7 +528,7 @@ export default function Home() {
             table why cant it be same dist as the desktop?"): laid out MAC_TABLE_W across, the table's width there, and drawn
             at the phone's width, so it keeps the Mac's size and distance beside the table (its pb-6, the main content's mt-6
             there). The screen is centred (globals.css, html[data-fill=none]). */}
-        {phone && draftA && fill === 'none' && <Fit w={MAC_TABLE_W} data-a-head><div className={`flex flex-col items-center pb-6 ${PICTURED_TAP}`}>{head('', true)}</div></Fit>}
+        {phone && draftA && fill === 'none' && !tall && <Fit w={MAC_TABLE_W} data-a-head><div className={`flex flex-col items-center pb-6 ${PICTURED_TAP}`}>{head('', true)}</div></Fit>}
 
         {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
         <div className="mt-6 max-md:mt-0 flex items-center-safe justify-center-safe w-full md:w-auto">
@@ -580,7 +581,7 @@ export default function Home() {
             {phone && <div className={`md:hidden ${draftA ? 'mt-2' : 'mt-1.5'} w-full`} style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
               <Caption displayState={displayState} blank={players.length === 0} turnKey={turnKey} />
             </div>}
-            {phone && draftA && <LandingFill stats={stats} players={players} />}
+            {phone && draftA && !tall && <LandingFill stats={stats} players={players} />}
           </div>
         </div>
 
@@ -598,7 +599,7 @@ export default function Home() {
       {/* The status bars in a landmark of their own (their boxes are fixed: the header adds no box). */}
       <header aria-label="Table status">
         {desk && <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />}
-        {phone && <PhoneBar show={!(draftA && fill === 'none') || !tableInView} blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />}
+        {phone && <PhoneBar show={!(draftA && fill === 'none' && !tall) || !tableInView} blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />}
       </header>
       {phone && <TabBar tab={tab} onTab={onTab} />}
       {/* No floating back-to-top button on phones: it covered text, logos and chart marks. The tab bar's Table tab is the way

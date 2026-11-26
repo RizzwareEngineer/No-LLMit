@@ -7009,6 +7009,50 @@ group(() => check('phone-a-first-screen-fits', 'On /a, /a?fill=pnl and /a?fill=n
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
+// The tall table (/a?table=tall; owner, 2026-11-26: "turn our table into a vertical table with an angle that will fill the
+// screen", the extra player "on the top though. not at the bottom otherwise it might make people think they're player").
+group(() => check('phone-a-tall-table', 'On /a?table=tall at the iPhones\' browser viewports (touch), the table is one picture (a uniform transform scale): 9 desktop seat cards, each laid out 200x128, one above all the others and centred across the picture, 4 down each side at matching heights, no two overlapping, none at the foot (in the middle, under the top one); the felt drawn narrower at its top edge than at its bottom edge; the pot and board between the seat columns; the table and the caption end above the tab bar; the page is no wider than the window', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of IPHONES) {
+    const size = `${w}x${h}`, p = await phoneA(w, h, '?table=tall');
+    try {
+      const r = await p.evaluate(() => {
+        const box = document.querySelector('[data-tall-table]'), t = box?.firstElementChild, nav = document.querySelector('nav[aria-label=Sections]')?.getBoundingClientRect();
+        if (!t || !nav) return null;
+        const m = new DOMMatrix(getComputedStyle(t).transform), pic = t.getBoundingClientRect();
+        const seats = [...t.querySelectorAll('[data-seat]')].map(e => { const b = e.getBoundingClientRect(); return { lw: e.offsetWidth, lh: e.offsetHeight, l: b.left, t: b.top, r: b.right, b: b.bottom }; });
+        // The felt's edges as drawn: its own 3D transform about its bottom centre (transform-origin) applied to its corners.
+        const f = t.querySelector('[data-tall-felt]'), fm = f && new DOMMatrix(getComputedStyle(f).transform), fw = f?.offsetWidth, fh = f?.offsetHeight;
+        const x = (px, py) => { const q = fm.transformPoint(new DOMPoint(px - fw / 2, py - fh, 0, 1)); return q.x / q.w; };
+        const mid = t.querySelector('[data-felt]')?.getBoundingClientRect(), cap = document.querySelector('[data-caption]')?.getBoundingClientRect();
+        return { uniform: Math.abs(m.a - m.d) < 1e-6 && !m.b && !m.c, z: m.a, pic: [pic.left, pic.right], seats, feltTop: fm && x(fw, 0) - x(0, 0), feltBottom: fm && x(fw, fh) - x(0, fh), mid: mid && [mid.left, mid.right], boxB: box.getBoundingClientRect().bottom, capT: cap?.top, capB: cap?.bottom, navT: nav.top, wide: document.documentElement.scrollWidth - innerWidth };
+      });
+      if (!r) { bad.push(`${size}: no tall table or tab bar`); continue; }
+      const cx = s => (s.l + s.r) / 2, picX = (r.pic[0] + r.pic[1]) / 2, picW = r.pic[1] - r.pic[0];
+      const top = [...r.seats].sort((a, b) => a.t - b.t)[0], rest = r.seats.filter(s => s !== top);
+      const left = rest.filter(s => cx(s) < picX).sort((a, b) => a.t - b.t), right = rest.filter(s => cx(s) >= picX).sort((a, b) => a.t - b.t);
+      seen.push(`${size}: scale ${r.z.toFixed(3)}, seats 1 + ${right.length} + ${left.length}, felt top ${(r.feltTop / r.feltBottom * 100).toFixed(0)}% of its bottom`);
+      if (!r.uniform) bad.push(`${size}: the picture is not one uniform scale`);
+      if (r.seats.length !== 9) bad.push(`${size}: ${r.seats.length} seats`);
+      const sized = r.seats.filter(s => s.lw !== 200 || s.lh !== 128);
+      if (sized.length) bad.push(`${size}: seats laid out ${sized.slice(0, 3).map(s => `${s.lw}x${s.lh}`).join(', ')}, not 200x128`);
+      if (rest.some(s => s.t < top.b - 0.5)) bad.push(`${size}: no one seat above all the others`);
+      if (Math.abs(cx(top) - picX) > 1) bad.push(`${size}: the top seat ${(cx(top) - picX).toFixed(1)}px off the picture's centre`);
+      if (left.length !== 4 || right.length !== 4) bad.push(`${size}: ${left.length} seats on the left, ${right.length} on the right`);
+      else if (left.some((s, i) => Math.abs(s.t - right[i].t) > 1)) bad.push(`${size}: the sides' rows at different heights (${left.map((s, i) => (s.t - right[i].t).toFixed(1)).join(', ')}px apart)`);
+      const hit = r.seats.flatMap((a, i) => r.seats.slice(i + 1).filter(b => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5)).length;
+      if (hit) bad.push(`${size}: ${hit} seats overlapping another`);
+      if (rest.some(s => Math.abs(cx(s) - picX) < picW / 6)) bad.push(`${size}: a seat in the middle under the top one (at the foot)`);
+      if (!(r.feltTop < r.feltBottom - 1)) bad.push(`${size}: the felt's top edge ${r.feltTop?.toFixed(1)}px, its bottom ${r.feltBottom?.toFixed(1)}px (not narrower at the top)`);
+      const inner = [Math.max(...left.map(s => s.r)), Math.min(...right.map(s => s.l))];
+      if (!r.mid || r.mid[0] < inner[0] - 0.5 || r.mid[1] > inner[1] + 0.5) bad.push(`${size}: the pot and board's box ${r.mid?.map(v => v.toFixed(0)).join('..')} not between the seat columns ${inner.map(v => v.toFixed(0)).join('..')}`);
+      if (r.capT === undefined || r.capT < r.boxB - 0.5) bad.push(`${size}: the caption ${r.capT === undefined ? 'missing' : 'over the table'}`);
+      if (r.boxB > r.navT + 0.5 || r.capB > r.navT + 0.5) bad.push(`${size}: the table or caption runs ${(Math.max(r.boxB, r.capB) - r.navT).toFixed(0)}px under the tab bar`);
+      if (r.wide > 0) bad.push(`${size}: page ${r.wide}px wider than the window`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
 
 // 2026-11-23: "the next page should be all 3 stats in one view"; then, of the phone's own tiles (rows and cells stretched
 // to fill the window): "why do you stretch shit out like this ... why cant the view be just like the same proportions on
