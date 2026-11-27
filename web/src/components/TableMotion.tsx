@@ -106,8 +106,8 @@ export function Deck({ phase }: { phase: DeckPhase }) {
   return (
     <motion.div
       data-deck={phase}
-      className={size ? 'relative' : 'relative w-[30px] h-[42px]'}
-      style={size ? { width: box.w, height: box.h } : undefined}
+      className="relative"
+      style={{ width: box.w, height: box.h }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
