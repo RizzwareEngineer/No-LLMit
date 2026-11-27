@@ -1718,10 +1718,14 @@ group(() => check('tables-inputs-interleaved', 'With ?tables=1 at 1440x790, ever
     const p = await fresh('tables=1', true);
     try {
       const [a, b] = [await cellAt(p, A), await cellAt(p, B)];
+      // What the last click landed on: Esc's traversal back is asynchronous, so a click sent a few ms after it can come
+      // while table A is still shown over the hidden overview (no cell under it), or once the overview is back. The page
+      // must do what that click meant: B's cell opens B; a click on the table still shown leaves the overview.
+      await p.evaluate(() => addEventListener('click', e => { window.__hit = e.target.closest?.('[data-overview-cell]')?.dataset.overviewCell ?? 'table'; }, true));
       await p.mouse.click(...a); await p.keyboard.press('Escape'); await p.mouse.click(...b);
-      const s = await settledOverview(p);
-      if (!matchesUrl(s) || s.t !== B) bad.push(`reduced motion, click Esc click: ${sayState(s)}`);
-      else { await allTables(p, 'reduced motion', s); seen.push(`reduced motion: ${s.t}`); }
+      const s = await settledOverview(p), hit = await p.evaluate(() => window.__hit), want = hit === B ? B : null;
+      if (!matchesUrl(s) || s.t !== want) bad.push(`reduced motion, click Esc click (the click on ${hit}): ${sayState(s)}`);
+      else { await allTables(p, 'reduced motion', s); seen.push(`reduced motion: the click on ${hit}, ${s.t ?? 'overview'}`); }
     } finally { await p.close(); }
   }
   // A ?t no table has: the overview, the key dropped from the URL.
