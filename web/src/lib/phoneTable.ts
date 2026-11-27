@@ -22,6 +22,7 @@ export const DECK = { w: 28, h: 40, top: 2 } as const; // the hole cards' size (
 export interface Spot {
   x: Lin; y: Lin; // the logo's centre
   cards: readonly [number, number]; bet: readonly [number, number]; // centres, px from the logo's centre
+  bubble?: Bubble; // the action's bubble, where bubbleAt's rule would cover a neighbour
 }
 export type Bubble = { x: number; top: number; align: 'center' | 'left' };
 
@@ -35,13 +36,15 @@ function onRim(deg: number): Pick<Spot, 'x' | 'y'> {
 // centre of its two hole cards (under the stack and label up top, beside or over the logo lower down: toward the middle)
 // and of its bet; the left half mirrors them (0/2, 8/3, 7/4, 6/5). Tuned for nine so no two crowd each other and nothing
 // meets the pot, the board or the deck (phoneTable.test.mjs at 375x667, 390x844, 430x932 and around them).
-type Hands = Pick<Spot, 'cards' | 'bet'>;
-const H = (cards: readonly [number, number], bet: readonly [number, number]): Hands => ({ cards, bet });
+type Hands = Pick<Spot, 'cards' | 'bet' | 'bubble'>;
+const H = (cards: readonly [number, number], bet: readonly [number, number], bubble?: Bubble): Hands => ({ cards, bet, ...(bubble && { bubble }) });
 const NINE: [Pick<Spot, 'x' | 'y'>, Hands][] = [
   [onRim(0), H([0, 86], [0, 133])],
   [onRim(37.94), H([-14, 82], [-9, 112])],
-  [onRim(72.56), H([-24, 83], [-60, 48])],
-  [onRim(126.92), H([-18, -34], [-86, -45])],
+  // Seats 3 and 4: the action under the logo, over the label, a little inward (seat 3: over the logo it covers seat 2's
+  // stack and cards; seat 4: centred it touches seat 5's logo on a short table).
+  [onRim(72.56), H([-24, 83], [-60, 48], { x: 5, top: LOGO / 2 + 18, align: 'center' })],
+  [onRim(126.92), H([-18, -34], [-86, -45], { x: 12, top: LOGO / 2 + 18, align: 'center' })],
   [onRim(158.9), H([-18, -36], [-21, -80])],
 ];
 const MIRROR: Record<number, number> = { 0: 2, 8: 3, 7: 4, 6: 5 };
@@ -73,7 +76,7 @@ export function seatSpots(n: number): Spot[] {
   }
   return Array.from({ length: 9 }, (_, i) => {
     const m = MIRROR[i], [p, h] = NINE[(m ?? i) - 1];
-    return m === undefined ? { ...p, ...h } : { ...flip(p), cards: [-h.cards[0], h.cards[1]], bet: [-h.bet[0], h.bet[1]] };
+    return m === undefined ? { ...p, ...h } : { ...flip(p), cards: [-h.cards[0], h.cards[1]], bet: [-h.bet[0], h.bet[1]], ...(h.bubble && { bubble: { ...h.bubble, x: -h.bubble.x } }) };
   });
 }
 
@@ -97,6 +100,7 @@ export const CHIP_TOP = LOGO / 2 - 13; // the chip on the logo's lower edge
 // (over the label) when they are over it. The top seat's would leave the table (under the page's top bar), so it sits
 // beside its logo's upper half.
 export function bubbleAt(spot: Spot): Bubble {
+  if (spot.bubble) return spot.bubble;
   if (spot.y[0] === 0 && spot.y[1] < LOGO) return { x: LOGO / 2 + 6, top: -20, align: 'left' };
   if (spot.cards[1] >= 0) return { x: 0, top: -LOGO / 2 - 24, align: 'center' };
   return { x: 0, top: LOGO / 2 + 18, align: 'center' };

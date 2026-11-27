@@ -4,7 +4,7 @@
 // Run from web/: node --experimental-strip-types --test src/lib/phoneTable.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CHIP, CHIP_TOP, DECK, LOGO, MIDDLE, POT_TOP, TEXT_BOX, at, seatBox, seatLabel, seatSpots } from './phoneTable.ts';
+import { CHIP, CHIP_TOP, DECK, LOGO, MIDDLE, POT_TOP, TEXT_BOX, at, bubbleAt, seatBox, seatLabel, seatSpots } from './phoneTable.ts';
 
 const layout = (W, H) => {
   const my = at(MIDDLE, H), cx = W / 2, boxes = [];
@@ -42,6 +42,33 @@ for (const [W, H] of TABLES) {
       }
     }
     assert.deepEqual(bad, []);
+  });
+}
+
+// Each seat's action bubble (20px tall; 'Fold', 'Call 20' and 'Raise 632' are 44, 58 and 76px at 12px bold) keeps off
+// its own cards, logo, chip, stack and bet, off every other seat's logo, stack, label, cards and bet, off the pot and the
+// board, and on the screen, at the tables the page draws from 360x640 to 430x932 and around them.
+for (const [W, H] of [...TABLES, [326, 460], [341, 465], [356, 642], [396, 730]]) {
+  test(`no action bubble covers anything else on a ${W}x${H} table`, () => {
+    const spots = seatSpots(9).map(s => ({ s, x: at(s.x, W), y: at(s.y, H) })), bad = [];
+    const my = at(MIDDLE, H), cx = W / 2, pot = [cx - 50, my + POT_TOP, cx + 50, my + POT_TOP + 30], board = [cx - 84, my - 2, cx + 84, my + 42];
+    const parts = (o, own) => {
+      const c = [o.x + o.s.cards[0], o.y + o.s.cards[1]], b = [o.x + o.s.bet[0], o.y + o.s.bet[1]];
+      return { logo: [o.x - LOGO / 2, o.y - LOGO / 2, o.x + LOGO / 2, o.y + LOGO / 2], stack: (own ? [-28, LOGO / 2 + 4, 28, LOGO / 2 + 18] : TEXT_BOX).map((v, k) => v + (k % 2 ? o.y : o.x)),
+        chip: [o.x - CHIP.w / 2, o.y + CHIP_TOP, o.x + CHIP.w / 2, o.y + CHIP_TOP + CHIP.h], cards: [c[0] - 30, c[1] - 20, c[0] + 30, c[1] + 20], bet: [b[0] - 24, b[1] - 10, b[0] + 24, b[1] + 10] };
+    };
+    spots.forEach((o, i) => {
+      const b = bubbleAt(o.s);
+      for (const w of [44, 58, 76]) {
+        const l = o.x + b.x - (b.align === 'center' ? w / 2 : 0), box = [l, o.y + b.top, l + w, o.y + b.top + 20];
+        if (box[0] < -12 || box[1] < 0 || box[2] > W + 12) bad.push(`seat ${i}'s ${w}px bubble off the screen`); // the page's 12px gutter
+        if (meet(box, pot)) bad.push(`seat ${i}'s ${w}px bubble on the pot`);
+        if (meet(box, board)) bad.push(`seat ${i}'s ${w}px bubble on the board`);
+        // Its own label is the one thing it may cover (under the logo, the stack's line stays clear).
+        spots.forEach((q, j) => { for (const [k, r] of Object.entries(parts(q, j === i))) if (meet(box, r)) bad.push(`seat ${i}'s ${w}px bubble on ${j === i ? 'its own' : `seat ${j}'s`} ${k}`); });
+      }
+    });
+    assert.deepEqual([...new Set(bad)], []);
   });
 }
 
