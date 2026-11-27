@@ -409,7 +409,7 @@ html[data-overview] .stage-zoom { visibility: hidden; }
 [data-lod] [data-far] { opacity: calc(1 - var(--lod-t)); }
 /* The header's per-table items (page.tsx's StatusRow) on the overview's first paint: folded away, so Live, the units and
    Sound stand together in the middle before the page runs. */
-html[data-overview] [data-status-table] { width: 0 !important; margin-left: -16px; opacity: 0; }
+html[data-overview] [data-status-hand] { display: none; }
 html.phone-a [data-a-table] [data-hole] [role=img], html.phone-a [data-a-table] [data-felt-cards] [role=img] { width: 40px; height: 56px; }
 html.phone-a [data-a-table] [role=img] span { font-size: 14px; }
 html.phone-a [data-a-table] [role=img] svg { width: 12px; height: 12px; }

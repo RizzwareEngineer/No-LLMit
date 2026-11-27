@@ -920,6 +920,18 @@ function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fo
   useFillIn(handRef, handKnown);
   const [labelBox, labelSize, labelAttrs] = useRememberedBox<HTMLSpanElement>('status-label', statusKnown, 'wh');
   const [handBox, handSize, handAttrs] = useRememberedBox<HTMLSpanElement>('hand-no', handKnown, 'wh');
+  // Without the overview exactly the row as it always was (the items in the row itself, display: contents); on the
+  // overview's first paint html[data-overview] hides them (globals.css), as the folded box will.
+  const handItems = (
+    <div ref={handRef} data-status-hand className={`${fold ? 'flex items-center gap-x-4 shrink-0' : 'contents'} ${handKnown ? '' : '[&>*]:invisible'}`}>
+      <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+      <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '0'}</span>
+      <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+      <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
+      <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+      <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
+    </div>
+  );
   return (
     <div className={`mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 ${className}`}>
       {/* Live indicator */}
@@ -939,16 +951,7 @@ function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fo
           to the same lines) and nothing under it moves when they fill in. The blank hand number is one digit (tabular
           figures), never wider than the one remembered from the last visit, so on a refresh the remembered width holds
           it exactly (a "#00" blank was wider than "#2" and the row shifted 4px when a session's first hands arrived). */}
-      <div data-status-table aria-hidden={!perTable || undefined} className={fold ? 'flex items-center overflow-hidden shrink-0' : 'contents'} style={midStyle}>
-      <div ref={handRef} className={`${fold ? 'flex items-center gap-x-4 shrink-0' : 'contents'} ${handKnown ? '' : '[&>*]:invisible'}`}>
-        <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-        <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '0'}</span>
-        <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-        <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
-        <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-        <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
-      </div>
-      </div>
+      {fold ? <div data-status-table aria-hidden={!perTable || undefined} className="flex items-center overflow-hidden shrink-0" style={midStyle}>{handItems}</div> : handItems}
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
       <UnitToggle bigBlind={stakes.bigBlind} />
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
