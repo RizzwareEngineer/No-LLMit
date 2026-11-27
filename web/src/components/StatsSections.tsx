@@ -4,17 +4,18 @@ import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, use
 import { flushSync } from 'react-dom';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import LLMLogo from '@/components/LLMLogo';
-import About from '@/components/About';
+import About, { useAboutLayout } from '@/components/About';
 import { PageStats } from '@/components/about/content';
-import { ArrowDown, Warning } from '@phosphor-icons/react';
-import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OUT, Segmented, StatsZoom, TITLE, backToOverview, currentScreen, hold, pageBy, setScreen, stopPaging } from '@/components/Section';
+import { ArrowDown, CaretLeft, Warning } from '@phosphor-icons/react';
+import Panel, { Added, CARD, CARD_SHADOW, GLIDE, GLIDE_MS, HEADER, HUG, NEXT_BUTTON, NEXT_STYLE, OPEN, OUT, Segmented, StatsZoom, TITLE, backToOverview, currentScreen, hold, openPart, pageBy, setScreen, stopPaging, takePart } from '@/components/Section';
+import Fit from '@/components/Fit';
 import CumulativeChart, { H, LEGEND_H, W, sampleAt } from '@/components/CumulativeChart';
 import StatsTable, { MINI_CHROME, SLIDE, TABLE_VIEW, type TableView } from '@/components/StatsTable';
 import HeadToHead, { NAMES, STRIP, TOTALS } from '@/components/HeadToHead';
 import { StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, StatsResponse } from '@/lib/stats';
 import { remember, remembered, useRememberedBox } from '@/lib/boxes';
-import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
+import { ABOUT_PART, ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
 import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
 
 // Screens 2-6, each an empty full-height snap point in the page flow. Over them sits one layer:
@@ -47,7 +48,7 @@ const useNativeTimeline = () =>
 
 // Phones (lib/layout's PHONE) get their own stats: one full-screen window per part (PhoneStats); wider windows the overview and
 // its cards' loop. The prerender is the wide one (stats sit below the table screen, out of sight when a phone swaps them).
-import { PHONE } from '@/lib/layout';
+import { PHONE, isDraftA } from '@/lib/layout';
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
 const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
 
@@ -588,6 +589,9 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
 // On the card's body (which clips already), not the window: its paint containment would clip the card's ring and side
 // shadow at the window's edges (WINDOW has no side padding).
 const LAZY = '[content-visibility:auto] [contain-intrinsic-size:auto_100svh]';
+// Draft A's parts, each with the card that takes focus when it opens.
+const PARTS = { race: 'race-panel', 'stats-table': 'stats-panel', pairwise: 'pairwise-card' } as const;
+type Part = keyof typeof PARTS;
 const LAZY_BODY = '[content-visibility:auto] [contain-intrinsic-size:auto_0px]';
 function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error: string | null }) {
   const ready = !!data;
@@ -605,19 +609,47 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
   const muModels = muLineup === 'all' ? models : field;
   const profView = useState<TableView>(TABLE_VIEW);
   const room = useRef<HTMLDivElement>(null);
+  // Phone draft A (owner, 2026-11-23: "the next page should be all 3 stats in one view"): one window under the table,
+  // the overview of the three parts (PhoneTiles), or the part a tile opened, in its place, with a way back; the oval
+  // layout (/) keeps a window per part. The tiles and the landing fill open a part ('tileopen', Section's openPart); the
+  // back button and the Stats tab tapped on Stats ('overview', backToOverview) go back. Focus follows: to the card opened,
+  // and back to the tile it was opened from.
+  const draftA = useSyncExternalStore(noop, isDraftA, () => false);
+  const [open, setOpen] = useState<Part | null>(() => { const p = takePart(); return p && p in PARTS ? (p as Part) : null; });
+  const was = useRef<Part | null>(null);
+  useEffect(() => {
+    if (!draftA) return;
+    const onOpen = (e: Event) => { const t = (e as CustomEvent<string>).detail; if (t in PARTS) setOpen(t as Part); };
+    const onBack = () => setOpen(null);
+    window.addEventListener('tileopen', onOpen);
+    window.addEventListener('overview', onBack);
+    return () => { window.removeEventListener('tileopen', onOpen); window.removeEventListener('overview', onBack); };
+  }, [draftA]);
+  useEffect(() => {
+    const id = open ? PARTS[open] : was.current && `tile-${was.current}`;
+    if (id) document.getElementById(id)?.focus({ preventScroll: true });
+    was.current = open;
+  }, [open]);
+  const shown = (id: Part) => !draftA || open === id;
+  const aboutLayout = useAboutLayout();
 
   // The window crossing the middle of the screen is the page's screen (the tab bar's Stats or About).
   useEffect(() => {
-    const els = room.current ? [...room.current.querySelectorAll<HTMLElement>(':scope > [data-screen]')] : [];
+    const els = room.current ? [...room.current.querySelectorAll<HTMLElement>(':scope > section')] : [];
     // A window leaving the middle clears the screen it set (an instant jump from About to Profits & Losses crosses none).
-    const io = new IntersectionObserver(es => es.forEach(e => {
-      const id = e.target.id === 'about' ? 'about' : `phone-${e.target.id}`;
-      if (e.isIntersecting) setScreen(id);
-      else if (currentScreen() === id) setScreen('');
-    }), { rootMargin: '-50% 0px -50% 0px' });
+    // From the windows on the middle line now, not each change alone: About's two windows (?about=split) are both 'about',
+    // and the first leaving in a later callback than the second arrived cleared it (the tab bar then lit Stats).
+    const idOf = (el: Element) => (el.id.startsWith('about') ? 'about' : `phone-${el.id}`);
+    const on = new Set<Element>();
+    const io = new IntersectionObserver(es => {
+      es.forEach(e => (e.isIntersecting ? on.add(e.target) : on.delete(e.target)));
+      const now = [...on].pop();
+      if (now) setScreen(idOf(now));
+      else if (els.some(el => idOf(el) === currentScreen())) setScreen('');
+    }, { rootMargin: '-50% 0px -50% 0px' });
     els.forEach(e => io.observe(e));
     return () => { io.disconnect(); setScreen(''); };
-  }, []);
+  }, [open]); // draft A mounts one stats window at a time
   // A card body wider than its window (Profiles' columns, Matchups' matrix) fades out at its right edge while more lies
   // that way, so a column cut at the edge reads as "scroll for more", not as broken text (the audit's clipped columns).
   useEffect(() => {
@@ -643,13 +675,17 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
       return () => { el.removeEventListener('scroll', f); el.removeEventListener('contentvisibilityautostatechange', f); };
     });
     return () => { ro.disconnect(); offs.forEach(o => o()); };
-  }, [data, muLineup]);
+  }, [data, muLineup, open]);
   const card = (id: string, title: string, aside: React.ReactNode, body: React.ReactNode, cls = '') => (
     <div id={id} tabIndex={-1} aria-labelledby={`${id}-title`} className="flex-1 min-h-0 flex flex-col outline-none">
     {/* relative: the card holds what is placed in its coordinates (Matchups' readout), as the wide cards do. */}
     <div className={`${CARD} relative flex-1 ${blank ? '[&>*]:invisible' : ''} ${cls}`} style={{ boxShadow: CARD_SHADOW }}>
       <div className={HEADER}>
-        <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
+        <div className="flex items-center gap-1 min-w-0">
+          {/* 32px drawn, 44px to a touch (its ::before). */}
+          {draftA && <button type="button" onClick={backToOverview} aria-label="Back to the stats" className="relative -ml-2 size-8 shrink-0 flex items-center justify-center rounded before:absolute before:-inset-1.5 before:content-[''] [-webkit-tap-highlight-color:transparent] active:bg-black/[0.05]"><CaretLeft size={20} weight="bold" style={{ color: TEXT }} aria-hidden /></button>}
+          <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
+        </div>
         {aside && <div className={ASIDE}>{aside}</div>}
       </div>
       <div className={`panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-auto ${LAZY_BODY}`}>{body}</div>
@@ -663,13 +699,18 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     // the grid: five 20px lines and their gaps), so a swipe on it pages instead of scrolling it; never under 26px cells
     // (a short window scrolls it instead).
     <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `min(100cqw - 36px, clamp(${26 * Math.max(1, field.length)}px, max(100svh, var(--win-min, 0px)) - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 104px - 28px - 116px, ${40 * Math.max(1, field.length)}px))` } as React.CSSProperties}>
-      <section id="race" data-screen aria-label="Trends" className={WINDOW}>
-        <div id="stats" aria-hidden className="absolute top-0" />
+      {draftA && !open && (
+        <section id="stats" data-screen aria-label="Stats" className={WINDOW}>
+          <MacOverview ready={ready} blank={blank} message={message} tl={tl} models={models} field={field} seated={seated} bigBlind={bigBlind} profView={profView} />
+        </section>
+      )}
+      {shown('race') && <section id="race" data-screen aria-label="Trends" className={WINDOW}>
+        {!draftA && <div id="stats" aria-hidden className="absolute top-0" />}
         {card('race-panel', 'Trends', ready && <Leader tl={tl} models={field} />, ready ? (
           <CumulativeChart race compact bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
         ) : message)}
-      </section>
-      <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW}>
+      </section>}
+      {shown('stats-table') && <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW}>
         {card('stats-panel', 'Profiles', ready && <Leader tl={tl} models={field} />, !ready ? message : (
           <>
             <Definition>
@@ -681,8 +722,8 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
             <SyncedProfiles tl={tl} models={models} seated={seated} view={profView} />
           </>
         ))}
-      </section>
-      <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW}>
+      </section>}
+      {shown('pairwise') && <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW}>
         {card('pairwise-card', 'Matchups', ready && (
           <>
             {/* Wraps (the switch under its label) where the row does not fit: never past the card's edge. */}
@@ -701,15 +742,107 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
             )}
           </AtHand>
         ), '[&_.panel-scroll]:[container-type:inline-size]')}
+      </section>}
+      {/* About: the page's last window, scrolling inside itself (it is taller than a phone); at ?about=desk the desktop's
+          About as on the owner's Mac (ABOUT_MAC_W across, its two columns), drawn as one picture at the phone's width and
+          centred in the window, as the stats overview is. */}
+      {aboutLayout === 'split' ? <>
+        {/* ?about=split: the Mac's two columns as two windows (About.tsx's PhoneAbout), the second the page's last. */}
+        <section id="about" data-screen aria-label="About" className={`${ABOUT_PART} ${LAZY}`}><About heading="h2" part="read" /></section>
+        <section id="about-ask" data-screen data-end aria-label="About, continued" className={`${ABOUT_PART} ${LAZY}`}>
+          <PageStats.Provider value={pageStats}><About heading="h2" part="ask" /></PageStats.Provider>
+        </section>
+      </> : <section id="about" data-screen data-end aria-label="About" className={`${ABOUT_WINDOW} ${LAZY}`}>
+        {aboutLayout === 'desk' ? (
+          <div className="h-full flex flex-col px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+8px)]">
+            <div data-mac-about className="flex-1 min-h-0 flex flex-col justify-center">
+              <Fit w={ABOUT_MAC_W} contain><PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider></Fit>
+            </div>
+          </div>
+        ) : (
+          <div className="panel-scroll h-full overflow-auto">
+            <div className="px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+16px)]">
+              <PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider>
+            </div>
+          </div>
+        )}
+      </section>}
+    </div>
+  );
+}
+
+// Phone draft A's stats overview (owner, 2026-11-23, of the phone's own tiles: "why do you stretch shit out like this?
+// why cant the view be just like the same proportions on mac? i know it's gonna be less visible"): the wide overview's
+// three tiles, laid out as WideStats lays them out on the owner's Mac (MAC) and drawn as one picture at the phone's width
+// (Fit), as the table above it is (no taller than its window: a phone held sideways); centred in its window, as the Mac
+// centres it in the window. A tap on a tile opens its part's phone card in the window's place (openPart), and focus comes
+// back to the tile (PhoneStats). The Trends tile's Replay is not shown (globals.css): about 7px tall here, a tap meant for
+// it opened the card; the card has its own.
+// MAC: WideStats' block at 1440x790 (a MacBook's browser window): 1218px across, its two rows 797px together. Profiles'
+// width and Matchups' names column are measured here as WideStats measures them (the longest names, in layout px).
+const MAC = { w: 1218, rows: 797 };
+// About's block on that Mac: the table stage's column (--stage-w at 1440x790), unzoomed.
+const ABOUT_MAC_W = 1035;
+function MacOverview({ ready, blank, message, tl, models, field, seated, bigBlind, profView }: { ready: boolean; blank: boolean; message: React.ReactNode; tl: Timeline | null; models: ModelStats[]; field: ModelStats[]; seated?: string[]; bigBlind: number; profView: [TableView, React.Dispatch<React.SetStateAction<TableView>>] }) {
+  const room = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = room.current;
+    if (!el) return;
+    const measure = () => {
+      // Before the names are in, the widths they last had (lib/boxes, shared with WideStats: the same names and fonts).
+      const widest = (sel: string, plus: number, v: string) => {
+        const names = [...el.querySelectorAll<HTMLElement>(sel)];
+        const w = names.length ? Math.max(...names.map(e => e.scrollWidth)) + plus : remembered(v)?.[0];
+        if (names.length) remember(v, w!, 0);
+        if (w) el.style.setProperty(v, `${w}px`);
+      };
+      widest('#tile-stats-table tbody th [translate=no]', MINI_CHROME, '--prof-w');
+      widest('#tile-pairwise [data-row-name] [translate=no]', 5, '--mu-names');
+    };
+    measure();
+    document.fonts?.ready.then(measure);
+  }, [ready, models, field]);
+  const seatedNames = useMemo(() => field.map(m => m.name), [field]);
+  // A tile as the wide overview's (Section's Panel at rest): its title, the Trends Leader, "Open ↓", and its body, which
+  // never scrolls. The whole tile is the tap target and one tab stop (a control inside it, Trends' Replay, keeps its own).
+  const tile = (part: Part, title: string, cls: string, body: React.ReactNode, aside?: React.ReactNode) => (
+    <div className={`flex flex-col min-h-0 min-w-0 ${cls}`}>
+      <section
+        id={`tile-${part}`}
+        tabIndex={0}
+        aria-labelledby={`tile-${part}-title`}
+        onClick={e => !(e.target as Element).closest('a, button, select, input, label') && openPart(part)}
+        onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); openPart(part); } }}
+        className={`${CARD} overflow-hidden relative flex-1 cursor-pointer [-webkit-tap-highlight-color:transparent] ${blank ? '[&>*]:invisible' : ''}`}
+        style={{ boxShadow: CARD_SHADOW }}
+      >
+        <div className={HEADER}>
+          <h2 id={`tile-${part}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
+          <div className="relative flex items-center gap-4 min-w-0">{aside}{OPEN}</div>
+        </div>
+        <div className="panel-scroll flex-1 min-h-0 min-w-0 flex flex-col [&>*]:shrink-0 overflow-hidden">{body}</div>
       </section>
-      {/* About: the page's last window, scrolling inside itself (it is taller than a phone). */}
-      <section id="about" data-screen data-end aria-label="About" className={`${ABOUT_WINDOW} ${LAZY}`}>
-        <div className="panel-scroll h-full overflow-auto">
-          <div className="px-3 pt-[calc(var(--top-h)+8px)] pb-[calc(var(--bar-h,0px)+16px)]">
-            <PageStats.Provider value={pageStats}><About heading="h2" /></PageStats.Provider>
+    </div>
+  );
+  return (
+    <div data-mac-overview className="flex-1 min-h-0 flex flex-col justify-center">
+      <Fit w={MAC.w} contain>
+        <div ref={room} className="@container" style={{ ...BLOCK_VARS, '--block-w': `${MAC.w}px`, '--rows': `${MAC.rows}px` } as React.CSSProperties}>
+          <div className="relative grid gap-3 h-(--block-h) grid-cols-[var(--p)_minmax(0,1fr)] grid-rows-[var(--row1)_var(--row2)]">
+            {tile('race', 'Trends', 'col-span-2', ready ? <CumulativeChart race mini bigBlind={bigBlind} models={field} everyone={models} timeline={tl} /> : message, ready && <Leader tl={tl} models={field} />)}
+            {tile('stats-table', 'Profiles', 'row-start-2 col-start-1', ready ? <SyncedProfiles tl={tl} models={models} seated={seated} mini view={profView} /> : message)}
+            {tile('pairwise', 'Matchups', 'row-start-2 col-start-2', ready ? (
+              <AtHand tl={tl} models={field}>
+                {(ms, hand) => (
+                  <div {...syncAttrs(tl, hand)} className="contents">
+                    <HeadToHead models={ms} hand={hand} bigBlind={bigBlind} mini fitTo={seatedNames} leader={leaderAt(tl, ms, hand)?.m.name} />
+                  </div>
+                )}
+              </AtHand>
+            ) : message)}
           </div>
         </div>
-      </section>
+      </Fit>
     </div>
   );
 }

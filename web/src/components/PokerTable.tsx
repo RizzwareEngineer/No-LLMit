@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useReducedMotion } from "motion/react";
 import Player, { LOGO_RIM } from "@/components/Player";
 import TableFelt, { BetStack, FeltBet, GRID } from "@/components/TableFelt";
@@ -9,9 +9,10 @@ import { PlayerState, TableNoticePayload } from "@/lib/api";
 import { ModelStats } from "@/lib/stats";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { FELT, LOGO, MIDDLE, POT_TOP, RADIUS, type Spot, css, seatPlace, seatSpots } from "@/lib/phoneTable";
-import { useLayout, usePhoneShape, useSeatDraft, usePhoneDraft } from "@/lib/tableSwitches";
+import { useLayout, usePhoneShape, useSeatDraft, usePhoneDraft, useTallTable } from "@/lib/tableSwitches";
 import SeatStats from "@/components/SeatStats";
 import { isDraftA } from "@/lib/layout";
+import Fit from "@/components/Fit";
 const noSub = () => () => {};
 import type { ButtonDetermination, Clock, DisplayState } from "@/lib/stream";
 
@@ -104,6 +105,7 @@ export default function PokerTable({
   }, [turn.bubble]);
 
   const shape = usePhoneShape(), draft = useSeatDraft(), phoneDraft = usePhoneDraft(), draftA = useSyncExternalStore(noSub, isDraftA, () => false);
+  const tall = useTallTable() && draftA;
   // The phone seat whose stats are open (SeatStats), and the table's middle in the window then, where they show. The
   // popup is the phone table's: when the desktop table replaces it, it closes, and does not come back on the next switch.
   const [open, setOpen] = useState<{ seat: number; at: { x: number; y: number } } | null>(null);
@@ -164,14 +166,23 @@ export default function PokerTable({
     ...edge('right', up.right, up.right.length),
   ];
 
-  const felt = (compact = false, upright = false) => (
+  // Draft A's tall table (?table=tall): the top seat's bet on the middle's top edge, each side seat's beside it on its row.
+  const tallSeats = tallLayout(players.length || 9);
+  const tallBets: FeltBet[] = [
+    { seat: 0, side: 'top', at: 0.5, amount: players[0]?.currentBet ?? 0 },
+    ...tallSeats.right.map((seat, i) => ({ seat, side: 'right' as const, at: (TALL_ROWS[i] + 64 - TALL_MID.top) / TALL_MID.h, amount: players[seat]?.currentBet ?? 0 })),
+    ...tallSeats.left.map((seat, i) => ({ seat, side: 'left' as const, at: (TALL_ROWS[i] + 64 - TALL_MID.top) / TALL_MID.h, amount: players[seat]?.currentBet ?? 0 })),
+  ];
+
+  const felt = (compact = false, upright = false, tallFelt = false) => (
     <TableFelt
       cards={communityCards}
       pot={pot}
       betsOut={betsOut}
-      bets={compact ? undefined : upright ? upBets : feltBets}
+      bets={compact ? undefined : tallFelt ? tallBets : upright ? upBets : feltBets}
       compact={compact}
       upright={upright}
+      plain={tallFelt}
       winners={Object.entries(winnersByIdx).map(([idx, info]) => ({
         name: players[Number(idx)]?.name || `Player ${idx}`,
         amount: info.amount,
@@ -291,7 +302,26 @@ export default function PokerTable({
           with its position, stack, label and cards (Player's compact seat; phoneTable's geometry), each bet between its seat
           and the pot, the pot and the board in the middle, the deck over the pot between hands. A logo taps open its model's
           basic stats (SeatStats). data-oval: what the page watches for the bar. */}
-      {mounted !== 'desk' && draftA && <Fit w={tableWidth}>{deskTable('block')}</Fit>}
+      {mounted !== 'desk' && draftA && !tall && <Fit w={tableWidth} data-a-table className="md:hidden">{deskTable('block')}</Fit>}
+      {/* Draft A's tall table (?table=tall; owner, 2026-11-26: "turn our table into a vertical table with an angle that will
+          fill the screen", "i want the extra player to be on the top ... otherwise it might make people think they're
+          player"): the desktop's own seat cards (200x128, never resized), felt and pot, laid out 720x960 and drawn as one
+          picture (Fit) in the first screen's room over the caption (globals.css). Only the felt is drawn tilted away, its far
+          end about 84% of its near end; it is laid out taller than it is drawn, so its drawn top is at 64, under the top
+          seat's middle. The seats straddle its rail, the upper rows moved in as it narrows (TALL_IN), and nothing sits at the
+          foot. data-a-table: draft A's card sizes and bets (globals.css), and the page's watch for the bar. */}
+      {mounted !== 'desk' && tall && <div data-tall-room className="md:hidden flex flex-col justify-center">
+        <Fit w={720} contain data-a-table data-tall-table>
+          <div className="relative" style={{ height: 960 }}>
+            <div data-tall-felt aria-hidden className="absolute bg-white" style={{ left: 90, width: 540, top: -131, height: 1091, borderRadius: 48, ...GRID, ...cardStyle, transform: 'perspective(1200px) rotateX(12.1deg)', transformOrigin: '50% 100%' }} />
+            <div className="absolute" style={{ left: TALL_MID.left, top: TALL_MID.top, width: TALL_MID.w, height: TALL_MID.h }}>{felt(false, false, true)}</div>
+            {[[0, 260, 0], ...tallSeats.right.map((idx, i) => [idx, 520 - TALL_IN[i], TALL_ROWS[i]]), ...tallSeats.left.map((idx, i) => [idx, TALL_IN[i], TALL_ROWS[i]])].map(([idx, x, y]) => (
+              // White under the card, as the desktop table is: a folded seat fades on white, not on the felt's edge.
+              <div key={idx} className="absolute rounded bg-white" style={{ left: x, top: y, width: 200, height: 128 }}>{seat(idx)}</div>
+            ))}
+          </div>
+        </Fit>
+      </div>}
       {mounted !== 'desk' && !draftA && phoneDraft && <div data-upright className="md:hidden w-full bg-white rounded overflow-hidden" style={{ ...cardStyle, marginTop: 'calc(var(--phone-slack, 0px) / 2)' }}>
         <div className="grid" style={{ gridTemplateColumns: '1fr 2fr 1fr', gridTemplateRows: `112px ${upRows * 112}px 112px` }}>
           <div style={{ borderRight: line, borderBottom: line }} />
@@ -334,6 +364,17 @@ export default function PokerTable({
   );
 }
 
+// Draft A's tall table (PokerTable, layout px of its 720x960 picture): each side row's top, how far each row moves in from
+// the picture's edge to stay over the narrowing rail, and the pot and board's box, between the side columns across their rows.
+const TALL_ROWS = [190, 387, 584, 781], TALL_IN = [24, 16, 8, 0];
+const TALL_MID = { left: 224, top: 190, w: 272, h: 719 };
+// Seat 0 at the top, then clockwise: down the right side, up the left.
+// shortcut: 6-8 seats fill each side's rows from the top (the lower rows left empty); spread them if short tables come back.
+function tallLayout(count: number) {
+  const r = Math.ceil((count - 1) / 2);
+  return { right: Array.from({ length: r }, (_, i) => i + 1), left: Array.from({ length: count - 1 - r }, (_, i) => count - 1 - i) };
+}
+
 // Helper function to get player layout based on count (6-9 players)
 function getPlayerLayout(count: number): PlayerLayout {
   switch (count) {
@@ -350,29 +391,3 @@ function getPlayerLayout(count: number): PlayerLayout {
   }
 }
 
-// Phone draft A (app/a): the desktop table at its own proportions, scaled as one picture to the phone page's width.
-// A transform, not CSS zoom: zoom shrinks each font size too, and an iPhone browser draws zoomed text no smaller than its
-// minimum (owner's iPhone, 2026-11-22: 11px text at 0.4 drew twice its boxes, names cut to "L.", badges sliced). A
-// transform draws the 1000px table as laid out, smaller; text-size-adjust keeps a browser's text zoom off the picture.
-function Fit({ w, children }: { w: number; children: ReactNode }) {
-  const box = useRef<HTMLDivElement>(null), table = useRef<HTMLDivElement>(null);
-  const [fit, setFit] = useState<{ z: number; h: number } | null>(null);
-  useLayoutEffect(() => {
-    const el = box.current, t = table.current;
-    if (!el || !t) return;
-    const measure = () => {
-      const z = el.clientWidth / w, h = t.offsetHeight;
-      setFit(f => (f && f.z === z && f.h === h ? f : { z, h }));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    ro.observe(t); // the table's own height (a seat's row growing) sets the box's
-    return () => ro.disconnect();
-  }, [w]);
-  return (
-    <div ref={box} data-a-table className="md:hidden w-full" style={{ height: fit ? fit.h * fit.z : undefined }}>
-      <div ref={table} style={{ width: w, transform: fit ? `scale(${fit.z})` : undefined, transformOrigin: '0 0', visibility: fit ? undefined : 'hidden', WebkitTextSizeAdjust: '100%', textSizeAdjust: '100%' }}>{children}</div>
-    </div>
-  );
-}

@@ -5,6 +5,10 @@ import type { ModelStats } from '@/lib/stats';
 // y axis to it only from this many hands on, so those early swings may sit clamped at the plot's edge.
 export const RATE_FROM = 20;
 
+// Trends' design shape (CumulativeChart's layout), 2.6:1 at least: tall enough to tell close lines apart; a box the
+// chart is drawn in never stretches it past that (phone draft A's landing tile keeps it, LandingFill).
+export const W = 1220, H = 470;
+
 export type Metric = 'bb100' | 'chips' | 'bb';
 
 // A model's line in the plotted metric: running bb/100 (break-even at hand 0, where it has no rate yet), or

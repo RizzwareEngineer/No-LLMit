@@ -8,7 +8,7 @@ import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
 import { PLAY_MS, Timeline, playReplay, playedAt, replaySpeed, replayStarted, replayStep, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
 import { playSound } from '@/lib/sound';
-import { RATE_FROM, robustRange, series, type Metric } from '@/lib/series';
+import { H, RATE_FROM, W, robustRange, series, type Metric } from '@/lib/series';
 import { isPhone } from '@/lib/layout';
 
 export { RATE_FROM, series };
@@ -24,7 +24,7 @@ const TWEEN_S = 0.5;
 // The Race is laid out at this size, or wider in a wider box (the plot takes the width), and scaled as
 // a whole into its box. The overview's Trends tile and the card have the same width and plot height
 // (StatsSections sizes them), so they show one picture, filling their width, and nothing ever stretches.
-export const W = 1220, H = 470; // History's shape, 2.6:1 at least: tall enough to tell close lines apart
+export { W, H }; // History's shape (lib/series)
 // The race clock's Skip/Replay button (the card's, and the tile's Replay).
 const CLOCK_BTN = 'rounded border px-2 py-px font-medium hover:bg-[rgba(55,53,47,0.06)]';
 const CLOCK_BTN_STYLE = { borderColor: 'rgba(55, 53, 47, 0.16)', color: TEXT, background: 'white' };
@@ -677,8 +677,9 @@ export default function CumulativeChart({
       .filter(d => d.o > 0 && d.t >= Math.min(a, b) - 1e-6 && d.t <= Math.max(a, b) + 1e-6);
   // x ticks never sit left of where the data starts.
   // A tick per 70px at most where room is short: compact Trends, and any of these charts on a phone (the model sheet's ten
-  // ticks ran into each other at 390px: "8001,0001,200").
-  const tickCount = compact || (typeof window !== 'undefined' && isPhone()) ? Math.max(3, Math.floor(leadW / 70)) : 10;
+  // ticks ran into each other at 390px: "8001,0001,200"). Not the overview's tile, which a phone draws as the desktop's
+  // (StatsSections' MacOverview).
+  const tickCount = compact || (!mini && typeof window !== 'undefined' && isPhone()) ? Math.max(3, Math.floor(leadW / 70)) : 10;
   const xTicksOf = (a: number, b: number) => niceTicks(a, b, tickCount, true).filter(t => t >= Math.max(a, from) && t <= b);
   // Gridlines on the moving axis: their step holds while it gives 6–8 labels (so they slide with the
   // axis rather than relabel), then gridTicks picks again. A label joins with a fade in (CSS

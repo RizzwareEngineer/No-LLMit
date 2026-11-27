@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRight, X } from '@phosphor-icons/react';
 import LLMLogo from '@/components/LLMLogo';
-import { pageTo } from '@/components/Section';
+import { pageTo, pageToStats } from '@/components/Section';
+import { isDraftA } from '@/lib/layout';
 import { DASH, MUTED, ModelStats, TEXT, BLUE, chips, ciHalf, grouped, netColor, signed } from '@/lib/stats';
 
 // Phones: a tapped seat's basic stats, over the middle of the table (owner 2026-11-15: "If they do click on a player
@@ -71,7 +72,7 @@ export default function SeatStats({ name, stats: m, at, onClose }: { name: strin
         )}
         <button
           type="button"
-          onClick={() => { onClose(); pageTo('phone-stats'); }}
+          onClick={() => { onClose(); if (isDraftA()) pageToStats(); else pageTo('phone-stats'); }}
           className="sticky bottom-0 mt-3 w-full h-11 flex items-center justify-center gap-1.5 rounded bg-white text-[13px] font-bold"
           style={{ color: BLUE, boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px inset' }}
         >

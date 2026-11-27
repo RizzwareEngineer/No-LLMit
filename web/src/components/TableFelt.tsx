@@ -47,6 +47,7 @@ interface TableFeltProps {
   blank?: boolean; // no state yet: the felt at its size with nothing on it
   compact?: boolean; // the phone table's middle (PokerTable): only the pot and the board, no grid
   upright?: boolean; // draft B's upright table (PokerTable): the desktop felt on a phone, its bets shown as the phone's
+  plain?: boolean; // draft A's tall table (PokerTable): no grid of its own, the tilted felt's under it shows through
   fillIn?: boolean; // fade in as it fills; false for a felt mounted by a layout switch mid-hand (it shows the hand as it stands)
 }
 
@@ -124,6 +125,7 @@ export default function TableFelt({
   blank = false,
   compact = false,
   upright = false,
+  plain = false,
   fillIn = true,
 }: TableFeltProps) {
   const bb = useBigBlind(), size = useCardSize(), still = useSyncExternalStore(noSub, isDraftA, () => false);
@@ -151,7 +153,7 @@ export default function TableFelt({
       ref={ref}
       data-felt
       className={`relative flex flex-col items-center w-full h-full ${compact ? 'justify-start' : `justify-center gap-3 ${bets ? 'pt-[44px] pb-3' : 'py-2'}`} ${blank ? '[&>*]:invisible' : ''}`}
-      style={compact ? undefined : GRID}
+      style={compact || plain ? undefined : GRID}
     >
       {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} compact={upright} />)}
 
@@ -205,7 +207,8 @@ export default function TableFelt({
           <TableNoticeCard notice={notice} />
         ) : showButtonDetermination ? (
           <div className="flex flex-col items-center gap-2">
-            <div className="flex gap-1 justify-center">
+            {/* The tall table's middle (plain) is narrower than nine cards: two rows there, not under the side seats. */}
+            <div className={`flex gap-1 justify-center${plain ? ' flex-wrap' : ''}`}>
               {buttonDetermination.cards.map((bc, i) => (
                 <div key={i} className="flex flex-col items-center gap-0.5">
                   <Card value={bc.card} className={CARD_CLASS[size]} rise={live} />

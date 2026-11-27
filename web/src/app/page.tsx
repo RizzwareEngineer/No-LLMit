@@ -6,7 +6,14 @@ import { MotionConfig } from "motion/react";
 import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
-import LandingFill from "@/components/LandingFill";
+import LandingFill, { useFill } from "@/components/LandingFill";
+import Fit from "@/components/Fit";
+// The table's width on the owner's Mac (1440x790): 1000px at the stage's zoom, 0.819. Phone draft A's header is laid out
+// this wide, so beside the table (drawn from 1000px) it keeps the Mac's size and distance.
+const MAC_TABLE_W = 819;
+// Its switches (Chips/BB, Sound) drawn at under half size: each hit area reaches 24 layout px above and below (about 11px
+// on a phone each way), within the gaps around the status row, as the top bar's TAP does for its own (StickyBar).
+const PICTURED_TAP = "[&_button]:relative [&_button]:after:absolute [&_button]:after:-inset-x-1 [&_button]:after:-inset-y-[24px] [&_button]:after:content-['']";
 const noSub = () => () => {};
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
@@ -31,11 +38,11 @@ import { setTypingPace } from "@/components/TypewriterText";
 import { isSoundOn, unlockOnFirstGesture } from "@/lib/sound";
 import { useGameState } from "@/hooks/useGameState";
 import { EARLY_STREAM } from "@/lib/api";
-import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
+import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, pageToStats, resnap, scrollsInside, stopPaging, useScreen } from "@/components/Section";
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
-import { useLayout } from "@/lib/tableSwitches";
+import { useLayout, useTallTable } from "@/lib/tableSwitches";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -68,6 +75,28 @@ const closeModel = () => {
   history.replaceState(null, "", window.location.pathname + window.location.search);
   window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
 };
+
+// The site's title: No-LLMit and what it is, with About's link (the desktop's header, and phone draft A's: page's head).
+// `as`: a phone's page has its own (screen-reader) h1, so its pictured title is not a second one.
+function TitleBlock({ as: H = 'h1', className }: { as?: 'h1' | 'p'; className: string }) {
+  return (
+    <div className={className}>
+      <H className="text-[28px] font-bold text-balance" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</H>
+      <p className="text-[14px]" style={{ color: MUTED }}>
+        Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
+        {/* The home page's last screen; /about stays its own page (a new tab, a shared link). */}
+        <Link
+          href="/about"
+          onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about', isPhone()); } }}
+          className="underline underline-offset-2 decoration-1 decoration-[rgba(31,111,196,0.4)]"
+          style={{ color: BLUE }}
+        >
+          ⓘ About
+        </Link>
+      </p>
+    </div>
+  );
+}
 
 // Fit-to-screen: the stage (table, sidebar, reasoning) takes one uniform zoom so the whole
 // table screen fits the window, up to 125% (the size the owner chose) and down to 75%; below
@@ -211,6 +240,8 @@ export default function Home() {
 
   const hash = useSyncExternalStore(subscribeHash, () => window.location.hash, () => '');
   const draftA = useSyncExternalStore(noSub, isDraftA, () => false); // phone draft A (app/a): the landing fill under the caption
+  const fill = useFill();
+  const tall = useTallTable(); // draft A's tall table (?table=tall): the first screen is the table and its caption, no fill or header
   // The URL names no stats screen: an old #stats, #race or #pairwise link opens the page at its top.
   useEffect(() => {
     if (!window.location.hash || isModelHash(window.location.hash)) return;
@@ -266,7 +297,7 @@ export default function Home() {
     const row = tableRef.current;
     if (row) [row, ...row.querySelectorAll('[data-oval], [data-a-table]')].forEach(e => io.observe(e));
     return () => io.disconnect();
-  }, [mounted]); // the phone table mounts and unmounts with the layout
+  }, [mounted, tall]); // the phone table mounts and unmounts with the layout (and draft A's with ?table=tall)
 
   // The stage's fit (fitStage), kept as the window, the stage or the screen change size.
   const stageRef = useRef<HTMLDivElement>(null);
@@ -445,11 +476,34 @@ export default function Home() {
     else if (t === 'about') pageTo('about', isPhone());
     else if (!isPhone() && (screen === 'race' || screen === 'stats-table' || screen === 'pairwise')) backToOverview();
     // Phones: on a Stats window already (Profits & Losses, Trends, Profiles, Matchups) the Stats tab does nothing, so a
-    // tap just above the bar that touch adjustment hands to it never throws the viewer back to Profits & Losses.
-    else if (isPhone() && tab === 'stats') return;
-    else pageTo(draftA ? 'race' : 'phone-stats', true); // draft A has no Profits & Losses window: Trends is the first
+    // tap just above the bar that touch adjustment hands to it never throws the viewer back to Profits & Losses. Draft A's
+    // goes back from a part to the overview, as a native tab bar's tab tapped again goes back to its first screen.
+    else if (isPhone() && tab === 'stats') { if (draftA) backToOverview(); }
+    else if (draftA) pageToStats(true); // draft A: the stats window as it was left (the overview, or the part open)
+    else pageTo('phone-stats', true);
   };
 
+  // The desktop's header: the title, Play (soon), the status row (live, hand, blinds, clock, units, sound) and the session's
+  // progress; the desktop's over its stage, and phone draft A's (?fill=none) over its table (Fit).
+  // Each part is the screen's own child (fitStage measures the screen from its first child's box; a display: contents
+  // wrapper has none, and the desktop table shrank), `hide` its rule under md (the desktop's, for the prerender on a phone).
+  const head = (hide: string, phone = false) => (
+    <>
+      <TitleBlock as={phone ? 'p' : 'h1'} className={`mb-1 text-center ${hide}`} />
+
+      {/* Action buttons row */}
+      <div className={`mb-1.5 flex items-center justify-center gap-3 ${hide}`}>
+        <PlaySoonButton />
+      </div>
+
+      {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
+          it when a window crosses into the desktop layout. */}
+      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+        watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
+
+      <div className={hide}><SessionProgress table={usageError ? undefined : usage?.table} /></div>
+    </>
+  );
   return (
     <MotionConfig reducedMotion="user">
     {/* --bar-h: room the connection bar (and a phone's tab bar, --tab-h in globals.css) takes at the bottom, so it never
@@ -467,33 +521,14 @@ export default function Home() {
           scroll container there (clip, not auto: a snap point counts only in its nearest one). */}
       <section data-screen aria-label="Live table" className="relative w-full min-h-svh snap-start snap-always max-md:snap-normal overflow-x-auto max-md:overflow-x-clip flex flex-col items-center-safe justify-center-safe max-md:justify-start pt-3 max-md:pt-[calc(48px+env(safe-area-inset-top))] pb-[calc(1rem+var(--bar-h))] lg:pt-4">
       {/* Header - Title centered */}
-        {desk && <><div className="mb-1 text-center max-md:hidden">
-          <h1 className="text-[28px] font-bold text-balance" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</h1>
-          <p className="text-[14px]" style={{ color: MUTED }}>
-            Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
-            {/* The home page's last screen; /about stays its own page (a new tab, a shared link). */}
-            <Link
-              href="/about"
-              onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about'); } }}
-              className="underline underline-offset-2 decoration-1 decoration-[rgba(31,111,196,0.4)]"
-              style={{ color: BLUE }}
-            >
-              ⓘ About
-            </Link>
-          </p>
-        </div>
+        {desk && head('max-md:hidden')}
 
-        {/* Action buttons row */}
-        <div className="mb-1.5 flex items-center justify-center gap-3 max-md:hidden">
-          <PlaySoonButton />
-        </div>
-
-        {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
-            it when a window crosses into the desktop layout. */}
-        <StatusRow statusKnown={statusKnown} handKnown={handKnown} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
-          watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
-
-        <div className="max-md:hidden"><SessionProgress table={usageError ? undefined : usage?.table} /></div></>}
+        {/* Phone draft A without a landing fill (?fill=none): the desktop's header over the table, as on the owner's Mac
+            (owner, 2026-11-23: "the text at the top for desktop why is it not there for mobile?", then "text too close to the
+            table why cant it be same dist as the desktop?"): laid out MAC_TABLE_W across, the table's width there, and drawn
+            at the phone's width, so it keeps the Mac's size and distance beside the table (its pb-6, the main content's mt-6
+            there). The screen is centred (globals.css, html[data-fill=none]). */}
+        {phone && draftA && fill === 'none' && !tall && <Fit w={MAC_TABLE_W} data-a-head><div className={`flex flex-col items-center pb-6 ${PICTURED_TAP}`}>{head('', true)}</div></Fit>}
 
         {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
         <div className="mt-6 max-md:mt-0 flex items-center-safe justify-center-safe w-full md:w-auto">
@@ -546,7 +581,7 @@ export default function Home() {
             {phone && <div className={`md:hidden ${draftA ? 'mt-2' : 'mt-1.5'} w-full`} style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
               <Caption displayState={displayState} blank={players.length === 0} turnKey={turnKey} />
             </div>}
-            {phone && draftA && <LandingFill stats={stats} players={players} />}
+            {phone && draftA && !tall && <LandingFill stats={stats} players={players} />}
           </div>
         </div>
 
@@ -564,7 +599,7 @@ export default function Home() {
       {/* The status bars in a landmark of their own (their boxes are fixed: the header adds no box). */}
       <header aria-label="Table status">
         {desk && <StickyBar show={!tableInView} slide={scrolled} blank={players.length === 0} pot={pot} handNumber={handNumber} display={displayState} />}
-        {phone && <PhoneBar blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />}
+        {phone && <PhoneBar show={!(draftA && fill === 'none' && !tall) || !tableInView} blank={players.length === 0} live={isLive} watching={watching} handNumber={handNumber} pot={pot} bigBlind={stakes.bigBlind} />}
       </header>
       {phone && <TabBar tab={tab} onTab={onTab} />}
       {/* No floating back-to-top button on phones: it covered text, logos and chart marks. The tab bar's Table tab is the way
@@ -607,8 +642,8 @@ export default function Home() {
 
 // The desktop status row. Its hooks live here, not in Table, so they run when the row mounts: a window that loads in
 // the phone layout and widens past the switch still remembers the label and hand number boxes.
-function StatusRow({ statusKnown, handKnown, isLive, label, watching, handNumber, stakes, elapsedTime }: {
-  statusKnown: boolean; handKnown: boolean; isLive: boolean; label: string; watching: number | undefined;
+function StatusRow({ className = '', statusKnown, handKnown, isLive, label, watching, handNumber, stakes, elapsedTime }: {
+  className?: string; statusKnown: boolean; handKnown: boolean; isLive: boolean; label: string; watching: number | undefined;
   handNumber: number; stakes: { smallBlind: number; bigBlind: number }; elapsedTime: string;
 }) {
   const labelRef = useRef<HTMLDivElement>(null), handRef = useRef<HTMLDivElement>(null);
@@ -617,7 +652,7 @@ function StatusRow({ statusKnown, handKnown, isLive, label, watching, handNumber
   const [labelBox, labelSize, labelAttrs] = useRememberedBox<HTMLSpanElement>('status-label', statusKnown, 'wh');
   const [handBox, handSize, handAttrs] = useRememberedBox<HTMLSpanElement>('hand-no', handKnown, 'wh');
   return (
-    <div className="mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 max-md:hidden">
+    <div className={`mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 ${className}`}>
       {/* Live indicator */}
       <div ref={labelRef} className={`flex items-center gap-2 ${statusKnown ? '' : '[&>*]:invisible'}`}>
         <span

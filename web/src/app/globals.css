@@ -395,9 +395,10 @@ html:has([data-screen]) {
 }
 
 /* Phone draft A (app/a): the phone page with the desktop table at its own proportions (200x128 cells, 40x56 cards),
-   zoomed to the phone's width (PokerTable's Fit). The caption, stats, About and drawer are the phone's own. The rest of
-   the first screen is the landing fill (LandingFill: the live graph, P&L or both); the Trends window under it is the
-   expanded graph. */
+   drawn at the phone's width (Fit). The caption, the opened stats cards, About and drawer are the phone's own. The rest of
+   the first screen is the landing fill (LandingFill: Trends, P&L or nothing); the stats window under it is the Mac's
+   overview, drawn the same way (StatsSections' MacOverview). ?table=tall: the tall table (PokerTable) and its caption
+   fill the first screen instead, no landing fill. */
 html.phone-a #phone-stats { display: none; }
 html.phone-a [data-a-table] [data-hole] [role=img], html.phone-a [data-a-table] [data-felt-cards] [role=img] { width: 40px; height: 56px; }
 html.phone-a [data-a-table] [role=img] span { font-size: 14px; }
@@ -407,3 +408,16 @@ html.phone-a section[aria-label="Live table"][data-screen] { padding-bottom: 0; 
 /* The oval's centring gap: the desktop table has no use for it. On the page itself, where [data-page] sets it (on <html>
    it never reached the page: the caption kept 6px of it, 14px over the fill, not 8). */
 html.phone-a [data-page] { --phone-slack: 0px; }
+/* The Mac's stats overview, drawn at a third of its size (StatsSections' MacOverview): its Trends tile's Replay would be a
+   7px target; the Trends card has its own. */
+[data-mac-overview] [data-tile-replay] { display: none; }
+/* The landing with no fill (?fill=none: the title, the table and the reasoning): centred between the bars (owner,
+   2026-11-23: "a lot of white space. let's center the table and model stuff"). */
+html.phone-a[data-fill=none] section[aria-label="Live table"][data-screen] { justify-content: center; padding-top: env(safe-area-inset-top); padding-bottom: var(--bar-h, 0px); }
+/* Its top bar is out of the screen while the table shows (StickyBar's PhoneBar), from the first paint. */
+html.phone-a[data-fill=none] [data-phone-bar] { transform: translateY(-100%); }
+/* The tall table's room (?table=tall): the first screen under the top bar (the screen's 48px top) and over the bars, less
+   the caption at its own height, so Fit's contain has a height to fit the picture in, and an opened caption shrinks the
+   table rather than running under the tab bar. */
+html.phone-a .stage-zoom:has([data-tall-room]) { height: calc(100svh - 48px - env(safe-area-inset-top) - var(--bar-h, 0px)); }
+html.phone-a [data-tall-room] { flex: 1; min-height: 0; }

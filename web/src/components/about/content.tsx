@@ -160,15 +160,17 @@ function Waitlist() {
           required
           autoComplete="email"
           placeholder="you@example.com"
-          className="min-w-0 w-52 rounded px-2.5 py-1 text-[16px] bg-white border outline-none focus:border-[rgb(35,131,226)]"
+          className="min-w-0 flex-1 @md:flex-none @md:w-52 rounded px-2.5 py-1 text-[16px] bg-white border outline-none focus:border-[rgb(35,131,226)]"
           style={{ borderColor: 'rgba(55, 53, 47, 0.16)' }}
         />
         <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="sr-only" />
-        <button type="submit" disabled={status === 'pending'} className="btn-brutal px-3 py-1 disabled:opacity-60">Join the waitlist</button>
+        <button type="submit" disabled={status === 'pending'} className="btn-brutal shrink-0 px-3 py-1 disabled:opacity-60">Join the waitlist</button>
         {/* Held in place (invisible) until the count arrives, so the row keeps its height (skeleton-matches). */}
-        <Label as="span" data-waitlist-count className={count === null ? 'invisible' : ''}>{count ? `${count.toLocaleString('en-US')} on the waitlist` : 'Be the first on the waitlist.'}</Label>
+        {/* A phone-narrow About (under @md): the email takes the row beside the button, the count its own line, and the
+            status line is held, so a submit never moves what is under it (About's split windows fit to the line). */}
+        <Label as="span" data-waitlist-count className={`@max-md:basis-full ${count === null ? 'invisible' : ''}`}>{count ? `${count.toLocaleString('en-US')} on the waitlist` : 'Be the first on the waitlist.'}</Label>
       </div>
-      <div aria-live="polite" className="-mt-1.5">{said && <Label className="mt-1.5">{said}</Label>}</div>
+      <div aria-live="polite" className="-mt-1.5 @max-md:mt-0 @max-md:h-[21px]">{said && <Label className="mt-1.5 @max-md:mt-0">{said}</Label>}</div>
     </form>
   );
 }

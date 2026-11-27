@@ -1,6 +1,7 @@
 'use client';
 
 import { useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
 import { AnimatePresence, MotionConfig, PresenceContext, cubicBezier, motion, usePresence } from 'motion/react';
 import { BLUE, MUTED, TEXT } from '@/lib/stats';
 import { useRememberedBox } from '@/lib/boxes';
@@ -82,6 +83,20 @@ const subscribe = (l: () => void) => {
 export const useScreen = () => useSyncExternalStore(subscribe, currentScreen, () => '');
 // Glides the detail screen's card back to its overview tile (StatsSections listens).
 export const backToOverview = () => window.dispatchEvent(new Event('overview'));
+// Phone draft A (StatsSections' PhoneStats): the stats are one window, the overview of the three parts or the part opened
+// from it in its place. openPart opens one there (now, so the page can go to it) and pages to it unless it is in view;
+// pageToStats pages to the window as it is (a native tab bar's tab keeps the part it was left on).
+// A part asked for before the stats have mounted (StatsScreens loads them on the first touch, so a tap on the landing fill
+// comes first) opens when they do (takePart); the page goes to their window meanwhile.
+let asked: string | null = null;
+export const takePart = () => { const p = asked; asked = null; return p; };
+export function openPart(part: string) {
+  flushSync(() => window.dispatchEvent(new CustomEvent('tileopen', { detail: part })));
+  if (!document.getElementById(part)) asked = part;
+  const el = document.getElementById(part) ?? document.getElementById('stats');
+  if (el && Math.abs(el.getBoundingClientRect().top) > 1) pageTo(el.id);
+}
+export const pageToStats = (instant = false) => pageTo(document.querySelector('.stats-room > section[data-screen]:not(#about)')?.id ?? 'stats', instant);
 
 // A paged scroll is underway (it ends on a screen edge by itself).
 export const isPaging = () => pendingId !== null;
@@ -280,7 +295,7 @@ export default function Panel({
   );
 }
 
-const OPEN = <span aria-hidden className="text-[14px] font-medium whitespace-nowrap" style={{ color: BLUE }}>Open ↓</span>;
+export const OPEN = <span aria-hidden className="text-[14px] font-medium whitespace-nowrap" style={{ color: BLUE }}>Open ↓</span>;
 // A header extra or "Open ↓" coming or going: fades in place; one leaving steps out of the header's flow at its right
 // end, so the header never wraps or shifts while the two cross-fade. `stay`: it leaves where it was in the tile ("Open ↓"
 // as the tile opens: the header takes the card's width at once, and its right end lies outside the tile's box).

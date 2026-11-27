@@ -102,14 +102,20 @@ const TAP = "[&_button]:relative [&_button]:after:absolute [&_button]:after:-ins
 // it right under the bar, owner 2026-11-15: "there's no need to repeat the pot again"), the Chips/BB and
 // sound switches (the sound's as its icon alone; page.tsx starts the sound on the first gesture, since a phone does not mount
 // the desktop status row), and on a stats card the way back to the overview.
-export function PhoneBar({ blank = false, live, watching, handNumber, bigBlind }: { blank?: boolean; live: boolean; watching?: number; handNumber: number; pot?: number; bigBlind: number }) {
+// `show`: false slides it up out of the screen (phone draft A's ?fill=none landing, while the table shows: it carries the
+// desktop's header, so the bar comes in only past it, as the desktop's sticky bar does). Until hydrated, globals.css hides
+// it on that landing (html[data-fill=none], set before the first paint): the prerender cannot know the landing, and the bar
+// showed for a moment on every load, then slid away.
+const noSub = () => () => {};
+export function PhoneBar({ show = true, blank = false, live, watching, handNumber, bigBlind }: { show?: boolean; blank?: boolean; live: boolean; watching?: number; handNumber: number; pot?: number; bigBlind: number }) {
+  const hydrated = useSyncExternalStore(noSub, () => true, () => false);
   const screen = useScreen();
   const detail = screen === 'race' || screen === 'stats-table' || screen === 'pairwise';
   const sound = useSyncExternalStore(subscribeSound, isSoundOn, () => false);
   const row = useRef<HTMLDivElement>(null);
   useFillIn(row, !blank);
   return (
-    <div data-phone-bar className="md:hidden fixed top-0 inset-x-0 z-40 border-b border-notion bg-white pt-[env(safe-area-inset-top)]">
+    <div data-phone-bar data-shown={(hydrated && show) || undefined} inert={hydrated && !show} className="md:hidden fixed top-0 inset-x-0 z-40 border-b border-notion bg-white pt-[env(safe-area-inset-top)] motion-safe:transition-transform motion-safe:duration-200" style={hydrated ? { transform: show ? 'none' : 'translateY(-100%)' } : undefined}>
       <div ref={row} className={`h-11 px-3 flex items-center gap-3 text-[13px] whitespace-nowrap ${blank ? '[&>*]:invisible' : ''}`} style={{ color: TEXT }}>
         {/* The site's name, as the desktop header's, then the live dot and how many watch (labelled: a bare number read as nothing). */}
         <span data-brand className="font-bold">No-LLMit</span>

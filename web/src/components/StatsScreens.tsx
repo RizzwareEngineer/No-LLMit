@@ -2,9 +2,9 @@
 
 import { memo, startTransition, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { StatsResponse } from '@/lib/stats';
-import { PHONE } from '@/lib/layout';
+import { PHONE, isDraftA } from '@/lib/layout';
 import { isPaging } from '@/components/Section';
-import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
+import { ABOUT_PART, ABOUT_WINDOW, SCREENS, WINDOW, aboutLayout } from '@/lib/statsScreens';
 
 // Everything below the table screen (the stats and About, StatsSections) is loaded and mounted only once the page needs
 // it (useStatsMount): the prerendered page and the hydration hold just its screens, empty, at their places and heights
@@ -22,6 +22,7 @@ import { ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
 let StatsSections: typeof import('@/components/StatsSections').default | null = null; // once loaded
 const loadStats = () => import('@/components/StatsSections').catch(() => import('@/components/StatsSections')).then(m => { StatsSections = m.default; });
 
+const noSub = () => () => {};
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
 const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
 
@@ -92,14 +93,22 @@ function useStatsMount(hold: React.RefObject<HTMLDivElement | null>): [boolean, 
 // The stats' screens before they mount: the same snap points, ids and heights as StatsSections' (so paging, the tab bar
 // and the snap points work at once, and nothing moves when they mount), empty.
 function StatsHold({ phone, failed, ref }: { phone: boolean; failed: boolean; ref: React.Ref<HTMLDivElement> }) {
+  const draftA = useSyncExternalStore(noSub, isDraftA, () => false);
+  const split = useSyncExternalStore(noSub, () => aboutLayout() === 'split', () => false); // About as two windows
   // A failed load says so on every screen, one line in the middle (a reload fetches the page's current code).
   const note = failed ? <p role="status" className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[13px] leading-5 whitespace-nowrap" style={{ color: 'rgb(55, 53, 47)' }}>Stats did not load. Reload the page.</p> : null;
+  // Phone draft A: one stats window (the overview), then About.
   if (phone) return (
     <div ref={ref} className="stats-room relative w-full">
-      <section id="race" data-screen aria-label="Trends" className={WINDOW}><div id="stats" aria-hidden className="absolute top-0" />{note}</section>
-      <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW}>{note}</section>
-      <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW}>{note}</section>
-      <section id="about" data-screen data-end aria-label="About" className={ABOUT_WINDOW}>{note}</section>
+      {draftA ? <section id="stats" data-screen aria-label="Stats" className={WINDOW}>{note}</section> : <>
+        <section id="race" data-screen aria-label="Trends" className={WINDOW}><div id="stats" aria-hidden className="absolute top-0" />{note}</section>
+        <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW}>{note}</section>
+        <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW}>{note}</section>
+      </>}
+      {split ? <>
+        <section id="about" data-screen aria-label="About" className={ABOUT_PART}>{note}</section>
+        <section id="about-ask" data-screen data-end aria-label="About, continued" className={ABOUT_PART}>{note}</section>
+      </> : <section id="about" data-screen data-end aria-label="About" className={ABOUT_WINDOW}>{note}</section>}
     </div>
   );
   return (

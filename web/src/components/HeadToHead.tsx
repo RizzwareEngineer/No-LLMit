@@ -39,7 +39,14 @@ const PAD = 2.5;
 const TOTAL_TITLE = 'Big blinds won from the models shown per 100 hands dealt in with one of them.\nThe row\'s cells averaged, each weighted by their hands together.';
 const NEVER_MET = 'never sat together';
 // A pair's or a row's figure under its sample rule is drawn at this opacity.
-const FAINT = 0.4;
+export const FAINT = 0.4;
+// Diverging tint: green when the row model won, red when it lost, stronger with the bb/100, on the scale of
+// the pairs past the sample rule (a thin pair's wild figure never flattens the rest; it is capped at the top).
+export function pairTint(cells: { bb: number | null; hands: number }[]) {
+  const bbs = cells.filter(c => c.bb !== null);
+  const maxCell = Math.max(1, ...(bbs.some(c => c.hands >= MIN_PAIR_HANDS) ? bbs.filter(c => c.hands >= MIN_PAIR_HANDS) : bbs).map(c => Math.abs(c.bb!)));
+  return (n: number) => `rgba(${n > 0 ? '15, 123, 108' : '200, 50, 50'}, ${(0.08 + 0.5 * Math.sqrt(Math.min(1, Math.abs(n) / maxCell))).toFixed(3)})`;
+}
 // The cell readout hugs its longest line (two long names around a figure), up to TIP_MAX; it wraps only in a box
 // narrower than that (a phone). It keeps TIP_M clear of the card's and the window's edges, TIP_GAP off its cell.
 const TIP_MAX = 480;
@@ -147,11 +154,7 @@ export default memo(function HeadToHead({
     return <p className="text-[13px]" style={{ color: MUTED }}>No shared pots yet.</p>;
   }
 
-  // Diverging tint: green when the row model won, red when it lost, stronger with the bb/100, on the scale of
-  // the pairs past the sample rule (a thin pair's wild figure never flattens the rest; it is capped at the top).
-  const bbs = sorted.flatMap(row => sorted.map(col => cellOf(row, col.name))).filter(c => c.bb !== null);
-  const maxCell = Math.max(1, ...(bbs.some(c => c.hands >= MIN_PAIR_HANDS) ? bbs.filter(c => c.hands >= MIN_PAIR_HANDS) : bbs).map(c => Math.abs(c.bb!)));
-  const tint = (n: number) => `rgba(${n > 0 ? '15, 123, 108' : '200, 50, 50'}, ${(0.08 + 0.5 * Math.sqrt(Math.min(1, Math.abs(n) / maxCell))).toFixed(3)})`;
+  const tint = pairTint(sorted.flatMap(row => sorted.map(col => cellOf(row, col.name))));
   const show = (e: React.MouseEvent, row: string, col: string) => {
     // Not until the pointer has moved since a tile opened or closed (StatsSections' data-still), nor twice for one cell.
     if (outer.current!.closest('[data-still]') || (tip?.row === row && tip.col === col)) return;
@@ -204,7 +207,7 @@ export default memo(function HeadToHead({
           {sorted.map(row => (
             // One element on the tile and in the card (no remount as the glide runs): a real link (never an anchor without an href).
             // On the tile it is no tab stop and lets a click through to the tile, which opens the card.
-            <a key={row.name} data-row-name href={modelHref(row.name)} tabIndex={mini ? -1 : undefined} style={{ ...slot, color: TEXT }} title={row.name} aria-label={phone ? row.name : undefined} className={`${mini ? 'pointer-events-none' : ''} flex items-center justify-end min-w-0 pr-1 whitespace-nowrap text-[14px] font-bold md:font-medium ${mini ? 'md:text-[13px]' : 'md:text-[13px] hover:underline'} ${adds(row.name)}`}>
+            <a key={row.name} data-row-name href={modelHref(row.name)} tabIndex={mini ? -1 : undefined} style={{ ...slot, color: TEXT }} title={row.name} aria-label={phone ? row.name : undefined} className={`${mini ? 'pointer-events-none' : ''} flex items-center justify-end min-w-0 pr-1 whitespace-nowrap ${mini ? 'text-[13px] font-medium' : 'text-[14px] font-bold md:font-medium md:text-[13px] hover:underline'} ${adds(row.name)}`}>
               <motion.span layout="position" layoutDependency={mini} transition={move} translate="no" className="truncate rounded-sm px-1" style={{ background: row.name === leader ? HOT : undefined }}>{phone ? <LLMLogo model={row.name} size={24} /> : row.name}</motion.span>
             </a>
           ))}
@@ -282,16 +285,17 @@ export default memo(function HeadToHead({
         </motion.div>}
       </div>
       {/* A phone's key, under the grid: each row's logo, name and Total, in the grid's order, two to a line. It takes the
-          card's height left under the grid (StatsSections leaves it 116px under the matrix), its lines spread over it. */}
+          card's height left under the grid (StatsSections leaves it 116px under the matrix), its lines spread over it. Tight
+          gaps and 14px logos: "Nemotron Super" and "DeepSeek Flash" fit whole at 375. */}
       {phone && (
-        <ol className="sticky left-0 w-[100cqw] flex-1 mt-2 grid grid-cols-2 content-evenly gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
+        <ol className="sticky left-0 w-[100cqw] flex-1 mt-2 grid grid-cols-2 content-evenly gap-x-2 gap-y-0.5 text-[12px] tabular-nums">
           {sorted.map(row => {
             const t = among.get(row.name)!;
             const none = row.hands === 0 || t.hands === 0;
             return (
-              <li key={row.name} className={`flex items-center gap-1.5 min-w-0 h-5 ${adds(row.name)}`}>
-                <LLMLogo model={row.name} size={16} />
-                <a data-key-name href={modelHref(row.name)} title={row.name} translate="no" className="block min-w-0 max-w-full truncate rounded-sm px-0.5 font-medium" style={{ color: TEXT, background: row.name === leader ? HOT : undefined }}><NameForm name={row.name} /></a>
+              <li key={row.name} className={`flex items-center gap-1 min-w-0 h-5 ${adds(row.name)}`}>
+                <LLMLogo model={row.name} size={14} />
+                <a data-key-name href={modelHref(row.name)} title={row.name} translate="no" className="block min-w-0 max-w-full truncate rounded-sm px-px font-medium" style={{ color: TEXT, background: row.name === leader ? HOT : undefined }}><NameForm name={row.name} /></a>
                 <span data-cell={`${row.name}|`} data-hands={t.hands} title={TOTAL_TITLE} className="ml-auto shrink-0 font-bold" style={{ color: none ? MUTED : netColor(t.bb100), opacity: !none && row.hands < MIN_HANDS ? FAINT : undefined }}>{none ? DASH : <><span aria-hidden>{totalFig(t.bb100)}</span><span className="sr-only">{row.name} {signed(t.bb100)} bb/100 against the models shown, over {plural(row.hands, 'hand')} played</span></>}</span>
               </li>
             );
