@@ -30,6 +30,20 @@ export const useSeatDraft = () => useSyncExternalStore(noSub, () => { const s = 
 export const usePhoneDraft = () => useSyncExternalStore(noSub, () => query('phone') === 'b', () => false);
 // ?table=tall on draft A (/a): the tall table, the desktop's seat cards round a felt drawn tilted away (PokerTable).
 export const useTallTable = () => useSyncExternalStore(noSub, () => query('table') === 'tall', () => false);
+// ?tables=1: the tables overview is the landing (a draft for the owner's review), with the way back to it and the
+// neighbouring tables at the stage's edges. Desktop only. Promoting it is this one line.
+export const useTablesOverview = () => useSyncExternalStore(noSub, () => query('tables') === '1', () => false);
+// ?edges=outline: the neighbours at the stage's edges as an outline and a label; without it, their live tables.
+export const useEdges = () => useSyncExternalStore(noSub, (): 'live' | 'outline' => (query('edges') === 'outline' ? 'outline' : 'live'), () => 'live' as const);
+// ?t=KEY: the table in focus (the stream's key, e.g. 5-10-200bb), so Back, a reload or a shared link finds it.
+const onUrl = (cb: () => void) => { addEventListener('popstate', cb); addEventListener('focuschange', cb); return () => { removeEventListener('popstate', cb); removeEventListener('focuschange', cb); }; };
+export const useFocusParam = () => useSyncExternalStore(onUrl, () => query('t'), () => null);
+export const pushFocus = (key: string | null) => {
+  const u = new URL(location.href);
+  if (key) u.searchParams.set('t', key); else u.searchParams.delete('t');
+  history.pushState(null, '', u);
+  dispatchEvent(new Event('focuschange'));
+};
 export const usePhoneShape = () => useSyncExternalStore(noSub, () => { const s = query('shape'); return (s === 'rect' || s === 'stadium' ? s : 'oval') as PhoneShape; }, () => 'oval' as PhoneShape);
 
 // Which layout's tree to mount (lib/layout's switch): 'phone' or 'desk' once the page runs; null in the prerendered page

@@ -42,6 +42,14 @@ export interface TableView {
   clock: Clock | null; // the shot clock: llm_thinking starts it, the turn's llm_action stops it; null when the engine sent no budget
   buttonDetermination: ButtonDetermination | null;
   dealAt: number | null; // Date.now() at which the engine deals the next hand: the arrival of its nextHandInMs plus it
+  startingStack?: number; // in chips, also the rebuy: the table's depth (the snapshot's)
+  pnl?: TablePnL; // the table's all-time profit and loss (table_stats); absent until the engine has one
+}
+
+// A table's table_stats payload: its hands and each model's profit and loss there, net chips most first.
+export interface TablePnL {
+  hands: number;
+  models: { name: string; hands: number; net_chips: number; bb100: number }[];
 }
 
 // The turn's time as the engine sent it: budgetMs for the turn, elapsedMs already run when it was sent
@@ -70,6 +78,8 @@ export const EMPTY_TABLE: TableView = { gameState: null, notice: null, display: 
 type Turn = { type: 'llm_thinking' | 'llm_action'; payload: unknown };
 
 interface SnapshotTable {
+  startingStack?: number;
+  stats?: TablePnL;
   state: GameState;
   turn: Turn | null;
   turnApplied: boolean; // turn is an llm_action the state already shows
@@ -122,6 +132,8 @@ function applyTableMessage(v: TableView, m: ServerMessage, now: number): TableVi
   switch (m.type) {
     case 'game_state':
       return reveal({ ...v, gameState: m.payload as GameState, dealAt: dealAt(m.payload as GameState, now) }, now);
+    case 'table_stats':
+      return { ...v, pnl: m.payload as TablePnL };
     case 'table_notice': {
       const notice = m.payload as TableNoticePayload;
       return { ...v, notice: notice.kind ? notice : null };
@@ -159,6 +171,8 @@ function fromSnapshot(prev: TableView | undefined, s: SnapshotTable, now: number
   const base: TableView = {
     gameState: s.state,
     dealAt: dealAt(s.state, now),
+    ...(s.startingStack ? { startingStack: s.startingStack } : {}),
+    ...(s.stats ? { pnl: s.stats } : {}),
     notice: s.notice,
     display: null,
     clock: null,

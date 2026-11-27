@@ -201,8 +201,11 @@ const parkShared = () => shared().__park?.bringToFront().catch(() => {});
 // last state (a game_state or a snapshot's) and sent to its table. So a check can put bets out, end a hand and deal the
 // next on cue, whatever the shared table is doing (it may be closed or at its daily call cap). Each of window.__stream's
 // plays returns when it was fed (performance.now()).
+// The engine runs several tables: the one followed is the one the page draws (the URL's ?t=, else the 5/10 one, else the
+// first: useGameState), so a check's messages land on the table on screen.
 const scriptStream = p => p.evaluateOnNewDocument(() => {
-  const Real = window.EventSource, s = window.__stream = { last: null, table: null, scripted: false, feed: null };
+  const by = {}, drawn = () => new URLSearchParams(location.search).get('t') ?? Object.keys(by).find(k => by[k].stakes?.smallBlind === 5 && by[k].stakes.bigBlind === 10) ?? Object.keys(by)[0] ?? null;
+  const Real = window.EventSource, s = window.__stream = { get last() { return by[drawn()] ?? null; }, set last(v) { by[drawn()] = v; }, get table() { return drawn(); }, scripted: false, feed: null };
   window.EventSource = class extends Real {
     set onmessage(fn) {
       s.feed = m => fn(new MessageEvent('message', { data: JSON.stringify({ table: s.table, ...m }) }));
@@ -210,9 +213,8 @@ const scriptStream = p => p.evaluateOnNewDocument(() => {
         if (s.scripted) return;
         try {
           const m = JSON.parse(e.data);
-          if (m.type === 'game_state') { s.last = m.payload; s.table = m.table; }
-          const [id, t] = m.type === 'snapshot' ? Object.entries(m.payload.tables)[0] ?? [] : [];
-          if (t) { s.last = t.state; s.table = id; }
+          if (m.type === 'game_state') by[m.table] = m.payload;
+          if (m.type === 'snapshot') for (const [id, t] of Object.entries(m.payload.tables)) by[id] = t.state;
         } catch {}
         fn(e);
       };

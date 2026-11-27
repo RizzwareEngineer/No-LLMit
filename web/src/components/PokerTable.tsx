@@ -43,6 +43,7 @@ interface PokerTableProps {
   stats?: Record<string, ModelStats>; // by model name, for the phone seat's stats popup (SeatStats)
   display?: DisplayState | null; // the turn on screen: the phone shows each action over its seat for a moment
   clock?: Clock | null; // the shot clock while its turn is on screen (null: no clock): the phone's ring round the seat on the clock
+  still?: boolean; // a small copy (the tables overview, the stage's edges): no flights, no deal and no sounds, which find the page's one felt
 }
 
 // The phone's action bubble: "Raise 79", "Call 10", "Fold".
@@ -63,6 +64,7 @@ export default function PokerTable({
   stats,
   display = null,
   clock = null,
+  still = false,
 }: PokerTableProps) {
   const layout = getPlayerLayout(players.length || 9);
   const hidePositions = !!buttonDetermination; // the position badges wait for the button draw
@@ -82,7 +84,7 @@ export default function PokerTable({
   const [shownAt, setShownAt] = useState({ mounted, hand: 0 });
   if (mounted !== shownAt.mounted) setShownAt({ mounted, hand: handNumber });
   const switched = shownAt.hand > 0 && handNumber === shownAt.hand;
-  const dealt = !reduce && firstHand > 0 && handNumber !== firstHand && !switched;
+  const dealt = !reduce && !still && firstHand > 0 && handNumber !== firstHand && !switched;
   const [deck, setDeck] = useState<DeckPhase | null>(null);
 
   // Phones: a turn's action shows over its seat for 2 s once the table applies it (reasoning, then revealed), not for one
@@ -287,7 +289,7 @@ export default function PokerTable({
 
   return (
     <>
-      {!blank && <TableMotion
+      {!blank && !still && <TableMotion
         players={players}
         handNumber={handNumber}
         boardCount={communityCards.length}

@@ -1,7 +1,7 @@
 // Amounts on the table screen, in chips or in big blinds: the Chips/BB switch in the header's status row (UnitToggle),
 // kept in localStorage like the sound setting. One format for both: chips whole, big blinds with one decimal under
 // 100 BB and whole from 100 up, with " BB" (a column of them, Profits & Losses, carries the unit in its header).
-import { useSyncExternalStore } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 
 const STORAGE_KEY = 'nollmit:amounts';
 let inBB: boolean | null = null; // null until read from storage
@@ -41,8 +41,11 @@ export function setBigBlind(chips: number) {
 }
 
 // The big blind amounts are shown in, or null while they are in chips. The server renders chips.
+// A table drawn beside the focused one (the tables overview, the stage's edges) gives its own big blind here.
+export const TableBigBlind = createContext<number | null>(null);
 export function useBigBlind(): number | null {
-  return useSyncExternalStore(subscribeAmounts, () => (isBB() ? bigBlind : null), () => null);
+  const own = useContext(TableBigBlind);
+  return useSyncExternalStore(subscribeAmounts, () => (isBB() ? own ?? bigBlind : null), () => null);
 }
 
 // An amount in the unit shown, as NumberFlow takes it (the pot rolls in either unit).
