@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
@@ -187,27 +187,34 @@ const navParts = () => [...document.querySelectorAll<HTMLElement>('[data-table-n
 
 // Where the arrow buttons go, in the screen's px (measured in page.tsx's room): a compass round the table, each one
 // GAP off the edge it leads past. Left and right: centred on the table's height, outside the table (left) and the
-// sidebar (right); laid on their side (the pill's height across) where the window's margin is narrower than the pill.
-// Up and down: on the table's left edge, above the table and under the reasoning panel (the stage's foot), so the
-// table below is never beside the page's own Stats ↓, which stays centred at the page's foot.
-type NavRoom = { table: Box; stageBottom: number; sideRight: number; leftRoom: number; rightRoom: number; h: number; font: string };
-const NAV_GAP = 8, NAV_MARGIN = 8;
-function navAt(d: Dir, label: string, r: NavRoom) {
-  const w = pillWidth(label, r.font), { table: t, h } = r, cy = t.top + t.height / 2;
+// sidebar (right); laid on their side (the pill's height across) where the pill would come closer than MARGIN to the
+// window's edge. `w`: the pill's width as drawn (NavPill measures it; until then the canvas measure, with slack).
+// Up: on the table's left edge, above it. Down: the owner's "at the bottom, with Stats under it": centred over Stats
+// where the window has the height for both (Stats moves down under it, `statsShift`; the table never moves), else on
+// Stats' line, to its left, Stats staying at the page's centre.
+type NavRoom = { table: Box; stageBottom: number; sideRight: number; leftRoom: number; rightRoom: number; h: number; font: string; stats: Box; foot: number };
+const NAV_GAP = 8, NAV_MARGIN = 8, BESIDE_STATS = 16;
+const downStacked = (r: NavRoom) => r.stageBottom + NAV_GAP + 2 * r.h + NAV_GAP + NAV_MARGIN <= r.foot;
+// How far Stats moves down inside a table whose neighbour below is stacked over it (0: it stays where it always is).
+const statsShift = (r: NavRoom) => (downStacked(r) ? Math.max(0, r.stageBottom + 2 * NAV_GAP + r.h - r.stats.top) : 0);
+function navAt(d: Dir, label: string, r: NavRoom, drawn?: number) {
+  const w = drawn ?? pillWidth(label, r.font) + 12, { table: t, h } = r, cy = t.top + t.height / 2;
   if (d === 'up') return { at: { left: t.left, top: t.top - NAV_GAP - h }, vertical: false };
-  if (d === 'down') return { at: { left: t.left, top: r.stageBottom + NAV_GAP }, vertical: false };
+  if (d === 'down') return downStacked(r)
+    ? { at: { left: r.stats.left + r.stats.width / 2 - w / 2, top: r.stageBottom + NAV_GAP }, vertical: false }
+    : { at: { left: r.stats.left - BESIDE_STATS - w, top: r.stats.top }, vertical: false };
   const room = d === 'left' ? r.leftRoom : r.rightRoom, vertical = room < w + NAV_GAP + NAV_MARGIN, across = vertical ? h : w;
   return { at: { left: d === 'left' ? t.left - NAV_GAP - across : r.sideRight + NAV_GAP, top: cy - (vertical ? w : h) / 2 }, vertical };
 }
 
 // About, with ?tables=1: the Stats button's pill at the page's top-right corner, across from "All tables" (the
 // subtitle's link was a 14px line in a sentence; a pill of the family's height there would make the header taller).
-function AboutPill({ top }: { top: number }) {
+function AboutPill({ top, right }: { top: number; right: number }) {
   return (
     <Link href="/about" data-about-pill
       onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about', false); } }}
-      className={`absolute z-20 right-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgb(31,111,196)] ${NEXT_BUTTON}`}
-      style={{ ...NEXT_STYLE, top }}>
+      className={`absolute z-20 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgb(31,111,196)] ${NEXT_BUTTON}`}
+      style={{ ...NEXT_STYLE, top, right }}>
       <Info size={16} weight="bold" aria-hidden style={{ color: BLUE }} /> About
     </Link>
   );
@@ -382,7 +389,10 @@ export default function Home() {
   const backButton = useRef<HTMLButtonElement>(null);
   const animId = useRef(0); // the running animation's id: an end of any other is stale and ignored
   // Where the overview, the edges and the way back go, in the screen's px (measured below).
-  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; w: number; nav: NavRoom } | null>(null);
+  // Each arrow pill's width as drawn, by its label (NavPill reports it), for where it goes and whether it lies on its side.
+  const [pillW, setPillW] = useState<Record<string, number>>({});
+  const drawnPill = useCallback((label: string, w: number) => setPillW(m => (Math.abs((m[label] ?? 0) - w) < 0.5 ? m : { ...m, [label]: w })), []);
+  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; aboutRight: number; w: number; nav: NavRoom } | null>(null);
   const grid = room ? gridFor(tables.length, room.overview.width, room.overview.height) : null, cols = grid?.cols ?? 1;
   // The header's per-table items (hand, stakes, clock) open as a table zooms in and fold away as it zooms out (StatusRow).
   const perTable = !overviewOn || !(anim ? anim.kind === 'out' : (shown === undefined ? target === null : shown === null));
@@ -454,9 +464,10 @@ export default function Home() {
       shrink.finished.then(done, () => {});
     } else if (kind === 'slideOut') {
       // The table leaves the way the new one lies, the panels and the way round fade; then the new one arrives from the other side.
+      // The way round is gone before the table moves (as in the zoom out), so no pill floats over a moving table.
       panelsOut([...panels, ...navParts()]);
       const out = table.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${-dx * innerWidth * 0.5 / z()}px, ${-dy * innerHeight * 0.5 / z()}px)`, opacity: 0 }],
-        { duration: reduced() ? 0 : 200, easing: 'ease-in', fill: 'forwards' });
+        { duration: reduced() ? 0 : 200, delay: reduced() ? 0 : 140, easing: 'ease-in', fill: 'forwards' });
       out.finished.then(() => { if (mine()) setAnim({ ...anim, kind: 'slideIn' }); }, () => {});
     } else {
       stop(table, ...panels);
@@ -499,6 +510,8 @@ export default function Home() {
     return focusIdx >= 0 && col + dx >= 0 && col + dx < cols && i >= 0 && i < tables.length ? tables[i] : null;
   };
   const openTable = pushFocus;
+  // At rest on a table with a table below whose pill stacks over Stats, Stats moves down under it (navAt).
+  const shift = chrome && room && edges === 'buttons' && neighbour('down') ? statsShift(room.nav) : 0;
   const backToTables = () => { if (target !== null) toAllTables(); };
   // To a neighbour: only at rest on a table (an arrow held down steps one table per slide).
   const goTo = (d: Dir) => { const n = neighbour(d); if (n && atRest && shown === target) pushFocus(n.key); };
@@ -528,6 +541,8 @@ export default function Home() {
       const s = screen.getBoundingClientRect(), t = stage.querySelector('[data-desk-table]')!.getBoundingClientRect(), st = stage.getBoundingClientRect();
       const side = stage.querySelector('#phone-stats')!.getBoundingClientRect(), head = main.previousElementSibling!.getBoundingClientRect(), b = btn.getBoundingClientRect();
       const x = (r: number) => r - s.left, y = (r: number) => r - s.top;
+      // Stats where it always is: inside a table it may be moved down under the table below's pill (statsShift).
+      const bTop = b.top - (parseFloat(btn.dataset.shift ?? '') || 0);
       // The overview: the first screen under the header, down to the Stats button (the single-table page's, where it always is),
       // 40px in from the window's sides, so it never runs wall to wall.
       const foot = Math.min(s.bottom, innerHeight);
@@ -535,7 +550,7 @@ export default function Home() {
       // the reasoning panel. Wide or tall enough for its label: the neighbour itself, faded; else a slim tab at that edge
       // (in the gap when there is one, else in the table's own empty corner cell).
       const LABEL = 124, TAB = 20, cx = x(t.left) + t.width / 2, cy = y(t.top) + t.height / 2, corner = (t.width / 5);
-      const lw = t.left - s.left - 20, rw = s.right - side.right - 20, ug = t.top - head.bottom, dg = b.top - st.bottom;
+      const lw = t.left - s.left - 20, rw = s.right - side.right - 20, ug = t.top - head.bottom, dg = bTop - st.bottom;
       const edges: Partial<Record<Dir, EdgeRoom>> = {
         left: lw >= LABEL ? { box: { left: 4, top: y(t.top), width: lw, height: t.height }, tab: false }
           : { box: { left: lw >= 0 ? x(t.left) - 6 - TAB : x(t.left) + 8, top: lw >= 0 ? cy : y(t.top) + 8, width: TAB, transform: lw >= 0 ? 'translateY(-50%)' : undefined }, tab: true },
@@ -548,14 +563,19 @@ export default function Home() {
       };
       const pad = parseFloat(getComputedStyle(screen).paddingTop);
       const next = {
-        overview: { left: x(40), top: y(head.bottom) + 6, width: document.documentElement.clientWidth - 80, height: Math.min(foot, b.top) - head.bottom - 12 },
+        overview: { left: x(40), top: y(head.bottom) + 6, width: document.documentElement.clientWidth - 80, height: Math.min(foot, bTop) - head.bottom - 12 },
         edges,
         // "All tables": the page's top-left content corner (the screen's left edge, under its top padding).
         back: { left: 0, top: pad },
+        // About: the mirror corner, as far in from the window's right edge as "All tables" is from its left (the screen
+        // ends a little short of the window's right edge).
+        aboutRight: s.right - (document.documentElement.clientWidth - s.left),
         w: t.width,
         nav: {
           table: { left: x(t.left), top: y(t.top), width: t.width, height: t.height }, stageBottom: y(st.bottom), sideRight: x(side.right),
           leftRoom: t.left, rightRoom: document.documentElement.clientWidth - side.right, h: b.height, font: getComputedStyle(btn).font,
+          // Stats where it always is (its own shift taken off), and the window's foot.
+          stats: { left: x(b.left), top: y(bTop), width: b.width, height: b.height }, foot: y(innerHeight),
         },
       };
       setRoom(r => (JSON.stringify(r) === JSON.stringify(next) ? r : next));
@@ -886,17 +906,18 @@ export default function Home() {
         {overviewOn && room && <div ref={overlay} className="absolute z-20" style={{ ...room.overview, ...(showOverview ? null : { visibility: 'hidden', pointerEvents: 'none' }) }} aria-hidden={!showOverview || undefined}>
           <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} onOpen={openTable} />
         </div>}
-        {overviewOn && room && <AboutPill top={room.back.top} />}
+        {overviewOn && room && <AboutPill top={room.back.top} right={room.aboutRight} />}
         {navShown && room && <>
           <AllTables ref={backButton} at={room.back} still={!atRest} onClick={backToTables} />
           {(Object.keys(STEP) as Dir[]).map(d => {
             const n = neighbour(d), r = room.edges[d];
             if (!n) return null;
-            if (edges === 'buttons') return <NavPill key={d} dir={d} label={tableLabel(n)} still={!atRest} onGo={() => goTo(d)} {...navAt(d, tableLabel(n), room.nav)} />;
+            if (edges === 'buttons') return <NavPill key={d} dir={d} label={tableLabel(n)} still={!atRest} onGo={() => goTo(d)} onMeasure={drawnPill} {...navAt(d, tableLabel(n), room.nav, pillW[tableLabel(n)])} />;
             return r && <Edge key={d} t={n} dir={d} variant={edges} room={r} width={room.w * (d === 'left' || d === 'right' ? 0.8 : 0.6)} onGo={() => goTo(d)} />;
           })}
         </>}
-        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={NEXT_STYLE}>
+        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} data-shift={shift || undefined}
+          style={shift ? { ...NEXT_STYLE, transform: `translateY(${shift}px)`, transition: `transform 220ms ${EASE}` } : overviewOn ? { ...NEXT_STYLE, transition: `transform 220ms ${EASE}` } : NEXT_STYLE}>
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>}
 

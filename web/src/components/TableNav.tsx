@@ -37,10 +37,15 @@ export function useFadeIn<T extends HTMLElement>(given?: React.RefObject<T | nul
   return ref;
 }
 
-export function NavPill({ dir, label, at, vertical, still, onGo }: {
+export function NavPill({ dir, label, at, vertical, still, onGo, onMeasure }: {
   dir: Dir; label: string; at: { left: number; top: number }; vertical: boolean; still: boolean; onGo: () => void;
+  onMeasure?: (label: string, width: number) => void; // its width as drawn (its length on its side), for where it goes
 }) {
   const ref = useFadeIn<HTMLButtonElement>(), Icon = ICON[dir];
+  useLayoutEffect(() => {
+    const e = ref.current;
+    if (e && onMeasure) onMeasure(label, vertical ? e.offsetHeight : e.offsetWidth);
+  });
   const icon = <Icon size={PILL_ICON} weight="bold" aria-hidden style={{ color: QUIET, flexShrink: 0 }} />;
   return (
     <button ref={ref} type="button" data-table-nav={dir} aria-label={`Go to table ${label.replace(' · ', ', ')}`} onClick={onGo}

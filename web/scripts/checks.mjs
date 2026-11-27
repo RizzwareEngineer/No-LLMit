@@ -1787,7 +1787,7 @@ group(() => check('tables-zoom-lands', 'With ?tables=1 at 1440x790 and 1280x720,
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 1440x790, 1440x900 and 1728x1117, by default: an arrow button for every neighbour in the overview grid (named "Go to table …"), each as tall as the Stats button, none over a seat, a bet, the sidebar, the reasoning panel, the header, the Stats button or another button, all inside the window, no faded edge; "All tables" within 24px of the page\'s top-left content corner; the table\'s box the page without the switch draws (within 1px). At 1440x790 and 1280x720 with edges=live and edges=outline the faded edges show instead (the table faded, or a tab with its label), none over those. Every way: a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
+group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 1440x790, 1440x900 and 1728x1117, by default: an arrow button for every neighbour in the overview grid (named "Go to table …"), each as tall as the Stats button, none over a seat, a bet, the sidebar, the reasoning panel, the header, the Stats button or another button, every one at least 8px inside the window, no faded edge; "All tables" at the page\'s top-left (16,16) and About at its top-right, both clear of the header\'s text, one About link; every pill (arrows, Stats, All tables, About) the same height and type size; the table\'s box the page without the switch draws (within 1px). In 1/2 (a table below): its pill centred over Stats, 8px apart, where the window has the height for both, else on Stats\' line to its left, Stats where the page without the switch draws it across. At 1440x790 and 1280x720 with edges=live and edges=outline the faded edges show instead (the table faded, or a tab with its label), none over those. Every way: a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
   const bad = [], seen = [];
   const runs = [...[[1280, 720], [1440, 790], [1440, 900], [1728, 1117]].map(s => [...s, 'buttons']), ...TABLE_SIZES.flatMap(s => ['live', 'outline'].map(v => [...s, v]))];
   const plainBox = {};
@@ -1807,8 +1807,15 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 144
         return {
           stats: stats.getBoundingClientRect().height, faded: document.querySelectorAll('[data-edge]').length,
           edges: els.map(e => ({ dir: e.dataset.edge ?? e.dataset.tableNav, tab: e.dataset.edgeTab !== undefined, name: e.getAttribute('aria-label'), h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width, vertical: getComputedStyle(e).writingMode !== 'horizontal-tb',
-            out: (([l, t, r, b]) => l < 0 || t < 0 || r > innerWidth || b > innerHeight)(box(e)),
+            out: (([l, t, r, b]) => l < 8 - 0.5 || t < 8 - 0.5 || r > document.documentElement.clientWidth - 8 + 0.5 || b > innerHeight - 8 + 0.5)(box(e)), font: getComputedStyle(e).fontSize,
             over: [...keep, ...els.filter(o => o !== e)].filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.dataset.tableNav ?? (k === stats ? 'Stats' : k.id || k.className.slice(0, 20))) })),
+          pills: [stats, ...document.querySelectorAll('[data-all-tables-button], [data-about-pill]')].map(e => ({ h: e.getBoundingClientRect().height, font: getComputedStyle(e).fontSize, name: e.textContent.trim() })),
+          corners: (() => { const a = document.querySelector('[data-all-tables-button]')?.getBoundingClientRect(), b = document.querySelector('[data-about-pill]')?.getBoundingClientRect();
+            const head = [...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).flatMap(x => [...x.querySelectorAll('h1, p, button, a, span, [role=group]')]).filter(x => x.getClientRects().length && !x.closest('[data-all-tables-button], [data-about-pill]') && x.offsetWidth < innerWidth * 0.8);
+            const hit = r => r && head.filter(x => meets(box(x), [r.left, r.top, r.right, r.bottom])).map(x => x.textContent.trim().slice(0, 16));
+            return { all: a && [a.left, a.top], about: b && [document.documentElement.clientWidth - b.right, b.top], hits: [...(hit(a) ?? []), ...(hit(b) ?? [])],
+              abouts: [...document.querySelectorAll('a[href="/about"]')].filter(x => x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden' && x.getBoundingClientRect().bottom < innerHeight).length };
+          })(),
           back: (() => { const b = document.querySelector('[data-all-tables-button]')?.getBoundingClientRect(), pg = document.querySelector('[data-page]'), sec = document.querySelector('section[data-screen]');
             return b && { dx: b.left - (pg.getBoundingClientRect().left + parseFloat(getComputedStyle(pg).paddingLeft)), dy: b.top - (sec.getBoundingClientRect().top + parseFloat(getComputedStyle(sec).paddingTop)) }; })(),
         };
@@ -1830,8 +1837,15 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 144
         for (const e of r.edges) {
           const tall = e.vertical ? e.w : e.h;
           if (Math.abs(tall - r.stats) > 0.5) bad.push(`${size}: the ${e.dir} button is ${tall.toFixed(1)}px, Stats ${r.stats.toFixed(1)}px`);
-          if (e.out) bad.push(`${size}: the ${e.dir} button is out of the window`);
+          if (e.out) bad.push(`${size}: the ${e.dir} button is less than 8px inside the window`);
+          if (e.font !== r.pills[0].font) bad.push(`${size}: the ${e.dir} button's type ${e.font}, Stats ${r.pills[0].font}`);
         }
+        for (const q of r.pills) if (Math.abs(q.h - r.stats) > 0.5 || q.font !== r.pills[0].font) bad.push(`${size}: ${q.name} ${q.h.toFixed(1)}px tall, type ${q.font} (Stats ${r.stats.toFixed(1)}px, ${r.pills[0].font})`);
+        const c = r.corners;
+        if (!c.all || Math.abs(c.all[0] - 16) > 1 || Math.abs(c.all[1] - 16) > 1) bad.push(`${size}: All tables at ${c.all?.map(Math.round)} (want 16,16)`);
+        if (!c.about || Math.abs(c.about[0] - 16) > 1 || Math.abs(c.about[1] - 16) > 1) bad.push(`${size}: About ${c.about?.map(Math.round)} from the top-right (want 16,16)`);
+        if (c.hits.length) bad.push(`${size}: a corner pill over the header's ${c.hits.join(', ')}`);
+        if (c.abouts !== 1) bad.push(`${size}: ${c.abouts} About links on the first screen`);
         if (!r.back || Math.hypot(r.back.dx, r.back.dy) > 24) bad.push(`${size}: All tables ${r.back ? `${r.back.dx.toFixed(1)},${r.back.dy.toFixed(1)}px` : 'missing'} from the page's top-left content corner`);
         const got = await deskBox(p), wantBox = plainBox[size];
         if (got.some((v, i) => Math.abs(v - wantBox[i]) > 1)) bad.push(`${size}: table at ${got.map(Math.round)}, the page without the switch ${wantBox.map(Math.round)}`);
@@ -1844,6 +1858,24 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 144
       if (!/t=25-50-500bb/.test(back)) bad.push(`${size}: after ←, URL ${back}`);
       seen.push(`${size}: ${r.edges.map(e => `${e.dir}${e.tab ? ' (tab)' : ''}${e.vertical ? ' (on its side)' : ''} ${e.name}${buttons ? ` ${Math.round(e.w)}x${Math.round(e.h)}` : ''}`).join(', ')}${buttons ? `; Stats ${r.stats.toFixed(1)}px, All tables at +${r.back?.dx.toFixed(0)},+${r.back?.dy.toFixed(0)}` : ''}`);
     } finally { await p.close(); }
+    if (!buttons) continue;
+    // The table below (from 1/2): centred over Stats where both fit with 8px to spare under them, else on Stats' line.
+    const statsOf = q => q.evaluate(() => { const b = [...document.querySelectorAll('section[data-screen] button')].find(x => /^Stats/.test(x.textContent.trim())).getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
+    const plain = await scriptedTable(w, h), plainStats = await statsOf(plain).finally(() => plain.close());
+    const q = await scriptedTable(w, h, false, 'tables=1&t=1-2-100bb');
+    try {
+      await sleep(900);
+      const st = await statsOf(q), d = await q.evaluate(() => { const e = document.querySelector('[data-table-nav="down"]'); if (!e) return null; const b = e.getBoundingClientRect(); return [b.left, b.top, b.width, b.height, document.querySelector('.stage-zoom').getBoundingClientRect().bottom, innerHeight]; });
+      const table = await deskBox(q), wantBox = plainBox[size];
+      if (table.some((v, i) => Math.abs(v - wantBox[i]) > 1)) bad.push(`${size} in 1/2: table at ${table.map(Math.round)}, the page without the switch ${wantBox.map(Math.round)}`);
+      if (!d) { bad.push(`${size} in 1/2: no button to the table below`); continue; }
+      const stacked = d[4] + 8 + 2 * d[3] + 8 + 8 <= d[5] + 0.5;
+      if (Math.abs(st[0] - plainStats[0]) > 1) bad.push(`${size} in 1/2: Stats moved across (${Math.round(st[0])}, the page's ${Math.round(plainStats[0])})`);
+      if (stacked) {
+        if (Math.abs(d[0] + d[2] / 2 - (st[0] + st[2] / 2)) > 1 || Math.abs(d[1] + d[3] + 8 - st[1]) > 1 || st[1] + st[3] > d[5] - 8 + 0.5) bad.push(`${size} in 1/2: down ${d.slice(0, 4).map(Math.round)} not centred 8px over Stats ${st.map(Math.round)} inside the window`);
+      } else if (Math.abs(d[1] - st[1]) > 1 || d[0] + d[2] > st[0] - 8 || Math.abs(st[1] - plainStats[1]) > 1) bad.push(`${size} in 1/2: down ${d.slice(0, 4).map(Math.round)} not on Stats' line to its left (Stats ${st.map(Math.round)}, the page's ${plainStats.map(Math.round)})`);
+      seen.push(`${size} in 1/2: down ${stacked ? 'over' : 'beside'} Stats at ${d.slice(0, 2).map(Math.round)}, Stats ${st.slice(0, 2).map(Math.round)}`);
+    } finally { await q.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
