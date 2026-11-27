@@ -1548,11 +1548,12 @@ const TABLE_SIZES = [[1440, 790], [1280, 720]];
 const deskBox = p => p.evaluate(() => { const b = document.querySelector('.stage-zoom [data-desk-table]').getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
 const cellsOf = p => p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(a => {
   const b = a.getBoundingClientRect(), t = a.querySelector('[data-small-table]'), d = t?.querySelector('[data-desk-table]'), r = d?.getBoundingClientRect();
-  const lab = a.querySelector('[data-corner="label"] > span, [data-cell-label] > span');
-  return { key: a.dataset.overviewCell, name: a.getAttribute('aria-label'), label: lab?.textContent ?? '', text: a.textContent, bottom: b.bottom, right: b.right, seats: t?.querySelectorAll('[data-seat]').length ?? 0,
-    sx: r && r.width / d.offsetWidth, sy: r && r.height / d.offsetHeight, w: d?.offsetWidth };
+  const lab = a.querySelector('[data-cell-label] > span'), item = a.closest('[data-overview-item]');
+  return { key: a.dataset.overviewCell, name: a.getAttribute('aria-label'), label: lab?.textContent ?? '', text: a.textContent, bottom: item.getBoundingClientRect().bottom, right: item.getBoundingClientRect().right, seats: t?.querySelectorAll('[data-seat]').length ?? 0,
+    sx: r && r.width / d.offsetWidth, sy: r && r.height / d.offsetHeight, w: d?.offsetWidth, lod: d?.dataset.lod, panel: !!item.querySelector('[data-overview-pnl] [data-box]'),
+    labelBottom: lab?.parentElement.getBoundingClientRect().bottom, tableTop: t?.getBoundingClientRect().top };
 }));
-group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1280x720 the landing shows every table the engine runs, in its order, each a link named by its stakes and depth, labelled with stakes and depth and showing its hand, its table the 1000px desktop table drawn at one scale both ways with its seats, all inside the first screen with no scroll', async () => {
+group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1280x720 the landing shows every table the engine runs, in its order, each a link named by its stakes and depth, labelled on one line over its table with stakes and depth, its table the 1000px desktop table drawn at one scale both ways with its seats and seen from far away (data-lod=far), its Profits & Losses panel beside it, all inside the first screen with no scroll', async () => {
   const bad = [], seen = [];
   for (const [w, h] of TABLE_SIZES) {
     const p = await scriptedTable(w, h, false, 'tables=1');
@@ -1563,9 +1564,10 @@ group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1
       for (const c of cells) {
         const [, sb, bb, depth] = c.key.match(/^(\d+)-(\d+)-(\d+)bb$/) ?? [];
         if (c.name !== `Table ${sb}/${bb}, ${depth} bb`) bad.push(`${size} ${c.key}: named '${c.name}'`);
-        if (c.label !== `${sb}/${bb} · ${depth} bb` || !/Hand #[1-9]\d*/.test(c.text)) bad.push(`${size} ${c.key}: label '${c.label}'`);
-        if (c.w !== 1000 || !c.sx || Math.abs(c.sx - c.sy) > 0.003) bad.push(`${size} ${c.key}: table ${c.w}px drawn at ${c.sx?.toFixed(3)} x ${c.sy?.toFixed(3)}`);
+        if (c.label !== `${sb}/${bb} · ${depth} bb` || !(c.labelBottom <= c.tableTop + 0.5)) bad.push(`${size} ${c.key}: label '${c.label}' (its foot ${c.labelBottom}, the table's top ${c.tableTop})`);
+        if (c.w !== 1000 || !c.sx || Math.abs(c.sx - c.sy) > 0.003 || c.lod !== 'far') bad.push(`${size} ${c.key}: table ${c.w}px drawn at ${c.sx?.toFixed(3)} x ${c.sy?.toFixed(3)}, lod ${c.lod}`);
         if (c.seats < 6) bad.push(`${size} ${c.key}: ${c.seats} seats`);
+        if (!c.panel) bad.push(`${size} ${c.key}: no Profits & Losses panel beside it`);
         if (c.bottom > h || c.right > w) bad.push(`${size} ${c.key}: runs past the window (${Math.round(c.right)}, ${Math.round(c.bottom)})`);
       }
       if (scroll[0] || scroll[1]) bad.push(`${size}: the page scrolled ${scroll}`);
@@ -1574,10 +1576,11 @@ group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-// The tables are the picture: the grid fills the first screen under the header (no band over 48px above or below it, no
-// scroll) at the common laptop window sizes; at 1440x790 each of the four small tables is at least 40% of the window across;
-// every piece of overview text is on one line.
-group(() => check('tables-fill-screen', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 the overview grid fills the first screen: no band over 48px between the header and the grid or under it, no page scroll; at 1440x790 each small table is drawn at least 40% of the window wide; every overview text is on one line', async () => {
+// The tables are the picture: the grid fills the first screen between the header and the Stats button (no band over 48px
+// above or below it, no scroll) at the common laptop window sizes, for 4 tables (TABLES_N, the engine's TABLES, for the
+// others); at 1440x790 each of the four small tables is drawn smaller than the 40% of the window it took before the
+// semantic zoom, and at least 28%; every piece of overview text is on one line.
+group(() => check('tables-fill-screen', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 the overview grid fills the first screen: no band over 48px between the header and the grid or between the grid and the Stats button, no page scroll; at 1440x790 each small table is 28-40% of the window wide; every overview text is on one line', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1280, 720], [1440, 790], [1440, 900], [1728, 1117]]) {
     const p = await scriptedTable(w, h, false, 'tables=1');
@@ -1586,17 +1589,131 @@ group(() => check('tables-fill-screen', 'With ?tables=1 at 1280x720, 1440x790, 1
       const r = await p.evaluate(() => {
         const g = document.querySelector('[data-overview-grid]').getBoundingClientRect(), main = document.querySelector('.stage-zoom').parentElement;
         const head = main.previousElementSibling.getBoundingClientRect();
+        const stats = [...document.querySelectorAll('button')].find(b => /^Stats/.test(b.textContent.trim()) && !b.closest('[data-overview]')).getBoundingClientRect();
         const tables = [...document.querySelectorAll('[data-overview-cell] [data-small-table]')].map(e => e.getBoundingClientRect().width);
         const texts = [...document.querySelectorAll('[data-overview] span')].filter(e => !e.closest('[data-small-table]') && getComputedStyle(e).visibility !== 'hidden' && e.textContent.trim() && e.getClientRects().length)
           .filter(e => { const lh = parseFloat(getComputedStyle(e).lineHeight) || 18; return e.getBoundingClientRect().height > lh * 1.5 || e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'visible'; }).map(e => e.textContent.trim().slice(0, 24));
-        return { above: g.top - head.bottom, below: innerHeight - g.bottom, tables, texts, scroll: [document.documentElement.scrollWidth > innerWidth, scrollY, document.querySelector('[data-overview]').scrollHeight > document.querySelector('[data-overview]').clientHeight + 1] };
+        return { above: g.top - head.bottom, below: stats.top - g.bottom, tables, texts, scroll: [document.documentElement.scrollWidth > innerWidth, scrollY, document.querySelector('[data-overview]').scrollHeight > document.querySelector('[data-overview]').clientHeight + 1] };
       });
-      const size = `${w}x${h}`;
+      const size = `${w}x${h}`, n = +(process.env.TABLES_N || 4);
       if (r.above > 48 || r.below > 48 || r.above < 0 || r.below < 0) bad.push(`${size}: bands ${Math.round(r.above)} above, ${Math.round(r.below)} below`);
       if (r.scroll.some(Boolean)) bad.push(`${size}: scroll ${r.scroll}`);
-      if (w === 1440 && h === 790 && (r.tables.length !== 4 || r.tables.some(t => t < 0.4 * w))) bad.push(`${size}: tables ${r.tables.map(Math.round)} px across (want >= ${0.4 * w})`);
+      if (r.tables.length !== n) bad.push(`${size}: ${r.tables.length} tables (want ${n})`);
+      if (w === 1440 && h === 790 && n === 4 && r.tables.some(t => t < 0.28 * w || t > 0.4 * w)) bad.push(`${size}: tables ${r.tables.map(Math.round)} px across (want ${0.28 * w}-${0.4 * w})`);
       if (r.texts.length) bad.push(`${size}: text over one line: ${r.texts.join(', ')}`);
       seen.push(`${size}: bands ${Math.round(r.above)}/${Math.round(r.below)}, tables ${r.tables.map(Math.round).join(',')}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// The owner's review of the overview: centred, no all-tables column, nothing drawn under the legibility floor, the far
+// table's seats drawn as their logos only (no name, stack, status or bet amount) but each named for screen readers.
+const OVERVIEW_SIZES = [[1280, 720], [1440, 790], [1440, 900], [1728, 1117]];
+group(() => check('tables-grid-centred', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 the overview grid (tables and their panels) is centred across the window within 2px', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of OVERVIEW_SIZES) {
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const r = await p.evaluate(() => {
+        const items = [...document.querySelectorAll('[data-overview-item]')].map(e => e.getBoundingClientRect());
+        return { l: Math.min(...items.map(b => b.left)), r: Math.max(...items.map(b => b.right)), win: document.documentElement.clientWidth };
+      });
+      const off = (r.l + r.r) / 2 - r.win / 2;
+      if (Math.abs(off) > 2) bad.push(`${w}x${h}: the grid's middle is ${off.toFixed(1)}px off the window's`);
+      seen.push(`${w}x${h}: ${Math.round(r.l)}..${Math.round(r.r)} (off ${off.toFixed(1)})`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('tables-no-all-tables', 'With ?tables=1 at 1440x790 there is no all-tables Profits & Losses: no [data-all-tables] and no "All tables" text in the overview', async () => {
+  const p = await scriptedTable(1440, 790, false, 'tables=1');
+  try {
+    const r = await p.evaluate(() => [document.querySelectorAll('[data-all-tables]').length, /all tables/i.test(document.querySelector('[data-overview]')?.textContent ?? '')]);
+    return { pass: !r[0] && !r[1], detail: `${r[0]} all-tables panels, ${r[1] ? '' : 'no '}"All tables" text` };
+  } finally { await p.close(); }
+}));
+group(() => check('tables-legibility', 'With ?tables=1 at 1280x720, 1440x790 and 1728x1117, mid-hand with bets out: no overview text is drawn under 11px, no card rank under 12px tall, and no small table draws a seat name, stack, status (thinking, waiting, fold, blind...), position badge or bet amount; only the far layer is there', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1280, 720], [1440, 790], [1728, 1117]]) {
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      await p.evaluate(() => window.__stream.bets());
+      await sleep(600);
+      const r = await p.evaluate(() => {
+        const out = { small: [], names: [], parts: 0, ranks: [], texts: 0 };
+        const names = new Set(window.__stream.last.players.map(q => q.name));
+        const walk = document.createTreeWalker(document.querySelector('[data-overview]'), NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+          const e = n.parentElement, t = n.textContent.trim();
+          if (!t || !e.getClientRects().length || getComputedStyle(e).visibility === 'hidden' || e.closest('[aria-hidden=true]:not([data-far-felt])') && !e.closest('[data-far]')) continue;
+          const d = e.closest('[data-small-table]')?.querySelector('[data-desk-table]'), z = d ? d.getBoundingClientRect().width / d.offsetWidth : 1, px = parseFloat(getComputedStyle(e).fontSize) * z;
+          out.texts++;
+          if (px < 10.95) out.small.push(`${t.slice(0, 16)} ${px.toFixed(1)}px`);
+          if (e.closest('[data-small-table]') && names.has(t)) out.names.push(t);
+          if (e.closest('[data-far-card]')) out.ranks.push(e.getBoundingClientRect().height);
+        }
+        out.parts = document.querySelectorAll('[data-small-table] :is([data-action], [data-position], [data-bet], [data-label], [data-chips], [data-seat-top], [data-seat-bottom])').length;
+        return out;
+      });
+      const size = `${w}x${h}`, minRank = Math.min(...r.ranks);
+      if (r.small.length) bad.push(`${size}: small text ${r.small.slice(0, 5).join(', ')}`);
+      if (r.names.length) bad.push(`${size}: seat names drawn: ${r.names.slice(0, 3).join(', ')}`);
+      if (r.parts) bad.push(`${size}: ${r.parts} full-table parts (stack, status, badge, bet) drawn`);
+      if (r.ranks.length && minRank < 12) bad.push(`${size}: a card rank ${minRank.toFixed(1)}px tall`);
+      seen.push(`${size}: ${r.texts} texts, card ranks ${r.ranks.length ? minRank.toFixed(1) : '-'}px and up`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('tables-seat-names', 'With ?tables=1 at 1440x790 every seat of every small table keeps an accessible name, its model\'s (the accessibility tree), and each table\'s link is named "Table SB/BB, N bb"', async () => {
+  const p = await scriptedTable(1440, 790, false, 'tables=1');
+  try {
+    const want = await p.evaluate(() => window.__stream.keys().length * window.__stream.last.players.length);
+    const tree = await p.accessibility.snapshot({ interestingOnly: false });
+    const imgs = [], links = [];
+    const walk = n => { if ((n.role === 'img' || n.role === 'image') && n.name && !/ of |hidden card|logo$/.test(n.name)) imgs.push(n.name); if (n.role === 'link' && /^Table /.test(n.name)) links.push(n.name); (n.children ?? []).forEach(walk); };
+    walk(tree);
+    const n = await p.evaluate(() => window.__stream.keys().length);
+    return { pass: imgs.length >= want && links.length === n, detail: `${imgs.length} named seats (want ${want}), ${links.length} links (want ${n}): ${links.join(', ')}` };
+  } finally { await p.close(); }
+}));
+// The header's status row: on the overview Live, the units and Sound are one group in the middle (the per-table items
+// folded away); inside a table every item is where the page without the switch puts it.
+const statusParts = p => p.evaluate(() => {
+  const row = document.querySelector('[data-status-table]')?.parentElement ?? [...document.querySelectorAll('div')].find(d => d.querySelector('[role=group][aria-label="Amounts in"]') && /Live|Offline|Closed|Paused/.test(d.textContent) && d.className.includes('flex-wrap'));
+  const box = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.width]; };
+  const live = row.firstElementChild, units = row.querySelector('[role=group][aria-label="Amounts in"]'), sound = row.lastElementChild;
+  const title = document.querySelector('h1:not(.sr-only)').getBoundingClientRect();
+  return { live: box(live), units: box(units), sound: box(sound), win: 2 * (title.left + title.width / 2), mid: document.querySelector('[data-status-table]')?.getBoundingClientRect().width ?? null };
+});
+group(() => check('tables-status-row', 'With ?tables=1 at 1440x790 and 1280x720: on the overview the status row\'s Live, Chips/BB and Sound are one group centred under the title within 2px with the per-table items folded to nothing; inside a table (after the zoom) Live, Chips/BB and Sound are within 1px of where the page without the switch draws them', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of TABLE_SIZES) {
+    const size = `${w}x${h}`, plain = await scriptedTable(w, h);
+    const want = await statusParts(plain).finally(() => plain.close());
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const o = await statusParts(p);
+      const l = o.live[0], r = o.sound[0] + o.sound[2], off = (l + r) / 2 - o.win / 2;
+      if (Math.abs(off) > 2 || o.mid > 0.5) bad.push(`${size} overview: group ${Math.round(l)}..${Math.round(r)} (${off.toFixed(1)} off the middle), per-table items ${o.mid}px`);
+      await clickCenter(p, '[data-overview-cell="5-10-200bb"] [data-small-table]'); await sleep(1200);
+      const t = await statusParts(p);
+      for (const k of ['live', 'units', 'sound']) if (t[k].some((v, i) => Math.abs(v - want[k][i]) > 1)) bad.push(`${size} in a table: ${k} at ${t[k].map(Math.round)}, the page's ${want[k].map(Math.round)}`);
+      seen.push(`${size}: overview group ${Math.round(l)}..${Math.round(r)} (off ${off.toFixed(1)}); in a table units at ${Math.round(t.units[0])} (page ${Math.round(want.units[0])})`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('tables-stats-button', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 the Stats button on the overview is the single-table page\'s, its box the same within 1px', async () => {
+  const bad = [], seen = [];
+  const statsBox = p => p.evaluate(() => { const b = [...document.querySelectorAll('button')].filter(b => /^Stats/.test(b.textContent.trim()) && b.getClientRects().length && getComputedStyle(b).visibility !== 'hidden'); return b.map(e => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }); });
+  for (const [w, h] of OVERVIEW_SIZES) {
+    const plain = await scriptedTable(w, h), want = await statsBox(plain).finally(() => plain.close());
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const got = await statsBox(p);
+      if (got.length !== 1 || want.length !== 1 || got[0].some((v, i) => Math.abs(v - want[0][i]) > 1)) bad.push(`${w}x${h}: ${JSON.stringify(got.map(b => b.map(Math.round)))} vs the page's ${JSON.stringify(want.map(b => b.map(Math.round)))}`);
+      seen.push(`${w}x${h}: ${got[0]?.map(Math.round)}`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
