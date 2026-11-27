@@ -20,7 +20,8 @@ type KeyedTable = TableView & { key: string };
 const TABLE_W = 1000, TABLE_H = 514;
 // The label line over each table; the Profits & Losses panel beside it (the single-table page's, its rows closer), or
 // with ?pnl=row the slim row under it; the gaps between tables across and down.
-const LABEL_H = 24, PANEL_W = 208, PANEL_GAP = 12, ROW_H = 26, ROW_GAP = 6, ROW_MIN_W = 9 * 60, GX = 32, GY = 18;
+// PANEL_FULL_H, PANEL_DENSE_H: the panel with nine rows at the single-table page's spacing, and 2px apart.
+const LABEL_H = 24, PANEL_W = 208, PANEL_FULL_H = 360, PANEL_DENSE_H = 252, PANEL_GAP = 12, ROW_H = 26, ROW_GAP = 6, ROW_MIN_W = 9 * 62 + 16, GX = 32, GY = 18;
 const CARD = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
 const UP = 'rgb(15, 123, 108)', DOWN = 'rgb(200, 50, 50)';
 // The stats tile-to-card glide's curve (Section's glideEase), shorter: a table is one picture, not a card's content.
@@ -43,8 +44,9 @@ export function gridFor(n: number, w: number, h: number, pnl: PnlVariant = 'pane
   for (let cols = 1; cols <= Math.max(1, n); cols++) {
     const rows = Math.ceil(n / cols), across = (w - (cols - 1) * GX) / cols, down = (h - (rows - 1) * GY) / rows;
     if (pnl === 'row' && across < ROW_MIN_W) continue;
-    // Never over its own size (one table is the desktop table, not a blow-up of it).
-    const tw = Math.floor(Math.min(TABLE_W, pnl === 'panel' ? across - PANEL_GAP - PANEL_W : across,
+    // One table may be drawn over its own size (seen from far away it is a picture, and it fills the screen); the zoom
+    // in then ends a little smaller, on the single-table page's table.
+    const tw = Math.floor(Math.min(TABLE_W * 1.6, pnl === 'panel' ? across - PANEL_GAP - PANEL_W : across,
       ((pnl === 'panel' ? down - LABEL_H : down - LABEL_H - ROW_GAP - ROW_H) / TABLE_H) * TABLE_W));
     // The larger tables win (by more than 2%); about as large, the one with more rows (it fills more of the box's height).
     if (tw < best.tw * 1.02 && !(tw > best.tw * 0.98 && rows > best.rows)) continue;
@@ -88,10 +90,10 @@ const SmallTable = memo(function SmallTable({ t, width, far = false }: { t: Tabl
 });
 
 const colorOf = (v: number) => (v > 0 ? UP : v < 0 ? DOWN : MUTED);
-// The row's numbers: in chips over 10,000 in thousands, so nine fit under a small table on one line.
+// The row's numbers: in chips from 1,000 in thousands (one decimal), so nine fit under a small table on one line.
 const short = (v: number, bb: number | null) => {
   const a = Math.abs(v), sign = v > 0 ? '+' : v < 0 ? '−' : '';
-  return sign + (!bb && a >= 10000 ? `${(a / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 })}k` : formatAmount(a, bb, false));
+  return sign + (!bb && a >= 1000 ? `${(a / 1000).toLocaleString('en-US', { maximumFractionDigits: a >= 100000 ? 0 : 1 })}k` : formatAmount(a, bb, false));
 };
 
 // A number that flashes its colour when it changes, in place: its box is the text's, so nothing round it moves.
@@ -111,7 +113,7 @@ function PnlRow({ t, width }: { t: KeyedTable; width: number }) {
   const shown = useBigBlind(), bb = shown ? stakesOf(t).bigBlind || null : null;
   const ranked = [...(t.gameState?.players ?? [])].sort((a, b) => (b.winnings || 0) - (a.winnings || 0));
   return (
-    <ol data-pnl-row aria-label={`Profits & Losses, ${tableLabel(t)}${bb ? ', in big blinds' : ''}`} className="flex items-center justify-between bg-white rounded px-2"
+    <ol data-pnl-row aria-label={`Profits & Losses, ${tableLabel(t)}${bb ? ', in big blinds' : ''}`} className="flex items-center justify-between gap-1.5 bg-white rounded px-2"
       style={{ ...CARD, width, height: ROW_H, marginTop: ROW_GAP }}>
       {ranked.map(p => (
         <li key={p.id} className="flex items-center gap-1" aria-label={`${p.name} ${short(p.winnings || 0, bb)}`}>
@@ -147,9 +149,11 @@ function Cell({ t, tw, th, cellW, pnl, onOpen }: { t: KeyedTable; tw: number; th
         </div>
       </a>
       {pnl === 'row' ? <PnlRow t={t} width={cellW} /> : (
-        <div data-overview-pnl className="flex flex-col shrink-0" style={{ width: PANEL_W, height: LABEL_H + th }}>
+        // As tall as its rows (it hugs them), never taller than the label and the table; its rows closer together where
+        // the single-table page's spacing would not fit beside the table.
+        <div data-overview-pnl className="flex flex-col shrink-0" style={{ width: PANEL_W, maxHeight: LABEL_H + th }}>
           <TableBigBlind.Provider value={bigBlind || null}>
-            <WinningsPanel players={t.gameState?.players ?? []} box={`pnl:${t.key}`} dense />
+            <WinningsPanel players={t.gameState?.players ?? []} box={`pnl:${t.key}`} dense={LABEL_H + th >= PANEL_FULL_H ? false : LABEL_H + th >= PANEL_DENSE_H ? true : 'tight'} />
           </TableBigBlind.Provider>
         </div>
       )}

@@ -12,7 +12,7 @@ import FitName from "@/components/FitName";
 interface WinningsPanelProps {
   players: PlayerState[];
   box?: string; // the name its size is remembered under (lib/boxes): each of the tables overview's panels has its own
-  dense?: boolean; // the tables overview's: the same rows, closer together, so nine stand beside a small table
+  dense?: boolean | 'tight'; // the tables overview's: the same rows, closer together ('tight': touching), so nine stand beside a small table
 }
 
 export default function WinningsPanel({ players, box: boxName = 'pnl', dense = false }: WinningsPanelProps) {
@@ -27,7 +27,7 @@ export default function WinningsPanel({ players, box: boxName = 'pnl', dense = f
       className={`flex flex-col relative w-full bg-white flex-1 rounded overflow-hidden ${players.length ? '' : '[&>*]:invisible'}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', ...size }}
     >
-      <div className={`flex items-start justify-between ${dense ? 'px-3 py-1.5' : 'p-3'} border-b border-notion`}>
+      <div className={`flex items-start justify-between ${dense === 'tight' ? 'px-3 py-1' : dense ? 'px-3 py-1.5' : 'p-3'} border-b border-notion`}>
         <div className="flex flex-col">
           {/* Phones: a Stats window's title, as Trends, Profiles and Matchups (the desktop sidebar keeps its small label). */}
           <h2 className="text-[13px] leading-4 font-medium uppercase tracking-wider max-md:text-[20px] max-md:leading-8 max-md:font-bold max-md:normal-case max-md:tracking-normal" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>
@@ -42,7 +42,7 @@ export default function WinningsPanel({ players, box: boxName = 'pnl', dense = f
   );
 }
 
-function RankingItem({ player, rank, dense }: { player: PlayerState; rank: number; dense: boolean }) {
+function RankingItem({ player, rank, dense }: { player: PlayerState; rank: number; dense: boolean | 'tight' }) {
   const bb = useBigBlind();
   const winnings = player.winnings || 0;
   const color = winnings > 0 ? 'rgb(15, 123, 108)' : winnings < 0 ? 'rgb(200, 50, 50)' : MUTED;
@@ -51,7 +51,7 @@ function RankingItem({ player, rank, dense }: { player: PlayerState; rank: numbe
     // The name takes all the row the rank, logo and number leave it (owner's audit: names were cut while there was room).
     // 4px between them: at 6px a five-digit figure left "DeepSeek Flash", the shortest form of "DeepSeek V4 Flash",
     // 100px of the 102 it needs (desktop-table-text), and it was cut.
-    <div className={`flex flex-row items-center gap-1 ${dense ? 'py-[2px]' : 'py-2'} px-2`}>
+    <div className={`flex flex-row items-center gap-1 ${dense === 'tight' ? 'py-0' : dense ? 'py-[2px]' : 'py-2'} px-2`}>
       <span className="text-[13px] min-w-3.5 font-bold tabular-nums shrink-0" style={{ color: MUTED }}>{rank}.</span>
       <LLMLogo model={player.name} size={18} />
       <div className="flex-1 min-w-0">
@@ -67,7 +67,7 @@ function RankingItem({ player, rank, dense }: { player: PlayerState; rank: numbe
 }
 
 // Sorted by winnings. motion's layout animation slides rows to their new rank; not draggable.
-function Rankings({ players, dense }: { players: PlayerState[]; dense: boolean }) {
+function Rankings({ players, dense }: { players: PlayerState[]; dense: boolean | 'tight' }) {
   const ranked = [...players].sort((a, b) => (b.winnings || 0) - (a.winnings || 0));
 
   return (
