@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
@@ -135,14 +136,17 @@ func (s *supabaseSaver) save(h savedHand) error {
 }
 
 // fileSaver appends one JSON line per hand to hands.jsonl and one per decision to
-// prompts.jsonl.
+// prompts.jsonl. Every table shares it; one save at a time keeps each hand's lines whole and together.
 type fileSaver struct {
 	dir string
+	mu  sync.Mutex
 }
 
 func (s *fileSaver) describe() string { return "local files in " + s.dir + "/" }
 
 func (s *fileSaver) save(h savedHand) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return err
 	}
