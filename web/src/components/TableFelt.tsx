@@ -16,7 +16,7 @@ import { BLUE } from "@/lib/stats";
 import { formatDuration, formatLocalTime } from "@/lib/time";
 import { useFillIn } from "@/lib/boxes";
 import { DECK } from "@/lib/phoneTable";
-import { CARD_CLASS, useCardSize } from "@/lib/tableSwitches";
+import { cardClassOf, useCardLook, useCardSize } from "@/lib/tableSwitches";
 import { isDraftA } from "@/lib/layout";
 const noSub = () => () => {};
 import { arrivedDealAt } from "@/lib/stream";
@@ -127,7 +127,7 @@ export default function TableFelt({
   plain = false,
   fillIn = true,
 }: TableFeltProps) {
-  const bb = useBigBlind(), size = useCardSize(), still = useSyncExternalStore(noSub, isDraftA, () => false);
+  const bb = useBigBlind(), size = useCardSize(), look = useCardLook(), still = useSyncExternalStore(noSub, isDraftA, () => false);
   const potIn = amountParts(pot, bb);
   const collected = Math.max(0, pot - betsOut);
   // Show button determination if in progress
@@ -210,7 +210,7 @@ export default function TableFelt({
             <div className={`flex gap-1 justify-center${plain ? ' flex-wrap' : ''}`}>
               {buttonDetermination.cards.map((bc, i) => (
                 <div key={i} className="flex flex-col items-center gap-0.5">
-                  <Card value={bc.card} className={CARD_CLASS[size]} rise={live} />
+                  <Card value={bc.card} className={cardClassOf(size, look)} rise={live} />
                   <span className="text-[11px] text-gray-600 truncate max-w-[40px]">{bc.playerName.split(' ')[0]}</span>
                 </div>
               ))}
@@ -226,7 +226,7 @@ export default function TableFelt({
         ) : (
           <>
             {!deck && cards.map((card, i) => (
-              <Card key={`${card}-${i}`} value={card} className={CARD_CLASS[size]} rise={live} />
+              <Card key={`${card}-${i}`} value={card} className={cardClassOf(size, look)} rise={live} />
             ))}
             {/* The phone's deck between hands takes the board's place too, as the desktop's does, 8px under the pot so
                 it never covers the pot's label (phoneTable's DECK). */}

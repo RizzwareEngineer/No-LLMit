@@ -39,7 +39,7 @@ import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, page
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
-import { OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
+import { CardLookContext, setPageCardLook, useCardLookParam, OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
 import { type Anim, nextAnim, stageKeyOf, targetOf } from "@/lib/overviewMachine";
 import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor, tableLabel, type EdgeRoom } from "@/components/TablesOverview";
 import { NavPill, pillWidth, useFadeIn } from "@/components/TableNav";
@@ -367,6 +367,9 @@ export default function Home() {
   // table lands exactly where it always is. The URL decides where the page goes (lib/overviewMachine): an input changes it
   // (a click or an edge pushes ?t, Esc and "All tables" go back), and the machine animates toward it one step at a time.
   const edges = useEdges();
+  // ?cards=bold|a|b|c (a draft): the bolder cards on this page's own table (not the overview's small ones).
+  const cardLook = useCardLookParam();
+  useEffect(() => setPageCardLook(cardLook), [cardLook]);
   const keys = useMemo(() => tables.map(t => t.key), [tables]);
   const target = targetOf(focusParam, keys);
   const atRest = !anim, hidden = overviewOn && shown === null && atRest; // the stage under the overview
@@ -813,6 +816,7 @@ export default function Home() {
                 table and the sidebar after it (order). */}
             <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative max-md:contents">
               {/* Main game grid */}
+              <CardLookContext.Provider value={cardLook}>
               <PokerTable
                 players={players}
                 currentPlayerIdx={currentPlayerIdx}
@@ -830,6 +834,7 @@ export default function Home() {
                 clock={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? clock : null}
                 still={hidden}
               />
+              </CardLookContext.Provider>
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
                   here, its top under the bar), Profits & Losses only (no API usage on a phone). */}

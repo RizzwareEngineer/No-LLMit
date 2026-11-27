@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 import { DESK, isDraftA, isPhone, onLayoutChange } from "@/lib/layout";
 
 // Card sizes in px, the card's 0.7 ratio: phones' 28x40 and desktop's 40x56. Every card on the table is this size: hole
@@ -7,11 +7,30 @@ export const CARD_SIZES = [{ w: 28, h: 40 }, { w: 40, h: 56 }] as const;
 // Literal classes, so Tailwind sees each one.
 export const CARD_CLASS = ['w-7 h-10', 'w-10 h-14'] as const;
 
+// ?cards=bold (a draft): bolder cards on the page's own table (desktop and phones), set apart from the white seat and the
+// felt; ?cards=a|b|c each option, for comparing. a: a darker 1px border and a soft shadow at today's size; b: a's border
+// with bigger, heavier rank and suit, stacked; c: b on the largest card the seat holds (45x64; phones 31x44), a seat's two
+// overlapping. bold is c. Without it, nothing changes. Only where the page provides it (CardLookContext, page.tsx): the
+// overview's small tables keep their cards.
+export type CardLook = 'a' | 'b' | 'c';
+const cardLookOf = (search: string): CardLook | null => { const v = new URLSearchParams(search).get('cards'); return v === 'bold' ? 'c' : v === 'a' || v === 'b' || v === 'c' ? v : null; };
+export const useCardLookParam = () => useSyncExternalStore(noSub, () => cardLookOf(location.search), () => null);
+export const CardLookContext = createContext<CardLook | null>(null);
+export const useCardLook = () => useContext(CardLookContext);
+export const CARD_SIZES_C = [{ w: 31, h: 44 }, { w: 45, h: 64 }] as const;
+export const CARD_CLASS_C = ['w-[31px] h-[44px]', 'w-[45px] h-[64px]'] as const;
+// A seat's second hole card over its first by this much with look c (the hand fits the seat's corner as today's did).
+export const HOLE_OVERLAP_C = [6, 12] as const;
+export const cardClassOf = (size: number, look: CardLook | null) => (look === 'c' ? CARD_CLASS_C : CARD_CLASS)[size];
+// The page's look, for the dealt cards' flights (drawn outside React): set by the page's provider.
+let pageLook: CardLook | null = null;
+export const setPageCardLook = (l: CardLook | null) => { pageLook = l; };
+
 // Phones keep today's size: the phone table's seats are laid out for it (phoneTable.ts). The layout is lib/layout's.
 export const cardSizeNow = (): number => (isPhone() ? 0 : 1);
 // The deck's size in px: the hole cards'.
 // Draft A (app/a) draws the desktop table, so its deck and dealt cards are the desktop's.
-export const deckSize = (size = cardSizeNow()) => (isDraftA() ? CARD_SIZES[1] : CARD_SIZES[size]);
+export const deckSize = (size = cardSizeNow(), look: CardLook | null = pageLook) => { const s = look === 'c' ? CARD_SIZES_C : CARD_SIZES; return isDraftA() ? s[1] : s[size]; };
 
 export const useCardSize = () => useSyncExternalStore(onLayoutChange, cardSizeNow, () => 0);
 
