@@ -5972,11 +5972,25 @@ group(() => check('leader-bb100', 'The Leader line is the best bb/100 among the 
   const read = () => p.evaluate(() => { const l = [...document.querySelectorAll('#pairwise-card span[data-scope]')].find(e => e.getBoundingClientRect().width > 0); return l && { text: l.textContent, name: l.querySelector('[translate=no]')?.textContent ?? null, figure: l.querySelector('.font-bold.shrink-0')?.textContent ?? null }; });
   const want = ms => ms.filter(m => m.hands >= 500).sort((a, b) => b.bb100 - a.bb100)[0] ?? null;
   const bad = [], seen = [];
-  for (const [label, ms] of [['Seated now', seatedOf(e.stats)], ['All models', e.stats.models]]) {
+  // The fixture's four tables deal live hands all through the run, so the all-time stats move under the check (the
+  // leader changes once models pass 500 hands). The page is read between two reads of the engine's stats: when they
+  // agree on the leader (nothing moved across the read), the page is judged against it; else the read is taken again.
+  const lineupOf = (label, stats) => (label === 'Seated now' ? seatedOf(stats) : stats.models);
+  const leaderKey = m => (m ? `${m.name} ${bbText(m.bb100)}` : '-');
+  const steady = async label => {
+    for (let i = 0; ; i++) {
+      const got = await read(), after = (await engineStats(p)).stats, ms = lineupOf(label, after);
+      const before = lineupOf(label, e.stats); e.stats = after;
+      if (leaderKey(want(before)) === leaderKey(want(ms)) || i >= 9) return { got, ms, tries: i + 1 };
+      await sleep(300);
+    }
+  };
+  for (const label of ['Seated now', 'All models']) {
     if (label === 'All models' && !(await clickLineup(p, 'All models'))) { bad.push('no "All models" button'); break; }
     await sleep(900);
-    const got = await read(), top = want(ms);
-    seen.push(`${label}: ${got?.text}`);
+    e.stats = (await engineStats(p)).stats;
+    const { got, ms, tries } = await steady(label), top = want(ms);
+    seen.push(`${label}: ${got?.text}${tries > 1 ? ` (read ${tries} times: the stats moved)` : ''}`);
     if (!got) { bad.push(`${label}: no Leader line`); continue; }
     if (!top) { if (!/No model has 500 hands yet/.test(got.text)) bad.push(`${label}: nobody has 500 hands, line "${got.text}"`); continue; }
     if (got.name !== top.name) bad.push(`${label}: names ${got.name}, the best bb/100 with 500 hands is ${top.name} (${top.hands} hands, ${top.bb100})`);
