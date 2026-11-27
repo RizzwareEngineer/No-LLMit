@@ -1613,10 +1613,11 @@ const TABLE_SIZES = [[1440, 790], [1280, 720]];
 const deskBox = p => p.evaluate(() => { const b = document.querySelector('.stage-zoom [data-desk-table]').getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
 const cellsOf = p => p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(a => {
   const b = a.getBoundingClientRect(), t = a.querySelector('[data-small-table]'), d = t?.querySelector('[data-desk-table]'), r = d?.getBoundingClientRect();
-  return { key: a.dataset.overviewCell, name: a.getAttribute('aria-label'), label: a.firstElementChild.textContent, bottom: b.bottom, right: b.right, seats: t?.querySelectorAll('[data-seat]').length ?? 0,
+  const lab = a.querySelector('[data-corner="label"] > span, [data-cell-label] > span');
+  return { key: a.dataset.overviewCell, name: a.getAttribute('aria-label'), label: lab?.textContent ?? '', text: a.textContent, bottom: b.bottom, right: b.right, seats: t?.querySelectorAll('[data-seat]').length ?? 0,
     sx: r && r.width / d.offsetWidth, sy: r && r.height / d.offsetHeight, w: d?.offsetWidth };
 }));
-group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1280x720 the landing shows every table the engine runs, in its order, each a link named by its stakes and depth, labelled with stakes, depth, hand and pot, its table the 1000px desktop table drawn at one scale both ways with its seats, all inside the first screen with no scroll', async () => {
+group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1280x720 the landing shows every table the engine runs, in its order, each a link named by its stakes and depth, labelled with stakes and depth and showing its hand, its table the 1000px desktop table drawn at one scale both ways with its seats, all inside the first screen with no scroll', async () => {
   const bad = [], seen = [];
   for (const [w, h] of TABLE_SIZES) {
     const p = await scriptedTable(w, h, false, 'tables=1');
@@ -1627,13 +1628,40 @@ group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1
       for (const c of cells) {
         const [, sb, bb, depth] = c.key.match(/^(\d+)-(\d+)-(\d+)bb$/) ?? [];
         if (c.name !== `Table ${sb}/${bb}, ${depth} bb`) bad.push(`${size} ${c.key}: named '${c.name}'`);
-        if (!new RegExp(`^${sb}/${bb} · ${depth} bb\\s*Hand #[1-9]\\d*\\s*Pot [\\d,]+`).test(c.label)) bad.push(`${size} ${c.key}: label '${c.label}'`);
+        if (c.label !== `${sb}/${bb} · ${depth} bb` || !/Hand #[1-9]\d*/.test(c.text)) bad.push(`${size} ${c.key}: label '${c.label}'`);
         if (c.w !== 1000 || !c.sx || Math.abs(c.sx - c.sy) > 0.003) bad.push(`${size} ${c.key}: table ${c.w}px drawn at ${c.sx?.toFixed(3)} x ${c.sy?.toFixed(3)}`);
         if (c.seats < 6) bad.push(`${size} ${c.key}: ${c.seats} seats`);
         if (c.bottom > h || c.right > w) bad.push(`${size} ${c.key}: runs past the window (${Math.round(c.right)}, ${Math.round(c.bottom)})`);
       }
       if (scroll[0] || scroll[1]) bad.push(`${size}: the page scrolled ${scroll}`);
       seen.push(`${size}: ${cells.map(c => `${c.label.replace(/\s+/g, ' ')} at ${c.sx?.toFixed(3)}`).join('; ')}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// The tables are the picture: the grid fills the first screen under the header (no band over 48px above or below it, no
+// scroll) at the owner's window sizes; at 1440x790 each of the four small tables is at least 40% of the window across;
+// every piece of overview text is on one line.
+group(() => check('tables-fill-screen', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 the overview grid fills the first screen: no band over 48px between the header and the grid or under it, no page scroll; at 1440x790 each small table is drawn at least 40% of the window wide; every overview text is on one line', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1280, 720], [1440, 790], [1440, 900], [1728, 1117]]) {
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      await sleep(800);
+      const r = await p.evaluate(() => {
+        const g = document.querySelector('[data-overview-grid]').getBoundingClientRect(), main = document.querySelector('.stage-zoom').parentElement;
+        const head = main.previousElementSibling.getBoundingClientRect();
+        const tables = [...document.querySelectorAll('[data-overview-cell] [data-small-table]')].map(e => e.getBoundingClientRect().width);
+        const texts = [...document.querySelectorAll('[data-overview] span')].filter(e => !e.closest('[data-small-table]') && getComputedStyle(e).visibility !== 'hidden' && e.textContent.trim() && e.getClientRects().length)
+          .filter(e => { const lh = parseFloat(getComputedStyle(e).lineHeight) || 18; return e.getBoundingClientRect().height > lh * 1.5 || e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'visible'; }).map(e => e.textContent.trim().slice(0, 24));
+        return { above: g.top - head.bottom, below: innerHeight - g.bottom, tables, texts, scroll: [document.documentElement.scrollWidth > innerWidth, scrollY, document.querySelector('[data-overview]').scrollHeight > document.querySelector('[data-overview]').clientHeight + 1] };
+      });
+      const size = `${w}x${h}`;
+      if (r.above > 48 || r.below > 48 || r.above < 0 || r.below < 0) bad.push(`${size}: bands ${Math.round(r.above)} above, ${Math.round(r.below)} below`);
+      if (r.scroll.some(Boolean)) bad.push(`${size}: scroll ${r.scroll}`);
+      if (w === 1440 && h === 790 && (r.tables.length !== 4 || r.tables.some(t => t < 0.4 * w))) bad.push(`${size}: tables ${r.tables.map(Math.round)} px across (want >= ${0.4 * w})`);
+      if (r.texts.length) bad.push(`${size}: text over one line: ${r.texts.join(', ')}`);
+      seen.push(`${size}: bands ${Math.round(r.above)}/${Math.round(r.below)}, tables ${r.tables.map(Math.round).join(',')}`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
@@ -1661,7 +1689,7 @@ group(() => check('tables-zoom-lands', 'With ?tables=1 at 1440x790 and 1280x720,
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 1280x720 (edges live, then outline): the neighbours show at the stage\'s edges, none over a seat, the sidebar, the reasoning panel or the header; a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
+group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 1280x720 (edges live, then outline): every neighbour in the overview grid shows at that edge (the table faded, or a tab with its label), none over a seat, the sidebar, the reasoning panel or the header; a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
   const bad = [], seen = [];
   for (const [w, h] of TABLE_SIZES) for (const variant of ['live', 'outline']) {
     const size = `${w}x${h} ${variant}`, p = await scriptedTable(w, h, false, `tables=1&t=25-50-500bb&edges=${variant}`);
@@ -1672,8 +1700,17 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 
         const meets = (a, b) => a[0] < b[2] - 0.5 && b[0] < a[2] - 0.5 && a[1] < b[3] - 0.5 && b[1] < a[3] - 0.5;
         const main = document.querySelector('.stage-zoom').parentElement;
         const keep = [...document.querySelectorAll('.stage-zoom [data-seat], #phone-stats, [data-reasoning]'), ...[...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).filter(e => e.offsetHeight)];
-        return [...document.querySelectorAll('[data-edge]')].map(e => ({ dir: e.dataset.edge, name: e.getAttribute('aria-label'), over: keep.filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.id ?? k.className.slice(0, 20)) }));
+        return [...document.querySelectorAll('[data-edge]')].map(e => ({ dir: e.dataset.edge, tab: e.dataset.edgeTab !== undefined, name: e.getAttribute('aria-label'), over: keep.filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.id ?? k.className.slice(0, 20)) }));
       });
+      // Every neighbour in the overview's grid (the hidden overview's cells: same row beside it, same column above and below).
+      const want = await p.evaluate(() => {
+        const cells = [...document.querySelectorAll('[data-overview-cell]')].map(a => { const b = a.getBoundingClientRect(); return { key: a.dataset.overviewCell, x: Math.round(b.left), y: Math.round(b.top) }; });
+        const me = cells.find(c => c.key === new URLSearchParams(location.search).get('t')), xs = [...new Set(cells.map(c => c.x))].sort((a, b) => a - b), ys = [...new Set(cells.map(c => c.y))].sort((a, b) => a - b);
+        const at = (dx, dy) => cells.find(c => c.x === xs[xs.indexOf(me.x) + dx] && c.y === ys[ys.indexOf(me.y) + dy]);
+        return Object.entries({ left: at(-1, 0), right: at(1, 0), up: at(0, -1), down: at(0, 1) }).filter(([, c]) => c).map(([d]) => d).sort();
+      });
+      const got = r.map(e => e.dir).sort();
+      if (want.join() !== got.join()) bad.push(`${size}: neighbours ${want} but edges ${got}`);
       const right = r.find(e => e.dir === 'right');
       if (!right || right.name !== 'Table 50/100, 100 bb') bad.push(`${size}: right edge ${right?.name}`);
       for (const e of r) if (e.over.length) bad.push(`${size}: the ${e.dir} edge covers ${e.over.join(', ')}`);
@@ -1683,7 +1720,7 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 
       await p.keyboard.press('ArrowLeft'); await sleep(1200);
       const back = await p.evaluate(() => location.search);
       if (!/t=25-50-500bb/.test(back)) bad.push(`${size}: after ←, URL ${back}`);
-      seen.push(`${size}: edges ${r.map(e => `${e.dir} ${e.name}`).join(', ')}`);
+      seen.push(`${size}: edges ${r.map(e => `${e.dir}${e.tab ? ' (tab)' : ''} ${e.name}`).join(', ')}`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
@@ -7103,7 +7140,7 @@ group(() => check('phone-a-first-screen-fits', 'On /a, /a?fill=pnl and /a?fill=n
 }));
 // The tall table (/a?table=tall; owner, 2026-11-26: "turn our table into a vertical table with an angle that will fill the
 // screen", the extra player "on the top though. not at the bottom otherwise it might make people think they're player").
-group(() => check('phone-a-tall-table', 'On /a?table=tall at the iPhones\' browser viewports (touch), the table is one picture (a uniform transform scale): 9 desktop seat cards, each laid out 200x128, one above all the others and centred across the picture, 4 down each side at matching heights, no two overlapping, none at the foot (in the middle, under the top one); the felt drawn narrower at its top edge than at its bottom edge; the pot and board between the seat columns; the table and the caption end above the tab bar; the page is no wider than the window', async () => {
+group(() => check('phone-a-tall-table', 'On /a?table=tall at the iPhones\' browser viewports (touch), the table is one picture (a uniform transform scale): 9 desktop seat cards, each laid out 200x128, none overlapping: one at the top centre, 3 down each side, 2 at the foot each centred in its half of the felt\'s bottom edge (none at the bottom centre); mirror-symmetric about the picture\'s middle (each mirrored pair\'s x and the felt\'s edges within 1px, tops matching); the felt narrower at its top edge than at its bottom; no bet over a seat, card, the pot or another bet; the pot and board between the middle row\'s seats; the table and the caption end above the tab bar; the page is no wider than the window', async () => {
   const bad = [], seen = [];
   for (const [w, h] of IPHONES) {
     const size = `${w}x${h}`, p = await phoneA(w, h, '?table=tall');
@@ -7111,36 +7148,51 @@ group(() => check('phone-a-tall-table', 'On /a?table=tall at the iPhones\' brows
       const r = await p.evaluate(() => {
         const box = document.querySelector('[data-tall-table]'), t = box?.firstElementChild, nav = document.querySelector('nav[aria-label=Sections]')?.getBoundingClientRect();
         if (!t || !nav) return null;
-        const m = new DOMMatrix(getComputedStyle(t).transform), pic = t.getBoundingClientRect();
-        const seats = [...t.querySelectorAll('[data-seat]')].map(e => { const b = e.getBoundingClientRect(); return { lw: e.offsetWidth, lh: e.offsetHeight, l: b.left, t: b.top, r: b.right, b: b.bottom }; });
-        // The felt's edges as drawn: its own 3D transform about its bottom centre (transform-origin) applied to its corners.
-        const f = t.querySelector('[data-tall-felt]'), fm = f && new DOMMatrix(getComputedStyle(f).transform), fw = f?.offsetWidth, fh = f?.offsetHeight;
-        const x = (px, py) => { const q = fm.transformPoint(new DOMPoint(px - fw / 2, py - fh, 0, 1)); return q.x / q.w; };
-        const mid = t.querySelector('[data-felt]')?.getBoundingClientRect(), cap = document.querySelector('[data-caption]')?.getBoundingClientRect();
-        return { uniform: Math.abs(m.a - m.d) < 1e-6 && !m.b && !m.c, z: m.a, pic: [pic.left, pic.right], seats, feltTop: fm && x(fw, 0) - x(0, 0), feltBottom: fm && x(fw, fh) - x(0, fh), mid: mid && [mid.left, mid.right], boxB: box.getBoundingClientRect().bottom, capT: cap?.top, capB: cap?.bottom, navT: nav.top, wide: document.documentElement.scrollWidth - innerWidth };
+        // Boxes in the picture's layout px (the window's px over its scale).
+        const m = new DOMMatrix(getComputedStyle(t).transform), o = t.getBoundingClientRect(), z = m.a;
+        const L = e => { const b = e.getBoundingClientRect(); return { l: (b.left - o.left) / z, t: (b.top - o.top) / z, r: (b.right - o.left) / z, b: (b.bottom - o.top) / z }; };
+        const seats = [...t.querySelectorAll('[data-seat]')].map(e => ({ ...L(e), lw: e.offsetWidth, lh: e.offsetHeight }));
+        // The felt's outline (the path's points): its top edge where its top row runs, its bottom edge its full width.
+        const f = t.querySelector('[data-tall-felt] path'), n = f?.getTotalLength(), pts = f ? Array.from({ length: Math.ceil(n * 4) }, (_, i) => f.getPointAtLength(i / 4)) : [];
+        const yt = Math.min(...pts.map(q => q.y)), row = y => pts.filter(q => Math.abs(q.y - y) < 0.01).map(q => q.x);
+        const edge = y => [Math.min(...row(y)), Math.max(...row(y))];
+        const mid = t.querySelector('[data-felt]'), cap = document.querySelector('[data-caption]')?.getBoundingClientRect();
+        return { uniform: Math.abs(m.a - m.d) < 1e-6 && !m.b && !m.c, z, w: t.offsetWidth, seats, bets: [...t.querySelectorAll('[data-bet]')].map(L),
+          others: [...t.querySelectorAll('[data-seat], [role=img], [data-felt] [data-chips]:not([data-bet] *), [data-felt-cards]')].map(L),
+          feltTop: f && edge(yt), feltBottom: f && [Math.min(...pts.map(q => q.x)), Math.max(...pts.map(q => q.x))], board: mid && L(mid.querySelector('[data-felt-cards]')),
+          boxB: box.getBoundingClientRect().bottom, capT: cap?.top, capB: cap?.bottom, navT: nav.top, wide: document.documentElement.scrollWidth - innerWidth };
       });
       if (!r) { bad.push(`${size}: no tall table or tab bar`); continue; }
-      const cx = s => (s.l + s.r) / 2, picX = (r.pic[0] + r.pic[1]) / 2, picW = r.pic[1] - r.pic[0];
-      const top = [...r.seats].sort((a, b) => a.t - b.t)[0], rest = r.seats.filter(s => s !== top);
-      const left = rest.filter(s => cx(s) < picX).sort((a, b) => a.t - b.t), right = rest.filter(s => cx(s) >= picX).sort((a, b) => a.t - b.t);
-      seen.push(`${size}: scale ${r.z.toFixed(3)}, seats 1 + ${right.length} + ${left.length}, felt top ${(r.feltTop / r.feltBottom * 100).toFixed(0)}% of its bottom`);
+      const W = r.w, cx = s => (s.l + s.r) / 2, hits = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5;
+      const byTop = [...r.seats].sort((a, b) => a.t - b.t || a.l - b.l), top = byTop[0], foot = byTop.slice(-2), sides = byTop.slice(1, -2);
+      const left = sides.filter(s => cx(s) < W / 2), right = sides.filter(s => cx(s) >= W / 2);
       if (!r.uniform) bad.push(`${size}: the picture is not one uniform scale`);
-      if (r.seats.length !== 9) bad.push(`${size}: ${r.seats.length} seats`);
+      if (r.seats.length !== 9) { bad.push(`${size}: ${r.seats.length} seats`); continue; }
       const sized = r.seats.filter(s => s.lw !== 200 || s.lh !== 128);
       if (sized.length) bad.push(`${size}: seats laid out ${sized.slice(0, 3).map(s => `${s.lw}x${s.lh}`).join(', ')}, not 200x128`);
-      if (rest.some(s => s.t < top.b - 0.5)) bad.push(`${size}: no one seat above all the others`);
-      if (Math.abs(cx(top) - picX) > 1) bad.push(`${size}: the top seat ${(cx(top) - picX).toFixed(1)}px off the picture's centre`);
-      if (left.length !== 4 || right.length !== 4) bad.push(`${size}: ${left.length} seats on the left, ${right.length} on the right`);
-      else if (left.some((s, i) => Math.abs(s.t - right[i].t) > 1)) bad.push(`${size}: the sides' rows at different heights (${left.map((s, i) => (s.t - right[i].t).toFixed(1)).join(', ')}px apart)`);
-      const hit = r.seats.flatMap((a, i) => r.seats.slice(i + 1).filter(b => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5)).length;
+      if (byTop[1].t < top.b - 0.5 || Math.abs(cx(top) - W / 2) > 1) bad.push(`${size}: no one seat at the top centre`);
+      if (left.length !== 3 || right.length !== 3) bad.push(`${size}: ${left.length} seats on the left, ${right.length} on the right`);
+      // Mirror pairs: the sides row by row, the foot's two; each pair's x mirrored and their tops level, within 1px.
+      const pairs = [...left.map((s, i) => [s, right[i]]), [...foot].sort((a, b) => a.l - b.l)].filter(([a, b]) => a && b);
+      const off = pairs.map(([a, b]) => [a.l + b.r - W, a.t - b.t]);
+      if (off.some(([x, y]) => Math.abs(x) > 1 || Math.abs(y) > 1)) bad.push(`${size}: seat pairs off their mirror by ${off.map(v => v.map(n => n.toFixed(1)).join('/')).join(', ')}px`);
+      if (Math.abs(cx(foot[0]) - W / 2) < 100 || cx(foot[0]) < W / 2 === cx(foot[1]) < W / 2) bad.push(`${size}: the foot's seats not one in each half`);
+      const fe = [r.feltTop[0] + r.feltTop[1] - W, r.feltBottom[0] + r.feltBottom[1] - W];
+      if (fe.some(v => Math.abs(v) > 1)) bad.push(`${size}: the felt's edges off their mirror by ${fe.map(v => v.toFixed(1)).join(', ')}px`);
+      const wt = r.feltTop[1] - r.feltTop[0], wb = r.feltBottom[1] - r.feltBottom[0];
+      if (!(wt < wb * 0.8)) bad.push(`${size}: the felt's top edge ${wt.toFixed(0)}, its bottom ${wb.toFixed(0)} (not clearly narrower at the top)`);
+      // The foot's seats each centred in its half of the felt's bottom edge (within 1px).
+      const halves = [r.feltBottom[0] + wb / 4, r.feltBottom[0] + wb * 3 / 4], foots = [...foot].sort((a, b) => a.l - b.l);
+      if (foots.some((s, i) => Math.abs(cx(s) - halves[i]) > 1)) bad.push(`${size}: the foot's seats at ${foots.map(cx).map(v => v.toFixed(0)).join(', ')}, its halves' middles ${halves.map(v => v.toFixed(0)).join(', ')}`);
+      const hit = r.seats.flatMap((a, i) => r.seats.slice(i + 1).filter(b => hits(a, b))).length;
       if (hit) bad.push(`${size}: ${hit} seats overlapping another`);
-      if (rest.some(s => Math.abs(cx(s) - picX) < picW / 6)) bad.push(`${size}: a seat in the middle under the top one (at the foot)`);
-      if (!(r.feltTop < r.feltBottom - 1)) bad.push(`${size}: the felt's top edge ${r.feltTop?.toFixed(1)}px, its bottom ${r.feltBottom?.toFixed(1)}px (not narrower at the top)`);
-      const inner = [Math.max(...left.map(s => s.r)), Math.min(...right.map(s => s.l))];
-      if (!r.mid || r.mid[0] < inner[0] - 0.5 || r.mid[1] > inner[1] + 0.5) bad.push(`${size}: the pot and board's box ${r.mid?.map(v => v.toFixed(0)).join('..')} not between the seat columns ${inner.map(v => v.toFixed(0)).join('..')}`);
+      const betHit = r.bets.filter((a, i) => r.others.some(o => hits(a, o)) || r.bets.some((b, j) => j !== i && hits(a, b))).length;
+      if (betHit) bad.push(`${size}: ${betHit} bets over a seat, card, the pot or another bet`);
+      if (!r.board || r.board.l < left[1].r - 0.5 || r.board.r > right[1].l + 0.5) bad.push(`${size}: the board not between the middle row's seats`);
       if (r.capT === undefined || r.capT < r.boxB - 0.5) bad.push(`${size}: the caption ${r.capT === undefined ? 'missing' : 'over the table'}`);
       if (r.boxB > r.navT + 0.5 || r.capB > r.navT + 0.5) bad.push(`${size}: the table or caption runs ${(Math.max(r.boxB, r.capB) - r.navT).toFixed(0)}px under the tab bar`);
       if (r.wide > 0) bad.push(`${size}: page ${r.wide}px wider than the window`);
+      seen.push(`${size}: scale ${r.z.toFixed(3)}, felt top ${(wt / wb * 100).toFixed(0)}% of its bottom, mirror off ${Math.max(...off.flat().map(Math.abs), ...fe.map(Math.abs)).toFixed(2)}px, ${r.bets.length} bets`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };

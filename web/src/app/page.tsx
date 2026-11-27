@@ -44,7 +44,7 @@ import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
 import { OVERVIEW_FIRST, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
-import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor } from "@/components/TablesOverview";
+import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor, type EdgeRoom } from "@/components/TablesOverview";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -317,7 +317,7 @@ export default function Home() {
   const pushedHere = useRef(false); // the focused table's history entry is this page's: going back steps back
   const slideDir = useRef<Dir | null>(null);
   // Where the overview, the edges and the way back go, in the screen's px (measured below).
-  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, Box>>; back: { left: number; top: number }; w: number } | null>(null);
+  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; w: number } | null>(null);
   useLayoutEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (overviewOn && phase === null) setPhase(focusParam ? 'focused' : 'overview');
@@ -419,25 +419,40 @@ export default function Home() {
     const measure = () => {
       const s = screen.getBoundingClientRect(), t = stage.querySelector('[data-desk-table]')!.getBoundingClientRect(), st = stage.getBoundingClientRect();
       const side = stage.querySelector('#phone-stats')!.getBoundingClientRect(), head = main.previousElementSibling!.getBoundingClientRect(), b = btn.getBoundingClientRect();
-      const x = (r: number) => r - s.left, y = (r: number) => r - s.top, keep = (e: Box) => (e.width >= 40 && e.height >= 14 ? e : undefined);
+      const x = (r: number) => r - s.left, y = (r: number) => r - s.top;
+      // The overview: the first screen under the header, down to the window's foot (its own Stats button is at its end),
+      // 24px in from the window's sides.
+      const foot = Math.min(s.bottom, innerHeight);
+      // Each neighbour's room: the free space beside the table and the sidebar, between the header and the table, under
+      // the reasoning panel. Wide or tall enough for its label: the neighbour itself, faded; else a slim tab at that edge
+      // (in the gap when there is one, else in the table's own empty corner cell).
+      const LABEL = 124, TAB = 20, cx = x(t.left) + t.width / 2, cy = y(t.top) + t.height / 2, corner = (t.width / 5);
+      const lw = t.left - s.left - 20, rw = s.right - side.right - 20, ug = t.top - head.bottom, dg = b.top - st.bottom;
+      const edges: Partial<Record<Dir, EdgeRoom>> = {
+        left: lw >= LABEL ? { box: { left: 4, top: y(t.top), width: lw, height: t.height }, tab: false }
+          : { box: { left: lw >= 0 ? x(t.left) - 6 - TAB : x(t.left) + 8, top: lw >= 0 ? cy : y(t.top) + 8, width: TAB, transform: lw >= 0 ? 'translateY(-50%)' : undefined }, tab: true },
+        right: rw >= LABEL ? { box: { left: x(side.right + 16), top: y(t.top), width: rw, height: t.height }, tab: false }
+          : { box: { left: rw >= 0 ? x(side.right) + 6 : x(t.right) - 8 - TAB, top: rw >= 0 ? cy : y(t.top) + 8, width: TAB, transform: rw >= 0 ? 'translateY(-50%)' : undefined }, tab: true },
+        up: ug >= 72 ? { box: { left: x(t.left), top: y(head.bottom) + 6, width: t.width, height: ug - 12 }, tab: false }
+          : { box: { left: ug >= TAB + 4 ? cx : x(t.left) + corner / 2, top: ug >= TAB + 4 ? y(head.bottom) + (ug - TAB) / 2 : y(t.top) + 8, height: TAB, transform: 'translateX(-50%)' }, tab: true },
+        down: dg >= 72 ? { box: { left: x(t.left), top: y(st.bottom) + 6, width: t.width, height: dg - 12 }, tab: false }
+          : { box: { left: dg >= TAB + 4 ? cx : x(t.left) + corner / 2, top: dg >= TAB + 4 ? y(st.bottom) + (dg - TAB) / 2 : y(t.bottom) - 8 - TAB, height: TAB, transform: 'translateX(-50%)' }, tab: true },
+      };
       const next = {
-        overview: { left: 24, top: y(head.bottom) + 16, width: s.width - 48, height: b.top - head.bottom - 32 },
-        edges: {
-          left: keep({ left: 8, top: y(t.top), width: x(t.left) - 28, height: t.height }),
-          right: keep({ left: x(side.right) + 20, top: y(t.top), width: s.width - x(side.right) - 28, height: t.height }),
-          up: keep({ left: x(t.left), top: y(head.bottom) + 6, width: t.width, height: t.top - head.bottom - 12 }),
-          down: keep({ left: x(t.left), top: y(st.bottom) + 6, width: t.width, height: b.top - st.bottom - 12 }),
-        },
+        overview: { left: x(24), top: y(head.bottom) + 6, width: document.documentElement.clientWidth - 48, height: foot - head.bottom - 14 },
+        edges,
         back: { left: x(t.left), top: y(main.parentElement!.firstElementChild!.getBoundingClientRect().top) },
         w: t.width,
       };
       setRoom(r => (JSON.stringify(r) === JSON.stringify(next) ? r : next));
     };
     measure();
+    // The header's rows too: a row that settles late (its font, a status) moves the overview's top.
     const ro = new ResizeObserver(measure);
-    ro.observe(screen);
-    ro.observe(stage);
-    return () => ro.disconnect();
+    for (const e of [screen, stage, ...main.parentElement!.children]) if (e !== main) ro.observe(e);
+    let live = true;
+    document.fonts?.ready.then(() => { if (live) measure(); });
+    return () => { live = false; ro.disconnect(); };
   }, [overviewOn, phase]);
 
   const tableRef = useRef<HTMLDivElement>(null);
@@ -751,8 +766,9 @@ export default function Home() {
 
         {/* The tables overview over the stage (hidden under it), and in the focused view the way back and the neighbours.
             Between the stage and the Stats button: fitStage measures the screen from its first child to its last. */}
-        {showOverview && room && <div ref={overlay} className="absolute z-20" style={room.overview}>
-          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} onOpen={openTable} />
+        {/* Mounted for as long as the switch is on (hidden while a table is in focus), so zooming out draws no new tables. */}
+        {overviewOn && room && <div ref={overlay} className="absolute z-20" style={{ ...room.overview, ...(showOverview ? null : { visibility: 'hidden', pointerEvents: 'none' }) }} aria-hidden={!showOverview || undefined}>
+          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} onOpen={openTable} onStats={() => pageBy(1)} />
         </div>}
         {overviewOn && phase === 'focused' && room && <>
           <button onClick={backToTables} className="absolute z-20 flex items-center gap-1.5 rounded px-2 py-1 text-[14px] font-medium hover:bg-black/5 outline-none focus-visible:outline-2 focus-visible:outline-[rgb(31,111,196)]"
@@ -760,11 +776,11 @@ export default function Home() {
             <ArrowLeft size={14} weight="bold" aria-hidden /> All tables
           </button>
           {(Object.keys(STEP) as Dir[]).map(d => {
-            const n = neighbour(d), box = room.edges[d];
-            return n && box && <Edge key={d} t={n} dir={d} variant={edges} box={box} width={room.w * (d === 'left' || d === 'right' ? 0.8 : 0.6)} onGo={() => goTo(d)} />;
+            const n = neighbour(d), r = room.edges[d];
+            return n && r && <Edge key={d} t={n} dir={d} variant={edges} room={r} width={room.w * (d === 'left' || d === 'right' ? 0.8 : 0.6)} onGo={() => goTo(d)} />;
           })}
         </>}
-        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={NEXT_STYLE}>
+        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={overviewOn && phase === 'overview' ? { ...NEXT_STYLE, visibility: 'hidden' } : NEXT_STYLE}>
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>}
 

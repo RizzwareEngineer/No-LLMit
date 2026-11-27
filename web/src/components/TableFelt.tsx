@@ -47,7 +47,7 @@ interface TableFeltProps {
   blank?: boolean; // no state yet: the felt at its size with nothing on it
   compact?: boolean; // the phone table's middle (PokerTable): only the pot and the board, no grid
   upright?: boolean; // draft B's upright table (PokerTable): the desktop felt on a phone, its bets shown as the phone's
-  plain?: boolean; // draft A's tall table (PokerTable): no grid of its own, the tilted felt's under it shows through
+  plain?: boolean; // draft A's tall table (PokerTable): no grid of its own, the drawn felt under it shows through
   fillIn?: boolean; // fade in as it fills; false for a felt mounted by a layout switch mid-hand (it shows the hand as it stands)
 }
 
