@@ -1675,6 +1675,8 @@ group(() => check('tables-inputs-interleaved', 'With ?tables=1 at 1440x790, ever
     ['click, Esc', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await p.keyboard.press('Escape'); }],
     ['Esc, click the same cell', async p => { await openAtRest(p, A); const a = await cellAt(p, A); await p.keyboard.press('Escape'); await sleep(60); await p.mouse.click(...a); }],
     ['Esc, click another cell', async p => { await openAtRest(p, A); const b = await cellAt(p, B); await p.keyboard.press('Escape'); await sleep(60); await p.mouse.click(...b); }],
+    // The table shrinking into its cell is where the viewer clicks to open it again: it opens again (t: the table wanted).
+    ['Esc, click the same cell at 300 ms', async p => { await openAtRest(p, A); const a = await cellAt(p, A); await p.keyboard.press('Escape'); await sleep(300); await p.mouse.click(...a); }, { t: A }],
     ['Esc, click another cell at 300 ms', async p => { await openAtRest(p, A); const b = await cellAt(p, B); await p.keyboard.press('Escape'); await sleep(300); await p.mouse.click(...b); }],
     ['click, click another cell', async p => { const [a, b] = [await cellAt(p, A), await cellAt(p, B)]; await p.mouse.click(...a); await p.mouse.click(...b); }],
     ['edge click during a slide', async p => { await openAtRest(p, B); const r = await p.evaluate(() => { const e = document.querySelector('[data-edge="right"]').getBoundingClientRect(); return [e.left + e.width / 2, e.top + e.height / 2]; }); await p.mouse.click(...r); await sleep(80); await p.mouse.click(...r); await p.keyboard.press('ArrowLeft'); }],
@@ -1706,6 +1708,7 @@ group(() => check('tables-inputs-interleaved', 'With ?tables=1 at 1440x790, ever
       const s = await settledOverview(p).catch(e => ({ error: e.message.split('\n')[0] }));
       if (s.error) { bad.push(`${name}: the page broke (${s.error})`); continue; }
       if (!matchesUrl(s)) { bad.push(`${name}: ${sayState(s)}`); continue; }
+      if (opts.t !== undefined && s.t !== opts.t) { bad.push(`${name}: ended on ${s.t ?? 'the overview'}, want ${opts.t}`); continue; }
       if (opts.after !== 'none') await allTables(p, name, s);
       seen.push(`${name}: ${s.t ?? 'overview'}`);
     } finally { await p.close(); }

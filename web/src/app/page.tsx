@@ -404,6 +404,19 @@ export default function Home() {
       arrive.finished.then(landed, () => {});
     }
   }, [anim]);
+  // A click on the table while it shrinks into its cell is a click on that cell (the viewer sees the table they just
+  // left and clicks it again): it opens that table again, as a click on the cell would (queued: the zoom out ends, then it
+  // zooms back in). Not a click on what the shrinking table holds (a seat's model link).
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (anim?.kind !== 'out' || !anim.from || !stage) return;
+    const key = anim.from;
+    // Only while it is still shrinking: a zoom out with reduced motion ends in its own commit, before this effect's cleanup.
+    const shrinking = () => stageParts(stage).table.getAnimations().some(a => a.playState === 'running');
+    const reopen = (e: MouseEvent) => { if (e.button !== 0 || !e.detail || !shrinking()) return; e.preventDefault(); e.stopPropagation(); pushFocus(key); };
+    stage.addEventListener('click', reopen, true);
+    return () => stage.removeEventListener('click', reopen, true);
+  }, [anim]);
   // Keyboard focus follows: after a zoom in to the way back, after a zoom out to the table's cell, when it was on
   // something that has gone (the cell under the stage, the way back) or nowhere.
   const lastShown = useRef<string | null | undefined>(undefined);
