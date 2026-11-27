@@ -1235,13 +1235,20 @@ group(() => check('phone-stats-windows', 'At 390x844 and 375x667 with touch, fro
         return { at: cards.length === 1 ? cards[0].t : about && Math.abs(about.top) < 2 ? 'About' : cards.length ? cards.map(c => c.t).join('+') : 'none', card: b && { l: b.left, r: b.right, t: b.top, b: b.bottom }, top, nav, y: Math.round(scrollY) };
       }, PARTS);
       // `rest`: the finger stays still before it lifts (a drag, not a flick: a flick's speed pages on its own).
-      const swipe = async (y0, y1, rest = 0, x = w / 2) => { await p.touchscreen.touchStart(x, y0); for (let i = 1; i <= 12; i++) { await p.touchscreen.touchMove(x, y0 + ((y1 - y0) * i) / 12); await sleep(16); } await sleep(rest); await p.touchscreen.touchEnd(); await sleep(1400); };
+      // After the finger lifts, the page is read once it has come to rest (scrollY and the window on screen unchanged for
+      // 300 ms, 6 s at most), not at a fixed time: beside other lanes the snap can still be moving at 1.4 s.
+      // Returns how long the gesture took to deliver (12 moves 16 ms apart: about 200 ms on an idle machine).
+      const settle = async () => { await sleep(1400); let last = null; for (let t = 0, same = 0; t < 6000 && same < 3; t += 100) { const r = JSON.stringify(await where()); same = r === last ? same + 1 : 0; last = r; await sleep(100); } };
+      const swipe = async (y0, y1, rest = 0, x = w / 2) => { const t0 = Date.now(); await p.touchscreen.touchStart(x, y0); for (let i = 1; i <= 12; i++) { await p.touchscreen.touchMove(x, y0 + ((y1 - y0) * i) / 12); await sleep(16); } await sleep(rest); await p.touchscreen.touchEnd(); const took = Date.now() - t0 - rest; await settle(); return took; };
       await p.evaluate(() => [...document.querySelectorAll('nav[aria-label=Sections] button')].find(b => b.textContent.trim() === 'Stats').click());
       await sleep(2000);
       const order = [];
       for (const want of [...PARTS, 'About']) {
-        await swipe(h * 0.85, h * 0.12);
-        const r = await where();
+        const from = (await where()).at, took = await swipe(h * 0.85, h * 0.12);
+        let r = await where();
+        // A flick the machine delivered at under half its speed (a stalled lane) is not the gesture this tests; when the
+        // page stayed put after one, the flick is given again, once.
+        if (r.at === from && took > 400) { seen.push(`${size}: the flick to ${want} took ${took} ms, given again`); await swipe(h * 0.85, h * 0.12); r = await where(); }
         order.push(r.at);
         if (r.at !== want) { bad.push(`${size}: swiped to ${r.at}, want ${want}`); continue; }
         if (want === 'About') break;
