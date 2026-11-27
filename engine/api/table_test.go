@@ -728,3 +728,47 @@ func seat(tbl *Table) {
 		Stakes:        game.Stakes{SmallBlind: tbl.cfg.SmallBlind, BigBlind: tbl.cfg.BigBlind},
 	})
 }
+
+// A viewer that reconnects, or falls more than the ring behind, gets each table's latest
+// table_stats in the snapshot: its own, never another table's, and none for a table that has
+// none yet, whatever came after on the stream.
+func TestSnapshotAfterFallingBehindHasEachTablesLatestStats(t *testing.T) {
+	tables, h := testTables(defaultTables...)
+	for _, tbl := range tables {
+		tbl.startGame()
+	}
+	last := h.since(0, true).seq
+	pnl := func(key string, hands int) []byte {
+		return []byte(fmt.Sprintf(`{"hands":%d,"models":[{"name":%q}]}`, hands, key))
+	}
+	for n := 1; n <= 3; n++ {
+		for _, key := range []string{"1-2-100bb", "5-10-200bb", "25-50-500bb"} {
+			b := pnl(key, n)
+			h.publish(key, nil, b, ServerMessage{Type: MsgTableStats, Payload: json.RawMessage(b)})
+		}
+	}
+	for range ringSize { // more than the ring holds since last
+		tables[3].mu.Lock()
+		tables[3].publish(ServerMessage{Type: MsgGameState})
+		tables[3].mu.Unlock()
+	}
+	for _, v := range []view{h.since(last, false), h.since(0, true)} { // fell behind; reconnected
+		if !v.snap {
+			t.Fatalf("%d frames behind and no snapshot", v.seq-last)
+		}
+		b, err := v.snapshotFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var snap struct{ Tables map[string]tableSnap }
+		json.Unmarshal(parseFrames(t, b)[0].Payload, &snap)
+		for _, key := range []string{"1-2-100bb", "5-10-200bb", "25-50-500bb"} {
+			if got := string(snap.Tables[key].Stats); got != string(pnl(key, 3)) {
+				t.Errorf("%s: stats %s, want its latest %s", key, got, pnl(key, 3))
+			}
+		}
+		if s := snap.Tables["50-100-100bb"]; s.Stats != nil || s.Key != "50-100-100bb" {
+			t.Errorf("50/100, no stats yet: %+v", s)
+		}
+	}
+}
