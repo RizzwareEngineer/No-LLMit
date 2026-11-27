@@ -1624,19 +1624,32 @@ group(() => check('tables-zoom-lands', 'With ?tables=1 at 1440x790 and 1280x720,
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 1280x720 (edges live, then outline): every neighbour in the overview grid shows at that edge (the table faded, or a tab with its label), none over a seat, the sidebar, the reasoning panel or the header; a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
+group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 1440x790, 1440x900 and 1728x1117, by default: an arrow button for every neighbour in the overview grid (named "Go to table …"), each as tall as the Stats button, none over a seat, a bet, the sidebar, the reasoning panel, the header, the Stats button or another button, all inside the window, no faded edge; "All tables" within 24px of the page\'s top-left content corner; the table\'s box the page without the switch draws (within 1px). At 1440x790 and 1280x720 with edges=live and edges=outline the faded edges show instead (the table faded, or a tab with its label), none over those. Every way: a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
   const bad = [], seen = [];
-  for (const [w, h] of TABLE_SIZES) for (const variant of ['live', 'outline']) {
-    const size = `${w}x${h} ${variant}`, p = await scriptedTable(w, h, false, `tables=1&t=25-50-500bb&edges=${variant}`);
+  const runs = [...[[1280, 720], [1440, 790], [1440, 900], [1728, 1117]].map(s => [...s, 'buttons']), ...TABLE_SIZES.flatMap(s => ['live', 'outline'].map(v => [...s, v]))];
+  const plainBox = {};
+  for (const [w, h, variant] of runs) {
+    const size = `${w}x${h} ${variant}`, buttons = variant === 'buttons';
+    if (buttons) { const plain = await scriptedTable(w, h); plainBox[size] = await deskBox(plain).finally(() => plain.close()); }
+    const p = await scriptedTable(w, h, false, `tables=1&t=25-50-500bb${buttons ? '' : `&edges=${variant}`}`);
     try {
-      await sleep(500);
-      const r = await p.evaluate(() => {
+      await sleep(700);
+      const r = await p.evaluate(sel => {
         const box = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
         const meets = (a, b) => a[0] < b[2] - 0.5 && b[0] < a[2] - 0.5 && a[1] < b[3] - 0.5 && b[1] < a[3] - 0.5;
         const main = document.querySelector('.stage-zoom').parentElement;
-        const keep = [...document.querySelectorAll('.stage-zoom [data-seat], #phone-stats, [data-reasoning]'), ...[...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).filter(e => e.offsetHeight)];
-        return [...document.querySelectorAll('[data-edge]')].map(e => ({ dir: e.dataset.edge, tab: e.dataset.edgeTab !== undefined, name: e.getAttribute('aria-label'), over: keep.filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.id ?? k.className.slice(0, 20)) }));
-      });
+        const stats = [...document.querySelectorAll('section[data-screen] button')].find(b => /^Stats/.test(b.textContent.trim()));
+        const keep = [...document.querySelectorAll('.stage-zoom [data-seat], .stage-zoom [data-bet], #phone-stats, [data-reasoning]'), ...[...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).filter(e => e.offsetHeight), stats, ...document.querySelectorAll('[data-all-tables-button], [data-about-pill]')];
+        const els = [...document.querySelectorAll(sel)];
+        return {
+          stats: stats.getBoundingClientRect().height, faded: document.querySelectorAll('[data-edge]').length,
+          edges: els.map(e => ({ dir: e.dataset.edge ?? e.dataset.tableNav, tab: e.dataset.edgeTab !== undefined, name: e.getAttribute('aria-label'), h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width, vertical: getComputedStyle(e).writingMode !== 'horizontal-tb',
+            out: (([l, t, r, b]) => l < 0 || t < 0 || r > innerWidth || b > innerHeight)(box(e)),
+            over: [...keep, ...els.filter(o => o !== e)].filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.dataset.tableNav ?? (k === stats ? 'Stats' : k.id || k.className.slice(0, 20))) })),
+          back: (() => { const b = document.querySelector('[data-all-tables-button]')?.getBoundingClientRect(), pg = document.querySelector('[data-page]'), sec = document.querySelector('section[data-screen]');
+            return b && { dx: b.left - (pg.getBoundingClientRect().left + parseFloat(getComputedStyle(pg).paddingLeft)), dy: b.top - (sec.getBoundingClientRect().top + parseFloat(getComputedStyle(sec).paddingTop)) }; })(),
+        };
+      }, buttons ? '[data-table-nav]' : '[data-edge]');
       // Every neighbour in the overview's grid (the hidden overview's cells: same row beside it, same column above and below).
       const want = await p.evaluate(() => {
         const cells = [...document.querySelectorAll('[data-overview-cell]')].map(a => { const b = a.getBoundingClientRect(); return { key: a.dataset.overviewCell, x: Math.round(b.left), y: Math.round(b.top) }; });
@@ -1644,18 +1657,29 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 
         const at = (dx, dy) => cells.find(c => c.x === xs[xs.indexOf(me.x) + dx] && c.y === ys[ys.indexOf(me.y) + dy]);
         return Object.entries({ left: at(-1, 0), right: at(1, 0), up: at(0, -1), down: at(0, 1) }).filter(([, c]) => c).map(([d]) => d).sort();
       });
-      const got = r.map(e => e.dir).sort();
-      if (want.join() !== got.join()) bad.push(`${size}: neighbours ${want} but edges ${got}`);
-      const right = r.find(e => e.dir === 'right');
-      if (!right || right.name !== 'Table 50/100, 100 bb') bad.push(`${size}: right edge ${right?.name}`);
-      for (const e of r) if (e.over.length) bad.push(`${size}: the ${e.dir} edge covers ${e.over.join(', ')}`);
-      await clickCenter(p, '[data-edge="right"]'); await sleep(1200);
+      const got = r.edges.map(e => e.dir).sort();
+      if (want.join() !== got.join()) bad.push(`${size}: neighbours ${want} but ${buttons ? 'buttons' : 'edges'} ${got}`);
+      const right = r.edges.find(e => e.dir === 'right');
+      if (!right || right.name !== (buttons ? 'Go to table 50/100, 100 bb' : 'Table 50/100, 100 bb')) bad.push(`${size}: right ${right?.name}`);
+      for (const e of r.edges) if (e.over.length) bad.push(`${size}: the ${e.dir} ${buttons ? 'button' : 'edge'} covers ${e.over.join(', ')}`);
+      if (buttons) {
+        if (r.faded) bad.push(`${size}: ${r.faded} faded edges by default`);
+        for (const e of r.edges) {
+          const tall = e.vertical ? e.w : e.h;
+          if (Math.abs(tall - r.stats) > 0.5) bad.push(`${size}: the ${e.dir} button is ${tall.toFixed(1)}px, Stats ${r.stats.toFixed(1)}px`);
+          if (e.out) bad.push(`${size}: the ${e.dir} button is out of the window`);
+        }
+        if (!r.back || Math.hypot(r.back.dx, r.back.dy) > 24) bad.push(`${size}: All tables ${r.back ? `${r.back.dx.toFixed(1)},${r.back.dy.toFixed(1)}px` : 'missing'} from the page's top-left content corner`);
+        const got = await deskBox(p), wantBox = plainBox[size];
+        if (got.some((v, i) => Math.abs(v - wantBox[i]) > 1)) bad.push(`${size}: table at ${got.map(Math.round)}, the page without the switch ${wantBox.map(Math.round)}`);
+      }
+      await clickCenter(p, buttons ? '[data-table-nav="right"]' : '[data-edge="right"]'); await sleep(1200);
       const moved = await p.evaluate(() => location.search);
-      if (!/t=50-100-100bb/.test(moved)) bad.push(`${size}: after the right edge, URL ${moved}`);
+      if (!/t=50-100-100bb/.test(moved)) bad.push(`${size}: after the right ${buttons ? 'button' : 'edge'}, URL ${moved}`);
       await p.keyboard.press('ArrowLeft'); await sleep(1200);
       const back = await p.evaluate(() => location.search);
       if (!/t=25-50-500bb/.test(back)) bad.push(`${size}: after ←, URL ${back}`);
-      seen.push(`${size}: edges ${r.map(e => `${e.dir}${e.tab ? ' (tab)' : ''} ${e.name}`).join(', ')}`);
+      seen.push(`${size}: ${r.edges.map(e => `${e.dir}${e.tab ? ' (tab)' : ''}${e.vertical ? ' (on its side)' : ''} ${e.name}${buttons ? ` ${Math.round(e.w)}x${Math.round(e.h)}` : ''}`).join(', ')}${buttons ? `; Stats ${r.stats.toFixed(1)}px, All tables at +${r.back?.dx.toFixed(0)},+${r.back?.dy.toFixed(0)}` : ''}`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
@@ -1688,7 +1712,7 @@ group(() => check('tables-inputs-interleaved', 'With ?tables=1 at 1440x790, ever
     ['Esc, click the same cell at 300 ms', async p => { await openAtRest(p, A); const a = await cellAt(p, A); await p.keyboard.press('Escape'); await sleep(300); await p.mouse.click(...a); }, { t: A }],
     ['Esc, click another cell at 300 ms', async p => { await openAtRest(p, A); const b = await cellAt(p, B); await p.keyboard.press('Escape'); await sleep(300); await p.mouse.click(...b); }],
     ['click, click another cell', async p => { const [a, b] = [await cellAt(p, A), await cellAt(p, B)]; await p.mouse.click(...a); await p.mouse.click(...b); }],
-    ['edge click during a slide', async p => { await openAtRest(p, B); const r = await p.evaluate(() => { const e = document.querySelector('[data-edge="right"]').getBoundingClientRect(); return [e.left + e.width / 2, e.top + e.height / 2]; }); await p.mouse.click(...r); await sleep(80); await p.mouse.click(...r); await p.keyboard.press('ArrowLeft'); }],
+    ['edge click during a slide', async p => { await openAtRest(p, B); const r = await p.evaluate(() => { const e = document.querySelector('[data-table-nav="right"]').getBoundingClientRect(); return [e.left + e.width / 2, e.top + e.height / 2]; }); await p.mouse.click(...r); await sleep(80); await p.mouse.click(...r); await p.keyboard.press('ArrowLeft'); }],
     ['arrows held down', async p => { await openAtRest(p, A); for (const k of ['ArrowDown', 'ArrowLeft', 'ArrowUp']) { for (let i = 0; i < 8; i++) await p.keyboard.down(k, { autoRepeat: i > 0 }); await p.keyboard.up(k); } }],
     ['Back during a zoom in', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await sleep(100); await p.evaluate(() => history.back()); }],
     ['Back, Forward during a zoom in', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await p.evaluate(() => { history.back(); setTimeout(() => history.forward(), 60); }); }],
