@@ -30,7 +30,8 @@ type MessageType =
   | 'llm_action'
   | 'button_card'
   | 'button_winner'
-  | 'table_notice';
+  | 'table_notice'
+  | 'table_stats';
 
 // One SSE frame from the engine (engine/api/messages.go). snapshot and stats carry no table.
 export interface ServerMessage {

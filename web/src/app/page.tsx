@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { flushSync } from "react-dom";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
-import { ArrowDown, CircleNotch } from "@phosphor-icons/react";
+import { ArrowDown, ArrowLeft, CircleNotch } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import LandingFill, { useFill } from "@/components/LandingFill";
@@ -42,7 +43,8 @@ import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, page
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
-import { useLayout, useTallTable } from "@/lib/tableSwitches";
+import { OVERVIEW_FIRST, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
+import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor } from "@/components/TablesOverview";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -157,6 +159,29 @@ function roomInside(dir: number) {
   return { room: 0, ahead: null };
 }
 
+// The table the page describes: the URL's (?t=), else the one last focused (the overview zooms out into its cell).
+function useHeldFocus() {
+  const f = useFocusParam(), [held, setHeld] = useState(f);
+  if (f && f !== held) setHeld(f);
+  return f ?? held;
+}
+
+type Dir = 'left' | 'right' | 'up' | 'down';
+const STEP: Record<Dir, [number, number]> = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
+const ARROWS: Record<string, Dir> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
+type Box = { left: number; top: number; width: number; height: number };
+// The stage's moving parts for the zoom and the slide: its table, and the panels that slide in once it lands.
+const stageParts = (stage: HTMLElement) => ({
+  table: stage.querySelector<HTMLElement>('[data-desk-table]')!,
+  panels: [stage.querySelector<HTMLElement>('#phone-stats'), stage.querySelector<HTMLElement>('[data-reasoning]')].filter(e => !!e),
+});
+const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Panels in: the sidebar from the right, the reasoning from below, after `delay`; out: faded, held until cancelled.
+const panelsIn = (panels: HTMLElement[], delay: number) => panels.forEach((p, i) => p.animate(
+  [{ opacity: 0, transform: i ? 'translateY(16px)' : 'translateX(24px)' }, { opacity: 1, transform: 'none' }],
+  { duration: reduced() ? 0 : 220, delay: reduced() ? 0 : delay, easing: EASE, fill: 'backwards' }));
+const panelsOut = (panels: HTMLElement[]) => panels.map(p => p.animate([{ opacity: 1 }, { opacity: 0 }], { duration: reduced() ? 0 : 140, easing: 'ease-out', fill: 'forwards' }));
+const stop = (...els: (HTMLElement | null | undefined)[]) => els.forEach(e => e?.getAnimations().forEach(a => a.cancel()));
 
 export default function Home() {
   const {
@@ -169,8 +194,10 @@ export default function Home() {
     clock,
     buttonDetermination,
     stats,
+    tables,
+    focusKey,
     retry,
-  } = useGameState();
+  } = useGameState(useHeldFocus());
   useEffect(() => setTypingPace(gameState?.pace), [gameState?.pace]); // reasons type in step with the table's pace
   // Sound starts on the first gesture (SoundToggle does it too, but a phone no longer mounts the desktop status row).
   useEffect(() => {
@@ -277,6 +304,141 @@ export default function Home() {
   const screen = useScreen();
   // The layout shown (lib/layout): only its own parts are mounted once hydrated (null until then: both, CSS shows one).
   const mounted = useLayout(), desk = mounted !== 'phone', phone = mounted !== 'desk';
+
+  // The tables overview (lib/tableSwitches' ?tables=1), desktop only: the landing, a click zooms a table into the stage,
+  // and Back, Esc or "All tables" zooms it back into its cell. The stage stays laid out under the overview (hidden), so the
+  // table lands exactly where it always is. null: not known yet (the prerender, hydration).
+  const focusParam = useFocusParam();
+  const overviewOn = useTablesOverview() && mounted === 'desk';
+  const edges = useEdges();
+  const [phase, setPhase] = useState<'overview' | 'in' | 'out' | 'focused' | null>(null);
+  const showOverview = overviewOn && (phase === 'overview' || phase === 'in' || phase === 'out');
+  const mainRef = useRef<HTMLDivElement>(null), statsButton = useRef<HTMLButtonElement>(null), overlay = useRef<HTMLDivElement>(null);
+  const pushedHere = useRef(false); // the focused table's history entry is this page's: going back steps back
+  const slideDir = useRef<Dir | null>(null);
+  // Where the overview, the edges and the way back go, in the screen's px (measured below).
+  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, Box>>; back: { left: number; top: number }; w: number } | null>(null);
+  useLayoutEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (overviewOn && phase === null) setPhase(focusParam ? 'focused' : 'overview');
+    if (phase !== null) document.documentElement.removeAttribute('data-overview'); // OVERVIEW_FIRST's part is done
+  }, [overviewOn, phase, focusParam]);
+  const focusIdx = tables.findIndex(t => t.key === focusKey);
+  const neighbour = (d: Dir) => {
+    // The overview's columns at this window: its neighbours above and below are the overview's.
+    const cols = room ? gridFor(tables.length, room.overview.width, room.overview.height).cols : 1, [dx, dy] = STEP[d], col = focusIdx % cols, i = focusIdx + dx + dy * cols;
+    return focusIdx >= 0 && col + dx >= 0 && col + dx < cols && i >= 0 && i < tables.length ? tables[i] : null;
+  };
+  const openTable = (key: string) => { pushedHere.current = true; pushFocus(key); };
+  const backToTables = () => {
+    if (pushedHere.current) { pushedHere.current = false; history.back(); return; }
+    const u = new URL(location.href);
+    u.searchParams.delete('t');
+    history.replaceState(null, '', u);
+    dispatchEvent(new Event('focuschange'));
+  };
+  // To a neighbour: the table slides out its way, the panels fade, then the neighbour's slides in (below).
+  const goTo = (d: Dir) => {
+    const n = neighbour(d), stage = stageRef.current;
+    if (!n || !stage || phase !== 'focused') return;
+    const { table, panels } = stageParts(stage), z = table.getBoundingClientRect().width / table.offsetWidth, [dx, dy] = STEP[d];
+    panelsOut(panels);
+    slideDir.current = d;
+    const out = table.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${-dx * innerWidth * 0.5 / z}px, ${-dy * innerHeight * 0.5 / z}px)`, opacity: 0 }],
+      { duration: reduced() ? 0 : 200, easing: 'ease-in', fill: 'forwards' });
+    out.finished.then(() => openTable(n.key), () => {});
+  };
+  // The URL's table changed (a click, Back, an edge): zoom in from its cell, out to it, or slide the new one in.
+  const prevFocus = useRef(focusParam);
+  useLayoutEffect(() => {
+    const was = prevFocus.current, stage = stageRef.current;
+    prevFocus.current = focusParam;
+    if (!overviewOn || phase === null || was === focusParam || !stage) return;
+    const { table, panels } = stageParts(stage);
+    if (!was && focusParam) {
+      const cell = document.querySelector(`[data-overview-cell="${focusParam}"] [data-small-table]`)?.getBoundingClientRect();
+      setPhase(!cell || reduced() ? 'focused' : 'in');
+      if (!cell || reduced()) return;
+      const b = table.getBoundingClientRect(), z = b.width / table.offsetWidth;
+      table.style.zIndex = '30';
+      const grow = table.animate([{ transform: `translate(${(cell.left - b.left) / z}px, ${(cell.top - b.top) / z}px) scale(${cell.width / b.width})` }, { transform: 'none' }],
+        { duration: ZOOM_MS, easing: EASE });
+      table.style.transformOrigin = '0 0';
+      panelsIn(panels, ZOOM_MS);
+      overlay.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ZOOM_MS, easing: EASE, fill: 'forwards' });
+      grow.finished.then(() => { table.style.zIndex = table.style.transformOrigin = ''; setPhase('focused'); }, () => {});
+    } else if (was && !focusParam) {
+      // Panels away first; the shrink itself runs once the overview is back under it (the effect on 'out').
+      panelsOut(panels);
+      setPhase('out');
+    } else {
+      const d = slideDir.current, [dx, dy] = d ? STEP[d] : [0, 0], z = table.getBoundingClientRect().width / table.offsetWidth;
+      slideDir.current = null;
+      stop(table, ...panels);
+      if (reduced()) return;
+      table.animate([{ transform: `translate(${dx * innerWidth * 0.5 / z}px, ${dy * innerHeight * 0.5 / z}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300, easing: EASE });
+      panelsIn(panels, 300);
+    }
+  }, [focusParam, overviewOn, phase]);
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (phase !== 'out' || !stage || !focusKey) return;
+    const { table, panels } = stageParts(stage);
+    const cell = document.querySelector(`[data-overview-cell="${focusKey}"] [data-small-table]`)?.getBoundingClientRect();
+    const done = () => { flushSync(() => setPhase('overview')); stop(table, ...panels, overlay.current); table.style.zIndex = table.style.transformOrigin = ''; };
+    if (!cell || reduced()) { done(); return; }
+    const b = table.getBoundingClientRect(), z = b.width / table.offsetWidth;
+    table.style.zIndex = '30';
+    table.style.transformOrigin = '0 0';
+    const shrink = table.animate([{ transform: 'none' }, { transform: `translate(${(cell.left - b.left) / z}px, ${(cell.top - b.top) / z}px) scale(${cell.width / b.width})` }],
+      { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'forwards' });
+    overlay.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'backwards' });
+    shrink.finished.then(done, () => {});
+  }, [phase, focusKey]);
+  // Esc goes back to all tables; an arrow key to the neighbour that way (before the page's own keys, which page screens).
+  useEffect(() => {
+    if (!overviewOn || phase !== 'focused') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || window.scrollY > 8) return;
+      if (e.target instanceof Element && e.target.closest('input, select, textarea, [contenteditable], dialog')) return;
+      const d = ARROWS[e.key];
+      if (e.key === 'Escape') backToTables();
+      else if (d && neighbour(d)) goTo(d);
+      else return;
+      e.preventDefault();
+    };
+    addEventListener('keydown', onKey, true);
+    return () => removeEventListener('keydown', onKey, true);
+  });
+  // Where the overview and the edges go, in the screen's px: the overview under the header down to the Stats button; the
+  // edges in the room round the stage (beside the table and the sidebar, between the header and the table, under the
+  // reasoning), never over them.
+  useLayoutEffect(() => {
+    const main = mainRef.current, stage = stageRef.current, screen = stage?.closest('section'), btn = statsButton.current;
+    if (!overviewOn || !main || !stage || !screen || !btn) return;
+    const measure = () => {
+      const s = screen.getBoundingClientRect(), t = stage.querySelector('[data-desk-table]')!.getBoundingClientRect(), st = stage.getBoundingClientRect();
+      const side = stage.querySelector('#phone-stats')!.getBoundingClientRect(), head = main.previousElementSibling!.getBoundingClientRect(), b = btn.getBoundingClientRect();
+      const x = (r: number) => r - s.left, y = (r: number) => r - s.top, keep = (e: Box) => (e.width >= 40 && e.height >= 14 ? e : undefined);
+      const next = {
+        overview: { left: 24, top: y(head.bottom) + 16, width: s.width - 48, height: b.top - head.bottom - 32 },
+        edges: {
+          left: keep({ left: 8, top: y(t.top), width: x(t.left) - 28, height: t.height }),
+          right: keep({ left: x(side.right) + 20, top: y(t.top), width: s.width - x(side.right) - 28, height: t.height }),
+          up: keep({ left: x(t.left), top: y(head.bottom) + 6, width: t.width, height: t.top - head.bottom - 12 }),
+          down: keep({ left: x(t.left), top: y(st.bottom) + 6, width: t.width, height: b.top - st.bottom - 12 }),
+        },
+        back: { left: x(t.left), top: y(main.parentElement!.firstElementChild!.getBoundingClientRect().top) },
+        w: t.width,
+      };
+      setRoom(r => (JSON.stringify(r) === JSON.stringify(next) ? r : next));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(screen);
+    ro.observe(stage);
+    return () => ro.disconnect();
+  }, [overviewOn, phase]);
 
   const tableRef = useRef<HTMLDivElement>(null);
   // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
@@ -498,7 +660,7 @@ export default function Home() {
 
       {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
           it when a window crosses into the desktop layout. */}
-      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown && !showOverview} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
         watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
 
       <div className={hide}><SessionProgress table={usageError ? undefined : usage?.table} /></div>
@@ -511,6 +673,7 @@ export default function Home() {
     <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: bar ? 'calc(40px + var(--tab-h))' : 'var(--tab-h)' }}>
       {/* The stream opens as this is parsed (lib/api's EARLY_STREAM), not once the page has hydrated. */}
       <script dangerouslySetInnerHTML={{ __html: EARLY_STREAM }} />
+      <script dangerouslySetInnerHTML={{ __html: OVERVIEW_FIRST }} />
       <main className="flex flex-col items-center-safe">
       {/* Phones: the page's top heading (the desktop one sits in the header phones hide; the phone bar shows the name). */}
       <h1 className="sr-only md:hidden">No-LLMit</h1>
@@ -531,9 +694,9 @@ export default function Home() {
         {phone && draftA && fill === 'none' && !tall && <Fit w={MAC_TABLE_W} data-a-head><div className={`flex flex-col items-center pb-6 ${PICTURED_TAP}`}>{head('', true)}</div></Fit>}
 
         {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
-        <div className="mt-6 max-md:mt-0 flex items-center-safe justify-center-safe w-full md:w-auto">
+        <div ref={mainRef} className="mt-6 max-md:mt-0 flex items-center-safe justify-center-safe w-full md:w-auto">
           {/* suppressHydrationWarning: BEFORE_PAINT fits it before React hydrates. */}
-          <div ref={stageRef} className="stage-zoom flex flex-col w-full md:w-auto" suppressHydrationWarning>
+          <div ref={stageRef} className="stage-zoom flex flex-col w-full md:w-auto" style={phase === 'overview' && overviewOn ? { visibility: 'hidden' } : undefined} suppressHydrationWarning>
             {/* Row 1: Table + Winnings. On phones the row dissolves (contents) so the reasoning bar comes right under the
                 table and the sidebar after it (order). */}
             <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative max-md:contents">
@@ -553,6 +716,7 @@ export default function Home() {
                 stats={seatStats}
                 display={displayState}
                 clock={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? clock : null}
+                still={overviewOn && phase === 'overview'}
               />
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
@@ -585,9 +749,25 @@ export default function Home() {
           </div>
         </div>
 
-        {desk && <button onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={NEXT_STYLE}>
+        {/* The tables overview over the stage (hidden under it), and in the focused view the way back and the neighbours.
+            Between the stage and the Stats button: fitStage measures the screen from its first child to its last. */}
+        {showOverview && room && <div ref={overlay} className="absolute z-20" style={room.overview}>
+          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} onOpen={openTable} />
+        </div>}
+        {overviewOn && phase === 'focused' && room && <>
+          <button onClick={backToTables} className="absolute z-20 flex items-center gap-1.5 rounded px-2 py-1 text-[14px] font-medium hover:bg-black/5 outline-none focus-visible:outline-2 focus-visible:outline-[rgb(31,111,196)]"
+            style={{ ...room.back, color: 'rgb(55, 53, 47)' }}>
+            <ArrowLeft size={14} weight="bold" aria-hidden /> All tables
+          </button>
+          {(Object.keys(STEP) as Dir[]).map(d => {
+            const n = neighbour(d), box = room.edges[d];
+            return n && box && <Edge key={d} t={n} dir={d} variant={edges} box={box} width={room.w * (d === 'left' || d === 'right' ? 0.8 : 0.6)} onGo={() => goTo(d)} />;
+          })}
+        </>}
+        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={NEXT_STYLE}>
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>}
+
       </section>
       <script dangerouslySetInnerHTML={{ __html: BEFORE_PAINT }} />
 

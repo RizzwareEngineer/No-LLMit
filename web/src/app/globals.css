@@ -400,6 +400,8 @@ html:has([data-screen]) {
    overview, drawn the same way (StatsSections' MacOverview). ?table=tall: the tall table (PokerTable) and its caption
    fill the first screen instead, no landing fill. */
 html.phone-a #phone-stats { display: none; }
+/* The overview landing's first paint (lib/tableSwitches' OVERVIEW_FIRST): the stage it is drawn over stays hidden. */
+html[data-overview] .stage-zoom { visibility: hidden; }
 html.phone-a [data-a-table] [data-hole] [role=img], html.phone-a [data-a-table] [data-felt-cards] [role=img] { width: 40px; height: 56px; }
 html.phone-a [data-a-table] [role=img] span { font-size: 14px; }
 html.phone-a [data-a-table] [role=img] svg { width: 12px; height: 12px; }

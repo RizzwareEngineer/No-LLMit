@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { GameStream, GameState, TableNoticePayload } from '@/lib/api';
 import { StatsResponse } from '@/lib/stats';
-import { ButtonDetermination, Clock, DisplayState, EMPTY_TABLE, Tables, applyMessage, applyStats } from '@/lib/stream';
+import { ButtonDetermination, Clock, DisplayState, EMPTY_TABLE, TableView, Tables, applyMessage, applyStats } from '@/lib/stream';
 
 // How long the stream may be down before the page says Offline: the server ends every stream after 10 to 14 minutes,
 // and the reopen that follows should not flash the connection bar. A page load waits as long for its first open.
@@ -22,19 +22,31 @@ interface UseGameStateReturn {
   clock: Clock | null; // the shot clock; null: no clock (the engine sent no budget)
   buttonDetermination: ButtonDetermination | null;
   stats: StatsResponse | null; // all-time stats, from the stream
+  tables: (TableView & { key: string })[]; // every table, in the engine's configured order
+  focusKey: string | null; // the table the fields above describe
   retry: () => void;
 }
 
-export function useGameState(): UseGameStateReturn {
-  // Every table the stream reports, by table key, in the engine's configured order; the page draws the 5/10 one, else the first.
+// `focus`: the table to describe (a key, as the stream names it); none, or one the stream does not have, is the 5/10 one.
+// Each table with its key, kept while the table is unchanged, so a small copy of it (the tables overview) skips a render.
+const keyed = new WeakMap<TableView, TableView & { key: string }>();
+const withKey = (key: string, t: TableView) => {
+  let k = keyed.get(t);
+  if (!k) keyed.set(t, (k = { ...t, key }));
+  return k;
+};
+
+export function useGameState(focus: string | null = null): UseGameStateReturn {
+  // Every table the stream reports, by table key, in the engine's configured order; the page draws the focused one.
   const [tables, setTables] = useState<Tables>({});
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [connection, setConnection] = useState<Connection>('connecting');
   const [gaveUp, setGaveUp] = useState(false);
   const streamRef = useRef<GameStream | null>(null);
 
-  const all = Object.values(tables);
-  const table = all.find(t => t.gameState?.stakes.smallBlind === 5 && t.gameState.stakes.bigBlind === 10) ?? all[0] ?? EMPTY_TABLE;
+  const all = Object.entries(tables).map(([key, t]) => withKey(key, t));
+  const focused = all.find(t => t.key === focus) ?? all.find(t => t.gameState?.stakes.smallBlind === 5 && t.gameState.stakes.bigBlind === 10) ?? all[0];
+  const table = focused ?? EMPTY_TABLE;
 
   // The shot clock runs from llm_thinking until the move arrives (llm_action), then holds the time left then. Its
   // seconds are drawn by the components that show it (useSecondsDraw), not rendered here each second.
@@ -81,6 +93,8 @@ export function useGameState(): UseGameStateReturn {
     clock,
     buttonDetermination: table.buttonDetermination,
     stats,
+    tables: all,
+    focusKey: focused?.key ?? null,
     retry: () => streamRef.current?.retry(),
   };
 }
