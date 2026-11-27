@@ -107,12 +107,17 @@ func tablesFromEnv() []tableConfig {
 	return tables
 }
 
+// callsPerTurn is the most model calls one turn makes: the LLM service asks once more after
+// an unreadable or illegal reply.
+const callsPerTurn = 2
+
 // floor is what every table shares: one daily call budget, the opening hours and the pace.
 type floor struct {
 	mu           sync.Mutex // guards the calls
 	dailyCallCap int
-	calls        int
-	callsDay     string
+	calls        int           // made on callsDay, or started: a turn counts its first call when it starts
+	held         int           // kept back for the second call of turns still being played
+	callsDay     string        // UTC, 2006-01-02
 	pace         atomic.Uint64 // math.Float64bits of the multiplier on every pause; /dev/pace changes it while the tables run
 
 	// Daily opening hours, e.g. 9 to 21 in America/New_York. hoursZone is nil when the
@@ -141,19 +146,36 @@ func newFloor() *floor {
 	return f
 }
 
-// spend counts a model call made on day (UTC, 2006-01-02) when force is set or the day's cap
-// leaves room for it, and reports whether it counted.
-func (f *floor) spend(day string, force bool) bool {
+// reserve starts a turn on day (UTC, 2006-01-02) when the day's cap leaves room for the
+// most calls it can make, and reports whether it did: the first call is counted, the second
+// held until settle says whether the turn made it. So the tables together never go past the cap.
+func (f *floor) reserve(day string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.callsDay != day {
-		f.callsDay, f.calls = day, 0
+		f.callsDay, f.calls, f.held = day, 0, 0
 	}
-	if !force && f.calls >= f.dailyCallCap {
+	if f.calls+f.held+callsPerTurn > f.dailyCallCap {
 		return false
 	}
 	f.calls++
+	f.held += callsPerTurn - 1
 	return true
+}
+
+// settle ends a turn reserve started on day: its held call is counted if the model was asked
+// twice, else given back. A turn from a day that has since ended changes nothing: its calls
+// were budgeted on that day.
+func (f *floor) settle(day string, retried bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.callsDay != day || f.held < callsPerTurn-1 {
+		return
+	}
+	f.held -= callsPerTurn - 1
+	if retried {
+		f.calls++
+	}
 }
 
 type Table struct {
@@ -167,6 +189,7 @@ type Table struct {
 	turnApplied  bool           // turn is an llm_action already applied to the table
 	nextHandAt   time.Time
 	notice       TableNoticePayload // shown to everyone while the table is stopped; Kind "" when running
+	budgetDay    string             // the UTC day waitForBudget reserved the next turn's calls on; "" when none is reserved
 
 	*floor
 	cfg   tableConfig
@@ -348,13 +371,15 @@ func (t *Table) sleep(d time.Duration) {
 	t.pause(t.paced(d))
 }
 
-// waitForBudget counts the next turn's model call against the day's cap every table shares,
-// blocking once the cap is reached, until the next UTC day.
+// waitForBudget reserves the next turn's model calls against the day's cap every table shares
+// (see reserve), blocking once the cap is reached, until the next UTC day. playTurn settles it.
 func (t *Table) waitForBudget() {
 	for {
-		spent := t.spend(t.now().UTC().Format("2006-01-02"), false)
+		day := t.now().UTC().Format("2006-01-02")
+		spent := t.reserve(day)
 		t.mu.Lock()
 		if spent {
+			t.budgetDay = day
 			if t.notice.Kind == "cap" {
 				t.setNotice(TableNoticePayload{})
 				log.Printf("Daily call cap reset, table %s resumed", t.cfg.key())
@@ -681,8 +706,9 @@ func (t *Table) playTurn() {
 		time.Sleep(remaining)
 	}
 
-	if decision.Retried {
-		t.spend(t.now().UTC().Format("2006-01-02"), true) // the service asked the model a second time
+	if t.budgetDay != "" {
+		t.settle(t.budgetDay, decision.Retried)
+		t.budgetDay = ""
 	}
 	t.mu.Lock()
 	reason := decision.Reason
