@@ -43,9 +43,20 @@ const cardW = (f: number) => f * 1.3, cardH = (f: number) => f * 2.0;
 // Two hole cards, the second over the first's right part: what of the first shows is its rank and suit.
 const holeW = (f: number) => cardW(f) * 2 - f * 0.32;
 
+// In the zoom (lod 'morph', --lod-t from 0 to 1) the far logo and cards move and shrink onto the full seat's (its 20px logo
+// at the seat's top left, its two 40x56 cards at its foot's right, both 12px in) as they fade, so the hand-over is one
+// object changing, not two pictures swapping. Far away (--lod-t 0) this is no transform at all.
+const NEAR_LOGO = 20, NEAR_HOLE_H = 56, NEAR_PAD = 12;
+function toNear(h: number, side: 'left' | 'right', x: number, y: number, nh: number): React.CSSProperties {
+  const s = nh / h, dy = side === 'left' ? NEAR_PAD - y : SEAT_H - NEAR_PAD - (y + h), dx = side === 'left' ? NEAR_PAD - x : -(NEAR_PAD - x);
+  return { transformOrigin: side === 'left' ? '0 0' : '100% 100%', transform: `translate(calc(var(--lod-t) * ${dx}px), calc(var(--lod-t) * ${dy}px)) scale(calc(1 - var(--lod-t) * ${1 - s}))` };
+}
+
 // The seat's sizes at `k`, or null cards when they cannot be drawn at the floor beside a logo at its floor.
 export function farSeat(k: number) {
-  let f = RANK * k, l = LOGO * k;
+  // At least the floor's target in screen px; on a table drawn larger, a fixed share of the seat (layout px), so a large
+  // seat is not mostly empty.
+  let f = Math.max(RANK * k, 36), l = Math.max(LOGO * k, 60);
   const room = () => SEAT_W - 3 * PAD - l - holeW(f);
   if (room() < 0) l = Math.max(LOGO_MIN * k, SEAT_W - 3 * PAD - holeW(f));
   if (room() < 0) f = Math.max(RANK_MIN * k, f * (SEAT_W - 3 * PAD - l) / holeW(f));
@@ -66,10 +77,10 @@ export function FarSeat({ player, active, winner, button, k }: { player: PlayerS
   }, [winner]);
   const ring = active ? BLUE : winner ? WIN : null;
   return (
-    <div ref={ref} data-far data-far-seat role="img" aria-label={`${player.name}${folded ? ', folded' : out ? ', out' : ''}`}
+    <div ref={ref} data-far data-far-seat data-win={winner || undefined} data-turn={active || undefined} role="img" aria-label={`${player.name}${folded ? ', folded' : out ? ', out' : ''}`}
       className="absolute inset-0 flex items-center rounded"
       style={{ padding: PAD, gap: PAD, background: winner ? 'rgba(15, 123, 108, 0.10)' : 'white', boxShadow: ring ? `inset 0 0 0 ${3 * k}px ${ring}` : undefined }}>
-      <div aria-hidden className="relative shrink-0" style={{ width: l, height: l, marginLeft: cards ? 0 : 'auto', marginRight: cards ? 0 : 'auto', opacity: folded || out ? 0.3 : 1, filter: folded || out ? 'grayscale(1)' : undefined }}>
+      <div aria-hidden className="relative shrink-0" style={{ width: l, height: l, marginLeft: cards ? 0 : 'auto', marginRight: cards ? 0 : 'auto', opacity: folded || out ? 0.3 : 1, filter: folded || out ? 'grayscale(1)' : undefined, ...(cards ? toNear(l, 'left', PAD, (SEAT_H - l) / 2, NEAR_LOGO) : null) }}>
         <LLMLogo model={player.name} size={l} />
         {button && <span data-far-button className="absolute flex items-center justify-center rounded-full bg-white font-bold"
           style={{ width: DISC * k, height: DISC * k, right: -DISC * k * 0.35, bottom: -DISC * k * 0.35, fontSize: 11 * k, lineHeight: 1, color: INK, boxShadow: `0 0 0 ${1.5 * k}px ${INK}` }}>D</span>}
@@ -77,7 +88,7 @@ export function FarSeat({ player, active, winner, button, k }: { player: PlayerS
         {player.currentBet > 0 && <span data-far-bet className="absolute rounded-full"
           style={{ width: 12 * k, height: 12 * k, right: -5 * k, top: -5 * k, background: INK, border: `${2 * k}px dashed white`, boxShadow: `0 0 0 ${1 * k}px ${INK}` }} />}
       </div>
-      {cards && <div aria-hidden={folded || undefined} className="relative ml-auto" style={{ width: holeW(f), height: cardH(f), opacity: folded ? 0 : 1 }}>
+      {cards && <div aria-hidden={folded || undefined} className="relative ml-auto" style={{ width: holeW(f), height: cardH(f), opacity: folded ? 0 : 1, ...toNear(cardH(f), 'right', PAD, (SEAT_H - cardH(f)) / 2, NEAR_HOLE_H) }}>
         {(hole.length ? hole : ['', '']).slice(0, 2).map((c, i) => <FarCard key={i} value={c} f={f} style={{ position: 'absolute', top: 0, left: i ? cardW(f) - f * 0.32 : 0 }} />)}
       </div>}
     </div>
@@ -87,8 +98,8 @@ export function FarSeat({ player, active, winner, button, k }: { player: PlayerS
 // The far felt: the pot, large, and the board under it. No bets' amounts, no winner banner, no countdown.
 export function FarFelt({ cards, pot, k }: { cards: string[]; pot: number; k: number }) {
   const bb = useBigBlind();
-  const potH = (POT + 10) * k, gap = 8 * k;
-  const f = Math.min(BOARD_RANK * k, (FELT_W - 40 - 4 * 6 * k) / 5 / 1.3, (FELT_H - 24 - potH - gap) / 2.0);
+  const potK = Math.max(k, 2), potH = (POT + 10) * potK, gap = 8 * potK;
+  const f = Math.min(Math.max(BOARD_RANK * k, 44), (FELT_W - 40 - 4 * 6 * k) / 5 / 1.3, (FELT_H - 24 - potH - gap) / 2.0);
   const board = f >= RANK_MIN * k;
   const ref = useRef<HTMLSpanElement>(null), was = useRef(pot);
   useEffect(() => {
@@ -100,9 +111,9 @@ export function FarFelt({ cards, pot, k }: { cards: string[]; pot: number; k: nu
   return (
     <div data-far data-far-felt aria-hidden className="absolute inset-0 flex flex-col items-center justify-center" style={{ gap }}>
       <span ref={ref} data-far-pot className="flex items-baseline bg-white rounded whitespace-nowrap tabular-nums"
-        style={{ gap: 6 * k, padding: `${2 * k}px ${8 * k}px`, height: potH, alignItems: 'center', boxShadow: `0 0 0 ${2 * k}px rgb(55, 65, 81)`, visibility: pot > 0 ? undefined : 'hidden' }}>
-        <span className="uppercase font-medium tracking-wider" style={{ fontSize: POT_LABEL * k, color: 'rgb(75, 85, 99)' }}>Pot</span>
-        <span className="font-bold" style={{ fontSize: POT * k, lineHeight: 1, color: INK }}>{formatAmount(pot, bb)}</span>
+        style={{ gap: 6 * potK, padding: `${2 * potK}px ${8 * potK}px`, height: potH, alignItems: 'center', boxShadow: `0 0 0 ${2 * k}px rgb(55, 65, 81)`, visibility: pot > 0 ? undefined : 'hidden' }}>
+        <span className="uppercase font-medium tracking-wider" style={{ fontSize: POT_LABEL * potK, color: 'rgb(75, 85, 99)' }}>Pot</span>
+        <span className="font-bold" style={{ fontSize: POT * potK, lineHeight: 1, color: INK }}>{formatAmount(pot, bb)}</span>
       </span>
       {board && <div className="flex" style={{ gap: 6 * k, height: cardH(f) }}>
         {cards.map((c, i) => <FarCard key={`${c}-${i}`} value={c} f={f} />)}
