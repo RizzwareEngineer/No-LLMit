@@ -24,4 +24,5 @@ uv venv .venv -p 3.11 && uv pip install -p .venv/bin/python -r requirements.txt
 .venv/bin/python export.py --out out --day yesterday --back 3   # from Supabase
 .venv/bin/python upload.py --out out --pull && .venv/bin/python upload.py --out out
 .venv/bin/python -m pytest -q
+PG_TEST_URL=postgresql://localhost/scratch .venv/bin/python -m pytest -q tests/test_schema.py   # the Supabase migrations on a scratch Postgres (its public schema is dropped)
 ```

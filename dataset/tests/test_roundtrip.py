@@ -334,3 +334,43 @@ def test_decision_value_normalisation(exported):
             assert d["parsed_amount"] is None
     assert any(d["parsed_amount"] for d in decisions)
 
+
+def _at_table(hand, prompts, table_id, key, sb, bb):
+    """hand and its prompts as dealt at another table: its own session, key and blinds."""
+    h = json.loads(json.dumps(hand))
+    old = h["hand_id"]
+    h["table_id"], h["table_key"] = table_id, key
+    h["hand_id"] = f"{table_id}-{h['hand_number']:06d}"
+    h["config"].update(small_blind=sb, big_blind=bb)
+    for a in h["actions"]:
+        a["prompt_id"] = h["hand_id"] + a["prompt_id"][len(old):]
+    ps = [{**p, "prompt_id": h["hand_id"] + p["prompt_id"][len(old):]} for p in prompts if p["prompt_id"].startswith(old + "-")]
+    return h, ps
+
+
+def test_tables_dealing_at_once_stay_apart(tmp_path):
+    """Several tables play at once: the same hand number at the same moment at two tables is
+    two hands, each with its own id, table_key and PokerStars hand number."""
+    import hh
+    src, prompts, _ = export.load_jsonl(GENERATED / "hands.jsonl", GENERATED / "prompts.jsonl")
+    a, pa_ = _at_table(src[0], prompts, "tbl_1111111111111111", "1-2-100bb", 1, 2)
+    b, pb = _at_table(src[0], prompts, "tbl_2222222222222222", "5-10-200bb", 5, 10)
+    old = {k: v for k, v in src[1].items() if k != "table_key"}  # saved before there were several tables
+    old_prompts = [p for p in prompts if p["prompt_id"].startswith(old["hand_id"] + "-")]
+    out = tmp_path / "out"
+    export.export([a, b, old], pa_ + pb + old_prompts, [], str(out))
+    hands = read(out, "hands")
+    assert sorted((h["hand_id"], h["table_key"]) for h in hands) == sorted(
+        [(a["hand_id"], "1-2-100bb"), (b["hand_id"], "5-10-200bb"), (old["hand_id"], None)])
+    for name in ("seats", "decisions"):
+        rows = read(out, name)
+        assert {r["hand_id"]: r["table_key"] for r in rows} == {h["hand_id"]: h["table_key"] for h in hands}
+    assert {(h["table_key"], h["big_blind"]) for h in hands} >= {("1-2-100bb", 2), ("5-10-200bb", 10)}
+    text = (out / f"day={export.hand_day(a)}" / "pokerstars.txt").read_text()
+    numbers = re.findall(r"PokerStars Hand #(\d+):", text)
+    assert len(numbers) == len(set(numbers)) == 3
+    assert hh.stars_hand_number(a) != hh.stars_hand_number(b)
+    assert "(1/2)" in text and "(5/10)" in text
+    export.write_card(str(out))
+    assert "| `table_key` |" in (out / "README.md").read_text()
+
