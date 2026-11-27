@@ -10,7 +10,7 @@ import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE, MUTED, modelHref } from "@/lib/stats";
-import { CARD_CLASS, useCardSize } from "@/lib/tableSwitches";
+import { HOLE_OVERLAP_C, cardClassOf, useCardLook, useCardSize } from "@/lib/tableSwitches";
 import { useFillIn } from "@/lib/boxes";
 import { arrivedClock, clockMs, clockShare, type Clock } from "@/lib/stream";
 import { useSecondsDraw } from "@/hooks/useSecondsDraw";
@@ -80,8 +80,10 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const folded = player.status === 'folded';
   const isWinner = winAmount !== undefined && winAmount > 0;
-  const size = useCardSize();
-  const cardClass = CARD_CLASS[size];
+  const size = useCardSize(), look = useCardLook();
+  const cardClass = cardClassOf(size, look);
+  // Look c (?cards=c): the second card over the first, so the larger pair takes no more of the seat than today's.
+  const overlap = look === 'c' ? HOLE_OVERLAP_C[size] : 0;
   const seatBg = isWinner ? 'rgb(237, 253, 244)' : '#ffffff';
   // A seat mounts where the blank one stood (PokerTable) when the table fills: its content fades in.
   // Not a seat mounted by a layout switch (PokerTable): it shows the table as it was. Only how it mounted counts.
@@ -99,7 +101,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   useFillIn(ref, fill);
 
   const hole = (
-    <div data-hole className="flex flex-row items-center gap-1 shrink-0">
+    <div data-hole className={`flex flex-row items-center shrink-0 ${overlap ? '[&>*+*]:-ml-[var(--hole-overlap)]' : 'gap-1'}`} style={overlap ? { ['--hole-overlap' as string]: `${overlap}px` } : undefined}>
       {cards.length > 0 ? (
         cards.map((card, i) => (
           // Face up as soon as it is dealt (no face-down deal). Keyed by hand, so a
@@ -110,12 +112,12 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             animate={{ opacity: 1 }}
             transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
           >
-            <Card value={card} className={cardClass} />
+            <Card value={card} className={cardClass} covered={i < cards.length - 1 ? overlap : 0} />
           </motion.div>
         ))
       ) : (
         <>
-          <Card value="" className={cardClass} />
+          <Card value="" className={cardClass} covered={overlap} />
           <Card value="" className={cardClass} />
         </>
       )}
@@ -172,7 +174,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             ? <div data-label data-lcp="seat-label" data-chips={winAmount} className="text-[11px] leading-[14px] font-bold" style={{ color: 'rgb(15, 123, 108)' }} aria-label={`won ${formatAmount(winAmount, bb)}, ${winDesc}`}>+{formatAmount(winAmount, bb)}</div>
             : <div data-label data-lcp="seat-label" className="text-[11px] leading-[14px]" style={{ color: MUTED }}>{seatLabel(player.name)}</div>}
         </div>
-        <div className="absolute pointer-events-auto" style={{ left: ox + c[0] - 30, top: oy + c[1] - 20 }}>{hole}</div>
+        <div className="absolute pointer-events-auto" style={look === 'c' ? { left: ox + c[0] - (2 * 31 - overlap) / 2, top: oy + c[1] - 22 } : { left: ox + c[0] - 30, top: oy + c[1] - 20 }}>{hole}</div>
         {/* The action, for a moment, on the seat's side away from the middle, where its cards never are: over the logo
             for a seat in the table's top half (its cards are under it), under its stack, over its label, for one in the
             bottom half (its cards are over it) and for the side seats whose neighbour sits over them (phoneTable's

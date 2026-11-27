@@ -1741,19 +1741,32 @@ group(() => check('tables-zoom-lands', 'With ?tables=1 at 1440x790 and 1280x720,
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 1280x720 (edges live, then outline): every neighbour in the overview grid shows at that edge (the table faded, or a tab with its label), none over a seat, the sidebar, the reasoning panel or the header; a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
+group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 1440x790, 1440x900 and 1728x1117, by default: an arrow button for every neighbour in the overview grid (named "Go to table …"), each as tall as the Stats button, none over a seat, a bet, the sidebar, the reasoning panel, the header, the Stats button or another button, all inside the window, no faded edge; "All tables" within 24px of the page\'s top-left content corner; the table\'s box the page without the switch draws (within 1px). At 1440x790 and 1280x720 with edges=live and edges=outline the faded edges show instead (the table faded, or a tab with its label), none over those. Every way: a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
   const bad = [], seen = [];
-  for (const [w, h] of TABLE_SIZES) for (const variant of ['live', 'outline']) {
-    const size = `${w}x${h} ${variant}`, p = await scriptedTable(w, h, false, `tables=1&t=25-50-500bb&edges=${variant}`);
+  const runs = [...[[1280, 720], [1440, 790], [1440, 900], [1728, 1117]].map(s => [...s, 'buttons']), ...TABLE_SIZES.flatMap(s => ['live', 'outline'].map(v => [...s, v]))];
+  const plainBox = {};
+  for (const [w, h, variant] of runs) {
+    const size = `${w}x${h} ${variant}`, buttons = variant === 'buttons';
+    if (buttons) { const plain = await scriptedTable(w, h); plainBox[size] = await deskBox(plain).finally(() => plain.close()); }
+    const p = await scriptedTable(w, h, false, `tables=1&t=25-50-500bb${buttons ? '' : `&edges=${variant}`}`);
     try {
-      await sleep(500);
-      const r = await p.evaluate(() => {
+      await sleep(700);
+      const r = await p.evaluate(sel => {
         const box = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
         const meets = (a, b) => a[0] < b[2] - 0.5 && b[0] < a[2] - 0.5 && a[1] < b[3] - 0.5 && b[1] < a[3] - 0.5;
         const main = document.querySelector('.stage-zoom').parentElement;
-        const keep = [...document.querySelectorAll('.stage-zoom [data-seat], #phone-stats, [data-reasoning]'), ...[...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).filter(e => e.offsetHeight)];
-        return [...document.querySelectorAll('[data-edge]')].map(e => ({ dir: e.dataset.edge, tab: e.dataset.edgeTab !== undefined, name: e.getAttribute('aria-label'), over: keep.filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.id ?? k.className.slice(0, 20)) }));
-      });
+        const stats = [...document.querySelectorAll('section[data-screen] button')].find(b => /^Stats/.test(b.textContent.trim()));
+        const keep = [...document.querySelectorAll('.stage-zoom [data-seat], .stage-zoom [data-bet], #phone-stats, [data-reasoning]'), ...[...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).filter(e => e.offsetHeight), stats, ...document.querySelectorAll('[data-all-tables-button], [data-about-pill]')];
+        const els = [...document.querySelectorAll(sel)];
+        return {
+          stats: stats.getBoundingClientRect().height, faded: document.querySelectorAll('[data-edge]').length,
+          edges: els.map(e => ({ dir: e.dataset.edge ?? e.dataset.tableNav, tab: e.dataset.edgeTab !== undefined, name: e.getAttribute('aria-label'), h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width, vertical: getComputedStyle(e).writingMode !== 'horizontal-tb',
+            out: (([l, t, r, b]) => l < 0 || t < 0 || r > innerWidth || b > innerHeight)(box(e)),
+            over: [...keep, ...els.filter(o => o !== e)].filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.dataset.tableNav ?? (k === stats ? 'Stats' : k.id || k.className.slice(0, 20))) })),
+          back: (() => { const b = document.querySelector('[data-all-tables-button]')?.getBoundingClientRect(), pg = document.querySelector('[data-page]'), sec = document.querySelector('section[data-screen]');
+            return b && { dx: b.left - (pg.getBoundingClientRect().left + parseFloat(getComputedStyle(pg).paddingLeft)), dy: b.top - (sec.getBoundingClientRect().top + parseFloat(getComputedStyle(sec).paddingTop)) }; })(),
+        };
+      }, buttons ? '[data-table-nav]' : '[data-edge]');
       // Every neighbour in the overview's grid (the hidden overview's cells: same row beside it, same column above and below).
       const want = await p.evaluate(() => {
         const cells = [...document.querySelectorAll('[data-overview-cell]')].map(a => { const b = a.getBoundingClientRect(); return { key: a.dataset.overviewCell, x: Math.round(b.left), y: Math.round(b.top) }; });
@@ -1761,18 +1774,29 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 
         const at = (dx, dy) => cells.find(c => c.x === xs[xs.indexOf(me.x) + dx] && c.y === ys[ys.indexOf(me.y) + dy]);
         return Object.entries({ left: at(-1, 0), right: at(1, 0), up: at(0, -1), down: at(0, 1) }).filter(([, c]) => c).map(([d]) => d).sort();
       });
-      const got = r.map(e => e.dir).sort();
-      if (want.join() !== got.join()) bad.push(`${size}: neighbours ${want} but edges ${got}`);
-      const right = r.find(e => e.dir === 'right');
-      if (!right || right.name !== 'Table 50/100, 100 bb') bad.push(`${size}: right edge ${right?.name}`);
-      for (const e of r) if (e.over.length) bad.push(`${size}: the ${e.dir} edge covers ${e.over.join(', ')}`);
-      await clickCenter(p, '[data-edge="right"]'); await sleep(1200);
+      const got = r.edges.map(e => e.dir).sort();
+      if (want.join() !== got.join()) bad.push(`${size}: neighbours ${want} but ${buttons ? 'buttons' : 'edges'} ${got}`);
+      const right = r.edges.find(e => e.dir === 'right');
+      if (!right || right.name !== (buttons ? 'Go to table 50/100, 100 bb' : 'Table 50/100, 100 bb')) bad.push(`${size}: right ${right?.name}`);
+      for (const e of r.edges) if (e.over.length) bad.push(`${size}: the ${e.dir} ${buttons ? 'button' : 'edge'} covers ${e.over.join(', ')}`);
+      if (buttons) {
+        if (r.faded) bad.push(`${size}: ${r.faded} faded edges by default`);
+        for (const e of r.edges) {
+          const tall = e.vertical ? e.w : e.h;
+          if (Math.abs(tall - r.stats) > 0.5) bad.push(`${size}: the ${e.dir} button is ${tall.toFixed(1)}px, Stats ${r.stats.toFixed(1)}px`);
+          if (e.out) bad.push(`${size}: the ${e.dir} button is out of the window`);
+        }
+        if (!r.back || Math.hypot(r.back.dx, r.back.dy) > 24) bad.push(`${size}: All tables ${r.back ? `${r.back.dx.toFixed(1)},${r.back.dy.toFixed(1)}px` : 'missing'} from the page's top-left content corner`);
+        const got = await deskBox(p), wantBox = plainBox[size];
+        if (got.some((v, i) => Math.abs(v - wantBox[i]) > 1)) bad.push(`${size}: table at ${got.map(Math.round)}, the page without the switch ${wantBox.map(Math.round)}`);
+      }
+      await clickCenter(p, buttons ? '[data-table-nav="right"]' : '[data-edge="right"]'); await sleep(1200);
       const moved = await p.evaluate(() => location.search);
-      if (!/t=50-100-100bb/.test(moved)) bad.push(`${size}: after the right edge, URL ${moved}`);
+      if (!/t=50-100-100bb/.test(moved)) bad.push(`${size}: after the right ${buttons ? 'button' : 'edge'}, URL ${moved}`);
       await p.keyboard.press('ArrowLeft'); await sleep(1200);
       const back = await p.evaluate(() => location.search);
       if (!/t=25-50-500bb/.test(back)) bad.push(`${size}: after ←, URL ${back}`);
-      seen.push(`${size}: edges ${r.map(e => `${e.dir}${e.tab ? ' (tab)' : ''} ${e.name}`).join(', ')}`);
+      seen.push(`${size}: ${r.edges.map(e => `${e.dir}${e.tab ? ' (tab)' : ''}${e.vertical ? ' (on its side)' : ''} ${e.name}${buttons ? ` ${Math.round(e.w)}x${Math.round(e.h)}` : ''}`).join(', ')}${buttons ? `; Stats ${r.stats.toFixed(1)}px, All tables at +${r.back?.dx.toFixed(0)},+${r.back?.dy.toFixed(0)}` : ''}`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
@@ -1805,7 +1829,7 @@ group(() => check('tables-inputs-interleaved', 'With ?tables=1 at 1440x790, ever
     ['Esc, click the same cell at 300 ms', async p => { await openAtRest(p, A); const a = await cellAt(p, A); await p.keyboard.press('Escape'); await sleep(300); await p.mouse.click(...a); }, { t: A }],
     ['Esc, click another cell at 300 ms', async p => { await openAtRest(p, A); const b = await cellAt(p, B); await p.keyboard.press('Escape'); await sleep(300); await p.mouse.click(...b); }],
     ['click, click another cell', async p => { const [a, b] = [await cellAt(p, A), await cellAt(p, B)]; await p.mouse.click(...a); await p.mouse.click(...b); }],
-    ['edge click during a slide', async p => { await openAtRest(p, B); const r = await p.evaluate(() => { const e = document.querySelector('[data-edge="right"]').getBoundingClientRect(); return [e.left + e.width / 2, e.top + e.height / 2]; }); await p.mouse.click(...r); await sleep(80); await p.mouse.click(...r); await p.keyboard.press('ArrowLeft'); }],
+    ['edge click during a slide', async p => { await openAtRest(p, B); const r = await p.evaluate(() => { const e = document.querySelector('[data-table-nav="right"]').getBoundingClientRect(); return [e.left + e.width / 2, e.top + e.height / 2]; }); await p.mouse.click(...r); await sleep(80); await p.mouse.click(...r); await p.keyboard.press('ArrowLeft'); }],
     ['arrows held down', async p => { await openAtRest(p, A); for (const k of ['ArrowDown', 'ArrowLeft', 'ArrowUp']) { for (let i = 0; i < 8; i++) await p.keyboard.down(k, { autoRepeat: i > 0 }); await p.keyboard.up(k); } }],
     ['Back during a zoom in', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await sleep(100); await p.evaluate(() => history.back()); }],
     ['Back, Forward during a zoom in', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await p.evaluate(() => { history.back(); setTimeout(() => history.forward(), 60); }); }],
@@ -2158,6 +2182,63 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
       } finally { await p.close(); }
     }
   }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+
+// The bolder-cards draft (?cards=bold, look c; owner's review 2026-11-27: "make the cards more bold because they blend too
+// much with the background"): the page's own table draws its cards 45x64 on desktop and 31x44 on phones, the deck and the
+// board the hole cards' size, every card with the look's edge, no desktop hole card over a seat's text, seats and table
+// unchanged; the overview's small tables keep today's cards.
+group(() => check('table-card-bold', 'With ?cards=bold the page\'s table draws hole cards 45x64 on desktop (1440x900, 1440x790) and 31x44 on phones (390x844), the board and the deck the same size, every card with the bold look, no desktop hole card over a seat\'s name, stack, badge or action text, seats 200x128 and the table 1000px; with ?tables=1&cards=bold the overview\'s small tables keep today\'s cards', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1440, 790], [390, 844]]) {
+    const p = await newPage(), tag = `${w}x${h}`, desk = !phoneAt(w, h), want = desk ? [45, 64] : [31, 44];
+    await p.setViewport({ width: w, height: h });
+    try {
+      await scriptStream(p);
+      await p.goto(`${BASE}/?cards=bold`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat] [data-hole] [role=img]'), { timeout: 120000 });
+      await sleep(1500);
+      // In layout px: the desktop stage's zoom divided out (draft A and phones draw at 1).
+      const read = sel => p.evaluate(s => {
+        const z = document.querySelector('.stage-zoom')?.style.zoom || 1, e = [...document.querySelectorAll(s)].find(x => x.getBoundingClientRect().width > 0);
+        if (!e) return null; const b = e.getBoundingClientRect(); return { w: Math.round(b.width / z * 10) / 10, h: Math.round(b.height / z * 10) / 10 };
+      }, sel);
+      const hole = await read('[data-seat] [data-hole] [role=img]');
+      if (!hole || Math.abs(hole.w - want[0]) > 0.6 || Math.abs(hole.h - want[1]) > 0.6) bad.push(`${tag}: hole card ${hole?.w}x${hole?.h}, want ${want.join('x')}`);
+      const r = await p.evaluate(() => {
+        const plain = [...document.querySelectorAll('.stage-zoom [role=img]')].filter(e => e.getAttribute('aria-label')?.includes(' of ') || e.getAttribute('aria-label') === 'hidden card').filter(e => e.dataset.cardLook !== 'c').length;
+        const over = [];
+        for (const s of document.querySelectorAll('[data-desk-seat]')) {
+          const cards = [...s.querySelectorAll('[data-hole] [role=img]')].map(e => e.getBoundingClientRect());
+          for (const t of s.querySelectorAll('[data-position], [data-chips], [data-action], .text-\\[11px\\]')) {
+            if (t.closest('[data-hole]')) continue;
+            const rg = document.createRange(); rg.selectNodeContents(t); const b = rg.getBoundingClientRect();
+            if (b.width && cards.some(c => c.left < b.right - 0.5 && b.left < c.right - 0.5 && c.top < b.bottom - 0.5 && b.top < c.bottom - 0.5)) over.push(`seat ${s.dataset.seat} "${t.textContent.trim().slice(0, 16)}"`);
+          }
+        }
+        const c = document.querySelector('td.w-\\[200px\\]');
+        return { plain, over, cell: [c?.offsetWidth, c?.offsetHeight], table: document.querySelector('table')?.offsetWidth };
+      });
+      if (r.plain) bad.push(`${tag}: ${r.plain} cards without the bold look`);
+      if (r.over.length) bad.push(`${tag}: hole cards over ${r.over.slice(0, 4).join(', ')}`);
+      if (desk && (Math.abs(r.cell[0] - 200) > 1 || Math.abs(r.cell[1] - 128) > 2 || Math.abs(r.table - 1000) > 1)) bad.push(`${tag}: seat ${r.cell.join('x')}, table ${r.table}px`);
+      await p.evaluate(() => window.__stream.end(4000));
+      await sleep(500); const board = await read('[data-felt-cards] [role=img]');
+      await sleep(2800); const deck = await read('[data-deck]');
+      const off = c => !c || Math.abs(c.w - want[0]) > 0.6 || Math.abs(c.h - want[1]) > 0.6;
+      if (off(board) || off(deck)) bad.push(`${tag}: board card ${board?.w}x${board?.h}, deck ${deck?.w}x${deck?.h}, want ${want.join('x')}`);
+      seen.push(`${tag}: hole ${hole?.w}x${hole?.h}, board ${board?.w}x${board?.h}, deck ${deck?.w}x${deck?.h}${desk ? `, seats ${r.cell.join('x')}, no text covered` : ''}`);
+    } finally { await p.close(); }
+  }
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 790 });
+  try {
+    await p.goto(`${BASE}/?tables=1&cards=bold`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => document.querySelector('[data-small-table] [role=img]'), { timeout: 120000 });
+    const n = await p.evaluate(() => [...document.querySelectorAll('[data-small-table] [role=img]')].filter(e => e.dataset.cardLook).length);
+    if (n) bad.push(`overview: ${n} small-table cards with the bold look`);
+    seen.push('overview: small tables keep today\'s cards');
+  } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 

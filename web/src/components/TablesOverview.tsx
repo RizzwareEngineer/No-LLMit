@@ -30,7 +30,7 @@ export const ZOOM_MS = 360;
 
 const stakesOf = (t: TableView) => t.gameState?.stakes ?? { smallBlind: 0, bigBlind: 0 };
 // "5/10 · 200 bb": the stakes and the deepest a seat starts (the rebuy), in big blinds.
-const tableLabel = (t: TableView) => {
+export const tableLabel = (t: TableView) => {
   const { smallBlind, bigBlind } = stakesOf(t);
   return `${smallBlind}/${bigBlind}${t.startingStack && bigBlind ? ` · ${t.startingStack / bigBlind} bb` : ''}`;
 };

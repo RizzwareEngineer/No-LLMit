@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { animate, motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { RIFFLE, playSound } from "@/lib/sound";
-import { deckSize, useCardSize } from "@/lib/tableSwitches";
+import { deckSize, useCardLook, useCardSize } from "@/lib/tableSwitches";
 
 // Seconds. A dealer pitching cards (owner 2026-11-09: the old 0.04 s deal "sounds like smacks"): a card leaves the deck
 // every DEAL_STAGGER and slides for CARD_FLIGHT, so two rounds to nine seats land in about 2.7 s. Chips fly for FLIGHT.
@@ -102,7 +102,7 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: Box | null, to: Bo
 export function Deck({ phase }: { phase: DeckPhase }) {
   // The riffle's sound starts with the riffle (TableMotion's showDeck), not here: a felt mounted by a layout switch while
   // the deck is out shows it squared (TableFelt's AnimatePresence initial={false}) and silent.
-  const size = useCardSize(), box = deckSize(size);
+  const size = useCardSize(), box = deckSize(size, useCardLook());
   return (
     <motion.div
       data-deck={phase}
