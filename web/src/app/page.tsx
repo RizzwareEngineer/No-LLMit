@@ -43,7 +43,7 @@ import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, page
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
-import { pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
+import { OVERVIEW_FIRST, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
 import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor } from "@/components/TablesOverview";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
@@ -316,9 +316,12 @@ export default function Home() {
   const mainRef = useRef<HTMLDivElement>(null), statsButton = useRef<HTMLButtonElement>(null), overlay = useRef<HTMLDivElement>(null);
   const pushedHere = useRef(false); // the focused table's history entry is this page's: going back steps back
   const slideDir = useRef<Dir | null>(null);
+  // Where the overview, the edges and the way back go, in the screen's px (measured below).
+  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, Box>>; back: { left: number; top: number }; w: number } | null>(null);
   useLayoutEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (overviewOn && phase === null) setPhase(focusParam ? 'focused' : 'overview');
+    if (phase !== null) document.documentElement.removeAttribute('data-overview'); // OVERVIEW_FIRST's part is done
   }, [overviewOn, phase, focusParam]);
   const focusIdx = tables.findIndex(t => t.key === focusKey);
   const neighbour = (d: Dir) => {
@@ -410,7 +413,6 @@ export default function Home() {
   // Where the overview and the edges go, in the screen's px: the overview under the header down to the Stats button; the
   // edges in the room round the stage (beside the table and the sidebar, between the header and the table, under the
   // reasoning), never over them.
-  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, Box>>; back: { left: number; top: number }; w: number } | null>(null);
   useLayoutEffect(() => {
     const main = mainRef.current, stage = stageRef.current, screen = stage?.closest('section'), btn = statsButton.current;
     if (!overviewOn || !main || !stage || !screen || !btn) return;
@@ -671,6 +673,7 @@ export default function Home() {
     <div data-page className="px-3 lg:px-4" style={{ ['--bar-h' as string]: bar ? 'calc(40px + var(--tab-h))' : 'var(--tab-h)' }}>
       {/* The stream opens as this is parsed (lib/api's EARLY_STREAM), not once the page has hydrated. */}
       <script dangerouslySetInnerHTML={{ __html: EARLY_STREAM }} />
+      <script dangerouslySetInnerHTML={{ __html: OVERVIEW_FIRST }} />
       <main className="flex flex-col items-center-safe">
       {/* Phones: the page's top heading (the desktop one sits in the header phones hide; the phone bar shows the name). */}
       <h1 className="sr-only md:hidden">No-LLMit</h1>
@@ -713,7 +716,7 @@ export default function Home() {
                 stats={seatStats}
                 display={displayState}
                 clock={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? clock : null}
-                still={showOverview && phase === 'overview'}
+                still={overviewOn && phase === 'overview'}
               />
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands

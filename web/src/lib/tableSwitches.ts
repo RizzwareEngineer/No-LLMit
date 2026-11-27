@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { isDraftA, isPhone, onLayoutChange } from "@/lib/layout";
+import { DESK, isDraftA, isPhone, onLayoutChange } from "@/lib/layout";
 import type { SeatDraft } from "@/lib/phoneTable";
 
 // Card sizes in px, the card's 0.7 ratio: phones' 28x40 and desktop's 40x56 (the owner picked it, 2026-11-14). Every card on
@@ -31,8 +31,12 @@ export const usePhoneDraft = () => useSyncExternalStore(noSub, () => query('phon
 // ?table=tall on draft A (/a): the tall table, the desktop's seat cards round a felt drawn tilted away (PokerTable).
 export const useTallTable = () => useSyncExternalStore(noSub, () => query('table') === 'tall', () => false);
 // ?tables=1: the tables overview is the landing (a draft for the owner's review), with the way back to it and the
-// neighbouring tables at the stage's edges. Desktop only. Promoting it is this one line.
-export const useTablesOverview = () => useSyncExternalStore(noSub, () => query('tables') === '1', () => false);
+// neighbouring tables at the stage's edges. Desktop only. Promoting it is this one line (return true).
+function tablesOverview(search: string) { return new URLSearchParams(search).get('tables') === '1'; }
+export const useTablesOverview = () => useSyncExternalStore(noSub, () => tablesOverview(location.search), () => false);
+// Run as the page is parsed: landing on the overview, the stage is hidden until the overview is drawn over it (page.tsx),
+// so the first paint is not the single table.
+export const OVERVIEW_FIRST = `(${tablesOverview})(location.search)&&!new URLSearchParams(location.search).get('t')&&matchMedia(${JSON.stringify(DESK)}).matches&&document.documentElement.setAttribute('data-overview','')`;
 // ?edges=outline: the neighbours at the stage's edges as an outline and a label; without it, their live tables.
 export const useEdges = () => useSyncExternalStore(noSub, (): 'live' | 'outline' => (query('edges') === 'outline' ? 'outline' : 'live'), () => 'live' as const);
 // ?t=KEY: the table in focus (the stream's key, e.g. 5-10-200bb), so Back, a reload or a shared link finds it.

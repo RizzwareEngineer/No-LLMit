@@ -82,6 +82,7 @@ const COVERS = [
   // TableFelt draws "Next hand in Ns" and PokerTable passes its deal time: only clock-after-load reads that figure.
   [/components\/(TableFelt|PokerTable)\.tsx/, /^(clock-after-load|countdown-follows-deal)$/],
   [/components\/TableMotion\.tsx/, /^table-shuffle-resume$/],
+  [/components\/(TablesOverview|PokerTable|Fit)\.tsx|hooks\/|lib\/(tableSwitches|stream|amounts)\./, /^tables-/],
   [/components\/CumulativeChart\.tsx/, /^zoom-tolerable$/],
   [/(^|\/)AGENTS\.md$/, /(?!)/], // the file next dev writes: no check covers it
 ];
