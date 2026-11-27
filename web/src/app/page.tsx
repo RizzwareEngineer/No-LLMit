@@ -423,7 +423,7 @@ export default function Home() {
     const [dx, dy] = STEP[d], col = focusIdx % cols, i = focusIdx + dx + dy * cols;
     return focusIdx >= 0 && col + dx >= 0 && col + dx < cols && i >= 0 && i < tables.length ? tables[i] : null;
   };
-  const openTable = (key: string) => { if (key !== target) pushFocus(key); };
+  const openTable = pushFocus;
   const backToTables = () => { if (target !== null) toAllTables(); };
   // To a neighbour: only at rest on a table (an arrow held down steps one table per slide).
   const goTo = (d: Dir) => { const n = neighbour(d); if (n && atRest && shown === target) pushFocus(n.key); };

@@ -40,11 +40,29 @@ const setFocus = (key: string | null, push: boolean) => {
   if (push) history.pushState({ tablesDepth: depth() + 1 }, '', u); else history.replaceState(history.state, '', u);
   dispatchEvent(new Event('focuschange'));
 };
-export const pushFocus = (key: string) => setFocus(key, true);
+// history.go is asynchronous: a table opened before the traversal back lands would be undone by it, so the push waits
+// for it (the latest one asked for wins).
+let traversing: { key: string | null; timer: ReturnType<typeof setTimeout> } | null = null;
+const landed = () => {
+  if (!traversing) return;
+  const { key, timer } = traversing;
+  clearTimeout(timer);
+  traversing = null;
+  removeEventListener('popstate', landed);
+  if (key) setFocus(key, true);
+};
+export const pushFocus = (key: string) => { if (traversing) traversing.key = key; else if (query('t') !== key) setFocus(key, true); };
 // Drop ?t without a history entry (a key no table has, or one that has gone).
 export const clearFocus = () => setFocus(null, false);
 // Back to the overview: back through the tables opened since it, or (a page opened on a table) ?t dropped in place.
-export const backToTables = () => { const d = depth(); if (d > 0) history.go(-d); else clearFocus(); };
+export const backToTables = () => {
+  const d = depth();
+  if (d <= 0) { if (traversing) traversing.key = null; else clearFocus(); return; }
+  if (traversing) { traversing.key = null; return; }
+  traversing = { key: null, timer: setTimeout(landed, 1000) }; // a traversal that never fires popstate frees the queue
+  addEventListener('popstate', landed);
+  history.go(-d);
+};
 
 // Which layout's tree to mount (lib/layout's switch): 'phone' or 'desk' once the page runs; null in the prerendered page
 // and while it hydrates, where both trees are in the HTML and CSS shows one (md:hidden, max-md:hidden), so the first
