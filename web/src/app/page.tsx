@@ -908,10 +908,12 @@ function StatusRow({ className = '', statusKnown, handKnown, isLive, label, watc
       </div>
 
       {/* Hand counter, blinds, timer. Held blank until the first state, so the row keeps its width (a phone wraps it
-          to the same lines) and nothing under it moves when they fill in. */}
+          to the same lines) and nothing under it moves when they fill in. The blank hand number is one digit (tabular
+          figures), never wider than the one remembered from the last visit, so on a refresh the remembered width holds
+          it exactly (a "#00" blank was wider than "#2" and the row shifted 4px when a session's first hands arrived). */}
       <div ref={handRef} className={`contents ${handKnown ? '' : '[&>*]:invisible'}`}>
         <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-        <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '00'}</span>
+        <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '0'}</span>
         <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
         <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
         <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
