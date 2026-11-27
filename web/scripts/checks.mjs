@@ -81,7 +81,7 @@ const COVERS = [
   // TableFelt draws "Next hand in Ns" and PokerTable passes its deal time: only clock-after-load reads that figure.
   [/components\/(TableFelt|PokerTable)\.tsx/, /^(clock-after-load|countdown-follows-deal)$/],
   [/components\/TableMotion\.tsx/, /^table-shuffle-resume$/],
-  [/components\/(TablesOverview|PokerTable|Fit)\.tsx|hooks\/|lib\/(tableSwitches|stream|amounts)\./, /^tables-/],
+  [/components\/(TablesOverview|PokerTable|Fit)\.tsx|hooks\/|lib\/(tableSwitches|overviewMachine|stream|amounts)\./, /^tables-/],
   [/components\/CumulativeChart\.tsx/, /^zoom-tolerable$/],
   [/(^|\/)AGENTS\.md$/, /(?!)/], // the file next dev writes: no check covers it
 ];
@@ -205,7 +205,7 @@ const parkShared = () => shared().__park?.bringToFront().catch(() => {});
 // first: useGameState), so a check's messages land on the table on screen.
 const scriptStream = p => p.evaluateOnNewDocument(() => {
   const by = {}, drawn = () => new URLSearchParams(location.search).get('t') ?? Object.keys(by).find(k => by[k].stakes?.smallBlind === 5 && by[k].stakes.bigBlind === 10) ?? Object.keys(by)[0] ?? null;
-  const Real = window.EventSource, s = window.__stream = { get last() { return by[drawn()] ?? null; }, set last(v) { by[drawn()] = v; }, get table() { return drawn(); }, keys: () => Object.keys(by), scripted: false, feed: null };
+  const Real = window.EventSource, s = window.__stream = { get last() { return by[drawn()] ?? null; }, set last(v) { by[drawn()] = v; }, get table() { return drawn(); }, keys: () => Object.keys(by), by, scripted: false, feed: null };
   window.EventSource = class extends Real {
     set onmessage(fn) {
       s.feed = m => fn(new MessageEvent('message', { data: JSON.stringify({ table: s.table, ...m }) }));
@@ -1649,6 +1649,124 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 
       seen.push(`${size}: edges ${r.map(e => `${e.dir}${e.tab ? ' (tab)' : ''} ${e.name}`).join(', ')}`);
     } finally { await p.close(); }
   }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// The overview's state as drawn, and whether it is the one the URL names: with ?t=KEY the stage visible on that table, the
+// overview hidden and the way back shown; without, the overview shown and the stage hidden. `moving`: an animation runs.
+const overviewState = p => p.evaluate(() => {
+  const t = new URLSearchParams(location.search).get('t'), stage = document.querySelector('.stage-zoom'), table = stage.querySelector('[data-desk-table]');
+  const ov = document.querySelector('[data-overview]')?.parentElement, back = [...document.querySelectorAll('button')].find(b => /All tables/.test(b.textContent));
+  const moving = [table, ...stage.querySelectorAll('#phone-stats, [data-reasoning]'), ov].some(e => e?.getAnimations().some(a => a.playState === 'running'));
+  return { t, key: stage.dataset.stageKey, stage: getComputedStyle(stage).visibility, overview: ov ? getComputedStyle(ov).visibility : 'none', back: !!back, moving,
+    active: document.activeElement?.dataset?.overviewCell ?? (document.activeElement === back ? 'back' : document.activeElement?.tagName) };
+});
+const settledOverview = async p => {
+  for (let i = 0; i < 40; i++) { const s = await overviewState(p); if (!s.moving) { await sleep(150); const s2 = await overviewState(p); if (!s2.moving) return s2; } await sleep(100); }
+  return overviewState(p);
+};
+const matchesUrl = s => (s.t ? s.key === s.t && s.stage === 'visible' && s.overview === 'hidden' && s.back : s.stage === 'hidden' && s.overview === 'visible' && !s.back);
+const sayState = s => `URL t=${s.t ?? '-'}, stage ${s.stage} on ${s.key || '-'}, overview ${s.overview}, ${s.back ? '' : 'no '}All tables`;
+const cellAt = (p, key) => p.evaluate(k => { const b = document.querySelector(`[data-overview-cell="${k}"] [data-small-table]`).getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }, key);
+const openAtRest = async (p, key) => { await clickCenter(p, `[data-overview-cell="${key}"] [data-small-table]`); return settledOverview(p); };
+group(() => check('tables-inputs-interleaved', 'With ?tables=1 at 1440x790, every pair of inputs given with no wait between them (click then Esc, Esc then a click on the same or another cell, two cells, an edge click during a slide, an arrow held down, Back and Forward during a zoom in, a zoom out and a slide, a resize during a zoom, the same with reduced motion, a ?t no table has, a reload on each URL, the focused table gone from the stream) ends with the page the URL names, and from there "All tables" (or Esc) reaches the overview with no ?t; keyboard focus lands on "All tables" after a zoom in and on the table\'s cell after a zoom out', async () => {
+  const bad = [], seen = [], A = '5-10-200bb', B = '25-50-500bb';
+  const fresh = async (q = 'tables=1', reduced = false) => { const p = await scriptedTable(1440, 790, reduced, q); await settledOverview(p); return p; };
+  const scenarios = [
+    ['click, Esc', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await p.keyboard.press('Escape'); }],
+    ['Esc, click the same cell', async p => { await openAtRest(p, A); const a = await cellAt(p, A); await p.keyboard.press('Escape'); await sleep(60); await p.mouse.click(...a); }],
+    ['Esc, click another cell', async p => { await openAtRest(p, A); const b = await cellAt(p, B); await p.keyboard.press('Escape'); await sleep(60); await p.mouse.click(...b); }],
+    ['Esc, click another cell at 300 ms', async p => { await openAtRest(p, A); const b = await cellAt(p, B); await p.keyboard.press('Escape'); await sleep(300); await p.mouse.click(...b); }],
+    ['click, click another cell', async p => { const [a, b] = [await cellAt(p, A), await cellAt(p, B)]; await p.mouse.click(...a); await p.mouse.click(...b); }],
+    ['edge click during a slide', async p => { await openAtRest(p, B); const r = await p.evaluate(() => { const e = document.querySelector('[data-edge="right"]').getBoundingClientRect(); return [e.left + e.width / 2, e.top + e.height / 2]; }); await p.mouse.click(...r); await sleep(80); await p.mouse.click(...r); await p.keyboard.press('ArrowLeft'); }],
+    ['arrows held down', async p => { await openAtRest(p, A); for (const k of ['ArrowDown', 'ArrowLeft', 'ArrowUp']) { for (let i = 0; i < 8; i++) await p.keyboard.down(k, { autoRepeat: i > 0 }); await p.keyboard.up(k); } }],
+    ['Back during a zoom in', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await sleep(100); await p.evaluate(() => history.back()); }],
+    ['Back, Forward during a zoom in', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await p.evaluate(() => { history.back(); setTimeout(() => history.forward(), 60); }); }],
+    ['Forward during a zoom out', async p => { await openAtRest(p, A); await p.evaluate(() => { history.back(); setTimeout(() => history.forward(), 120); }); }],
+    ['Back during a slide', async p => { await openAtRest(p, A); await p.keyboard.press('ArrowDown'); await sleep(100); await p.evaluate(() => history.back()); }],
+    ['Back twice during a slide', async p => { await openAtRest(p, A); await p.keyboard.press('ArrowDown'); await sleep(50); await p.evaluate(() => { history.back(); setTimeout(() => history.back(), 40); }); }],
+    ['resize during a zoom in', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await sleep(120); await p.setViewport({ width: 1280, height: 720 }); }],
+    ['resize during a zoom out', async p => { await openAtRest(p, A); await p.keyboard.press('Escape'); await sleep(200); await p.setViewport({ width: 1600, height: 900 }); }],
+    ['the focused table leaves the stream', async p => { await openAtRest(p, A); await p.evaluate(k => { const s = window.__stream; s.scripted = true; s.feed({ type: 'snapshot', payload: { tables: Object.fromEntries(Object.entries(s.by).filter(([id]) => id !== k).map(([id, st]) => [id, { state: st, notice: null, buttonCards: [], buttonWinner: null }])) } }); }, A); }, { after: 'none' }],
+  ];
+  // From the state reached: "All tables" (Esc when it is not there) back to the overview, focus on the table's cell.
+  const allTables = async (p, name, s) => {
+    if (!s.t) return;
+    if (s.active !== 'back') bad.push(`${name}: after the zoom in keyboard focus is on ${s.active}`);
+    const was = s.t;
+    if (s.back) await p.evaluate(() => [...document.querySelectorAll('button')].find(b => /All tables/.test(b.textContent)).click());
+    else await p.keyboard.press('Escape');
+    const o = await settledOverview(p);
+    if (o.t || !matchesUrl(o)) bad.push(`${name}: All tables left ${sayState(o)}`);
+    else if (o.active !== was) bad.push(`${name}: after the zoom out keyboard focus is on ${o.active}, not ${was}'s cell`);
+  };
+  for (const [name, run, opts = {}] of scenarios) {
+    const p = await fresh();
+    try {
+      try { await run(p); } catch (e) { bad.push(`${name}: the inputs failed: ${e.message.split('\n')[0]}`); continue; }
+      const s = await settledOverview(p).catch(e => ({ error: e.message.split('\n')[0] }));
+      if (s.error) { bad.push(`${name}: the page broke (${s.error})`); continue; }
+      if (!matchesUrl(s)) { bad.push(`${name}: ${sayState(s)}`); continue; }
+      if (opts.after !== 'none') await allTables(p, name, s);
+      seen.push(`${name}: ${s.t ?? 'overview'}`);
+    } finally { await p.close(); }
+  }
+  // Reduced motion: the same inputs, no animation.
+  {
+    const p = await fresh('tables=1', true);
+    try {
+      const [a, b] = [await cellAt(p, A), await cellAt(p, B)];
+      await p.mouse.click(...a); await p.keyboard.press('Escape'); await p.mouse.click(...b);
+      const s = await settledOverview(p);
+      if (!matchesUrl(s) || s.t !== B) bad.push(`reduced motion, click Esc click: ${sayState(s)}`);
+      else { await allTables(p, 'reduced motion', s); seen.push(`reduced motion: ${s.t}`); }
+    } finally { await p.close(); }
+  }
+  // A ?t no table has: the overview, the key dropped from the URL.
+  {
+    const p = await fresh('tables=1&t=no-such-table');
+    try { const s = await settledOverview(p); if (s.t || !matchesUrl(s)) bad.push(`?t=no-such-table: ${sayState(s)}`); else seen.push('?t=no-such-table: overview'); } finally { await p.close(); }
+  }
+  // A reload on each URL lands on it: the table, then the overview.
+  {
+    const p = await fresh(`tables=1&t=${B}`);
+    try {
+      let s = await settledOverview(p);
+      if (s.t !== B || !matchesUrl(s)) bad.push(`load on ?t=${B}: ${sayState(s)}`);
+      await p.reload({ waitUntil: 'domcontentloaded' }); await sleep(2500); s = await settledOverview(p);
+      if (s.t !== B || !matchesUrl(s)) bad.push(`reload on ?t=${B}: ${sayState(s)}`);
+      await p.keyboard.press('Escape'); s = await settledOverview(p);
+      if (s.t || !matchesUrl(s)) bad.push(`Esc on a loaded ?t=${B}: ${sayState(s)}`);
+      await p.reload({ waitUntil: 'domcontentloaded' }); await sleep(2500); s = await settledOverview(p);
+      if (s.t || !matchesUrl(s)) bad.push(`reload on the overview: ${sayState(s)}`);
+      else seen.push('reloads: table, overview');
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('tables-history', 'With ?tables=1 at 1440x790, Back and Forward walk overview, table, overview: a click opens a table (?t), Back is the overview, Forward the table again, Back the overview; after a table and two neighbours, "All tables" goes straight to the overview, and Forward from there to the table', async () => {
+  const bad = [], seen = [], A = '5-10-200bb';
+  const p = await scriptedTable(1440, 790, false, 'tables=1');
+  try {
+    await settledOverview(p);
+    const walk = [];
+    const step = async (how, fn, want) => {
+      await fn(); const s = await settledOverview(p); walk.push(`${how} → ${s.t ?? 'overview'}`);
+      if (!matchesUrl(s) || (s.t ?? null) !== want) bad.push(`${how}: ${sayState(s)}, want ${want ?? 'the overview'}`);
+    };
+    await step('click', () => clickCenter(p, `[data-overview-cell="${A}"] [data-small-table]`), A);
+    await step('Back', () => p.evaluate(() => history.back()), null);
+    await step('Forward', () => p.evaluate(() => history.forward()), A);
+    await step('Back', () => p.evaluate(() => history.back()), null);
+    await step('click', () => clickCenter(p, `[data-overview-cell="${A}"] [data-small-table]`), A);
+    // 5/10 is the first row's right cell: down to 50/100, then left to 25/50.
+    await p.keyboard.press('ArrowDown'); let s = await settledOverview(p); const k1 = s.t;
+    await p.keyboard.press('ArrowLeft'); s = await settledOverview(p); const k2 = s.t;
+    walk.push(`↓ ${k1} ← ${k2}`);
+    if (k1 === A || k2 === k1 || !k2) bad.push(`the arrows moved ${A} → ${k1} → ${k2}`);
+    await step('All tables', () => p.evaluate(() => [...document.querySelectorAll('button')].find(b => /All tables/.test(b.textContent)).click()), null);
+    await step('Forward', () => p.evaluate(() => history.forward()), A);
+    seen.push(walk.join(', '));
+  } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
 group(() => check('tables-no-switch', 'Without ?tables=1 the page at 1440x790 shows no overview, no edges and no way to all tables: the single table, as before', async () => {

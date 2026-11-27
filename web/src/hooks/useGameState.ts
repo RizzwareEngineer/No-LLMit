@@ -23,7 +23,6 @@ interface UseGameStateReturn {
   buttonDetermination: ButtonDetermination | null;
   stats: StatsResponse | null; // all-time stats, from the stream
   tables: (TableView & { key: string })[]; // every table, in the engine's configured order
-  focusKey: string | null; // the table the fields above describe
   retry: () => void;
 }
 
@@ -102,7 +101,6 @@ export function useGameState(focus: string | null = null): UseGameStateReturn {
     buttonDetermination: table.buttonDetermination,
     stats,
     tables: all,
-    focusKey: focused?.key ?? null,
     retry: () => streamRef.current?.retry(),
   };
 }
