@@ -1,12 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
+	"log"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -325,6 +328,9 @@ func TestParseTables(t *testing.T) {
 			t.Errorf("%q parsed", bad)
 		}
 	}
+	if got, err := parseTables(" 1 / 2 : 100 ,\t5/10:200 "); err != nil || !reflect.DeepEqual(got, []tableConfig{{1, 2, 100}, {5, 10, 200}}) {
+		t.Errorf("spaces: got %v, %v", got, err)
+	}
 	t.Setenv("TABLES", "")
 	if got := tablesFromEnv(); !reflect.DeepEqual(got, defaultTables) {
 		t.Errorf("unset: %v", got)
@@ -339,6 +345,38 @@ func TestParseTables(t *testing.T) {
 	}
 	if want := []string{"1-2-100bb", "5-10-200bb", "25-50-500bb", "50-100-100bb"}; !reflect.DeepEqual(keys(defaultTables), want) {
 		t.Errorf("default tables %v", keys(defaultTables))
+	}
+}
+
+// A TABLES the engine cannot play is ignored as a whole: one log line says which entry and
+// why, and the default tables play.
+func TestBadTablesFallBackToTheDefaultsWithALogLine(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+	for _, c := range []struct{ tables, why string }{
+		{"1/2:100,5/10:200,1/2:100", `"1/2:100" is listed twice`},
+		{"1/2:100, 1 / 2:100", `"1/2:100" is listed twice`},
+		{"   ", "no tables listed"},
+		{",", "an empty entry (a stray comma)"},
+		{"1/2:100,,5/10:200", "an empty entry (a stray comma)"},
+		{"1/2:100,", "an empty entry (a stray comma)"},
+		{"5/10:0", "the depth must be 1 bb or more"},
+		{"10/10:100", "below the big blind"},
+		{"10/5:100", "below the big blind"},
+		{"0/2:100", "below the big blind"},
+		{"-1/2:100", "is not SB/BB:DEPTH"},
+		{"5/10:200000000", "over 1000000000 chips"},
+		{"5/10:9999999999", "is not SB/BB:DEPTH"},
+	} {
+		logged.Reset()
+		t.Setenv("TABLES", c.tables)
+		if got := tablesFromEnv(); !reflect.DeepEqual(got, defaultTables) {
+			t.Errorf("TABLES=%q: %v, want the default tables", c.tables, keys(got))
+		}
+		if line := logged.String(); strings.Count(line, "\n") != 1 || !strings.Contains(line, "Ignoring TABLES") || !strings.Contains(line, c.why) || !strings.Contains(line, "default tables") {
+			t.Errorf("TABLES=%q logged %q, want one line saying %q", c.tables, line, c.why)
+		}
 	}
 }
 

@@ -27,7 +27,7 @@ The Go server that runs the poker tables, asks the LLM service for every move an
 See `.env.example`. The engine reads the process environment, not that file.
 
 - `PORT`: listen port. Default 8080.
-- `TABLES`: tables as `SB/BB:DEPTH`, depth in big blinds, comma-separated, for example `1/2:100,5/10:200`. Unset or invalid means the four defaults.
+- `TABLES`: tables as `SB/BB:DEPTH`, depth in big blinds, comma-separated, for example `1/2:100,5/10:200`. Spaces are ignored. The small blind must be below the big blind, the depth at least 1, and no table may be listed twice. Unset means the four defaults; an invalid value is logged and also means the four defaults.
 - `LLM_SERVICE_URL`, `LLM_SERVICE_TOKEN`: address of the LLM service and the bearer token sent to it.
 - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`: store hands, stats and the waitlist in Supabase.
 - `HAND_LOG_DIR`: where hands go without Supabase. Default `data`.

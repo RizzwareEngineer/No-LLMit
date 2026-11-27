@@ -13,6 +13,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,21 +50,41 @@ func (c tableConfig) startingStack() int { return c.Depth * c.BigBlind }
 
 var defaultTables = []tableConfig{{1, 2, 100}, {5, 10, 200}, {25, 50, 500}, {50, 100, 100}}
 
+// maxStartingStack bounds a table's depth times its big blind, so chip sums stay far from overflow.
+const maxStartingStack = 1_000_000_000
+
+var tableItem = regexp.MustCompile(`^(\d{1,9})/(\d{1,9}):(\d{1,9})$`)
+
 // parseTables reads TABLES: comma-separated SB/BB:DEPTH, depth in big blinds, e.g.
-// "1/2:100,5/10:200". Every table must differ from the others in stakes or depth.
+// "1/2:100, 5/10:200"; spaces anywhere are ignored. The small blind must be below the big,
+// the depth 1 bb or more, and every table must differ from the others in stakes or depth.
 func parseTables(v string) ([]tableConfig, error) {
+	if strings.TrimSpace(v) == "" {
+		return nil, fmt.Errorf("no tables listed")
+	}
 	var out []tableConfig
 	seen := map[string]bool{}
 	for _, item := range strings.Split(v, ",") {
-		var c tableConfig
-		var rest string
-		if n, _ := fmt.Sscanf(strings.TrimSpace(item), "%d/%d:%d%s", &c.SmallBlind, &c.BigBlind, &c.Depth, &rest); n != 3 {
+		item = strings.Join(strings.Fields(item), "")
+		if item == "" {
+			return nil, fmt.Errorf("an empty entry (a stray comma)")
+		}
+		m := tableItem.FindStringSubmatch(item)
+		if m == nil {
 			return nil, fmt.Errorf("%q is not SB/BB:DEPTH", item)
 		}
-		if c.SmallBlind < 1 || c.BigBlind < c.SmallBlind || c.Depth < 1 {
-			return nil, fmt.Errorf("%q: blinds must be 1 or more, the big at least the small, and the depth 1 bb or more", item)
-		}
-		if seen[c.key()] {
+		c := tableConfig{}
+		c.SmallBlind, _ = strconv.Atoi(m[1]) // at most 9 digits: always an int
+		c.BigBlind, _ = strconv.Atoi(m[2])
+		c.Depth, _ = strconv.Atoi(m[3])
+		switch {
+		case c.SmallBlind < 1 || c.BigBlind <= c.SmallBlind:
+			return nil, fmt.Errorf("%q: the small blind must be 1 or more and below the big blind", item)
+		case c.Depth < 1:
+			return nil, fmt.Errorf("%q: the depth must be 1 bb or more", item)
+		case c.Depth > maxStartingStack/c.BigBlind:
+			return nil, fmt.Errorf("%q: the starting stack is over %d chips", item, maxStartingStack)
+		case seen[c.key()]:
 			return nil, fmt.Errorf("%q is listed twice", item)
 		}
 		seen[c.key()] = true
