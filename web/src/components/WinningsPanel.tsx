@@ -27,7 +27,7 @@ export default function WinningsPanel({ players, box: boxName = 'pnl', dense = f
       className={`flex flex-col relative w-full bg-white flex-1 rounded overflow-hidden ${players.length ? '' : '[&>*]:invisible'}`}
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', ...size }}
     >
-      <div className={`flex items-start justify-between ${dense ? 'px-3 py-2' : 'p-3'} border-b border-notion`}>
+      <div className={`flex items-start justify-between ${dense ? 'px-3 py-1.5' : 'p-3'} border-b border-notion`}>
         <div className="flex flex-col">
           {/* Phones: a Stats window's title, as Trends, Profiles and Matchups (the desktop sidebar keeps its small label). */}
           <h2 className="text-[13px] leading-4 font-medium uppercase tracking-wider max-md:text-[20px] max-md:leading-8 max-md:font-bold max-md:normal-case max-md:tracking-normal" style={{ color: 'rgb(55, 53, 47)' }}>Profits & Losses</h2>

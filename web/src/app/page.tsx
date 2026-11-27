@@ -477,7 +477,7 @@ export default function Home() {
       const side = stage.querySelector('#phone-stats')!.getBoundingClientRect(), head = main.previousElementSibling!.getBoundingClientRect(), b = btn.getBoundingClientRect();
       const x = (r: number) => r - s.left, y = (r: number) => r - s.top;
       // The overview: the first screen under the header, down to the Stats button (the single-table page's, where it always is),
-      // 48px in from the window's sides, so it never runs wall to wall.
+      // 40px in from the window's sides, so it never runs wall to wall.
       const foot = Math.min(s.bottom, innerHeight);
       // Each neighbour's room: the free space beside the table and the sidebar, between the header and the table, under
       // the reasoning panel. Wide or tall enough for its label: the neighbour itself, faded; else a slim tab at that edge
@@ -495,7 +495,7 @@ export default function Home() {
           : { box: { left: dg >= TAB + 4 ? cx : x(t.left) + corner / 2, top: dg >= TAB + 4 ? y(st.bottom) + (dg - TAB) / 2 : y(t.bottom) - 8 - TAB, height: TAB, transform: 'translateX(-50%)' }, tab: true },
       };
       const next = {
-        overview: { left: x(48), top: y(head.bottom) + 6, width: document.documentElement.clientWidth - 96, height: Math.min(foot, b.top) - head.bottom - 12 },
+        overview: { left: x(40), top: y(head.bottom) + 6, width: document.documentElement.clientWidth - 80, height: Math.min(foot, b.top) - head.bottom - 12 },
         edges,
         back: { left: x(t.left), top: y(main.parentElement!.firstElementChild!.getBoundingClientRect().top) },
         w: t.width,
@@ -731,7 +731,7 @@ export default function Home() {
 
       {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
           it when a window crosses into the desktop layout. */}
-      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown && perTable} perTable={perTable} fold={overviewOn} outDelay={anim?.kind === 'out' ? 140 : 0} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown} perTable={perTable} fold={overviewOn} outDelay={anim?.kind === 'out' ? 140 : 0} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
         watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
 
       <div className={hide}><SessionProgress table={usageError ? undefined : usage?.table} /></div>

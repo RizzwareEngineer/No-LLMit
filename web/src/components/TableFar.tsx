@@ -16,7 +16,7 @@ import { BLUE } from '@/lib/stats';
 
 const INK = 'rgb(55, 53, 47)', WIN = 'rgb(15, 123, 108)';
 // In screen px: the target and the floor of each part.
-const RANK = 16, RANK_MIN = 13, LOGO = 30, LOGO_MIN = 18, DISC = 18, POT = 18, POT_LABEL = 11, BOARD_RANK = 18;
+const RANK = 16, RANK_MIN = 13, LOGO = 30, LOGO_MIN = 18, DISC = 18, POT = 18, POT_LABEL = 11, BOARD_RANK = 20;
 // The desktop seat cell and the felt (PokerTable's 200x128 cells; the felt three cells by two), layout px.
 const SEAT_W = 200, SEAT_H = 128, FELT_W = 600, FELT_H = 256, PAD = 6;
 
