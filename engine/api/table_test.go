@@ -393,7 +393,7 @@ func keys(cs []tableConfig) []string {
 // testTables is one table per cfg, in order, sharing one hub and one floor, each on its own
 // fake clock and seated in turn from A, B and C.
 func testTables(cfgs ...tableConfig) ([]*Table, *hub) {
-	h, f := newHub(), &floor{dailyCallCap: 1000}
+	h, f := newHubFor(len(cfgs)), &floor{dailyCallCap: 1000} // as Server.Start sizes it
 	f.setPace(1e-6)
 	var out []*Table
 	for i, cfg := range cfgs {
@@ -747,7 +747,7 @@ func TestSnapshotAfterFallingBehindHasEachTablesLatestStats(t *testing.T) {
 			h.publish(key, nil, b, ServerMessage{Type: MsgTableStats, Payload: json.RawMessage(b)})
 		}
 	}
-	for range ringSize { // more than the ring holds since last
+	for range len(h.ring) { // more than the ring holds since last
 		tables[3].mu.Lock()
 		tables[3].publish(ServerMessage{Type: MsgGameState})
 		tables[3].mu.Unlock()
@@ -770,5 +770,60 @@ func TestSnapshotAfterFallingBehindHasEachTablesLatestStats(t *testing.T) {
 		if s := snap.Tables["50-100-100bb"]; s.Stats != nil || s.Key != "50-100-100bb" {
 			t.Errorf("50/100, no stats yet: %+v", s)
 		}
+	}
+}
+
+// With every table publishing at once (four tables at the fixture's pace interleave their frames), a stream away for as
+// long as one table's ringSize frames take is still sent the frames it missed, all of them and in seq order, not a
+// snapshot: the ring keeps ringSize frames per table, so four tables do not cut the window to a quarter. A stream
+// further behind than the whole ring still gets a snapshot.
+func TestStreamAwayForOneTablesRingResumesByReplayWithEveryTablePublishing(t *testing.T) {
+	tables, h := testTables(defaultTables...)
+	for _, tbl := range tables {
+		tbl.startGame()
+	}
+	last := h.since(0, true).seq
+	// One table's ringSize frames, with every other table publishing at the same rate in between (round robin, as the
+	// four tables' frames arrive on the fixture's stream).
+	for range ringSize {
+		for _, tbl := range tables {
+			tbl.mu.Lock()
+			tbl.publish(ServerMessage{Type: MsgGameState})
+			tbl.mu.Unlock()
+		}
+	}
+	v := h.since(last, false)
+	if v.snap {
+		t.Fatalf("%d frames behind (%d tables x %d): a snapshot, want the frames replayed", v.seq-last, len(tables), ringSize)
+	}
+	if want := int(v.seq - last); len(v.frames) != want || want != len(tables)*ringSize {
+		t.Fatalf("replayed %d frames, want %d (%d tables x %d)", len(v.frames), want, len(tables), ringSize)
+	}
+	next, perTable := last+1, map[string]int{}
+	for _, f := range v.frames {
+		var m struct {
+			Seq   uint64 `json:"seq"`
+			Table string `json:"table"`
+		}
+		if err := json.Unmarshal(bytes.TrimSuffix(bytes.TrimPrefix(f, []byte("data: ")), []byte("\n\n")), &m); err != nil {
+			t.Fatal(err)
+		}
+		if m.Seq != next {
+			t.Fatalf("frame seq %d, want %d: a frame lost or out of order", m.Seq, next)
+		}
+		next++
+		perTable[m.Table]++
+	}
+	for _, tbl := range tables {
+		if n := perTable[tbl.cfg.key()]; n != ringSize {
+			t.Errorf("%s: %d frames replayed, want %d", tbl.cfg.key(), n, ringSize)
+		}
+	}
+	// One frame more than the whole ring: a snapshot, as before.
+	tables[0].mu.Lock()
+	tables[0].publish(ServerMessage{Type: MsgGameState})
+	tables[0].mu.Unlock()
+	if v := h.since(last, false); !v.snap {
+		t.Fatalf("%d frames behind a ring of %d: no snapshot", v.seq-last, len(h.ring))
 	}
 }

@@ -25,11 +25,12 @@ type Server struct {
 }
 
 func (s *Server) Start(port int) error {
-	h := newHub()
+	cfgs := tablesFromEnv()
+	h := newHubFor(len(cfgs))
 	stats := newStatsCache()
 	stats.hub = h
 	f, saver := newFloor(), newSaver()
-	for i, cfg := range tablesFromEnv() {
+	for i, cfg := range cfgs {
 		s.tables = append(s.tables, NewTable(h, f, cfg, i, saver, stats.Add))
 		log.Printf("Table %s: blinds %d/%d, starting stack %d", cfg.key(), cfg.SmallBlind, cfg.BigBlind, cfg.startingStack())
 	}
