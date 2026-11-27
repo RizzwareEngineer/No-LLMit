@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { CSSProperties } from "react";
 import { useReducedMotion } from "motion/react";
 import Player, { LOGO_RIM } from "@/components/Player";
 import TableFelt, { BetStack, FeltBet, GRID } from "@/components/TableFelt";
@@ -43,12 +44,17 @@ interface PokerTableProps {
   stats?: Record<string, ModelStats>; // by model name, for the phone seat's stats popup (SeatStats)
   display?: DisplayState | null; // the turn on screen: the phone shows each action over its seat for a moment
   clock?: Clock | null; // the shot clock while its turn is on screen (null: no clock): the phone's ring round the seat on the clock
-  // Level of detail (the tables overview's semantic zoom): the table seen from far away, its seats and felt drawn for a
-  // scale of 1/k (TableFar); `morph`: the full table with the far one over it, for the zoom between them (page.tsx fades
-  // one into the other through --lod-t, globals.css).
+  // Seen from far away (the tables overview): the same table, drawn at a scale of 1/k, with the text too small to read
+  // there faded out and its logos, hole cards and board grown in place (LOD, globals.css). `morph`: the zoom between far
+  // and near, which page.tsx animates (--lod-t for the sizes, --lod-o for the text).
   lod?: { k: number; morph?: boolean } | null;
   still?: boolean; // a small copy (the tables overview, the stage's edges): no flights, no deal and no sounds, which find the page's one felt
 }
+
+// The table seen from far away (lod): one growth factor each for every seat's logo (20px, from its top-left corner),
+// every seat's two hole cards (40x56 side by side, from their bottom-right corner) and the board (from its centre), in the
+// room the faded text leaves; the pot's amount (20px) stays where it reads at minText or more on screen.
+export const LOD = { logo: 2.8, hole: 1.3, board: 1.4, pot: 20, minText: 11 } as const;
 
 // The phone's action bubble: "Raise 79", "Call 10", "Fold".
 const SAY: Record<string, string> = { FOLD: 'Fold', CHECK: 'Check', CALL: 'Call', RAISE: 'Raise', BET: 'Bet', ALL_IN: 'All-in' };
@@ -146,8 +152,6 @@ export default function PokerTable({
       ring={spot && idx === currentPlayerIdx ? clock : undefined}
       onOpen={spot ? () => openStats(idx) : undefined}
       bubble={spot && turn.bubble?.seat === idx ? turn.bubble.text : undefined}
-      far={spot ? undefined : lod?.k}
-      morph={!!lod?.morph}
     />
   );
 
@@ -184,8 +188,6 @@ export default function PokerTable({
       deck={deck}
       blank={blank}
       fillIn={!switched}
-      far={compact || tallFelt ? undefined : lod?.k}
-      morph={!!lod?.morph}
     />
   );
 
@@ -200,8 +202,9 @@ export default function PokerTable({
       <div
         data-desk-table
         data-lod={lod ? (lod.morph ? 'morph' : 'far') : undefined}
+        data-lod-pot={lod ? (LOD.pot / lod.k >= LOD.minText ? 'show' : 'hide') : undefined}
         className={`${cls} relative bg-white shrink-0 self-stretch rounded`}
-        style={{ width: tableWidth, ...cardStyle }}
+        style={{ width: tableWidth, ...cardStyle, ...(lod ? { '--lod-g': LOD.logo, '--lod-f': LOD.hole, '--lod-b': LOD.board } as CSSProperties : null) }}
       >
         <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
           <tbody>

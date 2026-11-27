@@ -40,7 +40,7 @@ import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, page
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
-import { CardLookContext, setPageCardLook, useCardLookParam, OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, usePnlRow, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
+import { CardLookContext, setPageCardLook, useCardLookParam, OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
 import { type Anim, nextAnim, stageKeyOf, targetOf } from "@/lib/overviewMachine";
 import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor, tableLabel, type EdgeRoom } from "@/components/TablesOverview";
 import { NavPill, pillWidth, useFadeIn } from "@/components/TableNav";
@@ -367,7 +367,7 @@ export default function Home() {
   // and Back, Esc or "All tables" zooms it back into its cell. The stage stays laid out under the overview (hidden), so the
   // table lands exactly where it always is. The URL decides where the page goes (lib/overviewMachine): an input changes it
   // (a click or an edge pushes ?t, Esc and "All tables" go back), and the machine animates toward it one step at a time.
-  const edges = useEdges(), pnl = usePnlRow() ? 'row' as const : 'panel' as const;
+  const edges = useEdges();
   // ?cards=bold|a|b|c (a draft): the bolder cards on this page's own table (not the overview's small ones).
   const cardLook = useCardLookParam();
   useEffect(() => setPageCardLook(cardLook), [cardLook]);
@@ -383,12 +383,12 @@ export default function Home() {
   const animId = useRef(0); // the running animation's id: an end of any other is stale and ignored
   // Where the overview, the edges and the way back go, in the screen's px (measured below).
   const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; w: number; nav: NavRoom } | null>(null);
-  const grid = room ? gridFor(tables.length, room.overview.width, room.overview.height, pnl) : null, cols = grid?.cols ?? 1;
+  const grid = room ? gridFor(tables.length, room.overview.width, room.overview.height) : null, cols = grid?.cols ?? 1;
   // The header's per-table items (hand, stakes, clock) open as a table zooms in and fold away as it zooms out (StatusRow).
   const perTable = !overviewOn || !(anim ? anim.kind === 'out' : (shown === undefined ? target === null : shown === null));
   // In the zoom the stage's table is the overview's small one growing: it starts seen from far away, as the cell drew it,
-  // and its detail fades in over the zoom's last third (PokerTable's lod, the --lod-t animation below); zooming out, back.
-  const zoomLod = overviewOn && grid?.tw && (anim?.kind === 'in' || anim?.kind === 'out') ? { k: 1000 / grid.tw, morph: true } : null;
+  // and becomes the page's table (PokerTable's lod, the --lod-t and --lod-o animations below); zooming out, back.
+  const zoomLod = overviewOn && grid?.tw && grid.tw < 1000 && (anim?.kind === 'in' || anim?.kind === 'out') ? { k: 1000 / grid.tw, morph: true } : null;
   // A ?t no table has (a stale link, or a table gone from the stream) is dropped, so the page is on the overview.
   useEffect(() => { if (overviewOn && focusParam && keys.length && !keys.includes(focusParam)) clearFocus(); }, [overviewOn, focusParam, keys]);
   // Off (a resize to a phone): forget the machine, and any animation still running ends unheard.
@@ -426,8 +426,10 @@ export default function Home() {
       table.style.transformOrigin = '0 0';
       const grow = table.animate([{ transform: `translate(${(cell.left - b.left) / z()}px, ${(cell.top - b.top) / z()}px) scale(${cell.width / b.width})` }, { transform: 'none' }],
         { duration: ZOOM_MS, easing: EASE });
-      // The detail the overview drops fades in over the last third; the far layer fades out (globals.css, --lod-t).
-      table.animate([{ '--lod-t': 0 }, { '--lod-t': 0, offset: 2 / 3 }, { '--lod-t': 1 }], { duration: ZOOM_MS, easing: 'linear', fill: 'both' });
+      // One table growing: its logos and cards ease from their far size to their own with the zoom's curve (--lod-t), and
+      // the text the overview fades out fades in over the last third (--lod-o; globals.css).
+      table.animate([{ '--lod-t': 0 }, { '--lod-t': 1 }], { duration: ZOOM_MS, easing: EASE, fill: 'both' });
+      table.animate([{ '--lod-o': 0 }, { '--lod-o': 0, offset: 2 / 3 }, { '--lod-o': 1 }], { duration: ZOOM_MS, easing: 'linear', fill: 'both' });
       panelsIn(panels, ZOOM_MS);
       overlay.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ZOOM_MS, easing: EASE, fill: 'forwards' });
       grow.finished.then(landed, () => {});
@@ -446,7 +448,8 @@ export default function Home() {
       const shrink = table.animate([{ transform: 'none' }, { transform: `translate(${(cell.left - b.left) / z()}px, ${(cell.top - b.top) / z()}px) scale(${cell.width / b.width})` }],
         { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'forwards' });
       // The reverse: the detail fades out over the first third, so the table that lands is the overview's far one.
-      table.animate([{ '--lod-t': 1 }, { '--lod-t': 0, offset: 1 / 3 }, { '--lod-t': 0 }], { duration: ZOOM_MS, delay: 140, easing: 'linear', fill: 'both' });
+      table.animate([{ '--lod-t': 1 }, { '--lod-t': 0 }], { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'both' });
+      table.animate([{ '--lod-o': 1 }, { '--lod-o': 0, offset: 1 / 3 }, { '--lod-o': 0 }], { duration: ZOOM_MS, delay: 140, easing: 'linear', fill: 'both' });
       overlay.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'backwards' });
       shrink.finished.then(done, () => {});
     } else if (kind === 'slideOut') {
@@ -881,7 +884,7 @@ export default function Home() {
             Between the stage and the Stats button: fitStage measures the screen from its first child to its last. */}
         {/* Mounted for as long as the switch is on (hidden while a table is in focus), so zooming out draws no new tables. */}
         {overviewOn && room && <div ref={overlay} className="absolute z-20" style={{ ...room.overview, ...(showOverview ? null : { visibility: 'hidden', pointerEvents: 'none' }) }} aria-hidden={!showOverview || undefined}>
-          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} pnl={pnl} onOpen={openTable} />
+          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} onOpen={openTable} />
         </div>}
         {overviewOn && room && <AboutPill top={room.back.top} />}
         {navShown && room && <>

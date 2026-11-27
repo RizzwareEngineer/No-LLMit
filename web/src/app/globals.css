@@ -400,13 +400,18 @@ html:has([data-screen]) {
 html.phone-a #phone-stats { display: none; }
 /* The overview landing's first paint (lib/tableSwitches' OVERVIEW_FIRST): the stage it is drawn over stays hidden. */
 html[data-overview] .stage-zoom { visibility: hidden; }
-/* The tables overview's semantic zoom (PokerTable's lod, TableFar): --lod-t is 0 for the table seen from far away, 1 for
-   the full table. In the zoom between them (page.tsx animates it on the table) the full seat's and felt's content fades
-   in over the last third as the far layer fades out; a table drawn far away has only the far layer. */
+/* The table seen from far away (the tables overview; PokerTable's lod): the same table drawn small, the text too small
+   to read there faded out (--lod-o 0), and each seat's logo, its hole cards and the board grown in place by one factor
+   each (--lod-g, --lod-f, --lod-b, set on the table) into the room the text leaves (--lod-t 0). The full table has both
+   at 1; the zoom between them (page.tsx) animates them on the table. Nothing else changes. */
 @property --lod-t { syntax: '<number>'; inherits: true; initial-value: 1; }
-[data-lod="far"] { --lod-t: 0; }
-[data-lod] [data-desk-seat] > :not([data-far]), [data-lod] [data-felt] > :not([data-far]) { opacity: calc(var(--lod-t) * var(--seat-o, 1)); }
-[data-lod] [data-far] { opacity: calc(1 - var(--lod-t)); }
+@property --lod-o { syntax: '<number>'; inherits: true; initial-value: 1; }
+[data-lod="far"] { --lod-t: 0; --lod-o: 0; }
+[data-lod] [data-lod-text], [data-lod][data-lod-pot="hide"] [data-lod-pot] { opacity: var(--lod-o); }
+[data-lod] [data-lod-btn] { color: rgb(255 255 255 / var(--lod-o)); }
+[data-lod] [data-lod-logo] { transform-origin: 0 0; transform: scale(calc(1 + (var(--lod-g) - 1) * (1 - var(--lod-t)))); }
+[data-lod] [data-desk-seat] [data-hole] { transform-origin: 100% 100%; transform: scale(calc(1 + (var(--lod-f) - 1) * (1 - var(--lod-t)))); }
+[data-lod] [data-felt-cards] { transform: scale(calc(1 + (var(--lod-b) - 1) * (1 - var(--lod-t)))); }
 /* The header's per-table items (page.tsx's StatusRow) on the overview's first paint: folded away, so Live, the units and
    Sound stand together in the middle before the page runs. */
 html[data-overview] [data-status-hand] { display: none; }

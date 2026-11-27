@@ -50,9 +50,6 @@ export const OVERVIEW_FIRST = `(${tablesOverview})(location.search)&&!new URLSea
 export type EdgesMode = 'buttons' | 'live' | 'outline';
 const edgesMode = (): EdgesMode => { const e = query('edges'); return e === 'live' || e === 'outline' ? e : 'buttons'; };
 export const useEdges = () => useSyncExternalStore(noSub, edgesMode, () => 'buttons' as const);
-// ?pnl=row: each table's profit and loss in the tables overview as one slim row of logos and numbers under it; without
-// it, the single-table page's Profits & Losses panel beside it.
-export const usePnlRow = () => useSyncExternalStore(noSub, () => query('pnl') === 'row', () => false);
 // ?t=KEY: the table in focus (the stream's key, e.g. 5-10-200bb), so Back, a reload or a shared link finds it.
 const onUrl = (cb: () => void) => { addEventListener('popstate', cb); addEventListener('focuschange', cb); return () => { removeEventListener('popstate', cb); removeEventListener('focuschange', cb); }; };
 export const useFocusParam = () => useSyncExternalStore(onUrl, () => query('t'), () => null);

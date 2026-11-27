@@ -1,29 +1,24 @@
 'use client';
 
-import { memo, useEffect, useRef } from 'react';
+import { memo } from 'react';
 import PokerTable from '@/components/PokerTable';
 import Fit from '@/components/Fit';
-import LLMLogo from '@/components/LLMLogo';
-import WinningsPanel from '@/components/WinningsPanel';
-import { TableBigBlind, formatAmount, useBigBlind } from '@/lib/amounts';
+import { TableBigBlind } from '@/lib/amounts';
 import { MUTED, TEXT } from '@/lib/stats';
 import type { TableView } from '@/lib/stream';
 
-// The tables overview (lib/tableSwitches' ?tables=1): every table at once, each a small live copy of the desktop table
-// seen from far away (semantic zoom: only what reads at that size), with its profit and loss. A click zooms into one,
-// growing the detail back in (page.tsx).
+// The tables overview (lib/tableSwitches' ?tables=1): every table at once, each the desktop table itself drawn small
+// and seen from far away (PokerTable's lod: the text too small to read faded out, its logos and cards grown in place).
+// A click zooms into one, the same table growing into the page's (page.tsx); its profit and loss shows there.
 
 type KeyedTable = TableView & { key: string };
 
-// The desktop table's box in layout px: 1000 across, four rows of 128 and its frame (PokerTable). In the overview it is
-// drawn small and seen from far away (PokerTable's lod, TableFar): each seat its logo and cards, the felt its pot and board.
+// The desktop table's box in layout px: 1000 across, four rows of 128 and its frame (PokerTable).
 const TABLE_W = 1000, TABLE_H = 514;
-// The label line over each table; the Profits & Losses panel beside it (the single-table page's, its rows closer), or
-// with ?pnl=row the slim row under it; the gaps between tables across and down.
-// PANEL_FULL_H, PANEL_DENSE_H: the panel with nine rows at the single-table page's spacing, and 2px apart.
-const LABEL_H = 24, PANEL_W = 208, PANEL_FULL_H = 360, PANEL_DENSE_H = 252, TIGHT_HEAD = 25, TIGHT_ROW = 20.5, PANEL_GAP = 12, ROW_H = 26, ROW_GAP = 6, ROW_MIN_W = 9 * 62 + 16, GX = 32, GY = 18;
+// The label line over each table; the gaps between tables, across and down the same.
+const LABEL_H = 24, GX = 20, GY = 20;
 const CARD = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
-const UP = 'rgb(15, 123, 108)', DOWN = 'rgb(200, 50, 50)';
+const DOWN = 'rgb(200, 50, 50)';
 // The stats tile-to-card glide's curve (Section's glideEase), shorter: a table is one picture, not a card's content.
 export const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 export const ZOOM_MS = 360;
@@ -35,25 +30,19 @@ export const tableLabel = (t: TableView) => {
   return `${smallBlind}/${bigBlind}${t.startingStack && bigBlind ? ` · ${t.startingStack / bigBlind} bb` : ''}`;
 };
 
-export type PnlVariant = 'panel' | 'row';
 // The overview's grid for `n` tables in a `w` x `h` box: the columns and rows, the small table's scale `s` and its
-// drawn width, and each cell's size (the table with its label and its profit and loss). The largest tables win. The
-// stage's edges use the same columns for their neighbours above and below.
-export function gridFor(n: number, w: number, h: number, pnl: PnlVariant = 'panel') {
+// drawn width, and each cell's size (the table with its label). The largest tables win; about as large, the one with
+// more rows. The stage's edges use the same columns for their neighbours above and below.
+export function gridFor(n: number, w: number, h: number) {
   let best = { cols: 1, rows: Math.max(1, n), s: 0, tw: 0, th: 0, cellW: 0, cellH: 0 };
   for (let cols = 1; cols <= Math.max(1, n); cols++) {
     const rows = Math.ceil(n / cols), across = (w - (cols - 1) * GX) / cols, down = (h - (rows - 1) * GY) / rows;
-    if (pnl === 'row' && across < ROW_MIN_W) continue;
     // One table may be drawn over its own size (seen from far away it is a picture, and it fills the screen); the zoom
     // in then ends a little smaller, on the single-table page's table.
-    const tw = Math.floor(Math.min(TABLE_W * 1.6, pnl === 'panel' ? across - PANEL_GAP - PANEL_W : across,
-      ((pnl === 'panel' ? down - LABEL_H : down - LABEL_H - ROW_GAP - ROW_H) / TABLE_H) * TABLE_W));
-    // The larger tables win (by more than 2%); about as large, the one with more rows (it fills more of the box's height).
+    const tw = Math.floor(Math.min(TABLE_W * 1.6, across, ((down - LABEL_H) / TABLE_H) * TABLE_W));
     if (tw < best.tw * 1.02 && !(tw > best.tw * 0.98 && rows > best.rows)) continue;
     const th = Math.floor(TABLE_H * tw / TABLE_W);
-    best = { cols, rows, s: tw / TABLE_W, tw, th,
-      cellW: pnl === 'panel' ? tw + PANEL_GAP + PANEL_W : Math.max(tw, ROW_MIN_W),
-      cellH: LABEL_H + th + (pnl === 'row' ? ROW_GAP + ROW_H : 0) };
+    best = { cols, rows, s: tw / TABLE_W, tw, th, cellW: tw, cellH: LABEL_H + th };
   }
   return best;
 }
@@ -76,106 +65,54 @@ function smallTable(t: TableView) {
 }
 
 // The desktop table drawn `width` px across as one picture (Fit's transform), in its own big blind. Not interactive: the
-// cell or edge round it is the control. `far`: seen from far away (the overview's level of detail): its seats keep their
-// names for screen readers; without it (the stage's edges) it is a picture only.
+// cell or edge round it is the control. `far`: seen from far away (the overview); its seats keep their names for screen
+// readers. Without it (the stage's edges) it is a picture only, drawn as the page draws it.
 // Memoized: every stream message renders the page, and a table unchanged by it keeps its object (useGameState).
 const SmallTable = memo(function SmallTable({ t, width, far = false }: { t: TableView; width: number; far?: boolean }) {
   return (
     <TableBigBlind.Provider value={stakesOf(t).bigBlind || null}>
       <div data-small-table inert={!far || undefined} aria-hidden={!far || undefined} className={far ? 'pointer-events-none' : undefined} style={{ width }}>
-        <Fit w={TABLE_W}><PokerTable {...smallTable(t)} still lod={far ? { k: TABLE_W / width } : null} /></Fit>
+        <Fit w={TABLE_W}><PokerTable {...smallTable(t)} still lod={far && width < TABLE_W ? { k: TABLE_W / width } : null} /></Fit>
       </div>
     </TableBigBlind.Provider>
   );
 });
 
-const colorOf = (v: number) => (v > 0 ? UP : v < 0 ? DOWN : MUTED);
-// The row's numbers: in chips from 1,000 in thousands (one decimal), so nine fit under a small table on one line.
-const short = (v: number, bb: number | null) => {
-  const a = Math.abs(v), sign = v > 0 ? '+' : v < 0 ? '−' : '';
-  return sign + (!bb && a >= 1000 ? `${(a / 1000).toLocaleString('en-US', { maximumFractionDigits: a >= 100000 ? 0 : 1 })}k` : formatAmount(a, bb, false));
-};
-
-// A number that flashes its colour when it changes, in place: its box is the text's, so nothing round it moves.
-function Amount({ value, bb }: { value: number; bb: number | null }) {
-  const ref = useRef<HTMLSpanElement>(null), was = useRef(value);
-  useEffect(() => {
-    if (was.current === value) return;
-    const up = value > was.current;
-    was.current = value;
-    ref.current?.animate([{ backgroundColor: up ? 'rgba(15, 123, 108, 0.18)' : 'rgba(200, 50, 50, 0.16)' }, { backgroundColor: 'rgba(0, 0, 0, 0)' }], { duration: 900, easing: 'ease-out' });
-  }, [value]);
-  return <span ref={ref} className="rounded-sm text-[12px] leading-4 font-bold tabular-nums whitespace-nowrap" style={{ color: colorOf(value) }}>{short(value, bb)}</span>;
-}
-
-// ?pnl=row: the table's nine models in rank order, each its logo and its number, on one slim line under the table.
-function PnlRow({ t, width }: { t: KeyedTable; width: number }) {
-  const shown = useBigBlind(), bb = shown ? stakesOf(t).bigBlind || null : null;
-  const ranked = [...(t.gameState?.players ?? [])].sort((a, b) => (b.winnings || 0) - (a.winnings || 0));
+// One table: its label line and the small table, as one link into the table.
+function Cell({ t, tw, th, onOpen }: { t: KeyedTable; tw: number; th: number; onOpen: (key: string) => void }) {
+  const label = tableLabel(t);
   return (
-    <ol data-pnl-row aria-label={`Profits & Losses, ${tableLabel(t)}${bb ? ', in big blinds' : ''}`} className="flex items-center justify-between gap-1.5 bg-white rounded px-2"
-      style={{ ...CARD, width, height: ROW_H, marginTop: ROW_GAP }}>
-      {ranked.map(p => (
-        <li key={p.id} className="flex items-center gap-1" aria-label={`${p.name} ${short(p.winnings || 0, bb)}`}>
-          <LLMLogo model={p.name} size={16} />
-          <Amount value={p.winnings || 0} bb={bb} />
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-// One table: its label line and the small table, as one link into the table, and its profit and loss beside it (the
-// single-table page's panel, at its own text size) or, ?pnl=row, under it.
-function Cell({ t, tw, th, cellW, pnl, onOpen }: { t: KeyedTable; tw: number; th: number; cellW: number; pnl: PnlVariant; onOpen: (key: string) => void }) {
-  const { bigBlind } = stakesOf(t), label = tableLabel(t);
-  return (
-    <div data-overview-item className={`flex ${pnl === 'row' ? 'flex-col items-center' : 'flex-row items-start'}`} style={{ width: cellW, gap: pnl === 'row' ? 0 : PANEL_GAP }}>
-      <a
-        href={`?tables=1&t=${t.key}`}
-        data-overview-cell={t.key}
-        aria-label={`Table ${label.replace(' · ', ', ')}`}
-        onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); onOpen(t.key); } }}
-        className="group block rounded outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[rgb(31,111,196)]"
-        style={{ width: tw }}
-      >
-        <div data-cell-label className="flex items-center gap-2 whitespace-nowrap overflow-hidden" style={{ height: LABEL_H - 4, marginBottom: 4 }}>
-          <span className="text-[14px] leading-5 font-bold tabular-nums" style={{ color: TEXT }}>{label}</span>
-          {t.notice && <span className="text-[13px] leading-5 font-medium" style={{ color: DOWN }}>{t.notice.kind === 'closed' ? 'Closed' : 'Paused'}</span>}
-        </div>
-        {/* Hover and focus: it lifts a little with a blue ring, the cursor a hand: it opens. */}
-        <div data-cell-table className="relative rounded transition-[transform,box-shadow] duration-150 ease-out group-hover:-translate-y-0.5 group-hover:shadow-[0_0_0_2px_rgba(31,111,196,0.6),0_8px_20px_rgba(15,15,15,0.14)] group-focus-visible:-translate-y-0.5 group-focus-visible:shadow-[0_0_0_2px_rgba(31,111,196,0.6),0_8px_20px_rgba(15,15,15,0.14)]" style={{ width: tw, height: th }}>
-          <SmallTable t={t} width={tw} far />
-        </div>
-      </a>
-      {pnl === 'row' ? <PnlRow t={t} width={cellW} /> : (
-        // As tall as its rows (it hugs them), never taller than the label and the table; its rows closer together where
-        // the single-table page's spacing would not fit beside the table.
-        // Where even touching rows do not all fit, it ends on a whole row (the rest scroll), never on half of one.
-        <div data-overview-pnl className="flex flex-col shrink-0" style={{ width: PANEL_W, maxHeight: LABEL_H + th >= PANEL_DENSE_H ? LABEL_H + th : TIGHT_HEAD + Math.max(1, Math.floor((LABEL_H + th - TIGHT_HEAD + 1) / TIGHT_ROW)) * TIGHT_ROW - 1 }}>
-          <TableBigBlind.Provider value={bigBlind || null}>
-            <WinningsPanel players={t.gameState?.players ?? []} box={`pnl:${t.key}`} dense={LABEL_H + th >= PANEL_FULL_H ? false : LABEL_H + th >= PANEL_DENSE_H ? true : 'tight'} />
-          </TableBigBlind.Provider>
-        </div>
-      )}
-    </div>
+    <a
+      href={`?tables=1&t=${t.key}`}
+      data-overview-item
+      data-overview-cell={t.key}
+      aria-label={`Table ${label.replace(' · ', ', ')}`}
+      onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); onOpen(t.key); } }}
+      className="group block rounded outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[rgb(31,111,196)]"
+      style={{ width: tw }}
+    >
+      <div data-cell-label className="flex items-center gap-2 whitespace-nowrap overflow-hidden" style={{ height: LABEL_H - 4, marginBottom: 4 }}>
+        <span className="text-[14px] leading-5 font-bold tabular-nums" style={{ color: TEXT }}>{label}</span>
+        {t.notice && <span className="text-[13px] leading-5 font-medium" style={{ color: DOWN }}>{t.notice.kind === 'closed' ? 'Closed' : 'Paused'}</span>}
+      </div>
+      {/* Hover and focus: it lifts a little with a blue ring, the cursor a hand: it opens. */}
+      <div data-cell-table className="relative rounded transition-[transform,box-shadow] duration-150 ease-out group-hover:-translate-y-0.5 group-hover:shadow-[0_0_0_2px_rgba(31,111,196,0.6),0_8px_20px_rgba(15,15,15,0.14)] group-focus-visible:-translate-y-0.5 group-focus-visible:shadow-[0_0_0_2px_rgba(31,111,196,0.6),0_8px_20px_rgba(15,15,15,0.14)]" style={{ width: tw, height: th }}>
+        <SmallTable t={t} width={tw} far />
+      </div>
+    </a>
   );
 }
 
 // The grid, centred in its box (`w` x `h`: the first screen between the header and the Stats button, page.tsx), the last
-// row's tables centred under the others. Laid out from the box's size as given, in the render that mounts it: the zoom
-// out measures a cell straight away.
-export default function TablesOverview({ tables, w, h, pnl, onOpen }: { tables: KeyedTable[]; w: number; h: number; pnl: PnlVariant; onOpen: (key: string) => void }) {
-  const { cols, rows, tw, th, cellW, cellH } = gridFor(tables.length, w, h, pnl);
-  // The table size is set by the box's width: the height left over goes between the rows (up to 6 gaps' worth, leaving
-  // bands of 36px), not into bands over and under the grid. Rows stay closer to each other than a table's own height, so
-  // each table, its label and its panel still read as one.
-  const rowGap = rows > 1 ? Math.max(GY, Math.min(GY * 6, (h - rows * cellH - 2 * 36) / (rows - 1))) : GY;
+// row's tables centred under the others, the gaps between them even. Laid out from the box's size as given, in the
+// render that mounts it: the zoom out measures a cell straight away.
+export default function TablesOverview({ tables, w, h, onOpen }: { tables: KeyedTable[]; w: number; h: number; onOpen: (key: string) => void }) {
+  const { cols, tw, th, cellW } = gridFor(tables.length, w, h);
   return (
     <div data-overview className="absolute inset-0 flex items-center justify-center">
       {tw > 0 && (
-        <div data-overview-grid className="flex flex-wrap justify-center" style={{ width: cols * cellW + (cols - 1) * GX, columnGap: GX, rowGap }}>
-          {tables.map(t => <Cell key={t.key} t={t} tw={tw} th={th} cellW={cellW} pnl={pnl} onOpen={onOpen} />)}
+        <div data-overview-grid className="flex flex-wrap justify-center" style={{ width: cols * cellW + (cols - 1) * GX, columnGap: GX, rowGap: GY }}>
+          {tables.map(t => <Cell key={t.key} t={t} tw={tw} th={th} onOpen={onOpen} />)}
         </div>
       )}
     </div>

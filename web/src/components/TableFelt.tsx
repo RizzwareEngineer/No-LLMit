@@ -20,7 +20,6 @@ import { cardClassOf, useCardLook, useCardSize } from "@/lib/tableSwitches";
 import { isDraftA } from "@/lib/layout";
 const noSub = () => () => {};
 import { arrivedDealAt } from "@/lib/stream";
-import { FarFelt } from "@/components/TableFar";
 
 interface WinnerDisplay {
   name: string;
@@ -50,8 +49,6 @@ interface TableFeltProps {
   compact?: boolean; // the phone table's middle (PokerTable): only the pot and the board, no grid
   plain?: boolean; // draft A's tall table (PokerTable): no grid of its own, the drawn felt under it shows through
   fillIn?: boolean; // fade in as it fills; false for a felt mounted by a layout switch mid-hand (it shows the hand as it stands)
-  far?: number; // the tables overview's felt seen from far away (TableFar's FarFelt), at this many layout px per screen px
-  morph?: boolean; // with `far`: the full felt with the far one over it, for the zoom between them (PokerTable's lod)
 }
 
 // Shown on the felt while the table is closed or at its daily call cap.
@@ -67,6 +64,7 @@ function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
   return (
     <div
       role="status"
+      data-lod-text
       className="flex flex-col items-center gap-1 bg-white px-4 py-3 rounded text-center max-w-[360px]"
       style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', color: 'rgb(55, 53, 47)' }}
     >
@@ -97,7 +95,7 @@ export function BetStack({ seat, amount, style, compact }: { seat: number; amoun
   return (
     <div data-bet={seat} className={`absolute flex items-center ${compact ? 'gap-1' : 'gap-1.5 max-md:hidden'}`} style={style} title={`Bet ${formatAmount(amount, bb)}`}>
       <ChipStack amount={compact ? Math.min(amount, 9) : amount} />
-      <span data-chips={amount} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(amount, bb)}</span>
+      <span data-lod-text data-chips={amount} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(amount, bb)}</span>
     </div>
   );
 }
@@ -129,8 +127,6 @@ export default function TableFelt({
   compact = false,
   plain = false,
   fillIn = true,
-  far,
-  morph = false,
 }: TableFeltProps) {
   const bb = useBigBlind(), size = useCardSize(), look = useCardLook(), still = useSyncExternalStore(noSub, isDraftA, () => false);
   const potIn = amountParts(pot, bb);
@@ -152,8 +148,6 @@ export default function TableFelt({
     countText.current.textContent = `${s}s`;
     countBox.current.style.visibility = s > 0 ? '' : 'hidden';
   });
-  const farFelt = far ? <FarFelt cards={blank ? [] : cards} pot={blank ? 0 : pot} k={far} /> : null;
-  if (far && !morph) return <div ref={ref} data-felt className="relative w-full h-full" style={GRID}>{farFelt}</div>;
   return (
     <div 
       ref={ref}
@@ -174,7 +168,7 @@ export default function TableFelt({
             {winners.length > 1 && <span className="text-green-700">+{winners.length - 1}</span>}
           </div>
         ) : winners.length > 0 ? (
-          <div data-pot className="flex flex-col items-center bg-green-50 border border-green-500 overflow-hidden p-2 px-3 max-w-full">
+          <div data-pot data-lod-text className="flex flex-col items-center bg-green-50 border border-green-500 overflow-hidden p-2 px-3 max-w-full">
             {winners.slice(0, 1).map((w, i) => (
               <div key={i} className="text-center">
                 <span className="text-green-700 font-bold text-xs">{w.name}</span>
@@ -191,8 +185,8 @@ export default function TableFelt({
           // (the number pot odds need). The chips already collected are drawn under it as a chip
           // stack with a bare amount, like the stacks in front of the seats; no second label.
           <div data-pot={compact || undefined} className={`flex flex-col items-center ${compact ? '' : 'gap-3'}`}>
-            <div data-chips={pot} className={`flex flex-row items-center gap-2 bg-white border-2 border-gray-700 shadow-sm ${compact ? 'h-[30px] px-3' : 'p-2 px-4'}`} aria-label={`Pot ${formatAmount(pot, bb)}`}>
-              <div className={`${compact ? 'text-[11px]' : 'text-xs'} uppercase tracking-wider text-gray-600`}>POT</div>
+            <div data-chips={pot} data-lod-pot className={`flex flex-row items-center gap-2 bg-white border-2 border-gray-700 shadow-sm ${compact ? 'h-[30px] px-3' : 'p-2 px-4'}`} aria-label={`Pot ${formatAmount(pot, bb)}`}>
+              <div data-lod-text className={`${compact ? 'text-[11px]' : 'text-xs'} uppercase tracking-wider text-gray-600`}>POT</div>
               <div className={`${compact ? 'text-[15px] leading-5' : 'text-[20px] leading-7'} text-gray-700 font-bold tabular-nums`}>
                 <NumberFlow animated={!still} value={potIn.value} format={potIn.format} suffix={potIn.suffix} locales="en-US" />
               </div>
@@ -200,7 +194,7 @@ export default function TableFelt({
             {/* data-pot: where TableMotion's chips land (the phone's: the pot itself; only the board is under it) */}
             {!compact && <div data-pot className={`flex items-center gap-1.5 h-[18px] ${collected > 0 ? '' : 'invisible'}`} aria-hidden={collected <= 0} title="Chips collected so far">
               <ChipStack amount={collected} />
-              <span data-chips={collected} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(collected, bb)}</span>
+              <span data-lod-text data-chips={collected} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(collected, bb)}</span>
             </div>}
           </div>
         )}
@@ -218,12 +212,12 @@ export default function TableFelt({
               {buttonDetermination.cards.map((bc, i) => (
                 <div key={i} className="flex flex-col items-center gap-0.5">
                   <Card value={bc.card} className={cardClassOf(size, look)} rise={live} />
-                  <span className="text-[11px] text-gray-600 truncate max-w-[40px]">{bc.playerName.split(' ')[0]}</span>
+                  <span data-lod-text className="text-[11px] text-gray-600 truncate max-w-[40px]">{bc.playerName.split(' ')[0]}</span>
                 </div>
               ))}
             </div>
             {buttonDetermination.isComplete && buttonDetermination.winnerName && (
-              <div className="bg-amber-100 border border-amber-500 px-3 py-1 rounded animate-pulse">
+              <div data-lod-text className="bg-amber-100 border border-amber-500 px-3 py-1 rounded animate-pulse">
                 <span className="text-amber-700 font-bold text-xs">
                   🎯 {buttonDetermination.winnerName} gets the button!
                 </span>
@@ -256,7 +250,7 @@ export default function TableFelt({
       ) : (
       <div className="h-[32px] flex items-center">
       {nextDealAt !== null && (
-        <div ref={el => { countBox.current = el; }}
+        <div ref={el => { countBox.current = el; }} data-lod-text
           className="flex items-center gap-2 bg-white px-4 py-1.5 rounded"
           style={{ boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' }}
         >
@@ -268,7 +262,6 @@ export default function TableFelt({
       )}
       </div>
       )}
-      {farFelt}
     </div>
   );
 }
