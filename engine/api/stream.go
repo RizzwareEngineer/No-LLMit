@@ -5,13 +5,16 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"log"
 	"maps"
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,31 +38,36 @@ type frame struct {
 
 // tableSnap is one table as a joiner needs it. It is never changed once published.
 type tableSnap struct {
-	State        GameStatePayload     `json:"state"`
-	Turn         *ServerMessage       `json:"turn"`
-	TurnApplied  bool                 `json:"turnApplied"` // Turn is an llm_action the state already shows
-	Notice       *TableNoticePayload  `json:"notice"`
-	ButtonCards  []ButtonCardPayload  `json:"buttonCards"`
-	ButtonWinner *ButtonWinnerPayload `json:"buttonWinner"`
-	nextHandAt   time.Time            // set while the hand is complete; nextHandInMs is worked out per stream
+	Key           string               `json:"key"`             // the configured table, as the stream and /api/stats?table= name it
+	Index         int                  `json:"index"`           // its place in the configured order; the snapshot lists tables in it
+	StartingStack int                  `json:"startingStack"`   // in chips; also the rebuy
+	Stats         json.RawMessage      `json:"stats,omitempty"` // the table's last table_stats payload; the hub fills it in per snapshot
+	State         GameStatePayload     `json:"state"`
+	Turn          *ServerMessage       `json:"turn"`
+	TurnApplied   bool                 `json:"turnApplied"` // Turn is an llm_action the state already shows
+	Notice        *TableNoticePayload  `json:"notice"`
+	ButtonCards   []ButtonCardPayload  `json:"buttonCards"`
+	ButtonWinner  *ButtonWinnerPayload `json:"buttonWinner"`
+	nextHandAt    time.Time            // set while the hand is complete; nextHandInMs is worked out per stream
 }
 
 type hub struct {
-	mu     sync.RWMutex
-	seq    uint64
-	ring   [ringSize]frame
-	tables map[string]*tableSnap
-	stats  []byte        // the all-time GET /api/stats body as one stats frame, sent after every snapshot; nil until loaded
-	statsZ []byte        // stats deflated, for a gzipped stream
-	wake   chan struct{} // closed and replaced on every publish
-	open   atomic.Int64  // streams open now
+	mu         sync.RWMutex
+	seq        uint64
+	ring       [ringSize]frame
+	tables     map[string]*tableSnap
+	stats      []byte                     // the all-time GET /api/stats body as one stats frame, sent after every snapshot; nil until loaded
+	statsZ     []byte                     // stats deflated, for a gzipped stream
+	tableStats map[string]json.RawMessage // by table: its last table_stats payload, put in the snapshot
+	wake       chan struct{}              // closed and replaced on every publish
+	open       atomic.Int64               // streams open now
 
 	addrMu sync.Mutex // its own lock, so a connect never waits on a publish
 	addrs  map[string]int
 }
 
 func newHub() *hub {
-	return &hub{tables: map[string]*tableSnap{}, wake: make(chan struct{}), addrs: map[string]int{}}
+	return &hub{tables: map[string]*tableSnap{}, tableStats: map[string]json.RawMessage{}, wake: make(chan struct{}), addrs: map[string]int{}}
 }
 
 type envelope struct {
@@ -69,7 +77,8 @@ type envelope struct {
 }
 
 // publish appends msgs as one step: table's snapshot (if snap is set) and the stats body
-// (if statsFull is set) change in the same locked step, then every writer is woken.
+// (if statsFull is set: the all-time body when table is "", else that table's table_stats
+// payload) change in the same locked step, then every writer is woken.
 func (h *hub) publish(table string, snap *tableSnap, statsFull []byte, msgs ...ServerMessage) {
 	bodies := make([][]byte, len(msgs))
 	packs := make([]packedBody, len(msgs))
@@ -83,7 +92,7 @@ func (h *hub) publish(table string, snap *tableSnap, statsFull []byte, msgs ...S
 	}
 	var stats []byte
 	var statsPack packedBody
-	if statsFull != nil {
+	if statsFull != nil && table == "" {
 		stats = append(append([]byte(`{"type":"stats","payload":`), statsFull...), '}')
 		statsPack = packBody(stats) // deflated once, before the lock
 	}
@@ -94,6 +103,9 @@ func (h *hub) publish(table string, snap *tableSnap, statsFull []byte, msgs ...S
 	}
 	if snap != nil {
 		h.tables[table] = snap
+	}
+	if statsFull != nil && table != "" {
+		h.tableStats[table] = statsFull
 	}
 	if stats != nil {
 		h.stats = sseFrame(h.seq, stats) // framed once here; every stream shares the bytes
@@ -119,14 +131,15 @@ func sseFrame(seq uint64, body []byte) []byte {
 
 // view is what a writer sends next: the frames after its last one, or a snapshot.
 type view struct {
-	seq    uint64
-	frames [][]byte
-	packed [][]byte // frames deflated, in step
-	snap   bool
-	tables map[string]*tableSnap
-	stats  []byte
-	statsZ []byte
-	wake   <-chan struct{}
+	seq        uint64
+	frames     [][]byte
+	packed     [][]byte // frames deflated, in step
+	snap       bool
+	tables     map[string]*tableSnap
+	tableStats map[string]json.RawMessage
+	stats      []byte
+	statsZ     []byte
+	wake       <-chan struct{}
 }
 
 func (h *hub) since(last uint64, first bool) view {
@@ -146,14 +159,20 @@ func (h *hub) since(last uint64, first bool) view {
 			return v
 		}
 	}
-	v.snap, v.tables, v.stats, v.statsZ = true, maps.Clone(h.tables), h.stats, h.statsZ
+	v.snap, v.tables, v.tableStats, v.stats, v.statsZ = true, maps.Clone(h.tables), maps.Clone(h.tableStats), h.stats, h.statsZ
 	return v
 }
 
 func (v view) snapshotFrame() ([]byte, error) {
-	tables := make(map[string]tableSnap, len(v.tables))
-	for id, s := range v.tables {
-		c := *s
+	ids := make([]string, 0, len(v.tables))
+	for id := range v.tables {
+		ids = append(ids, id)
+	}
+	slices.SortFunc(ids, func(a, b string) int { return cmp.Or(v.tables[a].Index-v.tables[b].Index, strings.Compare(a, b)) })
+	tables := make([]tableSnap, 0, len(ids))
+	for _, id := range ids {
+		c := *v.tables[id]
+		c.Stats = v.tableStats[id]
 		c.State.NextHandInMs = nextHandMs(c.nextHandAt)
 		if c.Turn != nil {
 			if p, ok := c.Turn.Payload.(LLMThinkingPayload); ok { // the shot clock resumes where it is
@@ -164,13 +183,22 @@ func (v view) snapshotFrame() ([]byte, error) {
 		if c.ButtonCards == nil {
 			c.ButtonCards = []ButtonCardPayload{}
 		}
-		tables[id] = c
+		tables = append(tables, c)
 	}
-	b, err := json.Marshal(envelope{Type: MsgSnapshot, Payload: map[string]any{"tables": tables}})
-	if err != nil {
-		return nil, err
+	// "tables" is an object by key, written in the configured order (a map would sort the keys).
+	b := []byte(`{"type":"snapshot","payload":{"tables":{`)
+	for i, c := range tables {
+		key, _ := json.Marshal(ids[i])
+		s, err := json.Marshal(c)
+		if err != nil {
+			return nil, err
+		}
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = append(append(append(b, key...), ':'), s...)
 	}
-	return sseFrame(v.seq, b), nil
+	return sseFrame(v.seq, append(b, "}}}"...)), nil
 }
 
 var heartbeat = []byte(": hb\n\n")

@@ -1,7 +1,8 @@
-// The shared spectator table: one game that the server starts at boot and plays forever,
-// watched or not, inside its opening hours and daily call cap. The server owns the clock,
-// releasing each LLM turn on a timer and publishing it to the hub (stream.go), so everyone
-// watches the same moment and late joiners get the current state. Started by server.go.
+// The shared spectator tables: games that the server starts at boot, one per configured
+// table (TABLES), each played forever in its own goroutine, watched or not, inside the opening
+// hours and daily call cap they all share (floor). The server owns the clock, releasing each
+// LLM turn on a timer and publishing it to the hub (stream.go), so everyone watches the same
+// moment and late joiners get the current state. Started by server.go.
 package api
 
 import (
@@ -34,11 +35,105 @@ const (
 	nextHandDelay     = 7 * time.Second
 )
 
-const (
-	tableStartingStack = 2000
-	tableSmallBlind    = 5
-	tableBigBlind      = 10
-)
+// tableConfig is one table's stakes and starting stack, in big blinds; the rebuy is the starting stack.
+type tableConfig struct {
+	SmallBlind, BigBlind, Depth int
+}
+
+// key names the table across restarts, e.g. "5-10-200bb": the stream and the stats key it by.
+func (c tableConfig) key() string {
+	return fmt.Sprintf("%d-%d-%dbb", c.SmallBlind, c.BigBlind, c.Depth)
+}
+
+func (c tableConfig) startingStack() int { return c.Depth * c.BigBlind }
+
+var defaultTables = []tableConfig{{1, 2, 100}, {5, 10, 200}, {25, 50, 500}, {50, 100, 100}}
+
+// parseTables reads TABLES: comma-separated SB/BB:DEPTH, depth in big blinds, e.g.
+// "1/2:100,5/10:200". Every table must differ from the others in stakes or depth.
+func parseTables(v string) ([]tableConfig, error) {
+	var out []tableConfig
+	seen := map[string]bool{}
+	for _, item := range strings.Split(v, ",") {
+		var c tableConfig
+		var rest string
+		if n, _ := fmt.Sscanf(strings.TrimSpace(item), "%d/%d:%d%s", &c.SmallBlind, &c.BigBlind, &c.Depth, &rest); n != 3 {
+			return nil, fmt.Errorf("%q is not SB/BB:DEPTH", item)
+		}
+		if c.SmallBlind < 1 || c.BigBlind < c.SmallBlind || c.Depth < 1 {
+			return nil, fmt.Errorf("%q: blinds must be 1 or more, the big at least the small, and the depth 1 bb or more", item)
+		}
+		if seen[c.key()] {
+			return nil, fmt.Errorf("%q is listed twice", item)
+		}
+		seen[c.key()] = true
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// tablesFromEnv is TABLES, or defaultTables when it is unset or does not parse.
+func tablesFromEnv() []tableConfig {
+	v := os.Getenv("TABLES")
+	if v == "" {
+		return defaultTables
+	}
+	tables, err := parseTables(v)
+	if err != nil {
+		log.Printf("!!! Ignoring TABLES=%q (%v); playing the default tables", v, err)
+		return defaultTables
+	}
+	return tables
+}
+
+// floor is what every table shares: one daily call budget, the opening hours and the pace.
+type floor struct {
+	mu           sync.Mutex // guards the calls
+	dailyCallCap int
+	calls        int
+	callsDay     string
+	pace         atomic.Uint64 // math.Float64bits of the multiplier on every pause; /dev/pace changes it while the tables run
+
+	// Daily opening hours, e.g. 9 to 21 in America/New_York. hoursZone is nil when the
+	// tables are always open.
+	openHour  int
+	closeHour int
+	hoursZone *time.Location
+}
+
+func newFloor() *floor {
+	f := &floor{
+		dailyCallCap: envInt("DAILY_CALL_CAP", 5000),
+		openHour:     envInt("TABLE_OPEN_HOUR", 0),
+		closeHour:    envInt("TABLE_CLOSE_HOUR", 24),
+	}
+	f.setPace(envFloat("TABLE_PACE", 0.6))
+	if zone := os.Getenv("TABLE_TIMEZONE"); zone != "" && f.closeHour > f.openHour {
+		loc, err := time.LoadLocation(zone)
+		if err != nil {
+			log.Printf("Ignoring table hours: unknown TABLE_TIMEZONE %q", zone)
+		} else {
+			f.hoursZone = loc
+			log.Printf("Table hours: %d to %d %s", f.openHour, f.closeHour, zone)
+		}
+	}
+	return f
+}
+
+// spend counts a model call made on day (UTC, 2006-01-02) when force is set or the day's cap
+// leaves room for it, and reports whether it counted.
+func (f *floor) spend(day string, force bool) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.callsDay != day {
+		f.callsDay, f.calls = day, 0
+	}
+	if !force && f.calls >= f.dailyCallCap {
+		return false
+	}
+	f.calls++
+	return true
+}
 
 type Table struct {
 	mu           sync.Mutex
@@ -52,13 +147,12 @@ type Table struct {
 	nextHandAt   time.Time
 	notice       TableNoticePayload // shown to everyone while the table is stopped; Kind "" when running
 
-	dailyCallCap int
-	calls        int
-	callsDay     string
-	pace         atomic.Uint64 // math.Float64bits of the multiplier on every pause; /dev/pace changes it while the table runs
+	*floor
+	cfg   tableConfig
+	index int // place in the configured order
 
 	// Hand history: every finished hand is recorded and saved
-	id           string
+	id           string // this table's session: new on every start, it names its saved hands
 	saver        handSaver
 	saveWait     time.Duration // first wait between save attempts; doubles each time
 	onSaved      func(history.HandRecord)
@@ -67,12 +161,6 @@ type Table struct {
 	promptVer    string // version of the cached system prompt
 	systemPrompt string
 
-	// Daily opening hours, e.g. 9 to 21 in America/New_York. hoursZone is nil when the
-	// table is always open.
-	openHour  int
-	closeHour int
-	hoursZone *time.Location
-
 	// time.Now and time.Sleep for the closed-hours and call-cap waits and the paced sleeps; a test swaps in a fake clock.
 	now   func() time.Time
 	pause func(time.Duration)
@@ -80,33 +168,23 @@ type Table struct {
 	seated []string // the lineup, from lineup(); set before Run
 }
 
-// onSaved, if set, is called with each hand once it is saved.
-func NewTable(h *hub, onSaved func(history.HandRecord)) *Table {
+// NewTable is the table cfg describes, index in the configured order, sharing f with the
+// others. onSaved, if set, is called with each hand once it is saved.
+func NewTable(h *hub, f *floor, cfg tableConfig, index int, saver handSaver, onSaved func(history.HandRecord)) *Table {
 	idBytes := make([]byte, 8)
 	rand.Read(idBytes)
-	t := &Table{
-		id:           "tbl_" + hex.EncodeToString(idBytes),
-		hub:          h,
-		saver:        newSaver(),
-		saveWait:     firstSaveWait,
-		onSaved:      onSaved,
-		dailyCallCap: envInt("DAILY_CALL_CAP", 5000),
-		openHour:     envInt("TABLE_OPEN_HOUR", 0),
-		closeHour:    envInt("TABLE_CLOSE_HOUR", 24),
-		now:          time.Now,
-		pause:        time.Sleep,
+	return &Table{
+		id:       "tbl_" + hex.EncodeToString(idBytes),
+		hub:      h,
+		floor:    f,
+		cfg:      cfg,
+		index:    index,
+		saver:    saver,
+		saveWait: firstSaveWait,
+		onSaved:  onSaved,
+		now:      time.Now,
+		pause:    time.Sleep,
 	}
-	t.setPace(envFloat("TABLE_PACE", 0.6))
-	if zone := os.Getenv("TABLE_TIMEZONE"); zone != "" && t.closeHour > t.openHour {
-		loc, err := time.LoadLocation(zone)
-		if err != nil {
-			log.Printf("Ignoring table hours: unknown TABLE_TIMEZONE %q", zone)
-		} else {
-			t.hoursZone = loc
-			log.Printf("Table hours: %d to %d %s", t.openHour, t.closeHour, zone)
-		}
-	}
-	return t
 }
 
 func (t *Table) isOpen() bool {
@@ -117,10 +195,10 @@ func (t *Table) isOpen() bool {
 	return h >= t.openHour && h < t.closeHour
 }
 
-// nextOpen is the next time the table opens after now. Only meaningful with hoursZone set.
-func (t *Table) nextOpen(now time.Time) time.Time {
-	now = now.In(t.hoursZone)
-	open := time.Date(now.Year(), now.Month(), now.Day(), t.openHour, 0, 0, 0, t.hoursZone)
+// nextOpen is the next time the tables open after now. Only meaningful with hoursZone set.
+func (f *floor) nextOpen(now time.Time) time.Time {
+	now = now.In(f.hoursZone)
+	open := time.Date(now.Year(), now.Month(), now.Day(), f.openHour, 0, 0, 0, f.hoursZone)
 	if !open.After(now) {
 		open = open.AddDate(0, 0, 1)
 	}
@@ -139,7 +217,7 @@ func (t *Table) waitForOpenHours() {
 	for !t.isOpen() {
 		if !closed {
 			closed = true
-			log.Printf("Table closed for the day (open %d to %d %s)", t.openHour, t.closeHour, t.hoursZone)
+			log.Printf("Table %s closed for the day (open %d to %d %s)", t.cfg.key(), t.openHour, t.closeHour, t.hoursZone)
 			t.mu.Lock()
 			t.setNotice(TableNoticePayload{
 				Kind:      "closed",
@@ -151,7 +229,7 @@ func (t *Table) waitForOpenHours() {
 		t.pause(10 * time.Second)
 	}
 	if closed {
-		log.Printf("Table open")
+		log.Printf("Table %s open", t.cfg.key())
 		t.mu.Lock()
 		if t.notice.Kind == "closed" {
 			t.setNotice(TableNoticePayload{})
@@ -160,7 +238,7 @@ func (t *Table) waitForOpenHours() {
 	}
 }
 
-// TableUsage is what the frontend's usage widget shows.
+// TableUsage is what the frontend's usage widget shows: the floor every table shares.
 type TableUsage struct {
 	CallsToday   int    `json:"callsToday"`
 	DailyCallCap int    `json:"dailyCallCap"`
@@ -172,12 +250,12 @@ type TableUsage struct {
 }
 
 func (t *Table) Usage() TableUsage {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.floor.mu.Lock()
 	calls := t.calls
 	if t.callsDay != t.now().UTC().Format("2006-01-02") {
 		calls = 0
 	}
+	t.floor.mu.Unlock()
 	u := TableUsage{
 		CallsToday:   calls,
 		DailyCallCap: t.dailyCallCap,
@@ -211,11 +289,14 @@ func envFloat(key string, fallback float64) float64 {
 // payload. Callers hold t.mu.
 func (t *Table) publish(msgs ...ServerMessage) {
 	snap := &tableSnap{
-		State:        ConvertGameState(t.gs),
-		Turn:         t.turn,
-		TurnApplied:  t.turnApplied,
-		ButtonCards:  append([]ButtonCardPayload{}, t.buttonCards...),
-		ButtonWinner: t.buttonWinner,
+		Key:           t.cfg.key(),
+		Index:         t.index,
+		StartingStack: t.cfg.startingStack(),
+		State:         ConvertGameState(t.gs),
+		Turn:          t.turn,
+		TurnApplied:   t.turnApplied,
+		ButtonCards:   append([]ButtonCardPayload{}, t.buttonCards...),
+		ButtonWinner:  t.buttonWinner,
 	}
 	snap.State.Pace = t.Pace()
 	if t.notice.Kind != "" {
@@ -232,39 +313,36 @@ func (t *Table) publish(msgs ...ServerMessage) {
 			msgs[i].Payload = state
 		}
 	}
-	t.hub.publish(t.id, snap, nil, msgs...)
+	t.hub.publish(t.cfg.key(), snap, nil, msgs...)
 }
 
 // nextHandMs is the whole milliseconds until at, 0 once it has passed or when at is zero.
 func nextHandMs(at time.Time) int { return max(int(time.Until(at).Milliseconds()), 0) }
 
-func (t *Table) Pace() float64                       { return math.Float64frombits(t.pace.Load()) }
-func (t *Table) setPace(p float64)                   { t.pace.Store(math.Float64bits(p)) }
-func (t *Table) paced(d time.Duration) time.Duration { return time.Duration(float64(d) * t.Pace()) }
+func (f *floor) Pace() float64                       { return math.Float64frombits(f.pace.Load()) }
+func (f *floor) setPace(p float64)                   { f.pace.Store(math.Float64bits(p)) }
+func (f *floor) paced(d time.Duration) time.Duration { return time.Duration(float64(d) * f.Pace()) }
 
 func (t *Table) sleep(d time.Duration) {
 	t.pause(t.paced(d))
 }
 
-// waitForBudget blocks once the day's LLM call cap is reached, until the next UTC day.
+// waitForBudget counts the next turn's model call against the day's cap every table shares,
+// blocking once the cap is reached, until the next UTC day.
 func (t *Table) waitForBudget() {
 	for {
-		today := t.now().UTC().Format("2006-01-02")
+		spent := t.spend(t.now().UTC().Format("2006-01-02"), false)
 		t.mu.Lock()
-		if t.callsDay != today {
-			t.callsDay = today
-			t.calls = 0
-		}
-		if t.calls < t.dailyCallCap {
+		if spent {
 			if t.notice.Kind == "cap" {
 				t.setNotice(TableNoticePayload{})
-				log.Printf("Daily call cap reset, table resumed")
+				log.Printf("Daily call cap reset, table %s resumed", t.cfg.key())
 			}
 			t.mu.Unlock()
 			return
 		}
 		if t.notice.Kind != "cap" {
-			log.Printf("Daily call cap reached (%d), table stopped", t.dailyCallCap)
+			log.Printf("Daily call cap reached (%d), table %s stopped", t.dailyCallCap, t.cfg.key())
 			t.setNotice(TableNoticePayload{
 				Kind:      "cap",
 				Message:   "Daily LLM call limit reached.",
@@ -288,11 +366,11 @@ func (t *Table) startGame() {
 	t.mu.Lock()
 	t.gs = game.NewGame(game.GameConfig{
 		PlayerNames:   t.seated,
-		StartingStack: tableStartingStack,
-		Stakes:        game.Stakes{SmallBlind: tableSmallBlind, BigBlind: tableBigBlind},
+		StartingStack: t.cfg.startingStack(),
+		Stakes:        game.Stakes{SmallBlind: t.cfg.SmallBlind, BigBlind: t.cfg.BigBlind},
 	})
 	cards := t.gs.DetermineButton()
-	log.Printf("Shared table created: %s", t.gs.ID)
+	log.Printf("Shared table %s created: %s", t.cfg.key(), t.gs.ID)
 	t.publish(ServerMessage{Type: MsgGameState})
 	t.mu.Unlock()
 
@@ -307,7 +385,7 @@ func (t *Table) startGame() {
 
 	t.mu.Lock()
 	t.buttonWinner = &ButtonWinnerPayload{PlayerIdx: t.gs.ButtonIdx, PlayerName: t.gs.Players[t.gs.ButtonIdx].Name}
-	log.Printf("Button goes to: %s", t.buttonWinner.PlayerName)
+	log.Printf("%s: button goes to %s", t.cfg.key(), t.buttonWinner.PlayerName)
 	t.publish(ServerMessage{Type: MsgButtonWinner, Payload: *t.buttonWinner})
 	t.mu.Unlock()
 	t.sleep(buttonWinnerDelay)
@@ -315,8 +393,9 @@ func (t *Table) startGame() {
 
 // lineup asks the LLM service who is seated: LINEUP in production, a rotation over the
 // whole roster with the mock provider. The session index it sends is the number of
-// sessions already in the local hand log (0 when hands go to Supabase).
-func (t *Table) lineup() []string {
+// sessions already in the local hand log (0 when hands go to Supabase). Every table seats
+// the same names, each turned on by its index (rotated).
+func lineup(saver handSaver) []string {
 	// FIXTURE_LINEUP (test fixtures only; production never sets it): seat these comma-separated names as given, e.g. the
 	// roster's longest names, whatever the LLM service would seat. The service is still asked, for the shot clock's budget.
 	if v := os.Getenv("FIXTURE_LINEUP"); v != "" {
@@ -331,7 +410,7 @@ func (t *Table) lineup() []string {
 		return names
 	}
 	session := 0
-	if fs, ok := t.saver.(*fileSaver); ok {
+	if fs, ok := saver.(*fileSaver); ok {
 		// shortcut: parses the whole local log once at startup; fine for dev-sized files.
 		hands, err := loadHandFile(filepath.Join(fs.dir, "hands.jsonl"))
 		if err != nil {
@@ -347,6 +426,13 @@ func (t *Table) lineup() []string {
 }
 
 const lineupWait = 5 * time.Second
+
+// rotated is seated turned by n seats, so tables that share a lineup and a seeded deck do not
+// deal the same cards to the same models.
+func rotated(seated []string, n int) []string {
+	n %= len(seated)
+	return append(append([]string{}, seated[n:]...), seated[:n]...)
+}
 
 // seatedPlayers returns what fetch reports, asking wait apart until it answers with two or
 // more names: the lineup and every shot clock's budget come from the LLM service, and while
@@ -372,19 +458,19 @@ func seatedPlayers(fetch func() ([]string, error), wait time.Duration) []string 
 func (t *Table) dealHand() (handStart, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.rebought = append(t.rebought, t.gs.RebuyBrokePlayers(tableStartingStack)...)
+	t.rebought = append(t.rebought, t.gs.RebuyBrokePlayers(t.cfg.startingStack())...)
 	start := startOf(t.gs)
 	if err := t.gs.StartHand(); err != nil {
 		return start, err
 	}
-	t.recorder = newHandRecorder(t.gs, t.id, t.rebought)
+	t.recorder = newHandRecorder(t.gs, t.id, t.cfg.key(), t.rebought)
 	t.buttonCards = nil
 	t.buttonWinner = nil
 	t.turn, t.turnApplied, t.turns = nil, false, 0
 	if t.notice.Kind == "outage" {
 		t.setNotice(TableNoticePayload{}) // the probe hand plays live; if it fails too, the notice is set again
 	}
-	log.Printf("Started hand #%d", t.gs.HandNumber)
+	log.Printf("%s: started hand #%d", t.cfg.key(), t.gs.HandNumber)
 	t.publish(ServerMessage{Type: MsgHandStart, Payload: map[string]interface{}{"handNumber": t.gs.HandNumber}}, ServerMessage{Type: MsgGameState})
 	return start, nil
 }
@@ -565,22 +651,19 @@ func (t *Table) playTurn() {
 	t.publish(thinking)
 	t.mu.Unlock()
 
-	start := time.Now()
-	t.mu.Lock()
-	t.calls++
-	t.mu.Unlock()
+	start := time.Now() // waitForBudget counted the call
 	// Reading t.gs without the lock is safe here: only this goroutine changes it.
 	turn := decideLLMTurn(t.gs, func() (*client.LLMDecisionResponse, error) { return askLLM(req) })
 	decision := turn.decision
-	log.Printf("%s: %s %d (%dms)", playerName, decision.Action, decision.Amount, time.Since(start).Milliseconds())
+	log.Printf("%s: %s: %s %d (%dms)", t.cfg.key(), playerName, decision.Action, decision.Amount, time.Since(start).Milliseconds())
 	if remaining := t.paced(thinkingDuration) - time.Since(start); remaining > 0 {
 		time.Sleep(remaining)
 	}
 
-	t.mu.Lock()
 	if decision.Retried {
-		t.calls++ // the service asked the model a second time
+		t.spend(t.now().UTC().Format("2006-01-02"), true) // the service asked the model a second time
 	}
+	t.mu.Lock()
 	reason := decision.Reason
 	if turn.fallback {
 		reason = "" // it argued for the model's own move, not the one played; the saved hand keeps it

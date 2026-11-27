@@ -31,11 +31,12 @@ type handRecorder struct {
 }
 
 // newHandRecorder is called right after StartHand, once blinds are posted and cards dealt.
-func newHandRecorder(gs *game.GameState, tableID string, rebought []int) *handRecorder {
+func newHandRecorder(gs *game.GameState, tableID, tableKey string, rebought []int) *handRecorder {
 	r := &handRecorder{record: history.HandRecord{
 		Schema:     handRecordSchema,
 		HandID:     fmt.Sprintf("%s-%06d", tableID, gs.HandNumber),
 		TableID:    tableID,
+		TableKey:   tableKey,
 		HandNumber: gs.HandNumber,
 		StartedAt:  time.Now().UTC(),
 		Config:     history.HandConfig{SmallBlind: gs.Stakes.SmallBlind, BigBlind: gs.Stakes.BigBlind, Memory: "none"},

@@ -478,3 +478,77 @@ func TestStatsOfRandomHandsAddUp(t *testing.T) {
 		t.Errorf("partial %v, nets add up to %d chips, all-in EV to %.9f BB; want false, 0, 0", s.Partial, net, aiev)
 	}
 }
+
+// Each table's stats count its own hands; a hand saved before there were several tables counts
+// under the table with its blinds, one at stakes no table plays in the combined stats only;
+// and the combined chips add mixed stakes up at the scope's big blind.
+func TestStatsPerTable(t *testing.T) {
+	hands := statsHands(t) // 5/10, no table_key: saved before there were several tables
+	micro := hands[0]
+	micro.HandID, micro.TableKey, micro.Config.SmallBlind, micro.Config.BigBlind = "micro-1", "1-2-100bb", 1, 2
+	high := hands[1]
+	high.HandID, high.TableKey, high.Config.SmallBlind, high.Config.BigBlind = "high-1", "25-50-500bb", 25, 50 // no longer configured
+	c := newTestCache(nil)
+	c.hub = newHub()
+	c.tables = []*Table{
+		{cfg: tableConfig{1, 2, 100}, seated: []string{"B", "C", "A"}},
+		{cfg: tableConfig{5, 10, 200}, seated: []string{"A", "B", "C"}},
+		{cfg: tableConfig{5, 10, 100}}, // the same blinds again: the old hands count under the first only
+	}
+	if code, _ := c.get("/api/stats?table=1-2-100bb"); code != http.StatusServiceUnavailable {
+		t.Errorf("before the first load: %d", code)
+	}
+	for _, h := range append(hands, micro, high) {
+		c.add(h)
+	}
+	c.recompute()
+
+	_, all := c.get("/api/stats")
+	if all.Scope.Hands != 7 || all.Scope.BigBlind != 10 || all.Scope.TableID != "" {
+		t.Errorf("combined scope %+v", all.Scope)
+	}
+	for _, m := range all.Models { // net_chips is at the scope's big blind: it agrees with bb/100
+		if want := m.BB100 * float64(m.Hands) / 100 * 10; math.Abs(float64(m.NetChips)-want) > 1 {
+			t.Errorf("%s: net_chips %d, bb100 %.2f over %d hands says %.0f", m.Name, m.NetChips, m.BB100, m.Hands, want)
+		}
+	}
+	for key, want := range map[string]int{"1-2-100bb": 1, "5-10-200bb": 5, "5-10-100bb": 0} {
+		code, s := c.get("/api/stats?table=" + key)
+		if code != http.StatusOK || s.Scope.Hands != want || s.Scope.TableID != key {
+			t.Errorf("%s: %d, scope %+v; want %d hands", key, code, s.Scope, want)
+		}
+		if _, tl := c.getTimeline("/api/stats/timeline?table=" + key); tl.Hands != want {
+			t.Errorf("%s timeline: %d hands, want %d", key, tl.Hands, want)
+		}
+	}
+	if _, s := c.get("/api/stats?table=1-2-100bb"); s.Scope.BigBlind != 2 || !reflect.DeepEqual(s.Seated, []string{"B", "C", "A"}) {
+		t.Errorf("1/2 table: scope %+v, seated %v", s.Scope, s.Seated)
+	}
+	if code, _ := c.get("/api/stats?table=25-50-500bb"); code != http.StatusNotFound {
+		t.Errorf("a table not configured: %d, want 404", code)
+	}
+
+	// The stream: every table's profit and loss, in the snapshot and as table_stats.
+	v := c.hub.since(0, false)
+	sent := map[string]bool{}
+	for _, f := range v.frames {
+		for _, m := range parseFrames(t, f) {
+			if m.Type == MsgTableStats {
+				sent[m.Table] = true
+			}
+		}
+	}
+	snap := c.hub.since(0, true)
+	var pnl struct {
+		Hands  int
+		Models []pnlRow
+	}
+	json.Unmarshal(snap.tableStats["1-2-100bb"], &pnl)
+	if len(sent) != 3 || pnl.Hands != 1 || len(pnl.Models) != 3 || pnl.Models[0].NetChips < pnl.Models[2].NetChips {
+		t.Errorf("table_stats sent for %v; 1/2 table %+v", sent, pnl)
+	}
+	c.recompute() // nothing changed: nothing sent again
+	if n := len(c.hub.since(0, false).frames); n != len(v.frames) {
+		t.Errorf("an unchanged recompute sent %d frames", n-len(v.frames))
+	}
+}

@@ -36,7 +36,7 @@ func testTable(t *testing.T) *Table {
 	if err := gs.StartHand(); err != nil {
 		t.Fatal(err)
 	}
-	return &Table{id: "tbl_test", hub: newHub(), gs: gs, now: time.Now, pause: time.Sleep}
+	return &Table{id: "tbl_test", hub: newHub(), floor: &floor{dailyCallCap: 1000}, cfg: tableConfig{5, 10, 100}, gs: gs, now: time.Now, pause: time.Sleep}
 }
 
 // noticeKinds lists the table_notice kinds in the hub's recent frames, in order.
@@ -102,7 +102,7 @@ func TestSaveHandKeepsMockHandsOutOfSupabase(t *testing.T) {
 	}{{"mock", 1, 0}, {"openrouter", 0, 0}, {"openrouter", 1, 1}} {
 		tbl := testTable(t)
 		tbl.saver = &supabaseSaver{url: srv.URL, key: "k", http: srv.Client()}
-		tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+		tbl.recorder = newHandRecorder(tbl.gs, tbl.id, "", nil)
 		tbl.recorder.record.Config.Provider = c.provider
 		for range c.actions {
 			tbl.recorder.record.Actions = append(tbl.recorder.record.Actions, history.ActionRecord{Status: "ok"})
