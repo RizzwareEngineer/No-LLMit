@@ -166,20 +166,15 @@ export default function PokerTable({
     ...edge('right', up.right, up.right.length),
   ];
 
-  // Draft A's tall table (?table=tall): the top seat's bet on the middle's top edge, each side seat's beside it on its row.
-  const tallSeats = tallLayout(players.length || 9);
-  const tallBets: FeltBet[] = [
-    { seat: 0, side: 'top', at: 0.5, amount: players[0]?.currentBet ?? 0 },
-    ...tallSeats.right.map((seat, i) => ({ seat, side: 'right' as const, at: (TALL_ROWS[i] + 64 - TALL_MID.top) / TALL_MID.h, amount: players[seat]?.currentBet ?? 0 })),
-    ...tallSeats.left.map((seat, i) => ({ seat, side: 'left' as const, at: (TALL_ROWS[i] + 64 - TALL_MID.top) / TALL_MID.h, amount: players[seat]?.currentBet ?? 0 })),
-  ];
+  // Draft A's tall table (?table=tall): each seat's slot (tallSlots) and its bet on the felt in front of it (TALL_BET).
+  const tallSeats = tallSlots(players.length || 9);
 
   const felt = (compact = false, upright = false, tallFelt = false) => (
     <TableFelt
       cards={communityCards}
       pot={pot}
       betsOut={betsOut}
-      bets={compact ? undefined : tallFelt ? tallBets : upright ? upBets : feltBets}
+      bets={compact || tallFelt ? undefined : upright ? upBets : feltBets}
       compact={compact}
       upright={upright}
       plain={tallFelt}
@@ -305,19 +300,25 @@ export default function PokerTable({
       {mounted !== 'desk' && draftA && !tall && <Fit w={tableWidth} data-a-table className="md:hidden">{deskTable('block')}</Fit>}
       {/* Draft A's tall table (?table=tall; owner, 2026-11-26: "turn our table into a vertical table with an angle that will
           fill the screen", "i want the extra player to be on the top ... otherwise it might make people think they're
-          player"): the desktop's own seat cards (200x128, never resized), felt and pot, laid out 720x960 and drawn as one
-          picture (Fit) in the first screen's room over the caption (globals.css). Only the felt is drawn tilted away, its far
-          end about 84% of its near end; it is laid out taller than it is drawn, so its drawn top is at 64, under the top
-          seat's middle. The seats straddle its rail, the upper rows moved in as it narrows (TALL_IN), and nothing sits at the
-          foot. data-a-table: draft A's card sizes and bets (globals.css), and the page's watch for the bar. */}
+          player"): the desktop's own seat cards (200x128, never resized), felt and pot, laid out TALL.w x TALL.h and drawn
+          as one picture (Fit) in the first screen's room over the caption (globals.css). Seat 0 on top, three down each side,
+          two at the foot (2026-11-27: "1 at the top, 3 down each side, 2 at the bottom"). The felt is a 2D trapezoid with a
+          converging grid (TALL_FELT), not a 3D transform: the rotateX felt inside Fit's scale drew leaning right in Safari
+          (Chrome drew it straight), so the outline is computed and symmetric by construction.
+          data-a-table: draft A's card sizes and bets (globals.css), and the page's watch for the bar. */}
       {mounted !== 'desk' && tall && <div data-tall-room className="md:hidden flex flex-col justify-center">
-        <Fit w={720} contain data-a-table data-tall-table>
-          <div className="relative" style={{ height: 960 }}>
-            <div data-tall-felt aria-hidden className="absolute bg-white" style={{ left: 90, width: 540, top: -131, height: 1091, borderRadius: 48, ...GRID, ...cardStyle, transform: 'perspective(1200px) rotateX(12.1deg)', transformOrigin: '50% 100%' }} />
-            <div className="absolute" style={{ left: TALL_MID.left, top: TALL_MID.top, width: TALL_MID.w, height: TALL_MID.h }}>{felt(false, false, true)}</div>
-            {[[0, 260, 0], ...tallSeats.right.map((idx, i) => [idx, 520 - TALL_IN[i], TALL_ROWS[i]]), ...tallSeats.left.map((idx, i) => [idx, TALL_IN[i], TALL_ROWS[i]])].map(([idx, x, y]) => (
+        <Fit w={TALL.w} contain data-a-table data-tall-table>
+          <div className="relative" style={{ height: TALL.h }}>
+            <svg data-tall-felt aria-hidden className="absolute inset-0" width={TALL.w} height={TALL.h} viewBox={`0 0 ${TALL.w} ${TALL.h}`} style={{ filter: 'drop-shadow(rgba(15, 15, 15, 0.1) 0px 2px 4px)' }}>
+              <clipPath id="tall-felt"><path d={TALL_FELT.edge} /></clipPath>
+              <path d={TALL_FELT.edge} fill="white" stroke="rgba(15, 15, 15, 0.1)" />
+              <path d={TALL_FELT.grid} clipPath="url(#tall-felt)" stroke="rgba(0, 0, 0, 0.03)" fill="none" />
+            </svg>
+            <div className="absolute" style={TALL_MID}>{felt(false, false, true)}</div>
+            {!blank && tallSeats.map((s, idx) => <BetStack key={idx} seat={idx} amount={players[idx]?.currentBet ?? 0} style={TALL_BET(s)} />)}
+            {tallSeats.map((s, idx) => (
               // White under the card, as the desktop table is: a folded seat fades on white, not on the felt's edge.
-              <div key={idx} className="absolute rounded bg-white" style={{ left: x, top: y, width: 200, height: 128 }}>{seat(idx)}</div>
+              <div key={idx} className="absolute rounded bg-white" style={{ left: TALL_SLOTS[s][0], top: TALL_SLOTS[s][1], width: 200, height: 128 }}>{seat(idx)}</div>
             ))}
           </div>
         </Fit>
@@ -364,16 +365,47 @@ export default function PokerTable({
   );
 }
 
-// Draft A's tall table (PokerTable, layout px of its 720x960 picture): each side row's top, how far each row moves in from
-// the picture's edge to stay over the narrowing rail, and the pot and board's box, between the side columns across their rows.
-const TALL_ROWS = [190, 387, 584, 781], TALL_IN = [24, 16, 8, 0];
-const TALL_MID = { left: 224, top: 190, w: 272, h: 719 };
-// Seat 0 at the top, then clockwise: down the right side, up the left.
-// shortcut: 6-8 seats fill each side's rows from the top (the lower rows left empty); spread them if short tables come back.
-function tallLayout(count: number) {
-  const r = Math.ceil((count - 1) / 2);
-  return { right: Array.from({ length: r }, (_, i) => i + 1), left: Array.from({ length: count - 1 - r }, (_, i) => count - 1 - i) };
-}
+// Draft A's tall table (PokerTable), in layout px of its picture. Every x pairs with its mirror (TALL.w - x - 200), so the
+// table is symmetric about its middle. The felt: top and bottom edges at the top and foot seats' middles, half as wide as
+// a and b (the far end about two thirds of the near one, a table seen from its foot); r its near corners' radius.
+const TALL = { w: 760, h: 960, top: 64, bottom: 896, a: 170, b: 250, r: 40 };
+// Each seat card's top left, clockwise from the top: down the right side, the foot (each centred in its half of the
+// felt's bottom edge as drawn, round corners and all), up the left. Side rows evenly spaced, each moved in with the
+// rail so it overlaps the felt by 50.
+const TALL_SLOTS = [[280, 0], [520, 208], [540, 416], [560, 624], [403, 832], [157, 832], [0, 624], [20, 416], [40, 208]];
+// Which slots a short table fills, in seat order: the side rows' middles go first, as pairs where they can.
+const TALL_FILL: Record<number, number[]> = { 6: [0, 1, 3, 4, 6, 8], 7: [0, 1, 3, 4, 5, 6, 8], 8: [0, 1, 2, 3, 4, 5, 6, 8] };
+const tallSlots = (count: number) => TALL_FILL[count] ?? TALL_SLOTS.map((_, i) => i).slice(0, count);
+// The pot and board: across the felt between the middle row's seats, a little over its middle so the middle row's bets
+// (TALL_BET, under each seat's middle) stay clear of the board; the button draw wraps to two rows in it.
+const TALL_MID = { left: 220, top: 290, width: 320, height: 280 };
+// A bet on the felt in front of its seat: under the top seat, over a foot seat, beside a side seat's lower half.
+const TALL_BET = (slot: number) => {
+  const [x, y] = TALL_SLOTS[slot];
+  return slot === 0 ? { left: x + 100, top: y + 150, transform: 'translate(-50%, -50%)' }
+    : slot === 4 || slot === 5 ? { left: x + 100, top: y - 24, transform: 'translate(-50%, -50%)' }
+    : slot < 4 ? { right: TALL.w - x + 12, top: y + 104, transform: 'translateY(-50%)' }
+    : { left: x + 212, top: y + 104, transform: 'translateY(-50%)' };
+};
+// The felt's outline (its corners rounded, the far ones smaller) and the desktop's 20px grid seen in perspective: lines
+// that run up the table meet where the rails do; lines across it close up toward the far end.
+const TALL_FELT = (() => {
+  const { w, top, bottom, a, b, r } = TALL, c = w / 2, far = bottom - b * (bottom - top) / (b - a);
+  const pts = [[c - b, bottom], [c - a, top], [c + a, top], [c + b, bottom]], radii = [r, r * a / b, r * a / b, r];
+  const at = (p: number[], q: number[], d: number) => { const l = Math.hypot(q[0] - p[0], q[1] - p[1]); return [p[0] + (q[0] - p[0]) * d / l, p[1] + (q[1] - p[1]) * d / l]; };
+  const f = (n: number) => +n.toFixed(2);
+  const edge = pts.map((p, i) => {
+    const s = at(p, pts[(i + 3) % 4], radii[i]), e = at(p, pts[(i + 1) % 4], radii[i]);
+    return `${i ? 'L' : 'M'}${f(s[0])} ${f(s[1])}Q${p[0]} ${p[1]} ${f(e[0])} ${f(e[1])}`;
+  }).join('') + 'Z';
+  let grid = '';
+  for (let k = -Math.ceil(b / 20); k <= Math.ceil(b / 20); k++) {
+    const x = (y: number) => f(c + 20 * k * (y - far) / (bottom - far));
+    grid += `M${x(top)} ${top}L${x(bottom)} ${bottom}`;
+  }
+  for (let y = bottom; y > top; y -= 15 * (y - far) / (bottom - far)) grid += `M0 ${f(y)}H${w}`;
+  return { edge, grid };
+})();
 
 // Helper function to get player layout based on count (6-9 players)
 function getPlayerLayout(count: number): PlayerLayout {
