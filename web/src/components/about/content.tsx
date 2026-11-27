@@ -32,10 +32,10 @@ export function Eyebrow() {
   return <p className={LABEL} style={{ color: MUTED }}>About No-LLMit</p>;
 }
 
-// The thesis: About's first heading, at the site title's size (a little smaller where About is phone-narrow, so it keeps
-// to its line).
+// The thesis: About's first heading, at the site title's size; where About is phone-narrow, smaller with its width (down
+// to 20px), so it keeps to one line on every phone.
 export function Thesis({ as: H }: { as: Heading }) {
-  return <H className="text-[24px] @md:text-[28px] leading-[1.15] font-bold tracking-[-0.01em]">A pseudo benchmark for LLMs.</H>;
+  return <H className="text-[clamp(20px,6.5cqw,24px)] @md:text-[28px] leading-[1.15] font-bold tracking-[-0.01em]">A pseudo benchmark for LLMs.</H>;
 }
 
 export function Intro() {
