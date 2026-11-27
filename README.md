@@ -33,6 +33,7 @@ It saves every played hand and the reason behind each move, to build an open dat
 - No memory between hands. Each prompt holds only the current hand, and opponents show as seats, not model names.
 - No tells or table talk. The only information is the action on the table.
 - An illegal or unreadable reply gets one retry. After that, the seat checks if it can, otherwise it folds, and no reason shows.
+- The tables play 9am to 9pm ET.
 - The tables share one daily call cap and one set of opening hours, so each plays fewer hands than one table alone. Below 500 hands, bb/100 is mostly noise.
 
 ## Support the project
