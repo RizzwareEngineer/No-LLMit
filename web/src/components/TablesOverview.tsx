@@ -21,7 +21,7 @@ const TABLE_W = 1000, TABLE_H = 514;
 // The label line over each table; the Profits & Losses panel beside it (the single-table page's, its rows closer), or
 // with ?pnl=row the slim row under it; the gaps between tables across and down.
 // PANEL_FULL_H, PANEL_DENSE_H: the panel with nine rows at the single-table page's spacing, and 2px apart.
-const LABEL_H = 24, PANEL_W = 208, PANEL_FULL_H = 360, PANEL_DENSE_H = 252, PANEL_GAP = 12, ROW_H = 26, ROW_GAP = 6, ROW_MIN_W = 9 * 62 + 16, GX = 32, GY = 18;
+const LABEL_H = 24, PANEL_W = 208, PANEL_FULL_H = 360, PANEL_DENSE_H = 252, TIGHT_HEAD = 25, TIGHT_ROW = 20.5, PANEL_GAP = 12, ROW_H = 26, ROW_GAP = 6, ROW_MIN_W = 9 * 62 + 16, GX = 32, GY = 18;
 const CARD = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
 const UP = 'rgb(15, 123, 108)', DOWN = 'rgb(200, 50, 50)';
 // The stats tile-to-card glide's curve (Section's glideEase), shorter: a table is one picture, not a card's content.
@@ -151,7 +151,8 @@ function Cell({ t, tw, th, cellW, pnl, onOpen }: { t: KeyedTable; tw: number; th
       {pnl === 'row' ? <PnlRow t={t} width={cellW} /> : (
         // As tall as its rows (it hugs them), never taller than the label and the table; its rows closer together where
         // the single-table page's spacing would not fit beside the table.
-        <div data-overview-pnl className="flex flex-col shrink-0" style={{ width: PANEL_W, maxHeight: LABEL_H + th }}>
+        // Where even touching rows do not all fit, it ends on a whole row (the rest scroll), never on half of one.
+        <div data-overview-pnl className="flex flex-col shrink-0" style={{ width: PANEL_W, maxHeight: LABEL_H + th >= PANEL_DENSE_H ? LABEL_H + th : TIGHT_HEAD + Math.max(1, Math.floor((LABEL_H + th - TIGHT_HEAD + 1) / TIGHT_ROW)) * TIGHT_ROW - 1 }}>
           <TableBigBlind.Provider value={bigBlind || null}>
             <WinningsPanel players={t.gameState?.players ?? []} box={`pnl:${t.key}`} dense={LABEL_H + th >= PANEL_FULL_H ? false : LABEL_H + th >= PANEL_DENSE_H ? true : 'tight'} />
           </TableBigBlind.Provider>

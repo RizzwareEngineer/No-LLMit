@@ -1547,7 +1547,7 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
 const TABLE_SIZES = [[1440, 790], [1280, 720]];
 const deskBox = p => p.evaluate(() => { const b = document.querySelector('.stage-zoom [data-desk-table]').getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
 const cellsOf = p => p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(a => {
-  const b = a.getBoundingClientRect(), t = a.querySelector('[data-small-table]'), d = t?.querySelector('[data-desk-table]'), r = d?.getBoundingClientRect();
+  const t = a.querySelector('[data-small-table]'), d = t?.querySelector('[data-desk-table]'), r = d?.getBoundingClientRect();
   const lab = a.querySelector('[data-cell-label] > span'), item = a.closest('[data-overview-item]');
   return { key: a.dataset.overviewCell, name: a.getAttribute('aria-label'), label: lab?.textContent ?? '', text: a.textContent, bottom: item.getBoundingClientRect().bottom, right: item.getBoundingClientRect().right, seats: t?.querySelectorAll('[data-seat]').length ?? 0,
     sx: r && r.width / d.offsetWidth, sy: r && r.height / d.offsetHeight, w: d?.offsetWidth, lod: d?.dataset.lod, panel: !!item.querySelector('[data-overview-pnl] [data-box]'),
