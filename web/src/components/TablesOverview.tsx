@@ -167,10 +167,10 @@ function Cell({ t, tw, th, cellW, pnl, onOpen }: { t: KeyedTable; tw: number; th
 // out measures a cell straight away.
 export default function TablesOverview({ tables, w, h, pnl, onOpen }: { tables: KeyedTable[]; w: number; h: number; pnl: PnlVariant; onOpen: (key: string) => void }) {
   const { cols, rows, tw, th, cellW, cellH } = gridFor(tables.length, w, h, pnl);
-  // The table size is set by the box's width: the height left over goes between the rows (up to 5 gaps' worth), not
-  // into bands over and under the grid. Rows stay closer to each other than a table's own height, so each table, its
-  // label and its panel still read as one.
-  const rowGap = rows > 1 ? Math.max(GY, Math.min(GY * 5, (h - rows * cellH - 2 * 24) / (rows - 1))) : GY;
+  // The table size is set by the box's width: the height left over goes between the rows (up to 6 gaps' worth, leaving
+  // bands of 36px), not into bands over and under the grid. Rows stay closer to each other than a table's own height, so
+  // each table, its label and its panel still read as one.
+  const rowGap = rows > 1 ? Math.max(GY, Math.min(GY * 6, (h - rows * cellH - 2 * 36) / (rows - 1))) : GY;
   return (
     <div data-overview className="absolute inset-0 flex items-center justify-center">
       {tw > 0 && (
