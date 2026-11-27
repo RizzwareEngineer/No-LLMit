@@ -202,19 +202,21 @@ function navAt(d: Dir, label: string, r: NavRoom, drawn?: number) {
   if (d === 'up') return { at: { left: t.left, top: t.top - NAV_GAP - h }, vertical: false };
   if (d === 'down') return downStacked(r)
     ? { at: { left: r.stats.left + r.stats.width / 2 - w / 2, top: r.stageBottom + NAV_GAP }, vertical: false }
-    : { at: { left: r.stats.left - BESIDE_STATS - w, top: r.stats.top }, vertical: false };
+    // On Stats' line; where Stats itself runs past the window's foot (1280x720: the table's fit floor), lifted just
+    // enough to be whole: a control cut off is worse than one a few px off the line.
+    : { at: { left: r.stats.left - BESIDE_STATS - w, top: Math.min(r.stats.top, r.foot - NAV_MARGIN - h) }, vertical: false };
   const room = d === 'left' ? r.leftRoom : r.rightRoom, vertical = room < w + NAV_GAP + NAV_MARGIN, across = vertical ? h : w;
   return { at: { left: d === 'left' ? t.left - NAV_GAP - across : r.sideRight + NAV_GAP, top: cy - (vertical ? w : h) / 2 }, vertical };
 }
 
 // About, with ?tables=1: the Stats button's pill at the page's top-right corner, across from "All tables" (the
 // subtitle's link was a 14px line in a sentence; a pill of the family's height there would make the header taller).
-function AboutPill({ top, right }: { top: number; right: number }) {
+function AboutPill({ top }: { top: number }) {
   return (
     <Link href="/about" data-about-pill
       onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about', false); } }}
-      className={`absolute z-20 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgb(31,111,196)] ${NEXT_BUTTON}`}
-      style={{ ...NEXT_STYLE, top, right }}>
+      className={`absolute z-20 right-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgb(31,111,196)] ${NEXT_BUTTON}`}
+      style={{ ...NEXT_STYLE, top }}>
       <Info size={16} weight="bold" aria-hidden style={{ color: BLUE }} /> About
     </Link>
   );
@@ -392,13 +394,13 @@ export default function Home() {
   // Each arrow pill's width as drawn, by its label (NavPill reports it), for where it goes and whether it lies on its side.
   const [pillW, setPillW] = useState<Record<string, number>>({});
   const drawnPill = useCallback((label: string, w: number) => setPillW(m => (Math.abs((m[label] ?? 0) - w) < 0.5 ? m : { ...m, [label]: w })), []);
-  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; aboutRight: number; w: number; nav: NavRoom } | null>(null);
+  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; w: number; nav: NavRoom } | null>(null);
   const grid = room ? gridFor(tables.length, room.overview.width, room.overview.height) : null, cols = grid?.cols ?? 1;
   // The header's per-table items (hand, stakes, clock) open as a table zooms in and fold away as it zooms out (StatusRow).
   const perTable = !overviewOn || !(anim ? anim.kind === 'out' : (shown === undefined ? target === null : shown === null));
   // In the zoom the stage's table is the overview's small one growing: it starts seen from far away, as the cell drew it,
   // and becomes the page's table (PokerTable's lod, the --lod-t and --lod-o animations below); zooming out, back.
-  const zoomLod = overviewOn && grid?.tw && grid.tw < 1000 && (anim?.kind === 'in' || anim?.kind === 'out') ? { k: 1000 / grid.tw, morph: true } : null;
+  const zoomLod = overviewOn && room && grid?.tw && grid.tw < room.w && (anim?.kind === 'in' || anim?.kind === 'out') ? { k: 1000 / grid.tw, morph: true } : null;
   // A ?t no table has (a stale link, or a table gone from the stream) is dropped, so the page is on the overview.
   useEffect(() => { if (overviewOn && focusParam && keys.length && !keys.includes(focusParam)) clearFocus(); }, [overviewOn, focusParam, keys]);
   // Off (a resize to a phone): forget the machine, and any animation still running ends unheard.
@@ -567,13 +569,12 @@ export default function Home() {
         edges,
         // "All tables": the page's top-left content corner (the screen's left edge, under its top padding).
         back: { left: 0, top: pad },
-        // About: the mirror corner, as far in from the window's right edge as "All tables" is from its left (the screen
-        // ends a little short of the window's right edge).
-        aboutRight: s.right - (document.documentElement.clientWidth - s.left),
         w: t.width,
         nav: {
           table: { left: x(t.left), top: y(t.top), width: t.width, height: t.height }, stageBottom: y(st.bottom), sideRight: x(side.right),
-          leftRoom: t.left, rightRoom: document.documentElement.clientWidth - side.right, h: b.height, font: getComputedStyle(btn).font,
+          // The room beside the table and the sidebar, to the screen's own edges: it scrolls sideways (overflow), so it
+          // clips anything past them, and on this page it ends short of the window's right edge.
+          leftRoom: t.left - s.left, rightRoom: Math.min(s.right, document.documentElement.clientWidth) - side.right, h: b.height, font: getComputedStyle(btn).font,
           // Stats where it always is (its own shift taken off), and the window's foot.
           stats: { left: x(b.left), top: y(bTop), width: b.width, height: b.height }, foot: y(innerHeight),
         },
@@ -904,9 +905,9 @@ export default function Home() {
             Between the stage and the Stats button: fitStage measures the screen from its first child to its last. */}
         {/* Mounted for as long as the switch is on (hidden while a table is in focus), so zooming out draws no new tables. */}
         {overviewOn && room && <div ref={overlay} className="absolute z-20" style={{ ...room.overview, ...(showOverview ? null : { visibility: 'hidden', pointerEvents: 'none' }) }} aria-hidden={!showOverview || undefined}>
-          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} onOpen={openTable} />
+          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} nearW={room.w} onOpen={openTable} />
         </div>}
-        {overviewOn && room && <AboutPill top={room.back.top} right={room.aboutRight} />}
+        {overviewOn && room && <AboutPill top={room.back.top} />}
         {navShown && room && <>
           <AllTables ref={backButton} at={room.back} still={!atRest} onClick={backToTables} />
           {(Object.keys(STEP) as Dir[]).map(d => {

@@ -65,21 +65,21 @@ function smallTable(t: TableView) {
 }
 
 // The desktop table drawn `width` px across as one picture (Fit's transform), in its own big blind. Not interactive: the
-// cell or edge round it is the control. `far`: seen from far away (the overview); its seats keep their names for screen
-// readers. Without it (the stage's edges) it is a picture only, drawn as the page draws it.
+// cell or edge round it is the control. `named`: the overview's, its seats keep their names for screen readers (without
+// it, the stage's edges, a picture only). `far`: seen from far away (PokerTable's lod), when drawn smaller than the page's.
 // Memoized: every stream message renders the page, and a table unchanged by it keeps its object (useGameState).
-const SmallTable = memo(function SmallTable({ t, width, far = false }: { t: TableView; width: number; far?: boolean }) {
+const SmallTable = memo(function SmallTable({ t, width, far = false, named = false }: { t: TableView; width: number; far?: boolean; named?: boolean }) {
   return (
     <TableBigBlind.Provider value={stakesOf(t).bigBlind || null}>
-      <div data-small-table inert={!far || undefined} aria-hidden={!far || undefined} className={far ? 'pointer-events-none' : undefined} style={{ width }}>
-        <Fit w={TABLE_W}><PokerTable {...smallTable(t)} still lod={far && width < TABLE_W ? { k: TABLE_W / width } : null} /></Fit>
+      <div data-small-table inert={!named || undefined} aria-hidden={!named || undefined} className={named ? 'pointer-events-none' : undefined} style={{ width }}>
+        <Fit w={TABLE_W}><PokerTable {...smallTable(t)} still lod={far ? { k: TABLE_W / width } : null} /></Fit>
       </div>
     </TableBigBlind.Provider>
   );
 });
 
 // One table: its label line and the small table, as one link into the table.
-function Cell({ t, tw, th, onOpen }: { t: KeyedTable; tw: number; th: number; onOpen: (key: string) => void }) {
+function Cell({ t, tw, th, far, onOpen }: { t: KeyedTable; tw: number; th: number; far: boolean; onOpen: (key: string) => void }) {
   const label = tableLabel(t);
   return (
     <a
@@ -97,7 +97,7 @@ function Cell({ t, tw, th, onOpen }: { t: KeyedTable; tw: number; th: number; on
       </div>
       {/* Hover and focus: it lifts a little with a blue ring, the cursor a hand: it opens. */}
       <div data-cell-table className="relative rounded transition-[transform,box-shadow] duration-150 ease-out group-hover:-translate-y-0.5 group-hover:shadow-[0_0_0_2px_rgba(31,111,196,0.6),0_8px_20px_rgba(15,15,15,0.14)] group-focus-visible:-translate-y-0.5 group-focus-visible:shadow-[0_0_0_2px_rgba(31,111,196,0.6),0_8px_20px_rgba(15,15,15,0.14)]" style={{ width: tw, height: th }}>
-        <SmallTable t={t} width={tw} far />
+        <SmallTable t={t} width={tw} far={far} named />
       </div>
     </a>
   );
@@ -106,13 +106,14 @@ function Cell({ t, tw, th, onOpen }: { t: KeyedTable; tw: number; th: number; on
 // The grid, centred in its box (`w` x `h`: the first screen between the header and the Stats button, page.tsx), the last
 // row's tables centred under the others, the gaps between them even. Laid out from the box's size as given, in the
 // render that mounts it: the zoom out measures a cell straight away.
-export default function TablesOverview({ tables, w, h, onOpen }: { tables: KeyedTable[]; w: number; h: number; onOpen: (key: string) => void }) {
+// `nearW`: the page's own table's width; a small table drawn smaller than it is seen from far away (PokerTable's lod).
+export default function TablesOverview({ tables, w, h, nearW, onOpen }: { tables: KeyedTable[]; w: number; h: number; nearW: number; onOpen: (key: string) => void }) {
   const { cols, tw, th, cellW } = gridFor(tables.length, w, h);
   return (
     <div data-overview className="absolute inset-0 flex items-center justify-center">
       {tw > 0 && (
         <div data-overview-grid className="flex flex-wrap justify-center" style={{ width: cols * cellW + (cols - 1) * GX, columnGap: GX, rowGap: GY }}>
-          {tables.map(t => <Cell key={t.key} t={t} tw={tw} th={th} onOpen={onOpen} />)}
+          {tables.map(t => <Cell key={t.key} t={t} tw={tw} th={th} far={tw < nearW} onOpen={onOpen} />)}
         </div>
       )}
     </div>

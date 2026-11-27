@@ -1787,7 +1787,7 @@ group(() => check('tables-zoom-lands', 'With ?tables=1 at 1440x790 and 1280x720,
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 1440x790, 1440x900 and 1728x1117, by default: an arrow button for every neighbour in the overview grid (named "Go to table …"), each as tall as the Stats button, none over a seat, a bet, the sidebar, the reasoning panel, the header, the Stats button or another button, every one at least 8px inside the window, no faded edge; "All tables" at the page\'s top-left (16,16) and About at its top-right, both clear of the header\'s text, one About link; every pill (arrows, Stats, All tables, About) the same height and type size; the table\'s box the page without the switch draws (within 1px). In 1/2 (a table below): its pill centred over Stats, 8px apart, where the window has the height for both, else on Stats\' line to its left, Stats where the page without the switch draws it across. At 1440x790 and 1280x720 with edges=live and edges=outline the faded edges show instead (the table faded, or a tab with its label), none over those. Every way: a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
+group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 1440x790, 1440x900 and 1728x1117, by default: an arrow button for every neighbour in the overview grid (named "Go to table …"), each as tall as the Stats button, none over a seat, a bet, the sidebar, the reasoning panel, the header, the Stats button or another button, every one at least 8px inside the window, no faded edge; "All tables" at the page\'s top-left (16,16) and About at its top-right (the page box\'s right edge, 16px down), neither cut, both clear of the header\'s text, one About link; every pill (arrows, Stats, All tables, About) the same height and type size; the table\'s box the page without the switch draws (within 1px). In 1/2 (a table below): its pill centred over Stats, 8px apart, where the window has the height for both, else on Stats\' line to its left (lifted to stay 8px inside the window where Stats runs past its foot), Stats where the page without the switch draws it across. At 1440x790 and 1280x720 with edges=live and edges=outline the faded edges show instead (the table faded, or a tab with its label), none over those. Every way: a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
   const bad = [], seen = [];
   const runs = [...[[1280, 720], [1440, 790], [1440, 900], [1728, 1117]].map(s => [...s, 'buttons']), ...TABLE_SIZES.flatMap(s => ['live', 'outline'].map(v => [...s, v]))];
   const plainBox = {};
@@ -1807,13 +1807,16 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 144
         return {
           stats: stats.getBoundingClientRect().height, faded: document.querySelectorAll('[data-edge]').length,
           edges: els.map(e => ({ dir: e.dataset.edge ?? e.dataset.tableNav, tab: e.dataset.edgeTab !== undefined, name: e.getAttribute('aria-label'), h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width, vertical: getComputedStyle(e).writingMode !== 'horizontal-tb',
-            out: (([l, t, r, b]) => l < 8 - 0.5 || t < 8 - 0.5 || r > document.documentElement.clientWidth - 8 + 0.5 || b > innerHeight - 8 + 0.5)(box(e)), font: getComputedStyle(e).fontSize,
+            out: (([l, t, r, b]) => l < 8 - 0.5 || t < 8 - 0.5 || r > Math.min(document.documentElement.clientWidth, document.documentElement.getBoundingClientRect().right) - 8 + 0.5 || b > innerHeight - 8 + 0.5)(box(e)), font: getComputedStyle(e).fontSize,
+            // Not cut by anything round it (a clipping parent): its four inner corners are its own.
+            cut: (([l, t, r, b]) => [[l + 4, (t + b) / 2], [r - 4, (t + b) / 2], [(l + r) / 2, t + 4], [(l + r) / 2, b - 4]].some(([x, y]) => !e.contains(document.elementFromPoint(x, y))))(box(e)),
             over: [...keep, ...els.filter(o => o !== e)].filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.dataset.tableNav ?? (k === stats ? 'Stats' : k.id || k.className.slice(0, 20))) })),
           pills: [stats, ...document.querySelectorAll('[data-all-tables-button], [data-about-pill]')].map(e => ({ h: e.getBoundingClientRect().height, font: getComputedStyle(e).fontSize, name: e.textContent.trim() })),
           corners: (() => { const a = document.querySelector('[data-all-tables-button]')?.getBoundingClientRect(), b = document.querySelector('[data-about-pill]')?.getBoundingClientRect();
             const head = [...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).flatMap(x => [...x.querySelectorAll('h1, p, button, a, span, [role=group]')]).filter(x => x.getClientRects().length && !x.closest('[data-all-tables-button], [data-about-pill]') && x.offsetWidth < innerWidth * 0.8);
             const hit = r => r && head.filter(x => meets(box(x), [r.left, r.top, r.right, r.bottom])).map(x => x.textContent.trim().slice(0, 16));
-            return { all: a && [a.left, a.top], about: b && [document.documentElement.clientWidth - b.right, b.top], hits: [...(hit(a) ?? []), ...(hit(b) ?? [])],
+            const sec = document.querySelector('section[data-screen]').getBoundingClientRect(), mine = (el, r) => r && [[r.left + 4, r.top + r.height / 2], [r.right - 4, r.top + r.height / 2]].every(([x, y]) => el.contains(document.elementFromPoint(x, y)));
+            return { all: a && [a.left, a.top], about: b && [sec.right - b.right, b.top], cut: !mine(document.querySelector('[data-all-tables-button]'), a) || !mine(document.querySelector('[data-about-pill]'), b), hits: [...(hit(a) ?? []), ...(hit(b) ?? [])],
               abouts: [...document.querySelectorAll('a[href="/about"]')].filter(x => x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden' && x.getBoundingClientRect().bottom < innerHeight).length };
           })(),
           back: (() => { const b = document.querySelector('[data-all-tables-button]')?.getBoundingClientRect(), pg = document.querySelector('[data-page]'), sec = document.querySelector('section[data-screen]');
@@ -1838,12 +1841,14 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 144
           const tall = e.vertical ? e.w : e.h;
           if (Math.abs(tall - r.stats) > 0.5) bad.push(`${size}: the ${e.dir} button is ${tall.toFixed(1)}px, Stats ${r.stats.toFixed(1)}px`);
           if (e.out) bad.push(`${size}: the ${e.dir} button is less than 8px inside the window`);
+          if (e.cut) bad.push(`${size}: the ${e.dir} button is cut or covered`);
           if (e.font !== r.pills[0].font) bad.push(`${size}: the ${e.dir} button's type ${e.font}, Stats ${r.pills[0].font}`);
         }
         for (const q of r.pills) if (Math.abs(q.h - r.stats) > 0.5 || q.font !== r.pills[0].font) bad.push(`${size}: ${q.name} ${q.h.toFixed(1)}px tall, type ${q.font} (Stats ${r.stats.toFixed(1)}px, ${r.pills[0].font})`);
         const c = r.corners;
         if (!c.all || Math.abs(c.all[0] - 16) > 1 || Math.abs(c.all[1] - 16) > 1) bad.push(`${size}: All tables at ${c.all?.map(Math.round)} (want 16,16)`);
-        if (!c.about || Math.abs(c.about[0] - 16) > 1 || Math.abs(c.about[1] - 16) > 1) bad.push(`${size}: About ${c.about?.map(Math.round)} from the top-right (want 16,16)`);
+        if (!c.about || Math.abs(c.about[0]) > 1 || Math.abs(c.about[1] - 16) > 1) bad.push(`${size}: About ${c.about?.map(Math.round)} from the page's top-right (want 0,16)`);
+        if (c.cut) bad.push(`${size}: a corner pill is cut or covered`);
         if (c.hits.length) bad.push(`${size}: a corner pill over the header's ${c.hits.join(', ')}`);
         if (c.abouts !== 1) bad.push(`${size}: ${c.abouts} About links on the first screen`);
         if (!r.back || Math.hypot(r.back.dx, r.back.dy) > 24) bad.push(`${size}: All tables ${r.back ? `${r.back.dx.toFixed(1)},${r.back.dy.toFixed(1)}px` : 'missing'} from the page's top-left content corner`);
@@ -1873,9 +1878,21 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 144
       if (Math.abs(st[0] - plainStats[0]) > 1) bad.push(`${size} in 1/2: Stats moved across (${Math.round(st[0])}, the page's ${Math.round(plainStats[0])})`);
       if (stacked) {
         if (Math.abs(d[0] + d[2] / 2 - (st[0] + st[2] / 2)) > 1 || Math.abs(d[1] + d[3] + 8 - st[1]) > 1 || st[1] + st[3] > d[5] - 8 + 0.5) bad.push(`${size} in 1/2: down ${d.slice(0, 4).map(Math.round)} not centred 8px over Stats ${st.map(Math.round)} inside the window`);
-      } else if (Math.abs(d[1] - st[1]) > 1 || d[0] + d[2] > st[0] - 8 || Math.abs(st[1] - plainStats[1]) > 1) bad.push(`${size} in 1/2: down ${d.slice(0, 4).map(Math.round)} not on Stats' line to its left (Stats ${st.map(Math.round)}, the page's ${plainStats.map(Math.round)})`);
+      } else if (Math.abs(d[1] - Math.min(st[1], d[5] - 8 - d[3])) > 1 || d[0] + d[2] > st[0] - 8 || Math.abs(st[1] - plainStats[1]) > 1) bad.push(`${size} in 1/2: down ${d.slice(0, 4).map(Math.round)} not on Stats' line to its left (Stats ${st.map(Math.round)}, the page's ${plainStats.map(Math.round)})`);
       seen.push(`${size} in 1/2: down ${stacked ? 'over' : 'beside'} Stats at ${d.slice(0, 2).map(Math.round)}, Stats ${st.slice(0, 2).map(Math.round)}`);
     } finally { await q.close(); }
+    // In every table: no button cut by the page's edge or closer than 8px to the window's.
+    for (const key of ['1-2-100bb', '5-10-200bb', '50-100-100bb']) {
+      const k = await scriptedTable(w, h, false, `tables=1&t=${key}`);
+      try {
+        await sleep(900);
+        const cut = await k.evaluate(() => [...document.querySelectorAll('[data-table-nav]')].filter(e => {
+          const { left: l, top: t, right: r, bottom: b } = e.getBoundingClientRect(), edge = Math.min(document.documentElement.clientWidth, document.documentElement.getBoundingClientRect().right);
+          return l < 7.5 || t < 7.5 || r > edge - 7.5 || b > innerHeight - 7.5 || [[l + 4, (t + b) / 2], [r - 4, (t + b) / 2]].some(([x, y]) => !e.contains(document.elementFromPoint(x, y)));
+        }).map(e => e.dataset.tableNav));
+        if (cut.length) bad.push(`${size} in ${key}: ${cut.join(', ')} cut or under 8px from the window's edge`);
+      } finally { await k.close(); }
+    }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
