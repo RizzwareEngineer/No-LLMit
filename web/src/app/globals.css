@@ -408,6 +408,9 @@ html[data-overview] .stage-zoom { visibility: hidden; }
 @property --lod-o { syntax: '<number>'; inherits: true; initial-value: 1; }
 [data-lod="far"] { --lod-t: 0; --lod-o: 0; }
 [data-lod] [data-lod-text], [data-lod][data-lod-pot="hide"] [data-lod-pot] { opacity: var(--lod-o); }
+/* The pot's label (12px) never reads from far away: where its amount does, the label folds to nothing with the text's
+   fade, so the box hugs the amount instead of keeping a blank where the label was. */
+[data-lod] [data-lod-pot-label] { max-width: calc(var(--lod-o) * 3em); margin-right: calc((var(--lod-o) - 1) * 8px); overflow: hidden; }
 [data-lod] [data-lod-btn] { color: rgb(255 255 255 / var(--lod-o)); }
 [data-lod] [data-lod-logo] { transform-origin: 0 0; transform: scale(calc(1 + (var(--lod-g) - 1) * (1 - var(--lod-t)))); }
 [data-lod] [data-desk-seat] [data-hole] { transform-origin: 100% 100%; transform: scale(calc(1 + (var(--lod-f) - 1) * (1 - var(--lod-t)))); }
