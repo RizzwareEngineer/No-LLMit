@@ -121,7 +121,7 @@ func (s *Server) llmUsage() json.RawMessage {
 	return llm
 }
 
-// devRoutes adds the owner's local tools, only with DEV_CONTROLS=1: production never sets it, so there
+// devRoutes adds local development tools, only with DEV_CONTROLS=1: production never sets it, so there
 // the routes do not exist (404).
 func (s *Server) devRoutes(mux *http.ServeMux) {
 	if os.Getenv("DEV_CONTROLS") != "1" {
@@ -134,7 +134,7 @@ func (s *Server) devRoutes(mux *http.ServeMux) {
 // handlePace reads (GET) or sets (POST ?pace=0.5, or a form body) the pace every table shares,
 // 0.1 to 2; the next pause uses it.
 func (s *Server) handlePace(w http.ResponseWriter, r *http.Request) {
-	// Only a page served from this machine: with CORS open, any site the owner visits could
+	// Only a page served from this machine: with CORS open, any site the developer's browser visits could
 	// otherwise post a form here.
 	if o := r.Header.Get("Origin"); o != "" && !isLocalOrigin(o) {
 		http.Error(w, "forbidden", http.StatusForbidden)

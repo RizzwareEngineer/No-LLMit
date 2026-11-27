@@ -697,7 +697,7 @@ func (t *Table) playTurn() {
 	t.publish(thinking)
 	t.mu.Unlock()
 
-	start := time.Now() // waitForBudget counted the call
+	start := time.Now() // waitForBudget reserved the calls; settle below counts them
 	// Reading t.gs without the lock is safe here: only this goroutine changes it.
 	turn := decideLLMTurn(t.gs, func() (*client.LLMDecisionResponse, error) { return askLLM(req) })
 	decision := turn.decision
