@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import PokerTable from '@/components/PokerTable';
 import Fit from '@/components/Fit';
 import FitName from '@/components/FitName';
@@ -60,7 +61,8 @@ function smallTable(t: TableView) {
 
 // The desktop table drawn `width` px across as one picture (Fit's transform), in its own big blind. Not interactive: the
 // cell or edge round it is the control.
-export function SmallTable({ t, width }: { t: TableView; width: number }) {
+// Memoized: every stream message renders the page, and a table unchanged by it keeps its object (useGameState).
+export const SmallTable = memo(function SmallTable({ t, width }: { t: TableView; width: number }) {
   return (
     <TableBigBlind.Provider value={stakesOf(t).bigBlind || null}>
       <div data-small-table inert aria-hidden style={{ width }}>
@@ -68,7 +70,7 @@ export function SmallTable({ t, width }: { t: TableView; width: number }) {
       </div>
     </TableBigBlind.Provider>
   );
-}
+});
 
 // Profits & Losses rows at the size of the sidebar's text, as many as fit in `h` px: the leaders, then the last.
 function PnlRows({ rows, h, bb }: { rows: { name: string; value: number }[]; h: number; bb: number | null }) {

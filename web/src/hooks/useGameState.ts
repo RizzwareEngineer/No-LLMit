@@ -28,6 +28,14 @@ interface UseGameStateReturn {
 }
 
 // `focus`: the table to describe (a key, as the stream names it); none, or one the stream does not have, is the 5/10 one.
+// Each table with its key, kept while the table is unchanged, so a small copy of it (the tables overview) skips a render.
+const keyed = new WeakMap<TableView, TableView & { key: string }>();
+const withKey = (key: string, t: TableView) => {
+  let k = keyed.get(t);
+  if (!k) keyed.set(t, (k = { ...t, key }));
+  return k;
+};
+
 export function useGameState(focus: string | null = null): UseGameStateReturn {
   // Every table the stream reports, by table key, in the engine's configured order; the page draws the focused one.
   const [tables, setTables] = useState<Tables>({});
@@ -36,7 +44,7 @@ export function useGameState(focus: string | null = null): UseGameStateReturn {
   const [gaveUp, setGaveUp] = useState(false);
   const streamRef = useRef<GameStream | null>(null);
 
-  const all = Object.entries(tables).map(([key, t]) => ({ ...t, key }));
+  const all = Object.entries(tables).map(([key, t]) => withKey(key, t));
   const focused = all.find(t => t.key === focus) ?? all.find(t => t.gameState?.stakes.smallBlind === 5 && t.gameState.stakes.bigBlind === 10) ?? all[0];
   const table = focused ?? EMPTY_TABLE;
 
