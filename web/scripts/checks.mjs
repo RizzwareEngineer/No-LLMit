@@ -28,7 +28,7 @@ const results = [];
 const SPEED = +arg('--replay-speed', 4);
 // This script's lines and its checks' ids in order (for --changed, and to print results in order).
 const SRC = readFileSync(new URL(import.meta.url), 'utf8').split('\n');
-const CHECK = /^(?:  await |(?:group|late|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/, ONE_LINE = /\)\);\s*$/;
+const CHECK = /^(?:  await |(?:group|late|lateAlone|main)\(\(\) => )check\('([\w-]+)'/, END = /^}\)\)?;$/, ONE_LINE = /\)\);\s*$/;
 const IDS = SRC.map(l => l.match(CHECK)?.[1]).filter(Boolean);
 const want = id => !SKIP.has(id) && (!ONLY.size || ONLY.has(id));
 // A query as a URL's search part ('a=1' or '?a=1').
@@ -51,11 +51,13 @@ const line = r => `${r.pass ? 'PASS' : 'FAIL'}  ${r.id.padEnd(ID_W)}  ${(r.ms / 
 // in a browser context of its own: a window of its own, so input and frames work in every lane at once (a background
 // tab gets neither); newPage() opens a page in the running group's context. The rest (group) run beside the main page
 // in LANES - 1 lanes (with --lanes 1, after it). Checks that time scroll gestures (late) misread a busy machine, so they wait
-// for the main page, then take LANES - 1 lanes (scroll-consistency opens a second window of its own). All are only
+// for the main page, then take LANES - 1 lanes. Every late check animates page scrolls, and one that compares the speed
+// of its scrolls (lateAlone: scroll-consistency's down against up) runs only once the others are done, so no other
+// window animates a scroll beside it (two or three at once gave one direction's median a contended frame). All are only
 // queued while this file runs top to bottom, and start at its end.
 const LANES = +arg('--lanes', 3);
-const lane = new AsyncLocalStorage(), groups = [], lates = [], steps = [];
-const group = fn => groups.push(fn), late = fn => lates.push(fn), main = fn => steps.push(fn);
+const lane = new AsyncLocalStorage(), groups = [], lates = [], latesAlone = [], steps = [];
+const group = fn => groups.push(fn), late = fn => lates.push(fn), lateAlone = fn => latesAlone.push(fn), main = fn => steps.push(fn);
 // Every page remembers the engine stream it opened (an open EventSource has no resource timing entry), so a check can
 // ask the same engine for its stats (engineStats).
 const watchStream = p => { p.on('request', r => { if (/\/stream$/.test(r.url())) p.__stream = r.url(); }); return p; };
@@ -5560,14 +5562,15 @@ group(() => check('donate-apparent', 'On the table screen at 1440x900 and 1728x1
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-late(() => check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, notch, phased) and key (PageDown/Up, arrows, Space) moves exactly one screen, both ways, landing on a screen edge, at 1440x900 and 1728x1117: overview ↔ About, and Trends ↔ Profiles ↔ Matchups once a tile opened them; down and up move at the same speed and fade the card underneath alike; a gesture\'s ambiguous first wheel event is claimed', async () => {
+lateAlone(() => check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, notch, phased) and key (PageDown/Up, arrows, Space) moves exactly one screen, both ways, landing on a screen edge, at 1440x900 and 1728x1117: overview ↔ About, and Trends ↔ Profiles ↔ Matchups once a tile opened them; down and up move at the same speed and fade the card underneath alike; a gesture\'s ambiguous first wheel event is claimed', async () => {
   const bad = [], seen = [];
   const KEYS = new Set(['PageDown', 'ArrowDown', 'Space']);
   // [from, direction, to]: the main scroll's stats leg, then the cards' loop (entered by a click on Trends's tile).
   const MAIN = [['stats', 1, 'about'], ['about', -1, 'stats']];
   const LOOP = [['race', 1, 'stats-table'], ['stats-table', 1, 'pairwise'], ['pairwise', -1, 'stats-table'], ['stats-table', -1, 'race']];
-  // The two sizes run side by side, each in a window of its own.
-  const runs = await Promise.all([[1440, 900], [1728, 1117]].map(([w, h], i) => (i ? alone : f => f())(async () => {
+  // The two sizes run one after the other: side by side, two windows animating scrolls at once slowed one direction's frames.
+  const runs = [];
+  for (const [w, h] of [[1440, 900], [1728, 1117]]) runs.push(await (async () => {
     const bad = [], seen = [];
     const p = await pageAt(w, h);
     // Chrome lets a page cancel a wheel gesture only from its first event: the page must claim a start that is not
@@ -5605,7 +5608,7 @@ late(() => check('scroll-consistency', 'Every wheel gesture (trackpad, gentle, n
     if (!fades[1].length || !fades[-1].length || Math.abs(fd - fu) > Math.max(80, 0.4 * Math.max(fd, fu))) bad.push(`${w}x${h}: the card underneath fades ${fd}ms going down vs ${fu}ms going up`);
     await p.close();
     return { bad, seen };
-  })));
+  })());
   for (const r of runs) { bad.push(...r.bad); seen.push(...r.seen); }
   return { pass: !bad.length, detail: bad.length ? `${bad.slice(0, 8).join('; ')} || measured: ${seen.join(' | ')}` : seen.join(' | ') };
 }));
@@ -7509,8 +7512,8 @@ const beside = LANES > 1 ? drain(groups, LANES - 1) : null;
 for (const step of steps) await step().catch(e => console.error(e));
 await Promise.all([pg, ...shared().values()].map(p => p.close()));
 await browser.__sharedCtx?.close();
-if (beside) await Promise.all([beside, drain(lates, LANES - 1)]);
-else { await drain(groups, 1); await drain(lates, 1); }
+if (beside) await Promise.all([beside, drain(lates, LANES - 1).then(() => drain(latesAlone, 1))]);
+else { await drain(groups, 1); await drain(lates, 1); await drain(latesAlone, 1); }
 await browser.close();
 // A block that threw outside its check() lost its checks: they fail under their own ids, so verify.sh reruns them alone.
 for (const id of IDS) if (want(id) && !results.some(r => r.id === id)) results.push({ id, rule: 'ran', pass: false, detail: 'never ran: its block threw (error above)', ms: 0 });
