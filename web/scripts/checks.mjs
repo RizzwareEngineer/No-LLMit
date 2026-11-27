@@ -6509,12 +6509,26 @@ group(() => check('phone-window-titles', 'At 390x844 (touch) the Profits & Losse
 group(() => check('reconnect-unseen', 'The routine stream reconnect is unseen: no connection bar or Offline, the reasoning neither shortens nor retypes, the shot clock never jumps up, and the table changes only on live events, in the thinking, reasoning and revealed phases', async () => {
   const p = await newPage(); await p.setViewport({ width: 1440, height: 900 });
   await p.evaluateOnNewDocument(() => {
-    const Real = window.EventSource, s = window.__es = { cur: null, log: [] };
+    const Real = window.EventSource, s = window.__es = { cur: null, log: [], side: [] };
     window.EventSource = class extends Real {
-      constructor(...a) { super(...a); s.cur = this; }
+      constructor(...a) {
+        super(...a); s.cur = this;
+        // A second stream the page never sees and the check never ends: it logs every frame's seq and table, so a
+        // reconnect can tell whether the table on screen moved while the page's stream was down (with four tables,
+        // most gaps carry another table's frames, which the page's table does not show).
+        if (!s.shadow) { s.shadow = new Real(...a); s.shadow.onmessage = e => { try { const m = JSON.parse(e.data); s.side.push({ seq: m.seq, table: m.table ?? null, type: m.type }); } catch {} }; }
+      }
       set onmessage(fn) {
         super.onmessage = e => {
-          try { const m = JSON.parse(e.data); s.log.push({ at: performance.now(), type: m.type, seq: m.seq, live: m.type !== 'snapshot' && m.type !== 'stats' }); } catch {}
+          try {
+            const m = JSON.parse(e.data);
+            // The table on screen (useGameState: ?t, else the 5/10 table, else the first), from each snapshot.
+            if (m.type === 'snapshot') {
+              const ts = Object.entries(m.payload?.tables ?? {}), t = new URLSearchParams(location.search).get('t');
+              s.key = (ts.find(([k]) => k === t) ?? ts.find(([, v]) => v.state?.stakes?.smallBlind === 5 && v.state?.stakes?.bigBlind === 10) ?? ts[0])?.[0] ?? null;
+            }
+            s.log.push({ at: performance.now(), type: m.type, seq: m.seq, table: m.table ?? null, live: m.type !== 'snapshot' && m.type !== 'stats' });
+          } catch {}
           fn(e);
         };
       }
@@ -6581,7 +6595,8 @@ group(() => check('reconnect-unseen', 'The routine stream reconnect is unseen: n
           if (cur.clock !== null && prev.clock !== null && cur.clock > prev.clock && !liveLast) faults.push(`shot clock ${prev.clock}s -> ${cur.clock}s at ${t} ms, after the ${lastMsg?.type ?? 'reopen'}`);
           if (cur.table !== prev.table && !liveLast && since.length) faults.push(`table changed after the ${lastMsg?.type ?? 'nothing'} at ${t} ms`);
           prev = cur; frames.push(now);
-          if (snapAt !== null && now > snapAt + 3000) return resolve({ frames: frames.length, gapMs: Math.round(snapAt - t0), moved: snap.seq !== last, faults: [...new Set(faults)] });
+          // Moved: a frame of the table on screen was published between the page's last frame and the snapshot.
+          if (snapAt !== null && now > snapAt + 3000) return resolve({ frames: frames.length, gapMs: Math.round(snapAt - t0), moved: s.side.some(m => m.seq > last && m.seq <= snap.seq && m.table === s.key), others: s.side.filter(m => m.seq > last && m.seq <= snap.seq && m.table !== s.key).length, faults: [...new Set(faults)] });
           if (now - t0 > 15000) return resolve({ frames: frames.length, gapMs: null, moved: false, faults: [...new Set(faults), 'no snapshot within 15 s'] });
           requestAnimationFrame(frame);
         };
@@ -6589,7 +6604,7 @@ group(() => check('reconnect-unseen', 'The routine stream reconnect is unseen: n
       }));
       if (r.moved && !r.faults.some(f => /bar|Offline|no snapshot/.test(f))) { seen.push(`${name} try ${attempt}: the table moved while the stream was down, retried`); continue; }
       done = true;
-      seen.push(`${name}: reopened in ${r.gapMs} ms, ${r.frames} frames watched`);
+      seen.push(`${name}: reopened in ${r.gapMs} ms, ${r.frames} frames watched${r.others ? `, ${r.others} frames of other tables while down` : ''}`);
       if (r.faults.length) bad.push(`${name}: ${r.faults.slice(0, 4).join(', ')}`);
     }
     if (!done && !bad.some(b => b.startsWith(name))) bad.push(`${name}: the table moved during every reconnect`);
