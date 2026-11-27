@@ -1746,6 +1746,52 @@ group(() => check('tables-inputs-interleaved', 'With ?tables=1 at 1440x790, ever
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
+// With sound on, the overview's small tables (and the stage hidden under it) play nothing, and an opened table plays each
+// of its events once: two copies of a table (the stage and its small table) playing one event start the same node at the
+// same AudioContext time with the same frequency.
+group(() => check('tables-sounds', 'With ?tables=1 at 1440x790 and sound on: on the overview for 60 s no audio starts (no HTMLMediaElement play, no Web Audio node started), and inside an opened table for 30 s sounds play, each event\'s once (no two identical node starts at one time)', async () => {
+  const p = await newPage();
+  try {
+    await p.setViewport({ width: 1440, height: 790 });
+    await p.evaluateOnNewDocument(() => {
+      localStorage.setItem('nollmit:sound', 'on');
+      const log = (window.__audio = []);
+      const play0 = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function (...a) { log.push({ kind: 'media', t: performance.now() }); return play0.apply(this, a); };
+      for (const N of ['AudioBufferSourceNode', 'OscillatorNode']) {
+        const start0 = window[N].prototype.start;
+        window[N].prototype.start = function (when = 0, ...a) {
+          log.push({ kind: N, t: performance.now(), when: Math.round(when * 1e4) / 1e4, f: this.frequency?.value ?? this.buffer?.length ?? 0 });
+          return start0.call(this, when, ...a);
+        };
+      }
+      const Ctx = window.AudioContext;
+      window.AudioContext = class extends Ctx { constructor(...a) { super(...a); log.push({ kind: 'context', t: performance.now() }); } };
+    });
+    await p.goto(`${BASE}/?tables=1`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => document.querySelector('[data-overview-cell] [data-small-table]'), { timeout: 120000 });
+    await sleep(2000);
+    await p.keyboard.press('Shift'); // a gesture that unlocks the sound and opens nothing
+    await sleep(500);
+    const ctx = await p.evaluate(() => window.__audio.some(e => e.kind === 'context'));
+    const t0 = await p.evaluate(() => performance.now());
+    await sleep(60000);
+    const over = await p.evaluate(t0 => window.__audio.filter(e => e.t >= t0 && e.kind !== 'context'), t0);
+    const bad = [];
+    if (!ctx) bad.push('no AudioContext after the gesture (sound not on: nothing tested)');
+    if (over.length) bad.push(`on the overview ${over.length} audio starts in 60 s (${[...new Set(over.map(e => e.kind))].join(', ')})`);
+    await clickCenter(p, '[data-overview-cell="5-10-200bb"] [data-small-table]'); await sleep(1500);
+    const t1 = await p.evaluate(() => performance.now());
+    await sleep(30000);
+    const inside = await p.evaluate(t1 => window.__audio.filter(e => e.t >= t1 && e.kind !== 'context' && e.kind !== 'media'), t1);
+    const sig = e => `${e.kind}|${e.when}|${e.f}`, seenSig = new Map();
+    for (const e of inside) seenSig.set(sig(e), (seenSig.get(sig(e)) ?? 0) + 1);
+    const twice = [...seenSig].filter(([, n]) => n > 1);
+    if (!inside.length) bad.push('inside the table no sound in 30 s (nothing tested)');
+    if (twice.length) bad.push(`inside the table ${twice.length} node starts doubled (${twice.slice(0, 3).map(([k, n]) => `${k} x${n}`).join(', ')})`);
+    return { pass: !bad.length, detail: bad.length ? bad.join('; ') : `overview: 0 audio starts in 60 s; table: ${inside.length} node starts in 30 s, none doubled` };
+  } finally { await p.close(); }
+}));
 group(() => check('tables-history', 'With ?tables=1 at 1440x790, Back and Forward walk overview, table, overview: a click opens a table (?t), Back is the overview, Forward the table again, Back the overview; after a table and two neighbours, "All tables" goes straight to the overview, and Forward from there to the table', async () => {
   const bad = [], seen = [], A = '5-10-200bb';
   const p = await scriptedTable(1440, 790, false, 'tables=1');
