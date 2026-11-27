@@ -2068,6 +2068,63 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 
+// The bolder-cards draft (?cards=bold, look c; owner's review 2026-11-27: "make the cards more bold because they blend too
+// much with the background"): the page's own table draws its cards 45x64 on desktop and 31x44 on phones, the deck and the
+// board the hole cards' size, every card with the look's edge, no desktop hole card over a seat's text, seats and table
+// unchanged; the overview's small tables keep today's cards.
+group(() => check('table-card-bold', 'With ?cards=bold the page\'s table draws hole cards 45x64 on desktop (1440x900, 1440x790) and 31x44 on phones (390x844), the board and the deck the same size, every card with the bold look, no desktop hole card over a seat\'s name, stack, badge or action text, seats 200x128 and the table 1000px; with ?tables=1&cards=bold the overview\'s small tables keep today\'s cards', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1440, 790], [390, 844]]) {
+    const p = await newPage(), tag = `${w}x${h}`, desk = !phoneAt(w, h), want = desk ? [45, 64] : [31, 44];
+    await p.setViewport({ width: w, height: h });
+    try {
+      await scriptStream(p);
+      await p.goto(`${BASE}/?cards=bold`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat] [data-hole] [role=img]'), { timeout: 120000 });
+      await sleep(1500);
+      // In layout px: the desktop stage's zoom divided out (draft A and phones draw at 1).
+      const read = sel => p.evaluate(s => {
+        const z = document.querySelector('.stage-zoom')?.style.zoom || 1, e = [...document.querySelectorAll(s)].find(x => x.getBoundingClientRect().width > 0);
+        if (!e) return null; const b = e.getBoundingClientRect(); return { w: Math.round(b.width / z * 10) / 10, h: Math.round(b.height / z * 10) / 10 };
+      }, sel);
+      const hole = await read('[data-seat] [data-hole] [role=img]');
+      if (!hole || Math.abs(hole.w - want[0]) > 0.6 || Math.abs(hole.h - want[1]) > 0.6) bad.push(`${tag}: hole card ${hole?.w}x${hole?.h}, want ${want.join('x')}`);
+      const r = await p.evaluate(() => {
+        const plain = [...document.querySelectorAll('.stage-zoom [role=img]')].filter(e => e.getAttribute('aria-label')?.includes(' of ') || e.getAttribute('aria-label') === 'hidden card').filter(e => e.dataset.cardLook !== 'c').length;
+        const over = [];
+        for (const s of document.querySelectorAll('[data-desk-seat]')) {
+          const cards = [...s.querySelectorAll('[data-hole] [role=img]')].map(e => e.getBoundingClientRect());
+          for (const t of s.querySelectorAll('[data-position], [data-chips], [data-action], .text-\\[11px\\]')) {
+            if (t.closest('[data-hole]')) continue;
+            const rg = document.createRange(); rg.selectNodeContents(t); const b = rg.getBoundingClientRect();
+            if (b.width && cards.some(c => c.left < b.right - 0.5 && b.left < c.right - 0.5 && c.top < b.bottom - 0.5 && b.top < c.bottom - 0.5)) over.push(`seat ${s.dataset.seat} "${t.textContent.trim().slice(0, 16)}"`);
+          }
+        }
+        const c = document.querySelector('td.w-\\[200px\\]');
+        return { plain, over, cell: [c?.offsetWidth, c?.offsetHeight], table: document.querySelector('table')?.offsetWidth };
+      });
+      if (r.plain) bad.push(`${tag}: ${r.plain} cards without the bold look`);
+      if (r.over.length) bad.push(`${tag}: hole cards over ${r.over.slice(0, 4).join(', ')}`);
+      if (desk && (Math.abs(r.cell[0] - 200) > 1 || Math.abs(r.cell[1] - 128) > 2 || Math.abs(r.table - 1000) > 1)) bad.push(`${tag}: seat ${r.cell.join('x')}, table ${r.table}px`);
+      await p.evaluate(() => window.__stream.end(4000));
+      await sleep(500); const board = await read('[data-felt-cards] [role=img]');
+      await sleep(2800); const deck = await read('[data-deck]');
+      const off = c => !c || Math.abs(c.w - want[0]) > 0.6 || Math.abs(c.h - want[1]) > 0.6;
+      if (off(board) || off(deck)) bad.push(`${tag}: board card ${board?.w}x${board?.h}, deck ${deck?.w}x${deck?.h}, want ${want.join('x')}`);
+      seen.push(`${tag}: hole ${hole?.w}x${hole?.h}, board ${board?.w}x${board?.h}, deck ${deck?.w}x${deck?.h}${desk ? `, seats ${r.cell.join('x')}, no text covered` : ''}`);
+    } finally { await p.close(); }
+  }
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 790 });
+  try {
+    await p.goto(`${BASE}/?tables=1&cards=bold`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => document.querySelector('[data-small-table] [role=img]'), { timeout: 120000 });
+    const n = await p.evaluate(() => [...document.querySelectorAll('[data-small-table] [role=img]')].filter(e => e.dataset.cardLook).length);
+    if (n) bad.push(`overview: ${n} small-table cards with the bold look`);
+    seen.push('overview: small tables keep today\'s cards');
+  } finally { await p.close(); }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+
 // Filming: every frame Chrome presented, via the CDP screencast, each acked.
 const filmFrames = async (p, run, cast = { format: 'png' }) => {
   const cdp = await p.createCDPSession(), frames = [];
