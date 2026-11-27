@@ -48,8 +48,8 @@ func TestUsageRequestsDoNotQueueBehindAFetch(t *testing.T) {
 
 // /dev/pace exists only with DEV_CONTROLS=1; a POST sets the pace the next pause uses, and a bad value is a 400.
 func TestDevPace(t *testing.T) {
-	s := &Server{table: &Table{}}
-	s.table.setPace(1)
+	s := &Server{tables: []*Table{{floor: &floor{}}}}
+	s.tables[0].setPace(1)
 	do := func(mux *http.ServeMux, method, target string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, httptest.NewRequest(method, target, nil))
@@ -62,8 +62,8 @@ func TestDevPace(t *testing.T) {
 	if w := do(off, "POST", "/dev/pace?pace=0.5"); w.Code != http.StatusNotFound {
 		t.Fatalf("without DEV_CONTROLS: %d", w.Code)
 	}
-	if s.table.Pace() != 1 {
-		t.Fatalf("without DEV_CONTROLS the pace changed to %g", s.table.Pace())
+	if s.tables[0].Pace() != 1 {
+		t.Fatalf("without DEV_CONTROLS the pace changed to %g", s.tables[0].Pace())
 	}
 
 	t.Setenv("DEV_CONTROLS", "1")
@@ -77,7 +77,7 @@ func TestDevPace(t *testing.T) {
 	if w := do(on, "POST", "/dev/pace?pace=0.5"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"pace":0.5`) {
 		t.Fatalf("POST 0.5: %d %s", w.Code, w.Body)
 	}
-	if got := s.table.paced(10 * time.Second); got != 5*time.Second {
+	if got := s.tables[0].paced(10 * time.Second); got != 5*time.Second {
 		t.Errorf("the next 10s pause is %v, want 5s", got)
 	}
 	if w := do(on, "GET", "/dev/pace"); w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"pace":0.5}` {
@@ -93,10 +93,10 @@ func TestDevPace(t *testing.T) {
 		on.ServeHTTP(w, r)
 		return w.Code
 	}
-	if c := post("https://evil.example"); c != http.StatusForbidden || s.table.Pace() != 0.5 {
-		t.Errorf("POST from another site: %d, pace %g", c, s.table.Pace())
+	if c := post("https://evil.example"); c != http.StatusForbidden || s.tables[0].Pace() != 0.5 {
+		t.Errorf("POST from another site: %d, pace %g", c, s.tables[0].Pace())
 	}
-	if c := post("http://localhost:3000"); c != http.StatusOK || s.table.Pace() != 0.7 {
-		t.Errorf("POST from the local site: %d, pace %g", c, s.table.Pace())
+	if c := post("http://localhost:3000"); c != http.StatusOK || s.tables[0].Pace() != 0.7 {
+		t.Errorf("POST from the local site: %d, pace %g", c, s.tables[0].Pace())
 	}
 }

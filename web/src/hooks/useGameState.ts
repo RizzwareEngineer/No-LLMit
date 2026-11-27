@@ -26,14 +26,15 @@ interface UseGameStateReturn {
 }
 
 export function useGameState(): UseGameStateReturn {
-  // Every table the stream reports, by table id; the page draws the only one.
+  // Every table the stream reports, by table key, in the engine's configured order; the page draws the 5/10 one, else the first.
   const [tables, setTables] = useState<Tables>({});
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [connection, setConnection] = useState<Connection>('connecting');
   const [gaveUp, setGaveUp] = useState(false);
   const streamRef = useRef<GameStream | null>(null);
 
-  const table = Object.values(tables)[0] ?? EMPTY_TABLE;
+  const all = Object.values(tables);
+  const table = all.find(t => t.gameState?.stakes.smallBlind === 5 && t.gameState.stakes.bigBlind === 10) ?? all[0] ?? EMPTY_TABLE;
 
   // The shot clock runs from llm_thinking until the move arrives (llm_action), then holds the time left then. Its
   // seconds are drawn by the components that show it (useSecondsDraw), not rendered here each second.

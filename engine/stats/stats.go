@@ -24,9 +24,12 @@ type Stats struct {
 type Scope struct {
 	TableID       string `json:"table_id"`
 	PromptVersion string `json:"prompt_version"`
-	BigBlind      int    `json:"big_blind"`
-	Hands         int    `json:"hands"`
-	Sessions      int    `json:"sessions"`
+	// BigBlind is the big blind most hands were played at (the bigger on a tie). Every chip
+	// amount (net_chips, vs, the biggest pots, the timeline's matchups) is counted at it: a hand
+	// at other stakes counts its chips in its own big blinds times this one, so mixed stakes add up.
+	BigBlind int `json:"big_blind"`
+	Hands    int `json:"hands"`
+	Sessions int `json:"sessions"`
 }
 
 // Rates are null when nothing qualified for them (for example c-bet with no c-bet chance).
@@ -103,7 +106,7 @@ type acc struct {
 	name, model                       string
 	bbs, aievBBs                      []float64 // per hand, in big blinds
 	bbSum                             float64   // of bbs, added in the same order mean would
-	net                               int
+	net                               float64   // chips at the scope's big blind
 	vpip, pfr, threeBet, cbet, ftc    count
 	wtsd, wsd, checkFree, errs, retry count
 	miss                              count
@@ -153,10 +156,11 @@ func compute(hands []history.HandRecord, tl *timelineBuilder) (Stats, Timeline) 
 	}
 
 	sessions := map[string]bool{}
+	ref := scopeBigBlind(hands)
 	for hi, h := range hands {
 		sessions[SessionID(h)] = true
-		out.Scope = Scope{TableID: h.TableID, PromptVersion: h.Config.PromptVersion, BigBlind: h.Config.BigBlind}
-		if !addHand(h, get) {
+		out.Scope = Scope{TableID: h.TableID, PromptVersion: h.Config.PromptVersion, BigBlind: ref}
+		if !addHand(h, get, ref) {
 			out.Partial = true
 		}
 		if tl != nil {
@@ -179,6 +183,23 @@ func compute(hands []history.HandRecord, tl *timelineBuilder) (Stats, Timeline) 
 		return out, Timeline{}
 	}
 	return out, tl.result()
+}
+
+// bigBlind is the hand's big blind; 1 on a record that has none.
+func bigBlind(h history.HandRecord) int { return max(h.Config.BigBlind, 1) }
+
+// scopeBigBlind is the big blind most hands were played at, the bigger on a tie; 0 with no hands.
+func scopeBigBlind(hands []history.HandRecord) int {
+	n := map[int]int{}
+	ref := 0
+	for _, h := range hands {
+		bb := bigBlind(h)
+		n[bb]++
+		if n[bb] > n[ref] || n[bb] == n[ref] && bb > ref {
+			ref = bb
+		}
+	}
+	return ref
 }
 
 func aggressive(a history.ActionRecord) bool {
@@ -220,13 +241,11 @@ type seatHand struct {
 	showdown, wonPot bool
 }
 
-// addHand adds one hand to the accumulators. It returns false when the hand's all-in EV
-// was not computed yet and its actual result stood in.
-func addHand(h history.HandRecord, get func(string) *acc) bool {
-	bb := float64(h.Config.BigBlind)
-	if bb == 0 {
-		bb = 1
-	}
+// addHand adds one hand to the accumulators, its chips counted at the big blind ref. It
+// returns false when the hand's all-in EV was not computed yet and its actual result stood in.
+func addHand(h history.HandRecord, get func(string) *acc, ref int) bool {
+	bb := float64(bigBlind(h))
+	chips := float64(ref) / bb                  // 1 at the scope's own stakes
 	sh := make(map[int]*seatHand, len(h.Seats)) // sized: a full table outgrows a small map
 	for _, s := range h.Seats {
 		a := get(s.Name)
@@ -350,7 +369,7 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 	for _, seat := range h.Seats {
 		s, a := sh[seat.Seat], sh[seat.Seat].a
 		net := netOf(&h, seat.Seat)
-		a.net += net
+		a.net += float64(net) * chips
 		a.bbs = append(a.bbs, float64(net)/bb)
 		a.bbSum += float64(net) / bb
 		a.aievBBs = append(a.aievBBs, aiev[seat.Seat]/bb)
@@ -384,9 +403,9 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 			a.wsd.add(s.wonPot)
 		}
 		if net > 0 {
-			a.potWon = max(a.potWon, totalPot)
+			a.potWon = max(a.potWon, int(math.Round(float64(totalPot)*chips)))
 		} else if net < 0 && s.inPot {
-			a.potLost = max(a.potLost, totalPot)
+			a.potLost = max(a.potLost, int(math.Round(float64(totalPot)*chips)))
 		}
 
 		// Head to head: each loser's chips are shared among the winners in proportion
@@ -407,9 +426,9 @@ func addHand(h history.HandRecord, get func(string) *acc) bool {
 			v.pots++
 			on := netOf(&h, other.Seat)
 			if net > 0 && on < 0 {
-				v.net += float64(-on) * float64(net) / totalWon
+				v.net += float64(-on) * float64(net) / totalWon * chips
 			} else if net < 0 && on > 0 {
-				v.net -= float64(-net) * float64(on) / totalWon
+				v.net -= float64(-net) * float64(on) / totalWon * chips
 			}
 		}
 	}
@@ -421,7 +440,7 @@ func (a *acc) result() Model {
 	decisions := int(a.errs.d)
 	m := Model{
 		Name: a.name, Model: a.model, Hands: n,
-		NetChips: a.net, BB100: a.bb100(), BB100CI: ci95(a.bbs), AIEVBB100: 100 * mean(a.aievBBs),
+		NetChips: int(math.Round(a.net)), BB100: a.bb100(), BB100CI: ci95(a.bbs), AIEVBB100: 100 * mean(a.aievBBs),
 		VPIP: a.vpip.rate(), PFR: a.pfr.rate(), AF: a.af(), ThreeBet: a.threeBet.rate(),
 		CBet: a.cbet.rate(), FoldToCBet: a.ftc.rate(), WTSD: a.wtsd.rate(), WSD: a.wsd.rate(),
 		AvgBetPctPot: a.betPct.rate(), FoldCheckFree: a.checkFree.rate(),

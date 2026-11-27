@@ -259,10 +259,11 @@ func TestSnapshotKeepsTheAppliedActionUntilTheNextHand(t *testing.T) {
 		return &r, nil
 	}
 	tbl := testTable(t)
-	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
-	snap := func() *tableSnap { return tbl.hub.since(0, true).tables[tbl.id] }
+	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, "", nil)
+	snap := func() *tableSnap { return tbl.hub.since(0, true).tables[tbl.cfg.key()] }
 
 	seat := tbl.gs.CurrentPlayerIdx
+	tbl.waitForBudget()
 	tbl.playTurn()
 	s := snap()
 	if s.Turn == nil || s.Turn.Type != MsgLLMAction || !s.TurnApplied {
@@ -274,7 +275,7 @@ func TestSnapshotKeepsTheAppliedActionUntilTheNextHand(t *testing.T) {
 	if tbl.calls != 2 {
 		t.Errorf("a retried turn counted %d calls, want 2", tbl.calls)
 	}
-	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, "", nil)
 	tbl.playTurn()
 	if p := snap().Turn.Payload.(LLMActionPayload); p.Turn != 2 {
 		t.Errorf("second turn numbered %d", p.Turn)
@@ -301,7 +302,7 @@ func TestThinkingCarriesBudgetAndElapsed(t *testing.T) {
 	}
 	tbl := testTable(t)
 	tbl.setPace(1e-6)
-	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, "", nil)
 	tbl.playTurn()
 	var live LLMThinkingPayload
 	for _, f := range tbl.hub.since(0, false).frames {
@@ -326,7 +327,7 @@ func TestThinkingCarriesBudgetAndElapsed(t *testing.T) {
 		}
 	}
 	json.Unmarshal(parseFrames(t, b)[0].Payload, &snap)
-	if p := snap.Tables[tbl.id].Turn.Payload; p.BudgetMs != 45000 || p.ElapsedMs < 20000 || p.ElapsedMs > 21000 {
+	if p := snap.Tables[tbl.cfg.key()].Turn.Payload; p.BudgetMs != 45000 || p.ElapsedMs < 20000 || p.ElapsedMs > 21000 {
 		t.Errorf("snapshot turn %+v, want budget 45000 and about 20000 elapsed", p)
 	}
 }
@@ -349,10 +350,10 @@ func TestOpeningBetIsShownAsBet(t *testing.T) {
 	if err := tbl.gs.AdvanceStreet(); err != nil || tbl.gs.Street != game.StreetFlop {
 		t.Fatalf("street %v, %v", tbl.gs.Street, err)
 	}
-	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+	tbl.recorder = newHandRecorder(tbl.gs, tbl.id, "", nil)
 	seat := tbl.gs.CurrentPlayerIdx
 	tbl.playTurn()
-	snap := tbl.hub.since(0, true).tables[tbl.id]
+	snap := tbl.hub.since(0, true).tables[tbl.cfg.key()]
 	if p := snap.Turn.Payload.(LLMActionPayload); p.Action != "BET" || p.Amount != 20 {
 		t.Errorf("llm_action %+v, want BET 20", p)
 	}
@@ -383,10 +384,10 @@ func TestShownMoveIsTheAppliedMove(t *testing.T) {
 		if err := tbl.gs.ProcessAction(game.Action{Type: game.ActionRaise, Amount: 35, PlayerIdx: tbl.gs.CurrentPlayerIdx}); err != nil {
 			t.Fatal(err)
 		}
-		tbl.recorder = newHandRecorder(tbl.gs, tbl.id, nil)
+		tbl.recorder = newHandRecorder(tbl.gs, tbl.id, "", nil)
 		seat := tbl.gs.CurrentPlayerIdx
 		tbl.playTurn()
-		snap := tbl.hub.since(0, true).tables[tbl.id]
+		snap := tbl.hub.since(0, true).tables[tbl.cfg.key()]
 		if p := snap.Turn.Payload.(LLMActionPayload); p.Action != c.action || p.Amount != c.amount || p.Reason != c.reason {
 			t.Errorf("%s: llm_action %s %d %q, want %s %d %q", c.reply.Action, p.Action, p.Amount, p.Reason, c.action, c.amount, c.reason)
 		}
@@ -407,7 +408,7 @@ func TestDealingTheProbeHandClearsTheOutageNotice(t *testing.T) {
 	if _, err := tbl.dealHand(); err != nil {
 		t.Fatal(err)
 	}
-	if n := tbl.hub.since(0, true).tables[tbl.id].Notice; n != nil {
+	if n := tbl.hub.since(0, true).tables[tbl.cfg.key()].Notice; n != nil {
 		t.Errorf("snapshot notice after hand_start: %+v", n)
 	}
 	if got := strings.Join(noticeKinds(tbl.hub), ","); got != "" || len(tbl.hub.since(0, false).frames) != 3 {
@@ -448,7 +449,7 @@ func TestGameStateAndSnapshotShareTheNextHandCountdown(t *testing.T) {
 	b, _ := tbl.hub.since(0, true).snapshotFrame()
 	var snap struct{ Tables map[string]tableSnap }
 	json.Unmarshal(parseFrames(t, b)[0].Payload, &snap)
-	got := snap.Tables["tbl_test"].State
+	got := snap.Tables[tbl.cfg.key()].State
 	if live.NextHandInMs < 9000 || live.NextHandInMs > 10000 || got.NextHandInMs < 9000 || got.NextHandInMs > live.NextHandInMs {
 		t.Errorf("nextHandInMs live %d, snapshot %d", live.NextHandInMs, got.NextHandInMs)
 	}

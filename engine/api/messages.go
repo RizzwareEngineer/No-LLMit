@@ -19,6 +19,7 @@ const (
 	MsgTableNotice  MessageType = "table_notice"  // Table stopped or paused; an empty kind clears it
 	MsgSnapshot     MessageType = "snapshot"      // Every table as it is now; replaces all table state
 	MsgStats        MessageType = "stats"         // All-time stats: the full body, or the rows that changed
+	MsgTableStats   MessageType = "table_stats"   // One table's profit and loss, whole; the snapshot carries each table's last
 )
 
 type ServerMessage struct {

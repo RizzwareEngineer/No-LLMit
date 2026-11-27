@@ -1,10 +1,14 @@
-// Serves GET /api/stats and GET /api/stats/timeline, all time. Hands are loaded from Supabase, or from HAND_LOG_DIR/hands.jsonl when Supabase is not
+// Serves GET /api/stats and GET /api/stats/timeline, all time: every table combined, or one
+// table with ?table=KEY (a configured table's key, e.g. 5-10-200bb). Hands are loaded from Supabase, or from HAND_LOG_DIR/hands.jsonl when Supabase is not
 // configured, once on start; each hand this engine saves is added as it lands, and every 5
 // minutes only hands saved since the last load are fetched from Supabase (another writer's:
 // an overlapping deploy), never the whole table again. The JSON and its gzip are
 // precomputed, so a request only copies bytes.
 // The all-time stats also go out on the stream (stream.go): the full body to each joiner,
-// and the rows that changed after each recompute that added a hand.
+// and the rows that changed after each recompute that added a hand; and each table's profit
+// and loss (table_stats), whole, whenever it changed, and in every snapshot.
+// A hand counts under its table_key's table. A hand saved before there were several tables has
+// none: it counts under the first configured table with its blinds, or in the combined stats only.
 package api
 
 import (
@@ -14,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -44,15 +49,18 @@ type statsCache struct {
 	mu       sync.Mutex
 	hands    []history.HandRecord // in the order played
 	seen     map[string]bool
-	added    bool    // a hand was added since the last recompute
-	all      payload // /api/stats
-	timeline payload // /api/stats/timeline
+	added    bool                  // a hand was added since the last recompute
+	all      payload               // /api/stats
+	timeline payload               // /api/stats/timeline
+	byTable  map[string][2]payload // ?table=KEY: the stats and the timeline; nil until the first recompute
 
 	warming bool              // all-ins were left after the last recompute; only run touches it
 	rows    map[string][]byte // each model's row as last published; only run touches it
+	pnl     map[string][]byte // each table's table_stats payload as last published; only run touches it
 	hub     *hub              // nil: publish nothing (tests)
 
-	seated []string // the table's lineup; set before run starts, never changed after
+	seated []string // the lineup every table seats; set before run starts, never changed after
+	tables []*Table // the configured tables, in order; set before run starts, never changed after
 }
 
 // payload is a response body (the stream's stats frame), and its gzip (what the endpoints send).
@@ -80,7 +88,7 @@ func newStatsCache() *statsCache {
 		path := filepath.Join(handDir(), "hands.jsonl")
 		c.load = func() ([]history.HandRecord, error) { return loadHandFile(path) }
 	}
-	return c // the caller sets seated, then starts run
+	return c // the caller sets seated and tables, then starts run
 }
 
 // run loads every hand once, then adds the hands this engine saves and, every pollEvery,
@@ -212,10 +220,21 @@ func (c *statsCache) recompute() (more bool) {
 	allStats, tl := stats.ComputeWithTimeline(hands)
 	allStats.GeneratedAt, tl.GeneratedAt = now, now
 	allStats.Seated = c.seated
+	allStats.Scope.TableID = "" // every table: no one session
 	all := [2]payload{newPayload(allStats), newPayload(tl)}
 
+	byTable := make(map[string][2]payload, len(c.tables))
+	pnl := make(map[string][]byte, len(c.tables))
+	for t, hands := range c.tableHands(hands) {
+		s, tl := stats.ComputeWithTimeline(hands)
+		s.GeneratedAt, tl.GeneratedAt = now, now
+		s.Seated, s.Scope.TableID = t.seated, t.cfg.key()
+		byTable[t.cfg.key()] = [2]payload{newPayload(s), newPayload(tl)}
+		pnl[t.cfg.key()] = tablePnL(s)
+	}
+
 	c.mu.Lock()
-	c.all, c.timeline = all[0], all[1]
+	c.all, c.timeline, c.byTable = all[0], all[1], byTable
 	c.mu.Unlock()
 
 	warmedUp := c.warming && remaining == 0
@@ -228,7 +247,62 @@ func (c *statsCache) recompute() (more bool) {
 		}
 		c.hub.publish("", nil, all[0].json, ServerMessage{Type: MsgStats, Payload: ev})
 	}
+	if c.hub != nil {
+		for _, t := range c.tables {
+			if key := t.cfg.key(); pnl[key] != nil && !bytes.Equal(pnl[key], c.pnl[key]) {
+				c.hub.publish(key, nil, pnl[key], ServerMessage{Type: MsgTableStats, Payload: json.RawMessage(pnl[key])})
+			}
+		}
+		c.pnl = pnl
+	}
 	return remaining > 0
+}
+
+// tableHands sorts hands by the configured table they count under (see the top of the file),
+// every table present, with no hands when none counts under it.
+func (c *statsCache) tableHands(hands []history.HandRecord) map[*Table][]history.HandRecord {
+	byKey := map[string]*Table{}
+	byBlinds := map[[2]int]*Table{}
+	out := make(map[*Table][]history.HandRecord, len(c.tables))
+	for _, t := range c.tables {
+		byKey[t.cfg.key()] = t
+		if blinds := [2]int{t.cfg.SmallBlind, t.cfg.BigBlind}; byBlinds[blinds] == nil {
+			byBlinds[blinds] = t
+		}
+		out[t] = nil
+	}
+	for _, h := range hands {
+		t := byKey[h.TableKey]
+		if h.TableKey == "" {
+			t = byBlinds[[2]int{h.Config.SmallBlind, h.Config.BigBlind}]
+		}
+		if t != nil {
+			out[t] = append(out[t], h)
+		}
+	}
+	return out
+}
+
+// pnlRow is one model's line in a table_stats payload.
+type pnlRow struct {
+	Name     string  `json:"name"`
+	Hands    int     `json:"hands"`
+	NetChips int     `json:"net_chips"`
+	BB100    float64 `json:"bb100"`
+}
+
+// tablePnL is a table's table_stats payload: its hands and each model's profit and loss there,
+// in the order of its stats (net chips, most first). The rest is at /api/stats?table=KEY.
+func tablePnL(s stats.Stats) []byte {
+	rows := make([]pnlRow, len(s.Models))
+	for i, m := range s.Models {
+		rows[i] = pnlRow{m.Name, m.Hands, m.NetChips, math.Round(m.BB100*100) / 100}
+	}
+	b, _ := json.Marshal(struct {
+		Hands  int      `json:"hands"`
+		Models []pnlRow `json:"models"`
+	}{s.Scope.Hands, rows})
+	return b
 }
 
 // statsChange is the stream's stats event: the all-time envelope, every model name in order,
@@ -270,7 +344,23 @@ func (c *statsCache) serve(w http.ResponseWriter, r *http.Request, timeline bool
 	if timeline {
 		body = c.timeline
 	}
+	byTable := c.byTable
 	c.mu.Unlock()
+	if key := r.URL.Query().Get("table"); key != "" {
+		known := false
+		for _, t := range c.tables {
+			known = known || t.cfg.key() == key
+		}
+		if !known {
+			http.Error(w, "no such table", http.StatusNotFound)
+			return
+		}
+		pair := byTable[key]
+		body = pair[0]
+		if timeline {
+			body = pair[1]
+		}
+	}
 	if body.json == nil {
 		http.Error(w, "stats are still loading", http.StatusServiceUnavailable)
 		return

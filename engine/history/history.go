@@ -17,7 +17,8 @@ import (
 type HandRecord struct {
 	Schema     int            `json:"schema"`
 	HandID     string         `json:"hand_id"`
-	TableID    string         `json:"table_id"`
+	TableID    string         `json:"table_id"`            // the session: one table's run from one engine start
+	TableKey   string         `json:"table_key,omitempty"` // the configured table, e.g. "5-10-200bb"; absent on hands saved before there were several
 	HandNumber int            `json:"hand_number"`
 	StartedAt  time.Time      `json:"started_at"`
 	EndedAt    time.Time      `json:"ended_at"`

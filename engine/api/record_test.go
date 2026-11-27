@@ -38,7 +38,7 @@ func playTable(t *testing.T, names []string, stacks []int, holes [][]string, boa
 			gs.CommunityCards = append(mustCards(t, board[:n]), gs.CommunityCards[n:]...)
 		}
 	}
-	rec := newHandRecorder(gs, "tbl_test", nil)
+	rec := newHandRecorder(gs, "tbl_test", "", nil)
 
 	// Each decision takes the next scripted reply (the LLM service's whole answer for the
 	// turn, retries included), with the prompt the service would have rendered.

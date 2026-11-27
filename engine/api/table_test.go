@@ -9,6 +9,7 @@ import (
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -18,7 +19,7 @@ func TestNextOpen(t *testing.T) {
 	if err != nil {
 		t.Skip("no tzdata")
 	}
-	tbl := &Table{openHour: 9, closeHour: 21, hoursZone: ny}
+	tbl := &floor{openHour: 9, closeHour: 21, hoursZone: ny}
 	cases := []struct{ now, want time.Time }{
 		{time.Date(2026, 11, 3, 22, 0, 0, 0, ny), time.Date(2026, 11, 4, 9, 0, 0, 0, ny)},
 		{time.Date(2026, 11, 3, 6, 30, 0, 0, ny), time.Date(2026, 11, 3, 9, 0, 0, 0, ny)},
@@ -148,7 +149,7 @@ func TestRebuyInAVoidedHandIsFlaggedOnTheNextHand(t *testing.T) {
 	tbl.gs.Players[1].Stack = 0
 
 	tbl.playHand() // every call fails: voided
-	if len(saved) != 0 || tbl.gs.Players[1].Stack != tableStartingStack {
+	if len(saved) != 0 || tbl.gs.Players[1].Stack != tbl.cfg.startingStack() {
 		t.Fatalf("voided hand: %d saved, B has %d", len(saved), tbl.gs.Players[1].Stack)
 	}
 	var last string
@@ -229,8 +230,8 @@ func TestCapWaitsForTheNextUTCDay(t *testing.T) {
 	if midnight := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC); now.Before(midnight) || now.Sub(midnight) >= 10*time.Second {
 		t.Errorf("waited until %v, want within 10 s after %v", *now, midnight)
 	}
-	if got := noticeKinds(tbl.hub); !reflect.DeepEqual(got, []string{"cap", ""}) || tbl.calls != 0 || tbl.callsDay != "2026-11-14" {
-		t.Errorf("notices %q, calls %d on %s; want cap then cleared, 0 calls on 2026-11-14", got, tbl.calls, tbl.callsDay)
+	if got := noticeKinds(tbl.hub); !reflect.DeepEqual(got, []string{"cap", ""}) || tbl.calls != 1 || tbl.callsDay != "2026-11-14" {
+		t.Errorf("notices %q, calls %d on %s; want cap then cleared, the turn's 1 call on 2026-11-14", got, tbl.calls, tbl.callsDay)
 	}
 }
 
@@ -247,8 +248,9 @@ func TestEveryModelCallCountsTowardTheCap(t *testing.T) {
 	} {
 		askLLM = func(client.DecisionRequest) (*client.LLMDecisionResponse, error) { r := c.reply; return &r, nil }
 		tbl := testTable(t)
-		tbl.recorder = newHandRecorder(tbl.gs, "tbl_test", nil)
+		tbl.recorder = newHandRecorder(tbl.gs, "tbl_test", "", nil)
 		tbl.setPace(1e-6)
+		tbl.waitForBudget()
 		tbl.playTurn()
 		if tbl.calls != c.calls {
 			t.Errorf("%s: %d calls counted, want %d", c.reply.Status, tbl.calls, c.calls)
@@ -307,5 +309,184 @@ func TestAllInRunOutDealsAStreetPerPause(t *testing.T) {
 		if paused[board] < tbl.paced(postActionDelay) {
 			t.Errorf("%v paused with %d board cards out, want at least %v before the next street", paused[board], board, tbl.paced(postActionDelay))
 		}
+	}
+}
+
+func TestParseTables(t *testing.T) {
+	got, err := parseTables("50/100:100, 1/2:100,5/10:200")
+	if want := []tableConfig{{50, 100, 100}, {1, 2, 100}, {5, 10, 200}}; err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, %v; want %v", got, err, want)
+	}
+	if k, s := got[0].key(), got[0].startingStack(); k != "50-100-100bb" || s != 10000 {
+		t.Errorf("key %q, starting stack %d", k, s)
+	}
+	for _, bad := range []string{"", "5/10", "5/10:200,", "10/5:100", "0/0:100", "5/10:0", "5/10:200bb", "5-10:200", "5/10:200,5/10:200"} {
+		if _, err := parseTables(bad); err == nil {
+			t.Errorf("%q parsed", bad)
+		}
+	}
+	t.Setenv("TABLES", "")
+	if got := tablesFromEnv(); !reflect.DeepEqual(got, defaultTables) {
+		t.Errorf("unset: %v", got)
+	}
+	t.Setenv("TABLES", "5/10:abc")
+	if got := tablesFromEnv(); !reflect.DeepEqual(got, defaultTables) {
+		t.Errorf("bad TABLES: %v, want the default", got)
+	}
+	t.Setenv("TABLES", "25/50:500,1/2:100")
+	if got := tablesFromEnv(); len(got) != 2 || got[0].key() != "25-50-500bb" {
+		t.Errorf("TABLES: %v", got)
+	}
+	if want := []string{"1-2-100bb", "5-10-200bb", "25-50-500bb", "50-100-100bb"}; !reflect.DeepEqual(keys(defaultTables), want) {
+		t.Errorf("default tables %v", keys(defaultTables))
+	}
+}
+
+func keys(cs []tableConfig) []string {
+	var out []string
+	for _, c := range cs {
+		out = append(out, c.key())
+	}
+	return out
+}
+
+// testTables is one table per cfg, in order, sharing one hub and one floor, each on its own
+// fake clock and seated in turn from A, B and C.
+func testTables(cfgs ...tableConfig) ([]*Table, *hub) {
+	h, f := newHub(), &floor{dailyCallCap: 1000}
+	f.setPace(1e-6)
+	var out []*Table
+	for i, cfg := range cfgs {
+		tbl := NewTable(h, f, cfg, i, &fakeSaver{}, nil)
+		tbl.seated = rotated([]string{"A", "B", "C"}, i)
+		fakeClock(tbl, time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC))
+		out = append(out, tbl)
+	}
+	return out, h
+}
+
+// Two tables at different stakes deal at once, each in its own goroutine, and a model call
+// that hangs at one does not hold up the other.
+func TestTablesDealAtOnceAndNeverWaitOnEachOther(t *testing.T) {
+	defer func(old func(client.DecisionRequest) (*client.LLMDecisionResponse, error)) { askLLM = old }(askLLM)
+	release := make(chan struct{})
+	askLLM = func(req client.DecisionRequest) (*client.LLMDecisionResponse, error) {
+		if req.BigBlind == 100 {
+			<-release // the slow table: its first call hangs until the other has played two hands
+		}
+		r := reply("FOLD", 0)
+		return &r, nil
+	}
+	tables, h := testTables(tableConfig{1, 2, 100}, tableConfig{50, 100, 100})
+	saved := make([]chan history.HandRecord, 2)
+	done := make(chan struct{})
+	for i, tbl := range tables {
+		saved[i] = make(chan history.HandRecord, 10)
+		tbl.onSaved = func(r history.HandRecord) { saved[i] <- r }
+		go func() {
+			tbl.startGame()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					tbl.playHand()
+				}
+			}
+		}()
+	}
+	defer close(done)
+	for n := 1; n <= 2; n++ {
+		select {
+		case r := <-saved[0]:
+			if r.TableKey != "1-2-100bb" || r.Config.BigBlind != 2 || r.HandNumber != n || n == 1 && r.Seats[0].StackStart != 200 {
+				t.Errorf("1/2 hand %d: key %q, blinds %d/%d, hand #%d", n, r.TableKey, r.Config.SmallBlind, r.Config.BigBlind, r.HandNumber)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the 1/2 table waited on the other table's model call")
+		}
+	}
+	close(release)
+	r := <-saved[1]
+	if r.TableKey != "50-100-100bb" || r.Config.BigBlind != 100 || r.TableID == tables[0].id {
+		t.Errorf("50/100 hand: key %q, big blind %d, session %s", r.TableKey, r.Config.BigBlind, r.TableID)
+	}
+	snap := h.since(0, true)
+	for _, tbl := range tables {
+		s := snap.tables[tbl.cfg.key()]
+		if s == nil || s.State.Stakes.BigBlind != tbl.cfg.BigBlind || s.State.HandNumber < 1 {
+			t.Errorf("%s: snapshot %+v", tbl.cfg.key(), s)
+		}
+	}
+}
+
+// The daily cap is one budget for every table: two tables spend it together, and the table
+// that finds it spent says so and waits for the next day.
+func TestTablesShareOneCallCap(t *testing.T) {
+	tables, _ := testTables(tableConfig{1, 2, 100}, tableConfig{5, 10, 200})
+	a, b := tables[0], tables[1]
+	b.now, b.pause = a.now, a.pause // one clock
+	a.dailyCallCap = 3              // the shared floor's: b sees it too
+	a.startGame()
+	b.startGame()
+
+	var wg sync.WaitGroup
+	for range 10 { // racing for the last calls: exactly the cap is spent
+		wg.Add(1)
+		go func() { defer wg.Done(); a.spend("2026-11-13", false); b.spend("2026-11-13", false) }()
+	}
+	wg.Wait()
+	if b.calls != 3 {
+		t.Fatalf("%d calls spent, want the cap of 3", b.calls)
+	}
+	var seen []string
+	pause := b.pause
+	b.pause = func(d time.Duration) {
+		if len(seen) == 0 {
+			seen = append(seen, b.notice.Kind)
+		}
+		pause(d)
+	}
+	b.waitForBudget()
+	a.waitForBudget()
+	if !reflect.DeepEqual(seen, []string{"cap"}) || a.calls != 2 || a.callsDay != "2026-11-14" {
+		t.Errorf("b saw %v; %d calls on %s, want the cap notice then 2 calls on 2026-11-14", seen, a.calls, a.callsDay)
+	}
+}
+
+// The snapshot lists every table in the configured order, each with its key, stakes,
+// starting stack and its last table_stats.
+func TestSnapshotHasEveryTable(t *testing.T) {
+	tables, h := testTables(defaultTables...)
+	for _, tbl := range tables {
+		tbl.startGame()
+	}
+	h.publish("5-10-200bb", nil, []byte(`{"hands":3,"models":[]}`), ServerMessage{Type: MsgTableStats, Payload: json.RawMessage(`{"hands":3,"models":[]}`)})
+	b, err := h.since(0, true).snapshotFrame()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(b)
+	at := -1
+	for _, c := range defaultTables { // in order, though a map would sort 25-50 before 5-10
+		i := strings.Index(raw, `"`+c.key()+`":{"key":"`+c.key()+`"`)
+		if i < at {
+			t.Errorf("%s out of order in %s", c.key(), raw)
+		}
+		at = i
+	}
+	var snap struct{ Tables map[string]tableSnap }
+	json.Unmarshal(parseFrames(t, b)[0].Payload, &snap)
+	for i, c := range defaultTables {
+		s := snap.Tables[c.key()]
+		if s.Key != c.key() || s.Index != i || s.StartingStack != c.startingStack() || s.State.Stakes != (StakesPayload{c.SmallBlind, c.BigBlind}) || s.State.Players[0].Stack != c.startingStack() {
+			t.Errorf("%s: %+v", c.key(), s)
+		}
+	}
+	if got := string(snap.Tables["5-10-200bb"].Stats); got != `{"hands":3,"models":[]}` {
+		t.Errorf("5/10 table_stats in the snapshot: %s", got)
+	}
+	if s := snap.Tables["1-2-100bb"]; s.Stats != nil || s.State.Players[0].Name != "A" || snap.Tables["5-10-200bb"].State.Players[0].Name != "B" {
+		t.Errorf("1/2: stats %s, seats rotated per table: %s then %s", s.Stats, s.State.Players[0].Name, snap.Tables["5-10-200bb"].State.Players[0].Name)
 	}
 }

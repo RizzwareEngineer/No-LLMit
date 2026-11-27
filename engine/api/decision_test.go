@@ -193,7 +193,7 @@ func playRandomHands(t *testing.T, seed uint64, games int) []history.HandRecord 
 			if err := gs.StartHand(); err != nil {
 				t.Fatal(err)
 			}
-			rec := newHandRecorder(gs, fmt.Sprintf("tbl_rand%d_%d", seed, g), rebought)
+			rec := newHandRecorder(gs, fmt.Sprintf("tbl_rand%d_%d", seed, g), "", rebought)
 			for !gs.IsHandComplete() {
 				if !gs.IsWaitingForAction() {
 					gs.AdvanceStreet()
