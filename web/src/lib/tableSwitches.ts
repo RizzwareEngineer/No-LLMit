@@ -26,8 +26,11 @@ export const useTablesOverview = () => useSyncExternalStore(noSub, () => tablesO
 // Run as the page is parsed: landing on the overview, the stage is hidden until the overview is drawn over it (page.tsx),
 // so the first paint is not the single table.
 export const OVERVIEW_FIRST = `(${tablesOverview})(location.search)&&!new URLSearchParams(location.search).get('t')&&matchMedia(${JSON.stringify(DESK)}).matches&&document.documentElement.setAttribute('data-overview','')`;
-// ?edges=outline: the neighbours at the stage's edges as an outline and a label; without it, their live tables.
-export const useEdges = () => useSyncExternalStore(noSub, (): 'live' | 'outline' => (query('edges') === 'outline' ? 'outline' : 'live'), () => 'live' as const);
+// How a table's neighbours show round it: by default an arrow button per neighbour (TableNav); ?edges=live their live
+// tables faded at the stage's edges, ?edges=outline only their outlines (TablesOverview's Edge).
+export type EdgesMode = 'buttons' | 'live' | 'outline';
+const edgesMode = (): EdgesMode => { const e = query('edges'); return e === 'live' || e === 'outline' ? e : 'buttons'; };
+export const useEdges = () => useSyncExternalStore(noSub, edgesMode, () => 'buttons' as const);
 // ?t=KEY: the table in focus (the stream's key, e.g. 5-10-200bb), so Back, a reload or a shared link finds it.
 const onUrl = (cb: () => void) => { addEventListener('popstate', cb); addEventListener('focuschange', cb); return () => { removeEventListener('popstate', cb); removeEventListener('focuschange', cb); }; };
 export const useFocusParam = () => useSyncExternalStore(onUrl, () => query('t'), () => null);
