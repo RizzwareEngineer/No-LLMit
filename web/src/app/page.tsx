@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import type { CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
@@ -39,7 +40,7 @@ import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, page
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
-import { OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
+import { OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, usePnlRow, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
 import { type Anim, nextAnim, stageKeyOf, targetOf } from "@/lib/overviewMachine";
 import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor, type EdgeRoom } from "@/components/TablesOverview";
 
@@ -322,7 +323,7 @@ export default function Home() {
   // and Back, Esc or "All tables" zooms it back into its cell. The stage stays laid out under the overview (hidden), so the
   // table lands exactly where it always is. The URL decides where the page goes (lib/overviewMachine): an input changes it
   // (a click or an edge pushes ?t, Esc and "All tables" go back), and the machine animates toward it one step at a time.
-  const edges = useEdges();
+  const edges = useEdges(), pnl = usePnlRow() ? 'row' as const : 'panel' as const;
   const keys = useMemo(() => tables.map(t => t.key), [tables]);
   const target = targetOf(focusParam, keys);
   const atRest = !anim, hidden = overviewOn && shown === null && atRest; // the stage under the overview
@@ -333,7 +334,12 @@ export default function Home() {
   const animId = useRef(0); // the running animation's id: an end of any other is stale and ignored
   // Where the overview, the edges and the way back go, in the screen's px (measured below).
   const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; w: number } | null>(null);
-  const cols = room ? gridFor(tables.length, room.overview.width, room.overview.height).cols : 1;
+  const grid = room ? gridFor(tables.length, room.overview.width, room.overview.height, pnl) : null, cols = grid?.cols ?? 1;
+  // The header's per-table items (hand, stakes, clock) open as a table zooms in and fold away as it zooms out (StatusRow).
+  const perTable = !overviewOn || !(anim ? anim.kind === 'out' : (shown === undefined ? target === null : shown === null));
+  // In the zoom the stage's table is the overview's small one growing: it starts seen from far away, as the cell drew it,
+  // and its detail fades in over the zoom's last third (PokerTable's lod, the --lod-t animation below); zooming out, back.
+  const zoomLod = overviewOn && grid?.tw && (anim?.kind === 'in' || anim?.kind === 'out') ? { k: 1000 / grid.tw, morph: true } : null;
   // A ?t no table has (a stale link, or a table gone from the stream) is dropped, so the page is on the overview.
   useEffect(() => { if (overviewOn && focusParam && keys.length && !keys.includes(focusParam)) clearFocus(); }, [overviewOn, focusParam, keys]);
   // Off (a resize to a phone): forget the machine, and any animation still running ends unheard.
@@ -371,6 +377,8 @@ export default function Home() {
       table.style.transformOrigin = '0 0';
       const grow = table.animate([{ transform: `translate(${(cell.left - b.left) / z()}px, ${(cell.top - b.top) / z()}px) scale(${cell.width / b.width})` }, { transform: 'none' }],
         { duration: ZOOM_MS, easing: EASE });
+      // The detail the overview drops fades in over the last third; the far layer fades out (globals.css, --lod-t).
+      table.animate([{ '--lod-t': 0 }, { '--lod-t': 0, offset: 2 / 3 }, { '--lod-t': 1 }], { duration: ZOOM_MS, easing: 'linear', fill: 'both' });
       panelsIn(panels, ZOOM_MS);
       overlay.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ZOOM_MS, easing: EASE, fill: 'forwards' });
       grow.finished.then(landed, () => {});
@@ -388,6 +396,8 @@ export default function Home() {
       table.style.transformOrigin = '0 0';
       const shrink = table.animate([{ transform: 'none' }, { transform: `translate(${(cell.left - b.left) / z()}px, ${(cell.top - b.top) / z()}px) scale(${cell.width / b.width})` }],
         { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'forwards' });
+      // The reverse: the detail fades out over the first third, so the table that lands is the overview's far one.
+      table.animate([{ '--lod-t': 1 }, { '--lod-t': 0, offset: 1 / 3 }, { '--lod-t': 0 }], { duration: ZOOM_MS, delay: 140, easing: 'linear', fill: 'both' });
       overlay.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'backwards' });
       shrink.finished.then(done, () => {});
     } else if (kind === 'slideOut') {
@@ -466,8 +476,8 @@ export default function Home() {
       const s = screen.getBoundingClientRect(), t = stage.querySelector('[data-desk-table]')!.getBoundingClientRect(), st = stage.getBoundingClientRect();
       const side = stage.querySelector('#phone-stats')!.getBoundingClientRect(), head = main.previousElementSibling!.getBoundingClientRect(), b = btn.getBoundingClientRect();
       const x = (r: number) => r - s.left, y = (r: number) => r - s.top;
-      // The overview: the first screen under the header, down to the window's foot (its own Stats button is at its end),
-      // 24px in from the window's sides.
+      // The overview: the first screen under the header, down to the Stats button (the single-table page's, where it always is),
+      // 48px in from the window's sides, so it never runs wall to wall.
       const foot = Math.min(s.bottom, innerHeight);
       // Each neighbour's room: the free space beside the table and the sidebar, between the header and the table, under
       // the reasoning panel. Wide or tall enough for its label: the neighbour itself, faded; else a slim tab at that edge
@@ -485,7 +495,7 @@ export default function Home() {
           : { box: { left: dg >= TAB + 4 ? cx : x(t.left) + corner / 2, top: dg >= TAB + 4 ? y(st.bottom) + (dg - TAB) / 2 : y(t.bottom) - 8 - TAB, height: TAB, transform: 'translateX(-50%)' }, tab: true },
       };
       const next = {
-        overview: { left: x(24), top: y(head.bottom) + 6, width: document.documentElement.clientWidth - 48, height: foot - head.bottom - 14 },
+        overview: { left: x(48), top: y(head.bottom) + 6, width: document.documentElement.clientWidth - 96, height: Math.min(foot, b.top) - head.bottom - 12 },
         edges,
         back: { left: x(t.left), top: y(main.parentElement!.firstElementChild!.getBoundingClientRect().top) },
         w: t.width,
@@ -721,7 +731,7 @@ export default function Home() {
 
       {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
           it when a window crosses into the desktop layout. */}
-      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown && !showOverview} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown && perTable} perTable={perTable} fold={overviewOn} outDelay={anim?.kind === 'out' ? 140 : 0} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
         watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
 
       <div className={hide}><SessionProgress table={usageError ? undefined : usage?.table} /></div>
@@ -777,6 +787,7 @@ export default function Home() {
                 display={displayState}
                 clock={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? clock : null}
                 still={hidden}
+                lod={zoomLod}
               />
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
@@ -813,7 +824,7 @@ export default function Home() {
             Between the stage and the Stats button: fitStage measures the screen from its first child to its last. */}
         {/* Mounted for as long as the switch is on (hidden while a table is in focus), so zooming out draws no new tables. */}
         {overviewOn && room && <div ref={overlay} className="absolute z-20" style={{ ...room.overview, ...(showOverview ? null : { visibility: 'hidden', pointerEvents: 'none' }) }} aria-hidden={!showOverview || undefined}>
-          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} onOpen={openTable} onStats={() => pageBy(1)} />
+          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} pnl={pnl} onOpen={openTable} />
         </div>}
         {chrome && room && <>
           <button ref={backButton} onClick={backToTables} className="absolute z-20 flex items-center gap-1.5 rounded px-2 py-1 text-[14px] font-medium hover:bg-black/5 outline-none focus-visible:outline-2 focus-visible:outline-[rgb(31,111,196)]"
@@ -825,7 +836,7 @@ export default function Home() {
             return n && r && <Edge key={d} t={n} dir={d} variant={edges} room={r} width={room.w * (d === 'left' || d === 'right' ? 0.8 : 0.6)} onGo={() => goTo(d)} />;
           })}
         </>}
-        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={hidden ? { ...NEXT_STYLE, visibility: 'hidden' } : NEXT_STYLE}>
+        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={NEXT_STYLE}>
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>}
 
@@ -883,11 +894,28 @@ export default function Home() {
 
 // The desktop status row. Its hooks live here, not in Table, so they run when the row mounts: a window that loads in
 // the phone layout and widens past the switch still remembers the label and hand number boxes.
-function StatusRow({ className = '', statusKnown, handKnown, isLive, label, watching, handNumber, stakes, elapsedTime }: {
-  className?: string; statusKnown: boolean; handKnown: boolean; isLive: boolean; label: string; watching: number | undefined;
+function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fold = false, outDelay = 0, isLive, label, watching, handNumber, stakes, elapsedTime }: {
+  className?: string; statusKnown: boolean; handKnown: boolean; perTable?: boolean; fold?: boolean; outDelay?: number; isLive: boolean; label: string; watching: number | undefined;
   handNumber: number; stakes: { smallBlind: number; bigBlind: number }; elapsedTime: string;
 }) {
   const labelRef = useRef<HTMLDivElement>(null), handRef = useRef<HTMLDivElement>(null);
+  // The tables overview (`fold`): the per-table items fold to nothing between Live and the units, so Live, the units and
+  // Sound stand together in the middle; they open (and fold) with the zoom's curve and time, the row's groups gliding to
+  // their places. Their width is measured, so the glide ends on the row as it always is (and on a refresh html[data-overview]
+  // holds them folded from the first paint, globals.css). Without the overview they are simply the row's items.
+  const [midW, setMidW] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = handRef.current;
+    if (!fold || !el) return;
+    const ro = new ResizeObserver(() => setMidW(el.offsetWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fold]);
+  const glide = (p: string) => `${p} ${ZOOM_MS}ms ${EASE} ${perTable ? 0 : outDelay}ms`;
+  const midStyle: CSSProperties | undefined = fold ? {
+    width: perTable ? midW ?? undefined : 0, marginLeft: perTable ? 0 : -16, opacity: perTable ? 1 : 0,
+    transition: reduced() ? 'none' : ['width', 'margin-left', 'opacity'].map(glide).join(', '),
+  } : undefined;
   useFillIn(labelRef, statusKnown);
   useFillIn(handRef, handKnown);
   const [labelBox, labelSize, labelAttrs] = useRememberedBox<HTMLSpanElement>('status-label', statusKnown, 'wh');
@@ -911,13 +939,15 @@ function StatusRow({ className = '', statusKnown, handKnown, isLive, label, watc
           to the same lines) and nothing under it moves when they fill in. The blank hand number is one digit (tabular
           figures), never wider than the one remembered from the last visit, so on a refresh the remembered width holds
           it exactly (a "#00" blank was wider than "#2" and the row shifted 4px when a session's first hands arrived). */}
-      <div ref={handRef} className={`contents ${handKnown ? '' : '[&>*]:invisible'}`}>
+      <div data-status-table aria-hidden={!perTable || undefined} className={fold ? 'flex items-center overflow-hidden shrink-0' : 'contents'} style={midStyle}>
+      <div ref={handRef} className={`${fold ? 'flex items-center gap-x-4 shrink-0' : 'contents'} ${handKnown ? '' : '[&>*]:invisible'}`}>
         <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
         <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '0'}</span>
         <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
         <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
         <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
         <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
+      </div>
       </div>
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
       <UnitToggle bigBlind={stakes.bigBlind} />
