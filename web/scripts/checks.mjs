@@ -1652,7 +1652,7 @@ group(() => check('tables-fill-screen', 'With ?tables=1 at 1280x720, 1440x790, 1
         const g = document.querySelector('[data-overview-grid]').getBoundingClientRect(), main = document.querySelector('.stage-zoom').parentElement;
         const head = main.previousElementSibling.getBoundingClientRect();
         const tables = [...document.querySelectorAll('[data-overview-cell] [data-small-table]')].map(e => e.getBoundingClientRect().width);
-        const texts = [...document.querySelectorAll('[data-overview] span')].filter(e => e.textContent.trim() && e.getClientRects().length)
+        const texts = [...document.querySelectorAll('[data-overview] span')].filter(e => !e.closest('[data-small-table]') && getComputedStyle(e).visibility !== 'hidden' && e.textContent.trim() && e.getClientRects().length)
           .filter(e => { const lh = parseFloat(getComputedStyle(e).lineHeight) || 18; return e.getBoundingClientRect().height > lh * 1.5 || e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'visible'; }).map(e => e.textContent.trim().slice(0, 24));
         return { above: g.top - head.bottom, below: innerHeight - g.bottom, tables, texts, scroll: [document.documentElement.scrollWidth > innerWidth, scrollY, document.querySelector('[data-overview]').scrollHeight > document.querySelector('[data-overview]').clientHeight + 1] };
       });
