@@ -15,7 +15,7 @@ import { mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const CHROME = process.env.CHROME_PATH || '/usr/bin/google-chrome';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const VIEWS = { phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, desk: { width: 1440, height: 900, deviceScaleFactor: 1 } };
+const VIEWS = { phone: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }, desk: { width: 1440, height: 900, deviceScaleFactor: 1 }, mac: { width: 1440, height: 790, deviceScaleFactor: 1 } };
 const slug = p => p.replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '') || 'home';
 
 if (process.argv.includes('--compare')) await compare(arg('--compare'), process.argv[process.argv.indexOf('--compare') + 2]);
