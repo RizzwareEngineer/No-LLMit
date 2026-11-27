@@ -380,10 +380,18 @@ func TestTablesDealAtOnceAndNeverWaitOnEachOther(t *testing.T) {
 	tables, h := testTables(tableConfig{1, 2, 100}, tableConfig{50, 100, 100})
 	saved := make([]chan history.HandRecord, 2)
 	done := make(chan struct{})
+	var wg sync.WaitGroup
 	for i, tbl := range tables {
 		saved[i] = make(chan history.HandRecord, 10)
-		tbl.onSaved = func(r history.HandRecord) { saved[i] <- r }
+		tbl.onSaved = func(r history.HandRecord) {
+			select {
+			case saved[i] <- r:
+			default:
+			}
+		}
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			tbl.startGame()
 			for {
 				select {
@@ -395,7 +403,11 @@ func TestTablesDealAtOnceAndNeverWaitOnEachOther(t *testing.T) {
 			}
 		}()
 	}
+	defer wg.Wait() // before askLLM is put back
 	defer close(done)
+	var once sync.Once
+	free := func() { once.Do(func() { close(release) }) }
+	defer free() // unless the test got that far
 	for n := 1; n <= 2; n++ {
 		select {
 		case r := <-saved[0]:
@@ -406,7 +418,7 @@ func TestTablesDealAtOnceAndNeverWaitOnEachOther(t *testing.T) {
 			t.Fatal("the 1/2 table waited on the other table's model call")
 		}
 	}
-	close(release)
+	free()
 	r := <-saved[1]
 	if r.TableKey != "50-100-100bb" || r.Config.BigBlind != 100 || r.TableID == tables[0].id {
 		t.Errorf("50/100 hand: key %q, big blind %d, session %s", r.TableKey, r.Config.BigBlind, r.TableID)
