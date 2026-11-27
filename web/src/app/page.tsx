@@ -44,7 +44,7 @@ import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
 import { pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
-import TablesOverview, { EASE, Edge, ZOOM_MS, colsNow } from "@/components/TablesOverview";
+import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor } from "@/components/TablesOverview";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -322,7 +322,8 @@ export default function Home() {
   }, [overviewOn, phase, focusParam]);
   const focusIdx = tables.findIndex(t => t.key === focusKey);
   const neighbour = (d: Dir) => {
-    const cols = colsNow(tables.length), [dx, dy] = STEP[d], col = focusIdx % cols, i = focusIdx + dx + dy * cols;
+    // The overview's columns at this window: its neighbours above and below are the overview's.
+    const cols = room ? gridFor(tables.length, room.overview.width, room.overview.height).cols : 1, [dx, dy] = STEP[d], col = focusIdx % cols, i = focusIdx + dx + dy * cols;
     return focusIdx >= 0 && col + dx >= 0 && col + dx < cols && i >= 0 && i < tables.length ? tables[i] : null;
   };
   const openTable = (key: string) => { pushedHere.current = true; pushFocus(key); };
@@ -748,7 +749,7 @@ export default function Home() {
         {/* The tables overview over the stage (hidden under it), and in the focused view the way back and the neighbours.
             Between the stage and the Stats button: fitStage measures the screen from its first child to its last. */}
         {showOverview && room && <div ref={overlay} className="absolute z-20" style={room.overview}>
-          <TablesOverview tables={tables} onOpen={openTable} />
+          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} onOpen={openTable} />
         </div>}
         {overviewOn && phase === 'focused' && room && <>
           <button onClick={backToTables} className="absolute z-20 flex items-center gap-1.5 rounded px-2 py-1 text-[14px] font-medium hover:bg-black/5 outline-none focus-visible:outline-2 focus-visible:outline-[rgb(31,111,196)]"

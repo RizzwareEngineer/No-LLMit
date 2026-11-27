@@ -205,7 +205,7 @@ const parkShared = () => shared().__park?.bringToFront().catch(() => {});
 // first: useGameState), so a check's messages land on the table on screen.
 const scriptStream = p => p.evaluateOnNewDocument(() => {
   const by = {}, drawn = () => new URLSearchParams(location.search).get('t') ?? Object.keys(by).find(k => by[k].stakes?.smallBlind === 5 && by[k].stakes.bigBlind === 10) ?? Object.keys(by)[0] ?? null;
-  const Real = window.EventSource, s = window.__stream = { get last() { return by[drawn()] ?? null; }, set last(v) { by[drawn()] = v; }, get table() { return drawn(); }, scripted: false, feed: null };
+  const Real = window.EventSource, s = window.__stream = { get last() { return by[drawn()] ?? null; }, set last(v) { by[drawn()] = v; }, get table() { return drawn(); }, keys: () => Object.keys(by), scripted: false, feed: null };
   window.EventSource = class extends Real {
     set onmessage(fn) {
       s.feed = m => fn(new MessageEvent('message', { data: JSON.stringify({ table: s.table, ...m }) }));
@@ -1604,6 +1604,95 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 6).join(' | ') : seen.join(' | ') };
+}));
+
+// The tables overview (?tables=1, lib/tableSwitches): the landing shows every table the engine runs, a click zooms one into
+// the stage exactly where the page without the switch draws it, and Back, Esc and the edges move between them.
+const TABLE_SIZES = [[1440, 790], [1280, 720]];
+const deskBox = p => p.evaluate(() => { const b = document.querySelector('.stage-zoom [data-desk-table]').getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
+const cellsOf = p => p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(a => {
+  const b = a.getBoundingClientRect(), t = a.querySelector('[data-small-table]'), d = t?.querySelector('[data-desk-table]'), r = d?.getBoundingClientRect();
+  return { key: a.dataset.overviewCell, name: a.getAttribute('aria-label'), label: a.firstElementChild.textContent, bottom: b.bottom, right: b.right, seats: t?.querySelectorAll('[data-seat]').length ?? 0,
+    sx: r && r.width / d.offsetWidth, sy: r && r.height / d.offsetHeight, w: d?.offsetWidth };
+}));
+group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1280x720 the landing shows every table the engine runs, in its order, each a link named by its stakes and depth, labelled with stakes, depth, hand and pot, its table the 1000px desktop table drawn at one scale both ways with its seats, all inside the first screen with no scroll', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of TABLE_SIZES) {
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const keys = await p.evaluate(() => window.__stream.keys()), cells = await cellsOf(p), size = `${w}x${h}`;
+      const scroll = await p.evaluate(() => [document.documentElement.scrollWidth > innerWidth, scrollY]);
+      if (cells.map(c => c.key).join() !== keys.join()) bad.push(`${size}: cells ${cells.map(c => c.key)} for tables ${keys}`);
+      for (const c of cells) {
+        const [, sb, bb, depth] = c.key.match(/^(\d+)-(\d+)-(\d+)bb$/) ?? [];
+        if (c.name !== `Table ${sb}/${bb}, ${depth} bb`) bad.push(`${size} ${c.key}: named '${c.name}'`);
+        if (!new RegExp(`^${sb}/${bb} · ${depth} bb\\s*Hand #[1-9]\\d*\\s*Pot [\\d,]+`).test(c.label)) bad.push(`${size} ${c.key}: label '${c.label}'`);
+        if (c.w !== 1000 || !c.sx || Math.abs(c.sx - c.sy) > 0.003) bad.push(`${size} ${c.key}: table ${c.w}px drawn at ${c.sx?.toFixed(3)} x ${c.sy?.toFixed(3)}`);
+        if (c.seats < 6) bad.push(`${size} ${c.key}: ${c.seats} seats`);
+        if (c.bottom > h || c.right > w) bad.push(`${size} ${c.key}: runs past the window (${Math.round(c.right)}, ${Math.round(c.bottom)})`);
+      }
+      if (scroll[0] || scroll[1]) bad.push(`${size}: the page scrolled ${scroll}`);
+      seen.push(`${size}: ${cells.map(c => `${c.label.replace(/\s+/g, ' ')} at ${c.sx?.toFixed(3)}`).join('; ')}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('tables-zoom-lands', 'With ?tables=1 at 1440x790 and 1280x720, a click on the 5/10 cell ends with the table box the page without the switch draws (within 1px) and ?t=5-10-200bb in the URL; Esc, then Back after another click, return to the overview with no ?t', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of TABLE_SIZES) {
+    const size = `${w}x${h}`, plain = await scriptedTable(w, h);
+    const want = await deskBox(plain).finally(() => plain.close());
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const open = async () => { await clickCenter(p, '[data-overview-cell="5-10-200bb"] [data-small-table]'); await sleep(1200); };
+      await open();
+      const got = await deskBox(p), url = await p.evaluate(() => location.search);
+      if (got.some((v, i) => Math.abs(v - want[i]) > 1)) bad.push(`${size}: landed at ${got.map(Math.round)}, the page draws ${want.map(Math.round)}`);
+      if (!/[?&]t=5-10-200bb\b/.test(url)) bad.push(`${size}: URL ${url}`);
+      for (const [how, back] of [['Esc', () => p.keyboard.press('Escape')], ['Back', () => p.goBack()]]) {
+        if (how === 'Back') await open();
+        await back(); await sleep(1200);
+        const r = await p.evaluate(() => [document.querySelectorAll('[data-overview-cell]').length, location.search, getComputedStyle(document.querySelector('.stage-zoom')).visibility]);
+        if (!r[0] || /[?&]t=/.test(r[1]) || r[2] !== 'hidden') bad.push(`${size} ${how}: ${r[0]} cells, URL ${r[1]}, stage ${r[2]}`);
+      }
+      seen.push(`${size}: landed at ${got.map(v => Math.round(v * 10) / 10)} (page ${want.map(v => Math.round(v * 10) / 10)})`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 1280x720 (edges live, then outline): the neighbours show at the stage\'s edges, none over a seat, the sidebar, the reasoning panel or the header; a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of TABLE_SIZES) for (const variant of ['live', 'outline']) {
+    const size = `${w}x${h} ${variant}`, p = await scriptedTable(w, h, false, `tables=1&t=25-50-500bb&edges=${variant}`);
+    try {
+      await sleep(500);
+      const r = await p.evaluate(() => {
+        const box = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+        const meets = (a, b) => a[0] < b[2] - 0.5 && b[0] < a[2] - 0.5 && a[1] < b[3] - 0.5 && b[1] < a[3] - 0.5;
+        const main = document.querySelector('.stage-zoom').parentElement;
+        const keep = [...document.querySelectorAll('.stage-zoom [data-seat], #phone-stats, [data-reasoning]'), ...[...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).filter(e => e.offsetHeight)];
+        return [...document.querySelectorAll('[data-edge]')].map(e => ({ dir: e.dataset.edge, name: e.getAttribute('aria-label'), over: keep.filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.id ?? k.className.slice(0, 20)) }));
+      });
+      const right = r.find(e => e.dir === 'right');
+      if (!right || right.name !== 'Table 50/100, 100 bb') bad.push(`${size}: right edge ${right?.name}`);
+      for (const e of r) if (e.over.length) bad.push(`${size}: the ${e.dir} edge covers ${e.over.join(', ')}`);
+      await clickCenter(p, '[data-edge="right"]'); await sleep(1200);
+      const moved = await p.evaluate(() => location.search);
+      if (!/t=50-100-100bb/.test(moved)) bad.push(`${size}: after the right edge, URL ${moved}`);
+      await p.keyboard.press('ArrowLeft'); await sleep(1200);
+      const back = await p.evaluate(() => location.search);
+      if (!/t=25-50-500bb/.test(back)) bad.push(`${size}: after ←, URL ${back}`);
+      seen.push(`${size}: edges ${r.map(e => `${e.dir} ${e.name}`).join(', ')}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('tables-no-switch', 'Without ?tables=1 the page at 1440x790 shows no overview, no edges and no way to all tables: the single table, as before', async () => {
+  const p = await scriptedTable(1440, 790);
+  try {
+    const r = await p.evaluate(() => [document.querySelectorAll('[data-overview], [data-overview-cell], [data-edge], [data-small-table]').length, [...document.querySelectorAll('button')].some(b => /All tables/.test(b.textContent)), document.querySelectorAll('[data-desk-table]').length]);
+    return { pass: !r[0] && !r[1] && r[2] === 1, detail: `${r[0]} overview parts, ${r[1] ? 'an' : 'no'} All tables control, ${r[2]} desktop table` };
+  } finally { await p.close(); }
 }));
 // The sticky bar's pot is a table amount too, so it follows the same switch: in big blinds it reads as the felt's pot does,
 // back in chips it reads in chips, and only its text changes (same height and place; its width moves by the text's alone).

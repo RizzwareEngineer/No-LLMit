@@ -1,6 +1,5 @@
 'use client';
 
-import { useLayoutEffect, useRef, useState } from 'react';
 import PokerTable from '@/components/PokerTable';
 import Fit from '@/components/Fit';
 import FitName from '@/components/FitName';
@@ -41,9 +40,6 @@ export function gridFor(n: number, w: number, h: number) {
   }
   return best;
 }
-// The overview's box was last this size (its columns give the edges their neighbours); the window's until it is laid out.
-let lastBox: [number, number] | null = null;
-export const colsNow = (n: number) => gridFor(n, ...(lastBox ?? [innerWidth - 48, innerHeight * 0.65])).cols;
 
 // PokerTable's props for a table drawn small (page.tsx works out the focused table's own).
 function smallTable(t: TableView) {
@@ -137,20 +133,10 @@ function Cell({ t, s, onOpen }: { t: KeyedTable; s: number; onOpen: (key: string
   );
 }
 
-// The grid, centred in its box (the table screen under the header), and the all-tables column beside it.
-export default function TablesOverview({ tables, onOpen }: { tables: KeyedTable[]; onOpen: (key: string) => void }) {
-  const box = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState<[number, number] | null>(null);
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const measure = () => { lastBox = [el.clientWidth, el.clientHeight]; setSize(s => (s && s[0] === lastBox![0] && s[1] === lastBox![1] ? s : lastBox)); };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const { cols, rows, s } = size ? gridFor(tables.length, ...size) : { cols: 1, rows: 1, s: 0 };
+// The grid, centred in its box (`w` x `h`: the table screen under the header, page.tsx), and the all-tables column beside
+// it. Laid out from the box's size as given, in the render that mounts it: the zoom out measures a cell straight away.
+export default function TablesOverview({ tables, w, h, onOpen }: { tables: KeyedTable[]; w: number; h: number; onOpen: (key: string) => void }) {
+  const { cols, rows, s } = gridFor(tables.length, w, h);
   const cellH = Math.ceil(TABLE_H * s) + LABEL_H;
   // Across all tables in big blinds (stakes differ: chips do not add up), by model.
   const sums = new Map<string, number>();
@@ -159,7 +145,7 @@ export default function TablesOverview({ tables, onOpen }: { tables: KeyedTable[
     for (const p of t.gameState?.players ?? []) if (bb) sums.set(p.name, (sums.get(p.name) ?? 0) + (p.winnings || 0) / bb);
   }
   return (
-    <div ref={box} data-overview className="absolute inset-0 flex items-center justify-center">
+    <div data-overview className="absolute inset-0 flex items-center justify-center">
       {s > 0 && (
         <div className="flex gap-4 items-start">
           <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}>
