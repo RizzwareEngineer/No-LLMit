@@ -1,27 +1,26 @@
 'use client';
 
 import { memo, useEffect, useRef } from 'react';
-import { ArrowDown } from '@phosphor-icons/react';
-import { NEXT_BUTTON, NEXT_STYLE } from '@/components/Section';
 import PokerTable from '@/components/PokerTable';
 import Fit from '@/components/Fit';
-import FitName from '@/components/FitName';
 import LLMLogo from '@/components/LLMLogo';
+import WinningsPanel from '@/components/WinningsPanel';
 import { TableBigBlind, formatAmount, useBigBlind } from '@/lib/amounts';
 import { MUTED, TEXT } from '@/lib/stats';
 import type { TableView } from '@/lib/stream';
 
 // The tables overview (lib/tableSwitches' ?tables=1): every table at once, each a small live copy of the desktop table
-// with its profit and loss beside it, and the profit and loss across all tables. A click zooms into one (page.tsx).
+// seen from far away (semantic zoom: only what reads at that size), with its profit and loss. A click zooms into one,
+// growing the detail back in (page.tsx).
 
 type KeyedTable = TableView & { key: string };
 
-// The desktop table's box in layout px: 1000 across, four rows of 128 and its frame (PokerTable). Its corner cells (200 x 128,
-// empty at every table size) carry the small table's own text: stakes and depth, the hand, the top winner and the top loser.
-const TABLE_W = 1000, TABLE_H = 514, CORNER_W = 200, CORNER_H = 128;
-// Below this scale a corner is too small for its text, and the cell takes a label line over the table instead.
-const CORNERS_MIN = 0.5;
-const GAP = 10, LABEL_H = 20, ALL_W = 196, ROW_H = 17, PNL_HEAD = 20, STRIP_H = 2 * ROW_H + 10;
+// The desktop table's box in layout px: 1000 across, four rows of 128 and its frame (PokerTable). In the overview it is
+// drawn small and seen from far away (PokerTable's lod, TableFar): each seat its logo and cards, the felt its pot and board.
+const TABLE_W = 1000, TABLE_H = 514;
+// The label line over each table; the Profits & Losses panel beside it (the single-table page's, its rows closer), or
+// with ?pnl=row the slim row under it; the gaps between tables across and down.
+const LABEL_H = 24, PANEL_W = 208, PANEL_GAP = 12, ROW_H = 26, ROW_GAP = 6, ROW_MIN_W = 9 * 60, GX = 32, GY = 18;
 const CARD = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
 const UP = 'rgb(15, 123, 108)', DOWN = 'rgb(200, 50, 50)';
 // The stats tile-to-card glide's curve (Section's glideEase), shorter: a table is one picture, not a card's content.
@@ -35,24 +34,23 @@ const tableLabel = (t: TableView) => {
   return `${smallBlind}/${bigBlind}${t.startingStack && bigBlind ? ` · ${t.startingStack / bigBlind} bb` : ''}`;
 };
 
-// The overview's grid for `n` tables in a `w` x `h` box: the columns, the small table's scale, where the all-tables
-// Profits & Losses goes (a slim column beside the grid, or a strip under it, whichever leaves the tables larger) and
-// whether the cells carry their text in the table's corners or on a label line over it. The stage's edges use the same
-// columns for their neighbours above and below.
-export function gridFor(n: number, w: number, h: number) {
-  let best = { cols: 1, rows: n, s: 0, all: 'side' as 'side' | 'below', corners: true, used: 0 };
-  for (const all of ['side', 'below'] as const) for (let cols = 1; cols <= Math.max(1, n); cols++) {
-    const rows = Math.ceil(n / cols);
-    const cellW = (w - (all === 'side' ? ALL_W + GAP : 0) - (cols - 1) * GAP) / cols;
-    const cellH = (h - (all === 'below' ? STRIP_H + GAP : 0) - (rows - 1) * GAP) / rows;
+export type PnlVariant = 'panel' | 'row';
+// The overview's grid for `n` tables in a `w` x `h` box: the columns and rows, the small table's scale `s` and its
+// drawn width, and each cell's size (the table with its label and its profit and loss). The largest tables win. The
+// stage's edges use the same columns for their neighbours above and below.
+export function gridFor(n: number, w: number, h: number, pnl: PnlVariant = 'panel') {
+  let best = { cols: 1, rows: Math.max(1, n), s: 0, tw: 0, th: 0, cellW: 0, cellH: 0 };
+  for (let cols = 1; cols <= Math.max(1, n); cols++) {
+    const rows = Math.ceil(n / cols), across = (w - (cols - 1) * GX) / cols, down = (h - (rows - 1) * GY) / rows;
+    if (pnl === 'row' && across < ROW_MIN_W) continue;
     // Never over its own size (one table is the desktop table, not a blow-up of it).
-    let s = Math.min(1, cellW / TABLE_W, cellH / TABLE_H), corners = true;
-    if (s < CORNERS_MIN) { corners = false; s = Math.min(cellW / TABLE_W, (cellH - LABEL_H) / TABLE_H); }
-    s = Math.floor(s * 1000) / 1000;
-    // The larger tables win; at the same size, the layout that leaves less of the box empty (the strip under the grid
-    // takes up room the column beside it would leave as bands).
-    const used = (rows * (TABLE_H * s + (corners ? 0 : LABEL_H)) + (rows - 1) * GAP + (all === 'below' ? STRIP_H + GAP : 0)) / h;
-    if (s > best.s + 0.002 || (s > best.s - 0.002 && used > best.used)) best = { cols, rows, s, all, corners, used };
+    const tw = Math.floor(Math.min(TABLE_W, pnl === 'panel' ? across - PANEL_GAP - PANEL_W : across,
+      ((pnl === 'panel' ? down - LABEL_H : down - LABEL_H - ROW_GAP - ROW_H) / TABLE_H) * TABLE_W));
+    if (tw <= best.tw) continue;
+    const th = Math.floor(TABLE_H * tw / TABLE_W);
+    best = { cols, rows, s: tw / TABLE_W, tw, th,
+      cellW: pnl === 'panel' ? tw + PANEL_GAP + PANEL_W : Math.max(tw, ROW_MIN_W),
+      cellH: LABEL_H + th + (pnl === 'row' ? ROW_GAP + ROW_H : 0) };
   }
   return best;
 }
@@ -75,23 +73,28 @@ function smallTable(t: TableView) {
 }
 
 // The desktop table drawn `width` px across as one picture (Fit's transform), in its own big blind. Not interactive: the
-// cell or edge round it is the control.
+// cell or edge round it is the control. `far`: seen from far away (the overview's level of detail): its seats keep their
+// names for screen readers; without it (the stage's edges) it is a picture only.
 // Memoized: every stream message renders the page, and a table unchanged by it keeps its object (useGameState).
-const SmallTable = memo(function SmallTable({ t, width }: { t: TableView; width: number }) {
+const SmallTable = memo(function SmallTable({ t, width, far = false }: { t: TableView; width: number; far?: boolean }) {
   return (
     <TableBigBlind.Provider value={stakesOf(t).bigBlind || null}>
-      <div data-small-table inert aria-hidden style={{ width }}>
-        <Fit w={TABLE_W}><PokerTable {...smallTable(t)} still /></Fit>
+      <div data-small-table inert={!far || undefined} aria-hidden={!far || undefined} className={far ? 'pointer-events-none' : undefined} style={{ width }}>
+        <Fit w={TABLE_W}><PokerTable {...smallTable(t)} still lod={far ? { k: TABLE_W / width } : null} /></Fit>
       </div>
     </TableBigBlind.Provider>
   );
 });
 
-const signed = (v: number, bb: number | null) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${formatAmount(Math.abs(v), bb, false)}`;
 const colorOf = (v: number) => (v > 0 ? UP : v < 0 ? DOWN : MUTED);
+// The row's numbers: in chips over 10,000 in thousands, so nine fit under a small table on one line.
+const short = (v: number, bb: number | null) => {
+  const a = Math.abs(v), sign = v > 0 ? '+' : v < 0 ? '−' : '';
+  return sign + (!bb && a >= 10000 ? `${(a / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 })}k` : formatAmount(a, bb, false));
+};
 
 // A number that flashes its colour when it changes, in place: its box is the text's, so nothing round it moves.
-function Amount({ value, bb, className = '' }: { value: number; bb: number | null; className?: string }) {
+function Amount({ value, bb }: { value: number; bb: number | null }) {
   const ref = useRef<HTMLSpanElement>(null), was = useRef(value);
   useEffect(() => {
     if (was.current === value) return;
@@ -99,139 +102,70 @@ function Amount({ value, bb, className = '' }: { value: number; bb: number | nul
     was.current = value;
     ref.current?.animate([{ backgroundColor: up ? 'rgba(15, 123, 108, 0.18)' : 'rgba(200, 50, 50, 0.16)' }, { backgroundColor: 'rgba(0, 0, 0, 0)' }], { duration: 900, easing: 'ease-out' });
   }, [value]);
-  return <span ref={ref} className={`rounded-sm font-bold tabular-nums whitespace-nowrap ${className}`} style={{ color: colorOf(value) }}>{signed(value, bb)}</span>;
+  return <span ref={ref} className="rounded-sm text-[12px] leading-4 font-bold tabular-nums whitespace-nowrap" style={{ color: colorOf(value) }}>{short(value, bb)}</span>;
 }
 
-// A corner's model: its name (the shortest form that fits the corner) over its logo and amount.
-function PnlPair({ name, value, bb, end = false }: { name: string; value: number; bb: number | null; end?: boolean }) {
-  return <>
-    <div className="min-w-0" style={{ textAlign: end ? 'right' : undefined }}><FitName name={name} className="text-[12px] leading-4 font-medium" style={{ color: TEXT }} /></div>
-    <div className={`flex items-center gap-1.5 ${end ? 'flex-row-reverse' : ''}`}><LLMLogo model={name} size={13} /><Amount value={value} bb={bb} className="text-[13px] leading-4" /></div>
-  </>;
-}
-
-const leaders = (t: TableView) => {
-  const ps = [...(t.gameState?.players ?? [])].map(p => ({ name: p.name, value: p.winnings || 0 })).sort((a, b) => b.value - a.value);
-  return { top: ps[0]?.value > 0 ? ps[0] : null, last: ps.length && ps[ps.length - 1].value < 0 ? ps[ps.length - 1] : null };
-};
-
-// The small table's corners (its empty corner cells, in the overview's px): top left its stakes and depth (and a closed
-// or paused notice); top
-// right its hand; the foot its top winner (left) and top loser (right). The pot is the felt's own.
-function Corners({ t, s, w, h, bb }: { t: KeyedTable; s: number; w: number; h: number; bb: number | null }) {
-  const g = t.gameState, cw = CORNER_W * s, ch = CORNER_H * s, { top, last } = leaders(t);
-  const at = (x: 'l' | 'r', y: 't' | 'b') => ({ position: 'absolute' as const, width: cw, height: ch, left: x === 'l' ? 0 : w - cw, top: y === 't' ? 0 : h - ch, padding: '6px 8px' });
+// ?pnl=row: the table's nine models in rank order, each its logo and its number, on one slim line under the table.
+function PnlRow({ t, width }: { t: KeyedTable; width: number }) {
+  const shown = useBigBlind(), bb = shown ? stakesOf(t).bigBlind || null : null;
+  const ranked = [...(t.gameState?.players ?? [])].sort((a, b) => (b.winnings || 0) - (a.winnings || 0));
   return (
-    <div aria-hidden className="absolute inset-0 pointer-events-none text-[12px] leading-4 tabular-nums" style={{ color: MUTED }}>
-      <div data-corner="label" className="flex flex-col gap-0.5" style={at('l', 't')}>
-        <span className="font-bold whitespace-nowrap" style={{ color: TEXT }}>{tableLabel(t)}</span>
-        {t.notice && <span className="whitespace-nowrap font-medium" style={{ color: DOWN }}>{t.notice.kind === 'closed' ? 'Closed' : 'Paused'}</span>}
-      </div>
-      <div data-corner="hand" className="flex flex-col items-end" style={at('r', 't')}>
-        <span className="whitespace-nowrap">Hand #{g?.handNumber || '–'}</span>
-      </div>
-      <div data-corner="top" className="flex flex-col justify-end gap-0.5" style={at('l', 'b')}>
-        {top && <PnlPair name={top.name} value={top.value} bb={bb} />}
-      </div>
-      <div data-corner="last" className="flex flex-col justify-end items-stretch gap-0.5" style={at('r', 'b')}>
-        {last && <PnlPair name={last.name} value={last.value} bb={bb} end />}
-      </div>
+    <ol data-pnl-row aria-label={`Profits & Losses, ${tableLabel(t)}${bb ? ', in big blinds' : ''}`} className="flex items-center justify-between bg-white rounded px-2"
+      style={{ ...CARD, width, height: ROW_H, marginTop: ROW_GAP }}>
+      {ranked.map(p => (
+        <li key={p.id} className="flex items-center gap-1" aria-label={`${p.name} ${short(p.winnings || 0, bb)}`}>
+          <LLMLogo model={p.name} size={16} />
+          <Amount value={p.winnings || 0} bb={bb} />
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// One table: its label line and the small table, as one link into the table, and its profit and loss beside it (the
+// single-table page's panel, at its own text size) or, ?pnl=row, under it.
+function Cell({ t, tw, th, cellW, pnl, onOpen }: { t: KeyedTable; tw: number; th: number; cellW: number; pnl: PnlVariant; onOpen: (key: string) => void }) {
+  const { bigBlind } = stakesOf(t), label = tableLabel(t);
+  return (
+    <div data-overview-item className={`flex ${pnl === 'row' ? 'flex-col items-center' : 'flex-row items-start'}`} style={{ width: cellW, gap: pnl === 'row' ? 0 : PANEL_GAP }}>
+      <a
+        href={`?tables=1&t=${t.key}`}
+        data-overview-cell={t.key}
+        aria-label={`Table ${label.replace(' · ', ', ')}`}
+        onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); onOpen(t.key); } }}
+        className="group block rounded outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[rgb(31,111,196)]"
+        style={{ width: tw }}
+      >
+        <div data-cell-label className="flex items-center gap-2 whitespace-nowrap overflow-hidden" style={{ height: LABEL_H - 4, marginBottom: 4 }}>
+          <span className="text-[14px] leading-5 font-bold tabular-nums" style={{ color: TEXT }}>{label}</span>
+          {t.notice && <span className="text-[13px] leading-5 font-medium" style={{ color: DOWN }}>{t.notice.kind === 'closed' ? 'Closed' : 'Paused'}</span>}
+        </div>
+        {/* Hover and focus: it lifts a little with a blue ring, the cursor a hand: it opens. */}
+        <div data-cell-table className="relative rounded transition-[transform,box-shadow] duration-150 ease-out group-hover:-translate-y-0.5 group-hover:shadow-[0_0_0_2px_rgba(31,111,196,0.6),0_8px_20px_rgba(15,15,15,0.14)] group-focus-visible:-translate-y-0.5 group-focus-visible:shadow-[0_0_0_2px_rgba(31,111,196,0.6),0_8px_20px_rgba(15,15,15,0.14)]" style={{ width: tw, height: th }}>
+          <SmallTable t={t} width={tw} far />
+        </div>
+      </a>
+      {pnl === 'row' ? <PnlRow t={t} width={cellW} /> : (
+        <div data-overview-pnl className="flex flex-col shrink-0" style={{ width: PANEL_W, height: LABEL_H + th }}>
+          <TableBigBlind.Provider value={bigBlind || null}>
+            <WinningsPanel players={t.gameState?.players ?? []} box={`pnl:${t.key}`} dense />
+          </TableBigBlind.Provider>
+        </div>
+      )}
     </div>
   );
 }
 
-// One table's cell: the small table with its text in its corners (or, small, a label line over it), as one link into
-// the table.
-function Cell({ t, s, corners, onOpen }: { t: KeyedTable; s: number; corners: boolean; onOpen: (key: string) => void }) {
-  const shown = useBigBlind(), { bigBlind } = stakesOf(t), bb = shown ? bigBlind : null;
-  const g = t.gameState, w = Math.floor(TABLE_W * s), h = Math.floor(TABLE_H * s);
-  const label = tableLabel(t), { top, last } = leaders(t);
-  return (
-    <a
-      href={`?tables=1&t=${t.key}`}
-      data-overview-cell={t.key}
-      aria-label={`Table ${label.replace(' · ', ', ')}`}
-      onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); onOpen(t.key); } }}
-      className="group flex flex-col rounded outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[rgb(31,111,196)]"
-    >
-      {!corners && <div data-cell-label className="flex items-baseline gap-2.5 whitespace-nowrap overflow-hidden text-[12px] tabular-nums" style={{ height: LABEL_H, width: w, color: MUTED }}>
-        <span className="font-bold text-[13px]" style={{ color: TEXT }}>{label}</span>
-        <span>Hand #{g?.handNumber || '–'}</span>
-        <span>Pot {formatAmount(g?.pot ?? 0, bb)}</span>
-        {top && <Amount value={top.value} bb={bb} />}
-        {last && <Amount value={last.value} bb={bb} />}
-        {t.notice && <span>{t.notice.kind === 'closed' ? 'Closed' : 'Paused'}</span>}
-      </div>}
-      <div className="relative transition-shadow rounded group-hover:shadow-[0_0_0_2px_rgba(31,111,196,0.35)]" style={{ width: w, height: h }}>
-        <SmallTable t={t} width={w} />
-        {corners && <Corners t={t} s={w / TABLE_W} w={w} h={h} bb={bb} />}
-      </div>
-    </a>
-  );
-}
-
-// Across all tables in big blinds (stakes differ: chips do not add up), by model, best first.
-function allTables(tables: KeyedTable[]) {
-  const sums = new Map<string, number>();
-  for (const t of tables) {
-    const bb = stakesOf(t).bigBlind;
-    for (const p of t.gameState?.players ?? []) if (bb) sums.set(p.name, (sums.get(p.name) ?? 0) + (p.winnings || 0) / bb);
-  }
-  return [...sums].map(([name, value]) => ({ name, value: Math.round(value * 10) / 10 })).sort((a, b) => b.value - a.value);
-}
-
-const Head = () => (
-  <div className="flex items-center justify-between gap-2 px-2 whitespace-nowrap text-[11px] font-medium uppercase tracking-wider" style={{ height: PNL_HEAD }}>
-    <span style={{ color: TEXT }}>All tables</span><span style={{ color: MUTED }}>BB</span>
-  </div>
-);
-const Row = ({ name, value }: { name: string; value: number }) => (
-  <div className="flex items-center gap-1.5 px-2 min-w-0" style={{ height: ROW_H }}>
-    <LLMLogo model={name} size={13} />
-    <div className="flex-1 min-w-0"><FitName name={name} className="text-[12px] leading-4 font-medium" style={{ color: TEXT }} /></div>
-    <Amount value={value} bb={1} className="text-[12px] leading-4 shrink-0" />
-  </div>
-);
-
-// The grid, centred in its box (`w` x `h`: the first screen under the header, page.tsx), and the all-tables Profits &
-// Losses beside it or under it, with the way on to the stats at its end. Laid out from the box's size as given, in the
-// render that mounts it: the zoom out measures a cell straight away.
-export default function TablesOverview({ tables, w, h, onOpen, onStats }: { tables: KeyedTable[]; w: number; h: number; onOpen: (key: string) => void; onStats: () => void }) {
-  const { cols, rows, s, all, corners } = gridFor(tables.length, w, h);
-  const cellW = Math.floor(TABLE_W * s), cellH = Math.floor(TABLE_H * s) + (corners ? 0 : LABEL_H);
-  const gridW = cols * cellW + (cols - 1) * GAP, gridH = rows * cellH + (rows - 1) * GAP;
-  const sums = allTables(tables);
-  const stats = (
-    <button type="button" onClick={onStats} className={`shrink-0 ${NEXT_BUTTON}`} style={NEXT_STYLE}>
-      Stats <ArrowDown size={16} weight="bold" aria-hidden />
-    </button>
-  );
+// The grid, centred in its box (`w` x `h`: the first screen between the header and the Stats button, page.tsx), the last
+// row's tables centred under the others. Laid out from the box's size as given, in the render that mounts it: the zoom
+// out measures a cell straight away.
+export default function TablesOverview({ tables, w, h, pnl, onOpen }: { tables: KeyedTable[]; w: number; h: number; pnl: PnlVariant; onOpen: (key: string) => void }) {
+  const { cols, tw, th, cellW } = gridFor(tables.length, w, h, pnl);
   return (
     <div data-overview className="absolute inset-0 flex items-center justify-center">
-      {s > 0 && (
-        <div data-overview-grid className={`flex ${all === 'side' ? 'flex-row' : 'flex-col'}`} style={{ gap: GAP }}>
-          <div className="grid" style={{ gridTemplateColumns: `repeat(${cols}, ${cellW}px)`, gap: GAP }}>
-            {tables.map(t => <Cell key={t.key} t={t} s={s} corners={corners} onOpen={onOpen} />)}
-          </div>
-          {all === 'side' ? (
-            <div className="flex flex-col justify-between items-center" style={{ width: ALL_W, height: gridH }}>
-              <div data-all-tables className="bg-white rounded w-full pb-1" style={CARD}>
-                <Head />
-                {sums.map(r => <Row key={r.name} {...r} />)}
-              </div>
-              {stats}
-            </div>
-          ) : (
-            <div className="flex items-center gap-4" style={{ width: gridW, height: STRIP_H }}>
-              <div data-all-tables className="flex-1 min-w-0 bg-white rounded flex items-center" style={{ ...CARD, height: STRIP_H }}>
-                <div className="shrink-0"><Head /></div>
-                <div className="flex-1 min-w-0 grid grid-flow-col pr-1" style={{ gridTemplateRows: `repeat(2, ${ROW_H}px)`, gridAutoColumns: 'minmax(0, 1fr)' }}>
-                  {sums.map(r => <Row key={r.name} {...r} />)}
-                </div>
-              </div>
-              {stats}
-            </div>
-          )}
+      {tw > 0 && (
+        <div data-overview-grid className="flex flex-wrap justify-center" style={{ width: cols * cellW + (cols - 1) * GX, columnGap: GX, rowGap: GY }}>
+          {tables.map(t => <Cell key={t.key} t={t} tw={tw} th={th} cellW={cellW} pnl={pnl} onOpen={onOpen} />)}
         </div>
       )}
     </div>

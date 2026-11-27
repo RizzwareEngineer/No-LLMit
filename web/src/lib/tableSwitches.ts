@@ -28,6 +28,9 @@ export const useTablesOverview = () => useSyncExternalStore(noSub, () => tablesO
 export const OVERVIEW_FIRST = `(${tablesOverview})(location.search)&&!new URLSearchParams(location.search).get('t')&&matchMedia(${JSON.stringify(DESK)}).matches&&document.documentElement.setAttribute('data-overview','')`;
 // ?edges=outline: the neighbours at the stage's edges as an outline and a label; without it, their live tables.
 export const useEdges = () => useSyncExternalStore(noSub, (): 'live' | 'outline' => (query('edges') === 'outline' ? 'outline' : 'live'), () => 'live' as const);
+// ?pnl=row: each table's profit and loss in the tables overview as one slim row of logos and numbers under it; without
+// it, the single-table page's Profits & Losses panel beside it.
+export const usePnlRow = () => useSyncExternalStore(noSub, () => query('pnl') === 'row', () => false);
 // ?t=KEY: the table in focus (the stream's key, e.g. 5-10-200bb), so Back, a reload or a shared link finds it.
 const onUrl = (cb: () => void) => { addEventListener('popstate', cb); addEventListener('focuschange', cb); return () => { removeEventListener('popstate', cb); removeEventListener('focuschange', cb); }; };
 export const useFocusParam = () => useSyncExternalStore(onUrl, () => query('t'), () => null);
