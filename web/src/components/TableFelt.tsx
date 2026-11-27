@@ -20,6 +20,7 @@ import { CARD_CLASS, useCardSize } from "@/lib/tableSwitches";
 import { isDraftA } from "@/lib/layout";
 const noSub = () => () => {};
 import { arrivedDealAt } from "@/lib/stream";
+import { FarFelt } from "@/components/TableFar";
 
 interface WinnerDisplay {
   name: string;
@@ -49,6 +50,8 @@ interface TableFeltProps {
   compact?: boolean; // the phone table's middle (PokerTable): only the pot and the board, no grid
   plain?: boolean; // draft A's tall table (PokerTable): no grid of its own, the drawn felt under it shows through
   fillIn?: boolean; // fade in as it fills; false for a felt mounted by a layout switch mid-hand (it shows the hand as it stands)
+  far?: number; // the tables overview's felt seen from far away (TableFar's FarFelt), at this many layout px per screen px
+  morph?: boolean; // with `far`: the full felt with the far one over it, for the zoom between them (PokerTable's lod)
 }
 
 // Shown on the felt while the table is closed or at its daily call cap.
@@ -126,6 +129,8 @@ export default function TableFelt({
   compact = false,
   plain = false,
   fillIn = true,
+  far,
+  morph = false,
 }: TableFeltProps) {
   const bb = useBigBlind(), size = useCardSize(), still = useSyncExternalStore(noSub, isDraftA, () => false);
   const potIn = amountParts(pot, bb);
@@ -147,6 +152,8 @@ export default function TableFelt({
     countText.current.textContent = `${s}s`;
     countBox.current.style.visibility = s > 0 ? '' : 'hidden';
   });
+  const farFelt = far ? <FarFelt cards={blank ? [] : cards} pot={blank ? 0 : pot} k={far} /> : null;
+  if (far && !morph) return <div ref={ref} data-felt className="relative w-full h-full" style={GRID}>{farFelt}</div>;
   return (
     <div 
       ref={ref}
@@ -261,6 +268,7 @@ export default function TableFelt({
       )}
       </div>
       )}
+      {farFelt}
     </div>
   );
 }

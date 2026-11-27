@@ -43,6 +43,10 @@ interface PokerTableProps {
   stats?: Record<string, ModelStats>; // by model name, for the phone seat's stats popup (SeatStats)
   display?: DisplayState | null; // the turn on screen: the phone shows each action over its seat for a moment
   clock?: Clock | null; // the shot clock while its turn is on screen (null: no clock): the phone's ring round the seat on the clock
+  // Level of detail (the tables overview's semantic zoom): the table seen from far away, its seats and felt drawn for a
+  // scale of 1/k (TableFar); `morph`: the full table with the far one over it, for the zoom between them (page.tsx fades
+  // one into the other through --lod-t, globals.css).
+  lod?: { k: number; morph?: boolean } | null;
   still?: boolean; // a small copy (the tables overview, the stage's edges): no flights, no deal and no sounds, which find the page's one felt
 }
 
@@ -65,6 +69,7 @@ export default function PokerTable({
   display = null,
   clock = null,
   still = false,
+  lod = null,
 }: PokerTableProps) {
   const layout = getPlayerLayout(players.length || 9);
   const hidePositions = !!buttonDetermination; // the position badges wait for the button draw
@@ -141,6 +146,8 @@ export default function PokerTable({
       ring={spot && idx === currentPlayerIdx ? clock : undefined}
       onOpen={spot ? () => openStats(idx) : undefined}
       bubble={spot && turn.bubble?.seat === idx ? turn.bubble.text : undefined}
+      far={spot ? undefined : lod?.k}
+      morph={!!lod?.morph}
     />
   );
 
@@ -177,6 +184,8 @@ export default function PokerTable({
       deck={deck}
       blank={blank}
       fillIn={!switched}
+      far={compact || tallFelt ? undefined : lod?.k}
+      morph={!!lod?.morph}
     />
   );
 
@@ -190,6 +199,7 @@ export default function PokerTable({
   const deskTable = (cls: string) => (
       <div
         data-desk-table
+        data-lod={lod ? (lod.morph ? 'morph' : 'far') : undefined}
         className={`${cls} relative bg-white shrink-0 self-stretch rounded`}
         style={{ width: tableWidth, ...cardStyle }}
       >

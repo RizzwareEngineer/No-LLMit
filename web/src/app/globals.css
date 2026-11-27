@@ -400,6 +400,16 @@ html:has([data-screen]) {
 html.phone-a #phone-stats { display: none; }
 /* The overview landing's first paint (lib/tableSwitches' OVERVIEW_FIRST): the stage it is drawn over stays hidden. */
 html[data-overview] .stage-zoom { visibility: hidden; }
+/* The tables overview's semantic zoom (PokerTable's lod, TableFar): --lod-t is 0 for the table seen from far away, 1 for
+   the full table. In the zoom between them (page.tsx animates it on the table) the full seat's and felt's content fades
+   in over the last third as the far layer fades out; a table drawn far away has only the far layer. */
+@property --lod-t { syntax: '<number>'; inherits: true; initial-value: 1; }
+[data-lod="far"] { --lod-t: 0; }
+[data-lod] [data-desk-seat] > :not([data-far]), [data-lod] [data-felt] > :not([data-far]) { opacity: calc(var(--lod-t) * var(--seat-o, 1)); }
+[data-lod] [data-far] { opacity: calc(1 - var(--lod-t)); }
+/* The header's per-table items (page.tsx's StatusRow) on the overview's first paint: folded away, so Live, the units and
+   Sound stand together in the middle before the page runs. */
+html[data-overview] [data-status-table] { width: 0 !important; margin-left: -16px; opacity: 0; }
 html.phone-a [data-a-table] [data-hole] [role=img], html.phone-a [data-a-table] [data-felt-cards] [role=img] { width: 40px; height: 56px; }
 html.phone-a [data-a-table] [role=img] span { font-size: 14px; }
 html.phone-a [data-a-table] [role=img] svg { width: 12px; height: 12px; }

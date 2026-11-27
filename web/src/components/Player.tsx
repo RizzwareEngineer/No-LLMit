@@ -14,6 +14,7 @@ import { CARD_CLASS, useCardSize } from "@/lib/tableSwitches";
 import { useFillIn } from "@/lib/boxes";
 import { arrivedClock, clockMs, clockShare, type Clock } from "@/lib/stream";
 import { useSecondsDraw } from "@/hooks/useSecondsDraw";
+import { FarSeat } from "@/components/TableFar";
 
 const RING_R = 27, RING_C = 2 * Math.PI * RING_R; // the phone seat's shot clock ring round its logo
 
@@ -34,6 +35,8 @@ interface PlayerProps {
   bubble?: string; // the action just taken, shown for a moment (phone)
   onOpen?: () => void; // phone: a tap on the logo opens its basic stats (PokerTable's SeatStats); without it, the drawer
   fillIn?: boolean; // fade in on mount (the table filling); false for a seat mounted by a layout switch mid-hand
+  far?: number; // the tables overview's seat seen from far away (TableFar's FarSeat), at this many layout px per screen px
+  morph?: boolean; // with `far`: the full seat with the far one over it, for the zoom between them (PokerTable's lod)
 }
 
 // Position badge colors, for exactly the engine's names (game.PositionName)
@@ -71,7 +74,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, compact = false, spot, ring, bubble, onOpen, fillIn = true }: PlayerProps) {
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, compact = false, spot, ring, bubble, onOpen, fillIn = true, far, morph = false }: PlayerProps) {
   const bb = useBigBlind();
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
@@ -127,8 +130,12 @@ export default function Player({ player, active, position, winAmount, winDesc, i
       {position}
     </div>
   );
-  const seatBox = `overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`;
+  const dim = folded && !isWinner ? "opacity-40" : "";
+  const seatBox = `overflow-hidden relative ${active && !(far && !morph) ? "border-animation" : ""} h-full w-full flex flex-col ${far ? "" : dim} transition-colors rounded`;
+  // Far away (the tables overview): the far seat only. In the zoom: the full seat under it, each faded by the zoom (--lod-t).
+  const farSeat = far ? <FarSeat player={player} active={!!active} winner={isWinner} button={position === 'BTN'} k={far} /> : null;
   const seatStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', background: seatBg };
+  if (far && !morph && !compact) return <div ref={ref} data-seat={seatIdx} data-desk-seat className={seatBox} style={seatStyle}>{farSeat}</div>;
 
   if (compact && spot) {
     // The phone table's seat (PokerTable): a round logo on the felt's rim with its position chip on the logo's lower
@@ -190,7 +197,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
     >
       <div 
         className="relative flex-1 flex flex-col overflow-hidden transition-colors"
-        style={{ background: 'inherit' }}
+        style={{ background: 'inherit', ...(far && dim ? { ['--seat-o' as string]: 0.4 } : null) }}
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(55, 53, 47, 0.03)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'inherit'; }}
       >
@@ -242,6 +249,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
           {hole}
         </div>
       </div>
+      {farSeat}
     </div>
   );
 }
