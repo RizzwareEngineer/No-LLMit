@@ -34,7 +34,7 @@ EXPORTED = ".exported-days"  # the days the last export wrote
 
 TS = pa.timestamp("us", tz="UTC")
 HANDS = pa.schema([
-    ("hand_id", pa.string()), ("session", pa.string()), ("hand_number", pa.int32()),
+    ("hand_id", pa.string()), ("session", pa.string()), ("table_key", pa.string()), ("hand_number", pa.int32()),
     ("day", pa.string()), ("started_at", TS), ("ended_at", TS), ("schema", pa.int16()),
     ("small_blind", pa.int32()), ("big_blind", pa.int32()), ("provider", pa.string()),
     ("prompt_version", pa.string()), ("memory", pa.string()), ("button_seat", pa.int8()),
@@ -42,14 +42,14 @@ HANDS = pa.schema([
     ("n_decisions", pa.int16()), ("pot", pa.int64()), ("showdown", pa.bool_()),
 ])
 SEATS = pa.schema([
-    ("hand_id", pa.string()), ("session", pa.string()), ("day", pa.string()),
+    ("hand_id", pa.string()), ("session", pa.string()), ("table_key", pa.string()), ("day", pa.string()),
     ("seat", pa.int8()), ("name", pa.string()), ("model", pa.string()), ("position", pa.string()),
     ("stack_start", pa.int64()), ("hole_cards", pa.list_(pa.string())), ("rebought", pa.bool_()),
     ("showdown", pa.bool_()), ("net", pa.int64()),
 ])
 LEGAL = pa.struct([("type", pa.string()), ("amount", pa.int64()), ("min", pa.int64()), ("max", pa.int64())])
 DECISIONS = pa.schema([
-    ("hand_id", pa.string()), ("session", pa.string()), ("day", pa.string()), ("n", pa.int16()),
+    ("hand_id", pa.string()), ("session", pa.string()), ("table_key", pa.string()), ("day", pa.string()), ("n", pa.int16()),
     ("street", pa.string()), ("seat", pa.int8()), ("player", pa.string()), ("model", pa.string()),
     ("position", pa.string()), ("prompt_version", pa.string()), ("pot_before", pa.int64()),
     ("to_call", pa.int64()), ("stack_before", pa.int64()), ("legal_actions", pa.list_(LEGAL)),
@@ -138,7 +138,7 @@ def flatten(hands, prompts):
         net = {int(k): v for k, v in res["net"].items()}
         shown = {s["seat"] for s in res["showdown"]}
         seats = {s["seat"]: s for s in h["seats"]}
-        common = {"hand_id": h["hand_id"], "session": h["table_id"], "day": day}
+        common = {"hand_id": h["hand_id"], "session": h["table_id"], "table_key": h.get("table_key"), "day": day}
         hand_rows.append({
             **common, "hand_number": h["hand_number"], "started_at": datetime.fromisoformat(h["started_at"]),
             "ended_at": datetime.fromisoformat(h["ended_at"]), "schema": h["schema"], "small_blind": cfg["small_blind"],
@@ -222,8 +222,9 @@ def _schema_md(schema, notes):
 
 
 HAND_NOTES = {
-    "session": "table id; a new one starts each time the engine restarts, with stacks reset to 2000",
-    "day": "America/New_York date the hand started; the live table stops for the rest of the UTC day when its daily call cap is reached",
+    "session": "one table's run: each table starts a new one each time the engine restarts, with every stack reset to the table's starting stack",
+    "table_key": "the table, as `SB-BB-DEPTHbb` (blinds, and the starting stack in big blinds), e.g. `5-10-200bb`; null on hands saved before several tables ran at once",
+    "day": "America/New_York date the hand started; the live tables stop for the rest of the UTC day when the daily call cap they share is reached",
     "prompt_version": "hash of the prompts, the reply parser and the legality and sampling settings; system prompt text in `system_prompts.jsonl`",
     "memory": "what models are told about earlier hands; `none` = nothing",
     "button_seat": "0-based seat index",
@@ -235,7 +236,7 @@ SEAT_NOTES = {
     "model": "the model the provider reported serving the seat's last decision in the hand; null when the seat made no decision",
     "stack_start": "chips at the start of the hand, blinds included",
     "hole_cards": "every seat's cards, folded hands too",
-    "rebought": "topped back up to 2000 after going broke",
+    "rebought": "topped back up to the table's starting stack after going broke",
     "net": "chips won or lost on the hand; sums to zero per hand",
 }
 DECISION_NOTES = {
@@ -294,7 +295,8 @@ configs:
 
 # No-LLMit: LLMs playing No Limit Hold'em
 
-Every hand from the shared 9-handed cash game at https://nollmit.vercel.app/, where LLMs play each other.
+Every hand from the shared 9-handed cash games at https://nollmit.vercel.app/, where LLMs play each other
+at several tables at once, each at its own stakes and depth (`table_key`; `small_blind` and `big_blind` on every hand).
 Code: https://github.com/RizzwareEngineer/No-LLMit
 {len(hands)} hands over {len(days)} days ({span}).
 Each decision row holds the exact prompt the model saw, its raw reply and, when it was asked twice, the follow-up message.

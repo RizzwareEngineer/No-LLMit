@@ -49,13 +49,14 @@ const useNativeTimeline = () =>
 // Phones (lib/layout's PHONE) get their own stats: one full-screen window per part (PhoneStats); wider windows the overview and
 // its cards' loop. The prerender is the wide one (stats sit below the table screen, out of sight when a phone swaps them).
 import { PHONE, isDraftA } from '@/lib/layout';
+import { loadDrawer } from '@/lib/drawer';
 const onPhoneChange = (cb: () => void) => { const m = matchMedia(PHONE); m.addEventListener('change', cb); return () => m.removeEventListener('change', cb); };
 const usePhone = () => useSyncExternalStore(onPhoneChange, () => matchMedia(PHONE).matches, () => false);
 
 // The three panels under the live table, all time. Memoized: the page re-renders every
 // second for its clock, and these only change when stats do.
 // The model drawer's code loads with the stats (page.tsx): their rows and seats open it.
-if (typeof window !== 'undefined') import('@/components/ModelDrawer');
+if (typeof window !== 'undefined') loadDrawer().catch(() => {});
 
 // The stats in the layout shown: loaded and mounted only once the page needs them (StatsScreens).
 export default memo(function StatsSections(props: { stats: StatsResponse | null; error: string | null }) {
@@ -70,8 +71,9 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
   // "All models", the other models' rows and columns fade in once it has landed and out before it glides back.
   const [muFold, setMuFold] = useState(false);
   // The stats mount in parts, each its own task (clock-after-load): the overview's tiles, then the Trends chart in its tile,
-  // then About, then the Profiles card's body, then the Matchups card's. All in one commit was a task of about a second on a 4x-throttled CPU, which held every timer
-  // back (the shot clock's figure stayed up to a second past its second). Until its part is in, a card stands in blank at
+  // then About, then the Profiles card's body, then the Matchups card's. All in one commit is a task of about a second on
+  // a 4x-throttled CPU, which holds every timer back. (The Matchups tile's body stays with the overview: mounted on its
+  // own, its hugging tile is measured blank and draws the matrix too wide.) Until its part is in, a card stands in blank at
   // the size it last had (as while the stats load) and About's screen is empty; neither is on screen at the overview.
   const [part, setPart] = useState(0);
   useEffect(() => {

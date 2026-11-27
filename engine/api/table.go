@@ -13,6 +13,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,21 +50,41 @@ func (c tableConfig) startingStack() int { return c.Depth * c.BigBlind }
 
 var defaultTables = []tableConfig{{1, 2, 100}, {5, 10, 200}, {25, 50, 500}, {50, 100, 100}}
 
+// maxStartingStack bounds a table's depth times its big blind, so chip sums stay far from overflow.
+const maxStartingStack = 1_000_000_000
+
+var tableItem = regexp.MustCompile(`^(\d{1,9})/(\d{1,9}):(\d{1,9})$`)
+
 // parseTables reads TABLES: comma-separated SB/BB:DEPTH, depth in big blinds, e.g.
-// "1/2:100,5/10:200". Every table must differ from the others in stakes or depth.
+// "1/2:100, 5/10:200"; spaces anywhere are ignored. The small blind must be below the big,
+// the depth 1 bb or more, and every table must differ from the others in stakes or depth.
 func parseTables(v string) ([]tableConfig, error) {
+	if strings.TrimSpace(v) == "" {
+		return nil, fmt.Errorf("no tables listed")
+	}
 	var out []tableConfig
 	seen := map[string]bool{}
 	for _, item := range strings.Split(v, ",") {
-		var c tableConfig
-		var rest string
-		if n, _ := fmt.Sscanf(strings.TrimSpace(item), "%d/%d:%d%s", &c.SmallBlind, &c.BigBlind, &c.Depth, &rest); n != 3 {
+		item = strings.Join(strings.Fields(item), "")
+		if item == "" {
+			return nil, fmt.Errorf("an empty entry (a stray comma)")
+		}
+		m := tableItem.FindStringSubmatch(item)
+		if m == nil {
 			return nil, fmt.Errorf("%q is not SB/BB:DEPTH", item)
 		}
-		if c.SmallBlind < 1 || c.BigBlind < c.SmallBlind || c.Depth < 1 {
-			return nil, fmt.Errorf("%q: blinds must be 1 or more, the big at least the small, and the depth 1 bb or more", item)
-		}
-		if seen[c.key()] {
+		c := tableConfig{}
+		c.SmallBlind, _ = strconv.Atoi(m[1]) // at most 9 digits: always an int
+		c.BigBlind, _ = strconv.Atoi(m[2])
+		c.Depth, _ = strconv.Atoi(m[3])
+		switch {
+		case c.SmallBlind < 1 || c.BigBlind <= c.SmallBlind:
+			return nil, fmt.Errorf("%q: the small blind must be 1 or more and below the big blind", item)
+		case c.Depth < 1:
+			return nil, fmt.Errorf("%q: the depth must be 1 bb or more", item)
+		case c.Depth > maxStartingStack/c.BigBlind:
+			return nil, fmt.Errorf("%q: the starting stack is over %d chips", item, maxStartingStack)
+		case seen[c.key()]:
 			return nil, fmt.Errorf("%q is listed twice", item)
 		}
 		seen[c.key()] = true
@@ -86,12 +107,17 @@ func tablesFromEnv() []tableConfig {
 	return tables
 }
 
+// callsPerTurn is the most model calls one turn makes: the LLM service asks once more after
+// an unreadable or illegal reply.
+const callsPerTurn = 2
+
 // floor is what every table shares: one daily call budget, the opening hours and the pace.
 type floor struct {
 	mu           sync.Mutex // guards the calls
 	dailyCallCap int
-	calls        int
-	callsDay     string
+	calls        int           // made on callsDay, or started: a turn counts its first call when it starts
+	held         int           // kept back for the second call of turns still being played
+	callsDay     string        // UTC, 2006-01-02
 	pace         atomic.Uint64 // math.Float64bits of the multiplier on every pause; /dev/pace changes it while the tables run
 
 	// Daily opening hours, e.g. 9 to 21 in America/New_York. hoursZone is nil when the
@@ -120,19 +146,36 @@ func newFloor() *floor {
 	return f
 }
 
-// spend counts a model call made on day (UTC, 2006-01-02) when force is set or the day's cap
-// leaves room for it, and reports whether it counted.
-func (f *floor) spend(day string, force bool) bool {
+// reserve starts a turn on day (UTC, 2006-01-02) when the day's cap leaves room for the
+// most calls it can make, and reports whether it did: the first call is counted, the second
+// held until settle says whether the turn made it. So the tables together never go past the cap.
+func (f *floor) reserve(day string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.callsDay != day {
-		f.callsDay, f.calls = day, 0
+		f.callsDay, f.calls, f.held = day, 0, 0
 	}
-	if !force && f.calls >= f.dailyCallCap {
+	if f.calls+f.held+callsPerTurn > f.dailyCallCap {
 		return false
 	}
 	f.calls++
+	f.held += callsPerTurn - 1
 	return true
+}
+
+// settle ends a turn reserve started on day: its held call is counted if the model was asked
+// twice, else given back. A turn from a day that has since ended changes nothing: its calls
+// were budgeted on that day.
+func (f *floor) settle(day string, retried bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.callsDay != day || f.held < callsPerTurn-1 {
+		return
+	}
+	f.held -= callsPerTurn - 1
+	if retried {
+		f.calls++
+	}
 }
 
 type Table struct {
@@ -146,6 +189,7 @@ type Table struct {
 	turnApplied  bool           // turn is an llm_action already applied to the table
 	nextHandAt   time.Time
 	notice       TableNoticePayload // shown to everyone while the table is stopped; Kind "" when running
+	budgetDay    string             // the UTC day waitForBudget reserved the next turn's calls on; "" when none is reserved
 
 	*floor
 	cfg   tableConfig
@@ -327,13 +371,15 @@ func (t *Table) sleep(d time.Duration) {
 	t.pause(t.paced(d))
 }
 
-// waitForBudget counts the next turn's model call against the day's cap every table shares,
-// blocking once the cap is reached, until the next UTC day.
+// waitForBudget reserves the next turn's model calls against the day's cap every table shares
+// (see reserve), blocking once the cap is reached, until the next UTC day. playTurn settles it.
 func (t *Table) waitForBudget() {
 	for {
-		spent := t.spend(t.now().UTC().Format("2006-01-02"), false)
+		day := t.now().UTC().Format("2006-01-02")
+		spent := t.reserve(day)
 		t.mu.Lock()
 		if spent {
+			t.budgetDay = day
 			if t.notice.Kind == "cap" {
 				t.setNotice(TableNoticePayload{})
 				log.Printf("Daily call cap reset, table %s resumed", t.cfg.key())
@@ -651,7 +697,7 @@ func (t *Table) playTurn() {
 	t.publish(thinking)
 	t.mu.Unlock()
 
-	start := time.Now() // waitForBudget counted the call
+	start := time.Now() // waitForBudget reserved the calls; settle below counts them
 	// Reading t.gs without the lock is safe here: only this goroutine changes it.
 	turn := decideLLMTurn(t.gs, func() (*client.LLMDecisionResponse, error) { return askLLM(req) })
 	decision := turn.decision
@@ -660,8 +706,9 @@ func (t *Table) playTurn() {
 		time.Sleep(remaining)
 	}
 
-	if decision.Retried {
-		t.spend(t.now().UTC().Format("2006-01-02"), true) // the service asked the model a second time
+	if t.budgetDay != "" {
+		t.settle(t.budgetDay, decision.Retried)
+		t.budgetDay = ""
 	}
 	t.mu.Lock()
 	reason := decision.Reason

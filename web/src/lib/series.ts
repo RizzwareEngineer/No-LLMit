@@ -36,3 +36,13 @@ export function robustRange(vs: number[], keep: number[] = [], must: number[] = 
   const air = (hi - lo) * 0.08;
   return [lo - air, hi + air];
 }
+
+// Where Trends' y fit starts, as a share of the x window from its left end (to its drawn end), for a window that is
+// `share` of every hand (1 at rest, unzoomed): the lines from 0.75 of it at rest (their recent quarter) to its left end
+// as a zoom narrows, and every line's all-in EV line (drawn dashed for the hovered line) from none at rest (1) to the
+// whole window, at share^2: under the lines' 0.75 share once it is under 0.75, so a narrow zoom fits both whole, and near
+// 1 at a slight zoom, so one pinch notch moves the fit by little.
+export function fitFrom(share: number): { lines: number; evs: number } {
+  const f = Math.min(1, Math.max(0, share));
+  return { lines: 0.75 * f, evs: f * f };
+}

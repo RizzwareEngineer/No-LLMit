@@ -47,7 +47,7 @@ export interface TableView {
 }
 
 // A table's table_stats payload: its hands and each model's profit and loss there, net chips most first.
-export interface TablePnL {
+interface TablePnL {
   hands: number;
   models: { name: string; hands: number; net_chips: number; bb100: number }[];
 }
@@ -102,7 +102,7 @@ function applyTurn(v: TableView, turn: Turn, now: number): TableView {
   const p = turn.payload as LLMDecision;
   return {
     ...v,
-    clock: stopped(v.clock, now), // the move has arrived: the clock holds (owner, A24)
+    clock: stopped(v.clock, now), // the move has arrived: the clock holds
     display: {
       phase: 'reasoning',
       turn: p.turn,
@@ -229,3 +229,30 @@ export const typedSoFar = (text: string, key: string, began: { key: string; at: 
   if (!key || !began || began.key !== key) return 0;
   return Math.min(text.length + 1, Math.floor((now - began.at) / typingMs(text.length, pace)));
 };
+
+// The tables as their messages arrived, ahead of React's commit of them (useGameState calls arrive on each message). A
+// transition render (the stats' mount) keeps a stream update waiting until it commits, up to a second on a slow phone;
+// the figures drawn each second (useSecondsDraw) read the time from here, so a move that has arrived holds its clock at
+// once and a new deal time counts at once, whatever React is still rendering. Every table's, so each copy of a table
+// (the focused one, the overview's) finds its own.
+const arrivedClocks: Clock[] = []; // the last few turns' clocks as they arrived, newest last, any table
+const dealChains = new Map<string, number[]>(); // each table's last few deal times as they arrived, newest last
+const recent = <T>(xs: T[], x: T, n: number) => { if (xs.at(-1) !== x) { xs.push(x); if (xs.length > n) xs.shift(); } };
+export function arrive(t: Tables) {
+  for (const [key, v] of Object.entries(t)) {
+    if (v.clock) recent(arrivedClocks, v.clock, 32);
+    if (v.dealAt !== null) { const c = dealChains.get(key) ?? []; recent(c, v.dealAt, 8); dealChains.set(key, c); }
+  }
+}
+const sameTurn = (a: Clock, b: Clock) => a.received === b.received && a.budgetMs === b.budgetMs && a.elapsedMs === b.elapsedMs;
+// The newest state of the committed clock `c`'s turn that has arrived (its move may have stopped it), else `c`.
+export function arrivedClock(c: Clock): Clock {
+  for (let i = arrivedClocks.length - 1; i >= 0; i--) if (sameTurn(arrivedClocks[i], c)) return arrivedClocks[i];
+  return c;
+}
+// The next deal's time as it last arrived for the table whose committed deal time is `d` (an outage's state may have
+// moved it), else `d`.
+export function arrivedDealAt(d: number) {
+  for (const c of dealChains.values()) if (c.includes(d)) return c.at(-1)!;
+  return d;
+}

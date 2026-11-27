@@ -7,6 +7,7 @@ import LLMLogo from '@/components/LLMLogo';
 import NameForm from '@/components/NameForm';
 import { isPhone } from '@/lib/layout';
 import { GLIDE, GLIDE_MS, NONE } from '@/components/Section';
+import { dashRows } from '@/lib/profileRows';
 import { BLUE, MIN_HANDS, MUTED, ModelStats, STAT_DEFINITIONS, DASH, TEXT, ciTitle, modelHref, netColor, pct, signedBrief, rosterGroups, NOT_SEATED, NOT_SEATED_HINT } from '@/lib/stats';
 
 interface Column {
@@ -194,8 +195,8 @@ export default memo(function StatsTable({ models, seated, pending = [], mini = f
   // Seated models without hands get a row of dashes in every grid; roster models not seated are
   // listed once, under the last grid.
   const groups = rosterGroups(models, seated);
-  // The tile lists the table's seats only; the card also keeps a dash row for anyone in range still waiting for a hand.
-  const noHands = [...new Set([...groups.noHands, ...pending])].filter(name => !mini || !seated || seated.includes(name));
+  // Dash rows for the seats only, as the rows with hands; with "All models" (the card's), everyone's (dashRows).
+  const noHands = dashRows(groups.noHands, pending, seated, everyone && !mini);
   const unseated = groups.unseated.filter(name => !pending.includes(name));
   // Without a lineup (a past session, an older engine) every model is a row.
   const atTable = seated ? sorted.filter(m => seated.includes(m.name)) : sorted;

@@ -39,10 +39,10 @@ const PAD = 2.5;
 const TOTAL_TITLE = 'Big blinds won from the models shown per 100 hands dealt in with one of them.\nThe row\'s cells averaged, each weighted by their hands together.';
 const NEVER_MET = 'never sat together';
 // A pair's or a row's figure under its sample rule is drawn at this opacity.
-export const FAINT = 0.4;
+const FAINT = 0.4;
 // Diverging tint: green when the row model won, red when it lost, stronger with the bb/100, on the scale of
 // the pairs past the sample rule (a thin pair's wild figure never flattens the rest; it is capped at the top).
-export function pairTint(cells: { bb: number | null; hands: number }[]) {
+function pairTint(cells: { bb: number | null; hands: number }[]) {
   const bbs = cells.filter(c => c.bb !== null);
   const maxCell = Math.max(1, ...(bbs.some(c => c.hands >= MIN_PAIR_HANDS) ? bbs.filter(c => c.hands >= MIN_PAIR_HANDS) : bbs).map(c => Math.abs(c.bb!)));
   return (n: number) => `rgba(${n > 0 ? '15, 123, 108' : '200, 50, 50'}, ${(0.08 + 0.5 * Math.sqrt(Math.min(1, Math.abs(n) / maxCell))).toFixed(3)})`;

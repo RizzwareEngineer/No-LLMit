@@ -6,7 +6,7 @@ const PILE = [5, 4, 5, 3, 4]; // stack heights in a pile, so it reads as a heap,
 const CHIP = { face: '#ffffff', edge: '#37352f' };
 
 // The height of each stack, in chips.
-export function chipStacks(amount: number): number[] {
+function chipStacks(amount: number): number[] {
   if (amount <= 0) return [];
   const cols = amount < 100 ? 1 : amount < 300 ? 2 : amount < 1000 ? 3 : amount < 3000 ? 4 : 5;
   const height = (i: number) => (amount < 10 ? 1 : amount < 100 ? Math.min(4, 2 + Math.floor(amount / 35)) : PILE[i]);

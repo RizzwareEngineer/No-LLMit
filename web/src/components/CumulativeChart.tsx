@@ -8,10 +8,9 @@ import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
 import { PLAY_MS, Timeline, playReplay, playedAt, replaySpeed, replayStarted, replayStep, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
 import { playSound } from '@/lib/sound';
-import { H, RATE_FROM, W, robustRange, series, type Metric } from '@/lib/series';
+import { H, RATE_FROM, W, fitFrom, robustRange, series, type Metric } from '@/lib/series';
 import { isPhone } from '@/lib/layout';
 
-export { RATE_FROM, series };
 
 const GRID = 'rgba(55, 53, 47, 0.12)';
 const AXIS = 'rgba(55, 53, 47, 0.75)'; // tick marks
@@ -581,13 +580,22 @@ export default function CumulativeChart({
     // so "the true diff between each model" is apparent, and only older history may be clamped at the edge, never the
     // recent stretch: history-y-dynamic, history-no-recent-clip); before any line is in view, the whole race's.
     // The recent quarter itself and every tip are always inside: the leader's latest run is never clipped.
-    const inView = [...[...lines.keys()].map(n => fitted(n, drawn.get(n) ?? [])), ...evDrawn.filter(e => evs.has(e.n)).map(e => fitted(e.n, e.p))].filter(p => p.length);
-    const cut = lerp(X0, Math.min(X1, nowX), 0.75);
-    // A zoom (at rest only) is the viewer asking for that stretch: all its points are fitted, robustly (5th to 95th
-    // percentile, so the rates' early swings do not flatten the pack on a pinch's first step: review 4, finding 8), with
-    // its right quarter, the tips and what is ahead always inside; a point beyond is held at the plot's edge (path).
+    // Zoomed, every line's all-in EV line too, the hovered line's included (it is drawn, dashed, with the All-in EV
+    // toggle off): a zoom into a rate's first hands drew a hovered EV line's swings far off the plot (trends-zoom: 102 of
+    // 483 points). Every line's, not the hovered one's alone, so the axis does not move with the pointer; from a cut that
+    // reaches the window's left end as the zoom narrows (fitFrom), so one pinch notch moves the fit by little.
+    const from0 = fitFrom(zoom ? (X1 - X0) / Math.max(lastHand - from, 1e-9) : 1);
+    const evCut = lerp(X0, Math.min(X1, nowX), from0.evs);
+    const zoomEvs = zoom ? [...lines.keys()].filter(n => !evs.has(n) && byName.has(n)).map(n => fitted(n, trace(curveOf(byName.get(n)!, true), evCut, X1, nowX))) : [];
+    const inView = [...[...lines.keys()].map(n => fitted(n, drawn.get(n) ?? [])), ...evDrawn.filter(e => evs.has(e.n)).map(e => fitted(e.n, e.p)), ...zoomEvs].filter(p => p.length);
+    // A zoom (at rest only) is the viewer asking for that stretch: its points from a cut that moves with the zoom's
+    // width, a quarter of the window from its right end at every hand (the rest fit) to its left end as it narrows, are
+    // all inside, untrimmed (a trimmed fit draws a zoomed peak flat along the edge, off its readout, and lets one pinch
+    // notch move the fit by a quarter). Only a rate's early hands
+    // (before fitAt) are held at the edge, as at rest (path).
+    const cut = lerp(X0, Math.min(X1, nowX), from0.lines);
     const recent = inView.flatMap(p => p.filter(q => q[0] >= cut).map(q => q[1]));
-    const all = zoom ? inView.flatMap(p => p.map(q => q[1])) : recent;
+    const all = recent;
     const tips = [...lines.keys()].flatMap(n => fitted(n, drawn.get(n)?.slice(-1) ?? []).map(q => q[1]));
     // The replay is known ahead: the next LOOK_S of each line, so the eased axis is never caught out by a jump.
     const perS = handNow === null ? 0 : (1000 / PLAY_MS) * timeline!.hands; // replay hands per second
@@ -654,8 +662,8 @@ export default function CumulativeChart({
   const x = (n: number) => left + ((n - X0) / (X1 - X0 || 1)) * leadW;
   const y = (v: number) => padTop + ((Y1 - v) / (Y1 - Y0 || 1)) * plotH;
   const line = (p: [number, number][]) => p.map(([n, v], i) => `${i ? 'L' : 'M'}${x(n)},${y(v)}`).join('');
-  // A line's path, its early swings (before fitAt) held at the plot's edge, and in a zoom any point beyond the axis.
-  const path = (n: string, p: Pts) => line(fitAt.size || zoom ? p.map(([h, v]) => [h, zoom || h < (fitAt.get(n) ?? Infinity) ? Math.min(Math.max(v, Math.min(Y0, Y1)), Math.max(Y0, Y1)) : v]) : p);
+  // A line's path, its early swings (before fitAt) held at the plot's edge.
+  const path = (n: string, p: Pts) => line(fitAt.size ? p.map(([h, v]) => [h, h < (fitAt.get(n) ?? Infinity) ? Math.min(Math.max(v, Math.min(Y0, Y1)), Math.max(Y0, Y1)) : v]) : p);
 
   const shown = [...drawn.keys()].flatMap(n => (drawn.get(n)!.length && byName.has(n) ? [byName.get(n)!] : []));
   const hot = shown.find(m => m.name === (hover?.name ?? highlight)); // the hovered line

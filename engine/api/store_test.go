@@ -3,9 +3,13 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -110,6 +114,63 @@ func TestSaveHandKeepsMockHandsOutOfSupabase(t *testing.T) {
 		posts = 0
 		if voided := tbl.saveHand(); voided || posts != c.want {
 			t.Errorf("%s with %d actions: voided %v, %d saves, want %d", c.provider, c.actions, voided, posts, c.want)
+		}
+	}
+}
+
+// Every table saves through one fileSaver: saving at once, each line stays whole, a hand's
+// prompts stay together, and every hand id is unique.
+func TestFileSaverKeepsEachTablesHandsWhole(t *testing.T) {
+	s := &fileSaver{dir: t.TempDir()}
+	big := strings.Repeat("x", 100_000) // well past what one write is sure to keep whole
+	var wg sync.WaitGroup
+	for table := range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for n := 1; n <= 20; n++ {
+				id := fmt.Sprintf("tbl_%d-%06d", table, n)
+				h := savedHand{Record: history.HandRecord{HandID: id, TableID: fmt.Sprintf("tbl_%d", table)}}
+				for p := 1; p <= 3; p++ {
+					h.Prompts = append(h.Prompts, HandPrompt{PromptID: fmt.Sprintf("%s-%02d", id, p), Prompt: big})
+				}
+				if err := s.save(h); err != nil {
+					t.Error(err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	hands, err := loadHandFile(filepath.Join(s.dir, "hands.jsonl"))
+	if err != nil || len(hands) != 80 {
+		t.Fatalf("%d hands read back: %v", len(hands), err)
+	}
+	ids := map[string]bool{}
+	for _, h := range hands {
+		ids[h.HandID] = true
+	}
+	if len(ids) != 80 {
+		t.Errorf("%d distinct hand ids, want 80", len(ids))
+	}
+	raw, err := os.ReadFile(filepath.Join(s.dir, "prompts.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	if len(lines) != 240 {
+		t.Fatalf("%d prompt lines, want 240", len(lines))
+	}
+	hand := ""
+	for i, line := range lines {
+		var p HandPrompt
+		if err := json.Unmarshal([]byte(line), &p); err != nil || len(p.Prompt) != len(big) {
+			t.Fatalf("prompt line %d is not whole: %v", i, err)
+		}
+		if i%3 == 0 {
+			hand = strings.TrimSuffix(p.PromptID, "-01")
+		}
+		if want := fmt.Sprintf("%s-%02d", hand, i%3+1); p.PromptID != want {
+			t.Fatalf("prompt line %d is %s, want %s: one hand's prompts were split by another's", i, p.PromptID, want)
 		}
 	}
 }

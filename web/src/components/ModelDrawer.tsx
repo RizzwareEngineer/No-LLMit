@@ -11,7 +11,7 @@ import { DASH, MIN_HANDS, MUTED, ModelStats, TEXT, ciHalf, modelHref, modelSlug,
 const POSITION_ORDER = ['UTG', 'UTG+1', 'MP', 'MP+1', 'HJ', 'CO', 'BTN', 'SB', 'BB']; // the engine's names, in seat order
 
 // Accepts the display-name slug in any case, the URL-encoded name, or the model id.
-export function findModel(models: ModelStats[], param: string) {
+function findModel(models: ModelStats[], param: string) {
   let raw = param;
   try { raw = decodeURIComponent(param); } catch { /* malformed escape: use as is */ }
   const want = modelSlug(raw);

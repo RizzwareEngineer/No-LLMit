@@ -1,7 +1,7 @@
 // GET /stream: one-way Server-Sent Events to every viewer. Tables publish
 // to the hub; the net/http goroutine of each stream is that viewer's only writer. It sends
 // a snapshot on connect, then the hub's recent frames after the last one it wrote, or a
-// fresh snapshot when it has fallen more than ringSize behind.
+// fresh snapshot when it has fallen more than the ring (ringSize frames per table) behind.
 package api
 
 import (
@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	ringSize          = 50
+	ringSize          = 50 // frames kept per table: the ring holds ringSize for every table, as one table had alone
 	maxStreams        = 6000
 	maxStreamsPerAddr = 50 // high: a mobile or office network puts many viewers behind one address
 	heartbeatEvery    = 20 * time.Second
@@ -54,7 +54,7 @@ type tableSnap struct {
 type hub struct {
 	mu         sync.RWMutex
 	seq        uint64
-	ring       [ringSize]frame
+	ring       []frame // the last len(ring) frames of every table, by seq; sized once (newHubFor)
 	tables     map[string]*tableSnap
 	stats      []byte                     // the all-time GET /api/stats body as one stats frame, sent after every snapshot; nil until loaded
 	statsZ     []byte                     // stats deflated, for a gzipped stream
@@ -66,8 +66,12 @@ type hub struct {
 	addrs  map[string]int
 }
 
-func newHub() *hub {
-	return &hub{tables: map[string]*tableSnap{}, tableStats: map[string]json.RawMessage{}, wake: make(chan struct{}), addrs: map[string]int{}}
+func newHub() *hub { return newHubFor(1) }
+
+// newHubFor is a hub for n tables: every table publishes into the one ring, so it keeps ringSize frames per table and a
+// slow stream may fall as far behind, in time, as it could with one table before it is sent a snapshot instead.
+func newHubFor(n int) *hub {
+	return &hub{ring: make([]frame, ringSize*max(n, 1)), tables: map[string]*tableSnap{}, tableStats: map[string]json.RawMessage{}, wake: make(chan struct{}), addrs: map[string]int{}}
 }
 
 type envelope struct {
@@ -99,7 +103,7 @@ func (h *hub) publish(table string, snap *tableSnap, statsFull []byte, msgs ...S
 	h.mu.Lock()
 	for i, b := range bodies {
 		h.seq++
-		h.ring[h.seq%ringSize] = frame{h.seq, sseFrame(h.seq, b), packs[i].frame(h.seq)}
+		h.ring[h.seq%uint64(len(h.ring))] = frame{h.seq, sseFrame(h.seq, b), packs[i].frame(h.seq)}
 	}
 	if snap != nil {
 		h.tables[table] = snap
@@ -146,9 +150,9 @@ func (h *hub) since(last uint64, first bool) view {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	v := view{seq: h.seq, wake: h.wake}
-	if !first && v.seq-last <= ringSize {
+	if n := uint64(len(h.ring)); !first && v.seq-last <= n {
 		for s := last + 1; s <= v.seq; s++ {
-			f := h.ring[s%ringSize]
+			f := h.ring[s%n]
 			if f.seq != s {
 				v.frames, v.packed = nil, nil
 				break

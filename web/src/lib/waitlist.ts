@@ -10,7 +10,7 @@ export async function waitlistCount(): Promise<number> {
   return (await r.json()).count;
 }
 
-export type Joined = { count?: number } | 'invalid';
+type Joined = { count?: number } | 'invalid';
 
 export async function joinWaitlist(email: string): Promise<Joined> {
   const r = await fetch(URL_, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });

@@ -3,14 +3,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { GameStream, GameState, TableNoticePayload } from '@/lib/api';
 import { StatsResponse } from '@/lib/stats';
-import { ButtonDetermination, Clock, DisplayState, EMPTY_TABLE, TableView, Tables, applyMessage, applyStats } from '@/lib/stream';
+import { ButtonDetermination, Clock, DisplayState, EMPTY_TABLE, TableView, Tables, applyMessage, applyStats, arrive } from '@/lib/stream';
 
 // How long the stream may be down before the page says Offline: the server ends every stream after 10 to 14 minutes,
 // and the reopen that follows should not flash the connection bar. A page load waits as long for its first open.
 const OFFLINE_AFTER_MS = 4000;
 
 // Not known yet (the page has just loaded), open, or down for OFFLINE_AFTER_MS (or given up).
-export type Connection = 'connecting' | 'open' | 'down';
+type Connection = 'connecting' | 'open' | 'down';
 
 interface UseGameStateReturn {
   gameState: GameState | null;
@@ -23,7 +23,6 @@ interface UseGameStateReturn {
   buttonDetermination: ButtonDetermination | null;
   stats: StatsResponse | null; // all-time stats, from the stream
   tables: (TableView & { key: string })[]; // every table, in the engine's configured order
-  focusKey: string | null; // the table the fields above describe
   retry: () => void;
 }
 
@@ -59,9 +58,17 @@ export function useGameState(focus: string | null = null): UseGameStateReturn {
     // Started now, so a first attempt that errors, or hangs, says down once, OFFLINE_AFTER_MS after load.
     let offlineTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => setConnection('down'), OFFLINE_AFTER_MS);
     // Timed from its arrival (lib/api), not from now: a message that waited for hydration is that much older.
+    // Each message is applied as it arrives (lib/stream's arrive), not only when React renders it: the seconds drawn
+    // outside React read the clock and the deal time from there (useSecondsDraw).
+    let latest: Tables = {};
+    arrive(latest);
     stream.onMessage = (m, at) => {
       if (m.type === 'stats') setStats(s => applyStats(s, m.payload as StatsResponse));
-      else setTables(t => applyMessage(t, m, at));
+      else {
+        latest = applyMessage(latest, m, at);
+        arrive(latest);
+        setTables(latest);
+      }
     };
     // Nothing is cleared on open: the snapshot that follows replaces the tables.
     stream.onStatus = (status) => {
@@ -94,7 +101,6 @@ export function useGameState(focus: string | null = null): UseGameStateReturn {
     buttonDetermination: table.buttonDetermination,
     stats,
     tables: all,
-    focusKey: focused?.key ?? null,
     retry: () => streamRef.current?.retry(),
   };
 }

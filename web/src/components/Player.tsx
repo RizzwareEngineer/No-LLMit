@@ -4,7 +4,7 @@ import Card from "@/components/Card";
 import FitName from "@/components/FitName";
 import LLMLogo from "@/components/LLMLogo";
 import { logoFile } from "@/lib/families";
-import { CHIP, LOGO, type Spot, bubbleAt, chipTop, seatLabel, seatPlace, textBox } from "@/lib/phoneTable";
+import { CHIP, CHIP_TOP, LOGO, TEXT_BOX, type Spot, bubbleAt, seatLabel, seatPlace } from "@/lib/phoneTable";
 import { useRef, useState } from "react";
 import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
@@ -12,7 +12,7 @@ import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE, MUTED, modelHref } from "@/lib/stats";
 import { CARD_CLASS, useCardSize } from "@/lib/tableSwitches";
 import { useFillIn } from "@/lib/boxes";
-import { clockMs, clockShare, type Clock } from "@/lib/stream";
+import { arrivedClock, clockMs, clockShare, type Clock } from "@/lib/stream";
 import { useSecondsDraw } from "@/hooks/useSecondsDraw";
 
 const RING_R = 27, RING_C = 2 * Math.PI * RING_R; // the phone seat's shot clock ring round its logo
@@ -34,7 +34,6 @@ interface PlayerProps {
   bubble?: string; // the action just taken, shown for a moment (phone)
   onOpen?: () => void; // phone: a tap on the logo opens its basic stats (PokerTable's SeatStats); without it, the drawer
   fillIn?: boolean; // fade in on mount (the table filling); false for a seat mounted by a layout switch mid-hand
-  narrow?: boolean; // draft B's upright table (PokerTable): the desktop seat in a cell about 90px wide; the badge joins the action
 }
 
 // Position badge colors, for exactly the engine's names (game.PositionName)
@@ -50,10 +49,10 @@ const POSITION_COLORS: Record<string, string> = {
   'CO': 'bg-green-700 text-white',
 };
 
-// The phone seat's logo: a dark rim, the desktop seat's border drawn darker (owner 2026-11-15: "the same sort of dark
-// borders that we see on the rectangles"), and its shadow. PokerTable's blank logo has the same.
+// The phone seat's logo: a dark rim, the desktop seat's border drawn darker (the same dark border as the desktop's
+// seat cards), and its shadow. PokerTable's blank logo has the same.
 // The phone's position chip: one size for every name, as the desktop badges (w-8), wide enough for UTG+1 at 11px with
-// 4px a side (the audit: at 42px it had almost none).
+// 4px a side.
 export const LOGO_RIM = { border: '2px solid rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.1) 0px 2px 4px' } as const;
 
 // Full position names for tooltips
@@ -72,7 +71,7 @@ function getPositionFullName(pos: string): string {
   return names[pos] || pos;
 }
 
-export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, compact = false, spot, ring, bubble, onOpen, fillIn = true, narrow = false }: PlayerProps) {
+export default function Player({ player, active, position, winAmount, winDesc, isThinking = false, showAction = true, seatIdx, handNumber = 0, dealDelays, compact = false, spot, ring, bubble, onOpen, fillIn = true }: PlayerProps) {
   const bb = useBigBlind();
   const cards = player.holeCards || [];
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
@@ -87,12 +86,12 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   // The phone seat's shot clock: the share of the turn left (ring), drawn on each whole-second edge (useSecondsDraw);
   // the whole ring with no clock; red for the last 5 s.
   const arc = useRef<SVGCircleElement>(null);
-  useSecondsDraw(ring ? now => clockMs(ring, now) : null, s => {
+  useSecondsDraw(ring ? now => clockMs(arrivedClock(ring), now) : null, s => {
     const e = arc.current;
     if (!e) return;
     e.setAttribute('stroke-dashoffset', String(RING_C * (1 - (s === null || !ring ? 1 : clockShare(s, ring.budgetMs)))));
     e.setAttribute('stroke', s !== null && s <= 5 ? 'rgb(235, 87, 87)' : BLUE);
-  }, !!ring?.running);
+  }, () => !!ring && arrivedClock(ring).running);
   const [fill] = useState(fillIn);
   useFillIn(ref, fill);
 
@@ -100,7 +99,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
     <div data-hole className="flex flex-row items-center gap-1 shrink-0">
       {cards.length > 0 ? (
         cards.map((card, i) => (
-          // Face up as soon as it is dealt (owner, 2026-11-20: "just reveal as soon as cards are dealt"). Keyed by hand, so a
+          // Face up as soon as it is dealt (no face-down deal). Keyed by hand, so a
           // card dealt while watching shows once its flight lands.
           <motion.div
             key={`${handNumber}-${card}-${i}`}
@@ -137,7 +136,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
     // the clock has the shot clock as a ring round its logo; its action shows over the logo for a moment (`bubble`). The
     // box is the seat's whole extent (the cards' flights and the peek's bounds); only what it draws takes taps.
     const place = seatPlace(spot), [ox, oy] = place.logo, logo = logoFile(player.name);
-    const c = spot.cards, R = RING_R, C = RING_C, tb = textBox(spot), say = bubbleAt(spot);
+    const c = spot.cards, R = RING_R, C = RING_C, tb = TEXT_BOX, say = bubbleAt(spot);
     return (
       <div ref={ref} data-seat={seatIdx} className={`absolute pointer-events-none transition-opacity ${folded && !isWinner ? 'opacity-40' : ''}`} style={place.style}>
         {active && (
@@ -156,11 +155,11 @@ export default function Player({ player, active, position, winAmount, winDesc, i
         {position && (
           // A tap on the chip (over the logo's lower edge) opens the seat's stats as a tap on the logo does.
           <div data-position title={getPositionFullName(position)} onClick={onOpen} className={`absolute pointer-events-auto rounded text-[11px] leading-4 font-bold whitespace-nowrap text-center ${positionColor}`}
-            style={{ left: ox - CHIP.w / 2, top: oy + chipTop(spot), width: CHIP.w, height: CHIP.h, boxShadow: '0 0 0 1.5px white' }}>
+            style={{ left: ox - CHIP.w / 2, top: oy + CHIP_TOP, width: CHIP.w, height: CHIP.h, boxShadow: '0 0 0 1.5px white' }}>
             {position}
           </div>
         )}
-        <div className={`absolute flex flex-col ${tb[0] > 0 ? 'items-start' : tb[2] < 0 ? 'items-end' : 'items-center'} pointer-events-auto tabular-nums whitespace-nowrap`} style={{ left: ox + tb[0], top: oy + tb[1], width: tb[2] - tb[0] }}>
+        <div className="absolute flex flex-col items-center pointer-events-auto tabular-nums whitespace-nowrap" style={{ left: ox + tb[0], top: oy + tb[1], width: tb[2] - tb[0] }}>
           <div data-lcp="seat-stack" data-chips={player.stack} className="text-[12px] leading-[14px] font-bold" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(player.stack, bb)}</div>
           {isWinner
             ? <div data-label data-lcp="seat-label" data-chips={winAmount} className="text-[11px] leading-[14px] font-bold" style={{ color: 'rgb(15, 123, 108)' }} aria-label={`won ${formatAmount(winAmount, bb)}, ${winDesc}`}>+{formatAmount(winAmount, bb)}</div>
@@ -169,10 +168,10 @@ export default function Player({ player, active, position, winAmount, winDesc, i
         <div className="absolute pointer-events-auto" style={{ left: ox + c[0] - 30, top: oy + c[1] - 20 }}>{hole}</div>
         {/* The action, for a moment, on the seat's side away from the middle, where its cards never are: over the logo
             for a seat in the table's top half (its cards are under it), under its stack, over its label, for one in the
-            bottom half (its cards are over it). Never over its cards, logo, chip or stack (the audit: 'Raise 632' hid the
-            seat's own face-up cards). */}
+            bottom half (its cards are over it) and for the side seats whose neighbour sits over them (phoneTable's
+            bubbleAt). Never over its cards, logo, chip or stack, or over another seat. */}
         {bubble && (
-          <div data-bubble className={`absolute z-10 rounded-full bg-white px-2 text-[12px] leading-5 font-bold whitespace-nowrap ${say.align === 'center' ? '-translate-x-1/2' : say.align === 'right' ? '-translate-x-full' : ''} motion-safe:animate-[bubble_2s_ease-out_both]`}
+          <div data-bubble className={`absolute z-10 rounded-full bg-white px-2 text-[12px] leading-5 font-bold whitespace-nowrap ${say.align === 'center' ? '-translate-x-1/2' : ''} motion-safe:animate-[bubble_2s_ease-out_both]`}
             style={{ left: ox + say.x, top: oy + say.top, color: 'rgb(55, 53, 47)', boxShadow: 'rgba(15, 15, 15, 0.12) 0px 0px 0px 1px, rgba(15, 15, 15, 0.12) 0px 2px 6px' }}>
             {bubble}
           </div>
@@ -197,26 +196,21 @@ export default function Player({ player, active, position, winAmount, winDesc, i
       >
         {/* Top-left, as in the original seat: logo, then the name over the stack. The name has the
             whole row because the hole cards sit bottom-right, so it fits on one line. */}
-        <div data-seat-top className={`flex items-start justify-between min-w-0 ${narrow ? 'gap-1 p-1.5 pb-0' : 'gap-2 p-3 pb-0'}`}>
-          <div className={`flex items-center min-w-0 ${narrow ? 'gap-1' : 'gap-2'}`}>
-            <LLMLogo model={player.name} size={narrow ? 16 : 20} />
+        <div data-seat-top className="flex items-start justify-between min-w-0 gap-2 p-3 pb-0">
+          <div className="flex items-center min-w-0 gap-2">
+            <LLMLogo model={player.name} size={20} />
             <div className="flex flex-col min-w-0">
-              {narrow
-                ? <div title={player.name} className="text-[11px] font-bold truncate" style={{ color: 'rgb(55, 53, 47)' }}>{seatLabel(player.name)}</div>
-                : <FitName name={player.name} className="text-[11px] font-bold" style={{ color: 'rgb(55, 53, 47)' }} />}
-              <div className={narrow ? 'flex items-center gap-1' : 'contents'}>
-                <div data-chips={player.stack} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
-                {narrow && badge}
-              </div>
+              <FitName name={player.name} className="text-[11px] font-bold" style={{ color: 'rgb(55, 53, 47)' }} />
+              <div data-chips={player.stack} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
             </div>
           </div>
-          {/* Position badge, top-right (narrow: beside the stack) */}
-          {!narrow && badge}
+          {/* Position badge, top-right */}
+          {badge}
         </div>
 
         {/* Bottom row: the action at the left, the hole cards at the right. */}
-        <div data-seat-bottom className={`mt-auto flex min-w-0 ${narrow ? 'flex-col items-start gap-1 p-1.5 pt-0' : 'items-end justify-between gap-2 p-3 pt-0'}`}>
-          <div className={`flex items-center min-w-0 ${narrow ? 'gap-1 w-full overflow-hidden' : 'gap-2 mb-0.5'}`}>
+        <div data-seat-bottom className="mt-auto flex min-w-0 items-end justify-between gap-2 p-3 pt-0">
+          <div className="flex items-center min-w-0 gap-2 mb-0.5">
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
                 <span data-chips={winAmount} className="font-bold text-[11px] shrink-0 tabular-nums" style={{ color: 'rgb(15, 123, 108)' }}>+{formatAmount(winAmount, bb)}</span>

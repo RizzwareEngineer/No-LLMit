@@ -9,7 +9,7 @@ import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import LandingFill, { useFill } from "@/components/LandingFill";
 import Fit from "@/components/Fit";
-// The table's width on the owner's Mac (1440x790): 1000px at the stage's zoom, 0.819. Phone draft A's header is laid out
+// The table's width at 1440x790 (a 13-inch Mac): 1000px at the stage's zoom, 0.819. Phone draft A's header is laid out
 // this wide, so beside the table (drawn from 1000px) it keeps the Mac's size and distance.
 const MAC_TABLE_W = 819;
 // Its switches (Chips/BB, Sound) drawn at under half size: each hit area reaches 24 layout px above and below (about 11px
@@ -21,16 +21,12 @@ import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import StatsSections from "@/components/StatsScreens";
 import PlaySoonButton from "@/components/PlaySoonButton";
-// The model drawer's code (its chart, its tables) is not in the first load: it loads with the stats (StatsSections
-// starts it), or as a pointer or a touch comes to a model's link, so it opens at once; a link opened before then waits for it.
-// Loaded on the first pointer near a model link, or the first model opened, and mounted only once loaded (StatsScreens
-// says why: a lazy would finish on a retry lane that a typing reason restarts). A failed load never reaches React: the
-// drawer stays closed, one line says it did not load (a chunk a deploy replaced does not come back: reload), and the next
-// open tries again.
-let drawerChunk: Promise<typeof import("@/components/ModelDrawer")> | null = null;
-let ModelDrawer: typeof import("@/components/ModelDrawer").default | null = null; // once loaded
-const loadDrawer = () => drawerChunk ??= import("@/components/ModelDrawer").catch(() => import("@/components/ModelDrawer"))
-  .then(m => { ModelDrawer = m.default; return m; }, e => { drawerChunk = null; throw e; });
+// The model drawer (lib/drawer) is loaded on the first pointer near a model link, the first model opened, or with the
+// stats, and mounted only once loaded (StatsScreens says why: a lazy would finish on a retry lane that a typing reason
+// restarts). A failed load never reaches React: the drawer stays closed, one line says it did not load (a chunk a deploy
+// replaced does not come back: reload), and the next open tries again. The line goes after a few seconds, on the next
+// tap or key, or once the drawer's code does load: it sits over the top seat on a phone.
+import { ModelDrawer, loadDrawer, onDrawerLoaded } from "@/lib/drawer";
 import StickyBar, { PhoneBar } from "@/components/StickyBar";
 import TabBar, { type Tab } from "@/components/TabBar";
 import SessionProgress from "@/components/SessionProgress";
@@ -43,7 +39,8 @@ import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, page
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
-import { OVERVIEW_FIRST, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
+import { OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
+import { type Anim, nextAnim, stageKeyOf, targetOf } from "@/lib/overviewMachine";
 import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor, type EdgeRoom } from "@/components/TablesOverview";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
@@ -74,7 +71,7 @@ const closeModel = () => {
     history.back();
     return;
   }
-  history.replaceState(null, "", window.location.pathname + window.location.search);
+  history.replaceState(history.state, "", window.location.pathname + window.location.search);
   window.dispatchEvent(new HashChangeEvent("hashchange")); // replaceState does not fire it
 };
 
@@ -101,7 +98,7 @@ function TitleBlock({ as: H = 'h1', className }: { as?: 'h1' | 'p'; className: s
 }
 
 // Fit-to-screen: the stage (table, sidebar, reasoning) takes one uniform zoom so the whole
-// table screen fits the window, up to 125% (the size the owner chose) and down to 75%; below
+// table screen fits the window, up to 125% and down to 75%; below
 // that the screen scrolls instead of shrinking further. Browser zoom shrinks the CSS viewport,
 // so it lowers this scale and is never fought. The phone layout (lib/layout's PHONE, passed in) is at 1.
 // The stage's width as drawn (at most the screen's, where it scrolls at the floor) is --stage-w on the root: the
@@ -159,11 +156,11 @@ function roomInside(dir: number) {
   return { room: 0, ahead: null };
 }
 
-// The table the page describes: the URL's (?t=), else the one last focused (the overview zooms out into its cell).
-function useHeldFocus() {
-  const f = useFocusParam(), [held, setHeld] = useState(f);
-  if (f && f !== held) setHeld(f);
-  return f ?? held;
+// `v`, else the last value it had that was not null.
+function useHeld(v: string | null) {
+  const [held, setHeld] = useState(v);
+  if (v && v !== held) setHeld(v);
+  return v ?? held;
 }
 
 type Dir = 'left' | 'right' | 'up' | 'down';
@@ -184,6 +181,14 @@ const panelsOut = (panels: HTMLElement[]) => panels.map(p => p.animate([{ opacit
 const stop = (...els: (HTMLElement | null | undefined)[]) => els.forEach(e => e?.getAnimations().forEach(a => a.cancel()));
 
 export default function Home() {
+  // The tables overview's machine (lib/overviewMachine; below): what the stage shows at rest (undefined: not started)
+  // and the animation running. Without the overview the URL's table is the stage's.
+  const mounted = useLayout(), desk = mounted !== 'phone', phone = mounted !== 'desk';
+  const focusParam = useFocusParam();
+  const overviewOn = useTablesOverview() && mounted === 'desk';
+  const [shown, setShown] = useState<string | null | undefined>(undefined);
+  const [anim, setAnim] = useState<Anim | null>(null);
+  const stageKey = useHeld(overviewOn ? stageKeyOf(shown, anim) : focusParam);
   const {
     gameState,
     dealAt,
@@ -195,9 +200,8 @@ export default function Home() {
     buttonDetermination,
     stats,
     tables,
-    focusKey,
     retry,
-  } = useGameState(useHeldFocus());
+  } = useGameState(stageKey);
   useEffect(() => setTypingPace(gameState?.pace), [gameState?.pace]); // reasons type in step with the table's pace
   // Sound starts on the first gesture (SoundToggle does it too, but a phone no longer mounts the desktop status row).
   useEffect(() => {
@@ -272,7 +276,7 @@ export default function Home() {
   // The URL names no stats screen: an old #stats, #race or #pairwise link opens the page at its top.
   useEffect(() => {
     if (!window.location.hash || isModelHash(window.location.hash)) return;
-    history.replaceState(null, "", window.location.pathname + window.location.search);
+    history.replaceState(history.state, "", window.location.pathname + window.location.search);
     const top = () => window.scrollTo({ top: 0, behavior: "instant" });
     top();
     // A production build hydrates before the load event, and the browser still scrolls to the old anchor until then.
@@ -290,6 +294,15 @@ export default function Home() {
     loadDrawer().then(() => { if (live) { setDrawerFailed(false); setDrawerEver(true); } }, () => { if (live) { setDrawerFailed(true); closeModel(); } });
     return () => { live = false; };
   }, [drawerSlug, drawerEver]);
+  useEffect(() => onDrawerLoaded(() => setDrawerFailed(false)), []);
+  useEffect(() => {
+    if (!drawerFailed) return;
+    const clear = () => setDrawerFailed(false);
+    const t = setTimeout(clear, 6000);
+    addEventListener('pointerdown', clear, { capture: true, passive: true });
+    addEventListener('keydown', clear, { capture: true, passive: true });
+    return () => { clearTimeout(t); removeEventListener('pointerdown', clear, { capture: true }); removeEventListener('keydown', clear, { capture: true }); };
+  }, [drawerFailed]);
   useEffect(() => {
     const near = (e: Event) => { if (e.target instanceof Element && e.target.closest('a[href^="#model="]')) { loadDrawer().catch(() => {}); off(); } };
     const off = () => { removeEventListener('pointerover', near, true); removeEventListener('touchstart', near, true); };
@@ -302,108 +315,141 @@ export default function Home() {
   // the top of that part: the table, Profits & Losses over the stats (#phone-stats), About. On an opened stats card,
   // Stats goes back to the overview.
   const screen = useScreen();
-  // The layout shown (lib/layout): only its own parts are mounted once hydrated (null until then: both, CSS shows one).
-  const mounted = useLayout(), desk = mounted !== 'phone', phone = mounted !== 'desk';
+  // The layout shown (lib/layout, `mounted` above): only its own parts are mounted once hydrated (null until then: both,
+  // CSS shows one).
 
   // The tables overview (lib/tableSwitches' ?tables=1), desktop only: the landing, a click zooms a table into the stage,
   // and Back, Esc or "All tables" zooms it back into its cell. The stage stays laid out under the overview (hidden), so the
-  // table lands exactly where it always is. null: not known yet (the prerender, hydration).
-  const focusParam = useFocusParam();
-  const overviewOn = useTablesOverview() && mounted === 'desk';
+  // table lands exactly where it always is. The URL decides where the page goes (lib/overviewMachine): an input changes it
+  // (a click or an edge pushes ?t, Esc and "All tables" go back), and the machine animates toward it one step at a time.
   const edges = useEdges();
-  const [phase, setPhase] = useState<'overview' | 'in' | 'out' | 'focused' | null>(null);
-  const showOverview = overviewOn && (phase === 'overview' || phase === 'in' || phase === 'out');
+  const keys = useMemo(() => tables.map(t => t.key), [tables]);
+  const target = targetOf(focusParam, keys);
+  const atRest = !anim, hidden = overviewOn && shown === null && atRest; // the stage under the overview
+  const showOverview = overviewOn && (shown === null || anim?.kind === 'in' || anim?.kind === 'out');
+  const chrome = overviewOn && !!shown && atRest; // the way back and the neighbours, at rest on a table
   const mainRef = useRef<HTMLDivElement>(null), statsButton = useRef<HTMLButtonElement>(null), overlay = useRef<HTMLDivElement>(null);
-  const pushedHere = useRef(false); // the focused table's history entry is this page's: going back steps back
-  const slideDir = useRef<Dir | null>(null);
+  const backButton = useRef<HTMLButtonElement>(null);
+  const animId = useRef(0); // the running animation's id: an end of any other is stale and ignored
   // Where the overview, the edges and the way back go, in the screen's px (measured below).
   const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; w: number } | null>(null);
-  useLayoutEffect(() => {
+  const cols = room ? gridFor(tables.length, room.overview.width, room.overview.height).cols : 1;
+  // A ?t no table has (a stale link, or a table gone from the stream) is dropped, so the page is on the overview.
+  useEffect(() => { if (overviewOn && focusParam && keys.length && !keys.includes(focusParam)) clearFocus(); }, [overviewOn, focusParam, keys]);
+  // Off (a resize to a phone): forget the machine, and any animation still running ends unheard.
+  useEffect(() => {
+    if (overviewOn) return;
+    animId.current++;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (overviewOn && phase === null) setPhase(focusParam ? 'focused' : 'overview');
-    if (phase !== null) document.documentElement.removeAttribute('data-overview'); // OVERVIEW_FIRST's part is done
-  }, [overviewOn, phase, focusParam]);
-  const focusIdx = tables.findIndex(t => t.key === focusKey);
-  const neighbour = (d: Dir) => {
-    // The overview's columns at this window: its neighbours above and below are the overview's.
-    const cols = room ? gridFor(tables.length, room.overview.width, room.overview.height).cols : 1, [dx, dy] = STEP[d], col = focusIdx % cols, i = focusIdx + dx + dy * cols;
-    return focusIdx >= 0 && col + dx >= 0 && col + dx < cols && i >= 0 && i < tables.length ? tables[i] : null;
-  };
-  const openTable = (key: string) => { pushedHere.current = true; pushFocus(key); };
-  const backToTables = () => {
-    if (pushedHere.current) { pushedHere.current = false; history.back(); return; }
-    const u = new URL(location.href);
-    u.searchParams.delete('t');
-    history.replaceState(null, '', u);
-    dispatchEvent(new Event('focuschange'));
-  };
-  // To a neighbour: the table slides out its way, the panels fade, then the neighbour's slides in (below).
-  const goTo = (d: Dir) => {
-    const n = neighbour(d), stage = stageRef.current;
-    if (!n || !stage || phase !== 'focused') return;
-    const { table, panels } = stageParts(stage), z = table.getBoundingClientRect().width / table.offsetWidth, [dx, dy] = STEP[d];
-    panelsOut(panels);
-    slideDir.current = d;
-    const out = table.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${-dx * innerWidth * 0.5 / z}px, ${-dy * innerHeight * 0.5 / z}px)`, opacity: 0 }],
-      { duration: reduced() ? 0 : 200, easing: 'ease-in', fill: 'forwards' });
-    out.finished.then(() => openTable(n.key), () => {});
-  };
-  // The URL's table changed (a click, Back, an edge): zoom in from its cell, out to it, or slide the new one in.
-  const prevFocus = useRef(focusParam);
+    setShown(undefined); setAnim(null);
+  }, [overviewOn]);
+  // At rest and not where the URL says: start the next step. Before the paint, so no frame shows the stage between.
   useLayoutEffect(() => {
-    const was = prevFocus.current, stage = stageRef.current;
-    prevFocus.current = focusParam;
-    if (!overviewOn || phase === null || was === focusParam || !stage) return;
-    const { table, panels } = stageParts(stage);
-    if (!was && focusParam) {
-      const cell = document.querySelector(`[data-overview-cell="${focusParam}"] [data-small-table]`)?.getBoundingClientRect();
-      setPhase(!cell || reduced() ? 'focused' : 'in');
-      if (!cell || reduced()) return;
-      const b = table.getBoundingClientRect(), z = b.width / table.offsetWidth;
-      table.style.zIndex = '30';
-      const grow = table.animate([{ transform: `translate(${(cell.left - b.left) / z}px, ${(cell.top - b.top) / z}px) scale(${cell.width / b.width})` }, { transform: 'none' }],
-        { duration: ZOOM_MS, easing: EASE });
-      table.style.transformOrigin = '0 0';
-      panelsIn(panels, ZOOM_MS);
-      overlay.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ZOOM_MS, easing: EASE, fill: 'forwards' });
-      grow.finished.then(() => { table.style.zIndex = table.style.transformOrigin = ''; setPhase('focused'); }, () => {});
-    } else if (was && !focusParam) {
-      // Panels away first; the shrink itself runs once the overview is back under it (the effect on 'out').
-      panelsOut(panels);
-      setPhase('out');
-    } else {
-      const d = slideDir.current, [dx, dy] = d ? STEP[d] : [0, 0], z = table.getBoundingClientRect().width / table.offsetWidth;
-      slideDir.current = null;
-      stop(table, ...panels);
-      if (reduced()) return;
-      table.animate([{ transform: `translate(${dx * innerWidth * 0.5 / z}px, ${dy * innerHeight * 0.5 / z}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300, easing: EASE });
-      panelsIn(panels, 300);
-    }
-  }, [focusParam, overviewOn, phase]);
+    if (!overviewOn) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (shown === undefined) { setShown(target); return; }
+    document.documentElement.removeAttribute('data-overview'); // OVERVIEW_FIRST's part is done
+    if (anim) return; // its end plans the next step
+    const next = nextAnim(++animId.current, shown, target, keys, cols);
+    if (next) setAnim(next);
+  }, [overviewOn, shown, anim, target, keys, cols]);
+  // Each animation, run once (a new object each step); its end sets the next state only if it is still the running one.
   useLayoutEffect(() => {
     const stage = stageRef.current;
-    if (phase !== 'out' || !stage || !focusKey) return;
-    const { table, panels } = stageParts(stage);
-    const cell = document.querySelector(`[data-overview-cell="${focusKey}"] [data-small-table]`)?.getBoundingClientRect();
-    const done = () => { flushSync(() => setPhase('overview')); stop(table, ...panels, overlay.current); table.style.zIndex = table.style.transformOrigin = ''; };
-    if (!cell || reduced()) { done(); return; }
-    const b = table.getBoundingClientRect(), z = b.width / table.offsetWidth;
-    table.style.zIndex = '30';
-    table.style.transformOrigin = '0 0';
-    const shrink = table.animate([{ transform: 'none' }, { transform: `translate(${(cell.left - b.left) / z}px, ${(cell.top - b.top) / z}px) scale(${cell.width / b.width})` }],
-      { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'forwards' });
-    overlay.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'backwards' });
-    shrink.finished.then(done, () => {});
-  }, [phase, focusKey]);
-  // Esc goes back to all tables; an arrow key to the neighbour that way (before the page's own keys, which page screens).
+    if (!anim || !stage) return;
+    const { id, kind, from, to, v: [dx, dy] } = anim, { table, panels } = stageParts(stage);
+    const mine = () => animId.current === id;
+    const cellOf = (key: string | null) => document.querySelector(`[data-overview-cell="${key}"] [data-small-table]`)?.getBoundingClientRect();
+    const z = () => table.getBoundingClientRect().width / table.offsetWidth;
+    const rest = () => { table.style.zIndex = table.style.transformOrigin = ''; };
+    const landed = () => { if (!mine()) return; rest(); setShown(to); setAnim(null); };
+    if (kind === 'in') {
+      const cell = cellOf(to);
+      if (!cell || reduced()) { stop(table, ...panels, overlay.current); landed(); return; }
+      const b = table.getBoundingClientRect();
+      table.style.zIndex = '30';
+      table.style.transformOrigin = '0 0';
+      const grow = table.animate([{ transform: `translate(${(cell.left - b.left) / z()}px, ${(cell.top - b.top) / z()}px) scale(${cell.width / b.width})` }, { transform: 'none' }],
+        { duration: ZOOM_MS, easing: EASE });
+      panelsIn(panels, ZOOM_MS);
+      overlay.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ZOOM_MS, easing: EASE, fill: 'forwards' });
+      grow.finished.then(landed, () => {});
+    } else if (kind === 'out') {
+      // The panels fade, then the table shrinks into its cell as the overview fades back over it.
+      const cell = cellOf(from);
+      // The shrink's fill dropped and the stage hidden in one task, so no frame shows the table back at its own size;
+      // dropped first, as the commit may already start the next step's animation.
+      const done = () => { if (!mine()) return; stop(table, ...panels, overlay.current); rest(); flushSync(() => { setShown(null); setAnim(null); }); };
+      stop(overlay.current);
+      if (!cell || reduced()) { done(); return; }
+      panelsOut(panels);
+      const b = table.getBoundingClientRect();
+      table.style.zIndex = '30';
+      table.style.transformOrigin = '0 0';
+      const shrink = table.animate([{ transform: 'none' }, { transform: `translate(${(cell.left - b.left) / z()}px, ${(cell.top - b.top) / z()}px) scale(${cell.width / b.width})` }],
+        { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'forwards' });
+      overlay.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'backwards' });
+      shrink.finished.then(done, () => {});
+    } else if (kind === 'slideOut') {
+      // The table leaves the way the new one lies, the panels fade; then the new one arrives from the other side.
+      panelsOut(panels);
+      const out = table.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${-dx * innerWidth * 0.5 / z()}px, ${-dy * innerHeight * 0.5 / z()}px)`, opacity: 0 }],
+        { duration: reduced() ? 0 : 200, easing: 'ease-in', fill: 'forwards' });
+      out.finished.then(() => { if (mine()) setAnim({ ...anim, kind: 'slideIn' }); }, () => {});
+    } else {
+      stop(table, ...panels);
+      if (reduced()) { landed(); return; }
+      const arrive = table.animate([{ transform: `translate(${dx * innerWidth * 0.5 / z()}px, ${dy * innerHeight * 0.5 / z()}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300, easing: EASE });
+      panelsIn(panels, 300);
+      arrive.finished.then(landed, () => {});
+    }
+  }, [anim]);
+  // A click on the table while it shrinks into its cell is a click on that cell (the viewer sees the table they just
+  // left and clicks it again): it opens that table again, as a click on the cell would (queued: the zoom out ends, then it
+  // zooms back in). Not a click on what the shrinking table holds (a seat's model link).
   useEffect(() => {
-    if (!overviewOn || phase !== 'focused') return;
+    const stage = stageRef.current;
+    if (anim?.kind !== 'out' || !anim.from || !stage) return;
+    const key = anim.from;
+    // Only while it is still shrinking: a zoom out with reduced motion ends in its own commit, before this effect's cleanup.
+    const shrinking = () => stageParts(stage).table.getAnimations().some(a => a.playState === 'running');
+    const reopen = (e: MouseEvent) => { if (e.button !== 0 || !e.detail || !shrinking()) return; e.preventDefault(); e.stopPropagation(); pushFocus(key); };
+    stage.addEventListener('click', reopen, true);
+    return () => stage.removeEventListener('click', reopen, true);
+  }, [anim]);
+  // Keyboard focus follows: after a zoom in to the way back, after a zoom out to the table's cell, when it was on
+  // something that has gone (the cell under the stage, the way back) or nowhere.
+  const lastShown = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!overviewOn || !atRest || shown === undefined) return;
+    const was = lastShown.current;
+    lastShown.current = shown;
+    if (was === undefined || was === shown) return;
+    const a = document.activeElement;
+    if (a && a !== document.body && !a.closest('[data-overview]')) return;
+    const to = shown ? backButton.current : document.querySelector<HTMLElement>(`[data-overview-cell="${was}"]`);
+    to?.focus({ preventScroll: true });
+  }, [overviewOn, atRest, shown]);
+  const focusIdx = tables.findIndex(t => t.key === shown);
+  const neighbour = (d: Dir) => {
+    // The overview's columns at this window: its neighbours above and below are the overview's.
+    const [dx, dy] = STEP[d], col = focusIdx % cols, i = focusIdx + dx + dy * cols;
+    return focusIdx >= 0 && col + dx >= 0 && col + dx < cols && i >= 0 && i < tables.length ? tables[i] : null;
+  };
+  const openTable = pushFocus;
+  const backToTables = () => { if (target !== null) toAllTables(); };
+  // To a neighbour: only at rest on a table (an arrow held down steps one table per slide).
+  const goTo = (d: Dir) => { const n = neighbour(d); if (n && atRest && shown === target) pushFocus(n.key); };
+  // Esc goes back to all tables; an arrow key to the neighbour that way (before the page's own keys, which page
+  // screens). While a table is in focus or on its way, never the page's keys.
+  useEffect(() => {
+    if (!overviewOn || (shown === null && atRest)) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || window.scrollY > 8) return;
       if (e.target instanceof Element && e.target.closest('input, select, textarea, [contenteditable], dialog')) return;
       const d = ARROWS[e.key];
       if (e.key === 'Escape') backToTables();
-      else if (d && neighbour(d)) goTo(d);
+      else if (d) goTo(d);
       else return;
       e.preventDefault();
     };
@@ -453,7 +499,7 @@ export default function Home() {
     let live = true;
     document.fonts?.ready.then(() => { if (live) measure(); });
     return () => { live = false; ro.disconnect(); };
-  }, [overviewOn, phase]);
+  }, [overviewOn, chrome]);
 
   const tableRef = useRef<HTMLDivElement>(null);
   // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
@@ -701,9 +747,8 @@ export default function Home() {
       {/* Header - Title centered */}
         {desk && head('max-md:hidden')}
 
-        {/* Phone draft A without a landing fill (?fill=none): the desktop's header over the table, as on the owner's Mac
-            (owner, 2026-11-23: "the text at the top for desktop why is it not there for mobile?", then "text too close to the
-            table why cant it be same dist as the desktop?"): laid out MAC_TABLE_W across, the table's width there, and drawn
+        {/* Phone draft A without a landing fill (?fill=none): the desktop's header over the table, as at 1440x790, at the
+            desktop's distance from the table: laid out MAC_TABLE_W across, the table's width there, and drawn
             at the phone's width, so it keeps the Mac's size and distance beside the table (its pb-6, the main content's mt-6
             there). The screen is centred (globals.css, html[data-fill=none]). */}
         {phone && draftA && fill === 'none' && !tall && <Fit w={MAC_TABLE_W} data-a-head><div className={`flex flex-col items-center pb-6 ${PICTURED_TAP}`}>{head('', true)}</div></Fit>}
@@ -711,7 +756,7 @@ export default function Home() {
         {/* Main content: a fixed gap under the header, not pushed to the middle of the screen */}
         <div ref={mainRef} className="mt-6 max-md:mt-0 flex items-center-safe justify-center-safe w-full md:w-auto">
           {/* suppressHydrationWarning: BEFORE_PAINT fits it before React hydrates. */}
-          <div ref={stageRef} className="stage-zoom flex flex-col w-full md:w-auto" style={phase === 'overview' && overviewOn ? { visibility: 'hidden' } : undefined} suppressHydrationWarning>
+          <div ref={stageRef} data-stage-key={overviewOn ? stageKey ?? '' : undefined} className="stage-zoom flex flex-col w-full md:w-auto" style={hidden ? { visibility: 'hidden' } : undefined} suppressHydrationWarning>
             {/* Row 1: Table + Winnings. On phones the row dissolves (contents) so the reasoning bar comes right under the
                 table and the sidebar after it (order). */}
             <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative max-md:contents">
@@ -731,11 +776,11 @@ export default function Home() {
                 stats={seatStats}
                 display={displayState}
                 clock={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? clock : null}
-                still={overviewOn && phase === 'overview'}
+                still={hidden}
               />
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
-                  here, its top under the bar), Profits & Losses only (owner, 2026-11-15: no API usage on a phone). */}
+                  here, its top under the bar), Profits & Losses only (no API usage on a phone). */}
               <div id="phone-stats" className="flex flex-col w-full md:w-[240px] shrink-0 max-md:order-1 max-md:snap-start max-md:snap-always max-md:pt-[calc(var(--top-h)+12px)]">
                 <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />
@@ -770,8 +815,8 @@ export default function Home() {
         {overviewOn && room && <div ref={overlay} className="absolute z-20" style={{ ...room.overview, ...(showOverview ? null : { visibility: 'hidden', pointerEvents: 'none' }) }} aria-hidden={!showOverview || undefined}>
           <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} onOpen={openTable} onStats={() => pageBy(1)} />
         </div>}
-        {overviewOn && phase === 'focused' && room && <>
-          <button onClick={backToTables} className="absolute z-20 flex items-center gap-1.5 rounded px-2 py-1 text-[14px] font-medium hover:bg-black/5 outline-none focus-visible:outline-2 focus-visible:outline-[rgb(31,111,196)]"
+        {chrome && room && <>
+          <button ref={backButton} onClick={backToTables} className="absolute z-20 flex items-center gap-1.5 rounded px-2 py-1 text-[14px] font-medium hover:bg-black/5 outline-none focus-visible:outline-2 focus-visible:outline-[rgb(31,111,196)]"
             style={{ ...room.back, color: 'rgb(55, 53, 47)' }}>
             <ArrowLeft size={14} weight="bold" aria-hidden /> All tables
           </button>
@@ -780,7 +825,7 @@ export default function Home() {
             return n && r && <Edge key={d} t={n} dir={d} variant={edges} room={r} width={room.w * (d === 'left' || d === 'right' ? 0.8 : 0.6)} onGo={() => goTo(d)} />;
           })}
         </>}
-        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={overviewOn && phase === 'overview' ? { ...NEXT_STYLE, visibility: 'hidden' } : NEXT_STYLE}>
+        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={hidden ? { ...NEXT_STYLE, visibility: 'hidden' } : NEXT_STYLE}>
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>}
 
@@ -863,10 +908,12 @@ function StatusRow({ className = '', statusKnown, handKnown, isLive, label, watc
       </div>
 
       {/* Hand counter, blinds, timer. Held blank until the first state, so the row keeps its width (a phone wraps it
-          to the same lines) and nothing under it moves when they fill in. */}
+          to the same lines) and nothing under it moves when they fill in. The blank hand number is one digit (tabular
+          figures), never wider than the one remembered from the last visit, so on a refresh the remembered width holds
+          it exactly (a "#00" blank was wider than "#2" and the row shifted 4px when a session's first hands arrived). */}
       <div ref={handRef} className={`contents ${handKnown ? '' : '[&>*]:invisible'}`}>
         <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-        <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '00'}</span>
+        <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '0'}</span>
         <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
         <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
         <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />

@@ -67,7 +67,7 @@ export interface PlayerState {
   winnings: number;
 }
 
-export interface Winner {
+interface Winner {
   playerIdx: number;
   amount: number;
   handType: string;

@@ -7,7 +7,7 @@ The Go server that runs the poker tables, asks the LLM service for every move an
 - `Server.Start` (`api/server.go`) builds one `Table` per entry in `TABLES`. Default: four tables, blinds 1/2, 5/10, 25/50 and 50/100.
 - The tables share one `floor`: the daily call cap, the opening hours and the pace.
 - At boot the engine asks the LLM service (`GET /models`) who is seated. It retries until the service answers. Every table seats the same nine models, rotated by table index.
-- Each table runs its own goroutine (`table.go`). Per turn it counts one call against the cap and posts the game state to the LLM service (`POST /decide`). It checks the move again and applies it.
+- Each table runs its own goroutine (`table.go`). A turn starts only when the cap leaves room for its two possible calls (the service asks again once after an unreadable or illegal reply), so the tables together never go past the cap. It posts the game state to the LLM service (`POST /decide`). It checks the move again and applies it.
 - Every step goes to the `hub` (`stream.go`). `GET /stream` sends each viewer a snapshot of all tables, then the later events (Server-Sent Events). A stream closes after 10 to 14 minutes, and the page reopens it.
 - A finished hand is saved before the next one starts (`store.go`). With Supabase set, the `save_hand` database function writes the hand and its prompts. Without it, they are appended to `hands.jsonl` and `prompts.jsonl` in `HAND_LOG_DIR`. Hands from the mock provider are not sent to Supabase.
 - A hand where every model call failed is voided: it is not saved, and stacks and button are restored.
@@ -27,11 +27,11 @@ The Go server that runs the poker tables, asks the LLM service for every move an
 See `.env.example`. The engine reads the process environment, not that file.
 
 - `PORT`: listen port. Default 8080.
-- `TABLES`: tables as `SB/BB:DEPTH`, depth in big blinds, comma-separated, for example `1/2:100,5/10:200`. Unset or invalid means the four defaults.
+- `TABLES`: tables as `SB/BB:DEPTH`, depth in big blinds, comma-separated, for example `1/2:100,5/10:200`. Spaces are ignored. The small blind must be below the big blind, the depth at least 1, and no table may be listed twice. Unset means the four defaults; an invalid value is logged and also means the four defaults.
 - `LLM_SERVICE_URL`, `LLM_SERVICE_TOKEN`: address of the LLM service and the bearer token sent to it.
 - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`: store hands, stats and the waitlist in Supabase.
 - `HAND_LOG_DIR`: where hands go without Supabase. Default `data`.
-- `DAILY_CALL_CAP`: model calls per UTC day for all tables together. Default 5000.
+- `DAILY_CALL_CAP`: model calls per UTC day for all tables together, never exceeded. Default 5000. Below 2 no turn can start.
 - `TABLE_PACE`: multiplier on every pause. Default 0.6.
 - `TABLE_OPEN_HOUR`, `TABLE_CLOSE_HOUR`, `TABLE_TIMEZONE`: daily opening hours. Without a timezone the tables are always open.
 - `WAITLIST_DAILY_MAX`: new waitlist rows per UTC day.

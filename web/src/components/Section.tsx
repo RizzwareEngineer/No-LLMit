@@ -3,7 +3,7 @@
 import { useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { flushSync } from 'react-dom';
 import { AnimatePresence, MotionConfig, PresenceContext, cubicBezier, motion, usePresence } from 'motion/react';
-import { BLUE, MUTED, TEXT } from '@/lib/stats';
+import { BLUE, TEXT } from '@/lib/stats';
 import { useRememberedBox } from '@/lib/boxes';
 import { isPhone } from '@/lib/layout';
 import { CARD, CARD_SHADOW, HEADER, SHADOW, Segmented, TITLE } from '@/components/ui';
@@ -147,7 +147,7 @@ export function scrollsInside(el: Element | null, dir: number) {
 // The wide stats' one scale (--sz, page.tsx's fitStage): they are laid out at one reference size and zoomed (CSS zoom)
 // to the stage's column. Under it a length is in layout px, one drawn px being 1/zoom of them; motion measures drawn
 // boxes, so inside the zoom it is given them in layout px (StatsZoom), or its glides would travel zoom times too far.
-export const statsZoom = () => (typeof window === 'undefined' || isPhone() ? 1 : parseFloat(document.documentElement.style.getPropertyValue('--sz')) || 1);
+const statsZoom = () => (typeof window === 'undefined' || isPhone() ? 1 : parseFloat(document.documentElement.style.getPropertyValue('--sz')) || 1);
 const toLayout = (p: { x: number; y: number }) => { const z = statsZoom(); return z === 1 ? p : { x: p.x / z, y: p.y / z }; };
 export function StatsZoom({ children }: { children: React.ReactNode }) {
   return <MotionConfig transformPagePoint={toLayout}>{children}</MotionConfig>;
@@ -360,11 +360,11 @@ function Swap({ snap, stay = false, children }: { snap: boolean; stay?: boolean;
 }
 
 // Something the card adds around its tile's content: fades in as the tile glides open (nothing when `still`).
-export function Added({ still = false, className, style, children }: { still?: boolean; className?: string; style?: React.CSSProperties; children: React.ReactNode }) {
+export function Added({ still = false, children }: { still?: boolean; children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [start] = useState(still ? 1 : 0);
   useLayoutEffect(() => (still || !ref.current ? undefined : stepFade(ref.current, 1, IN_FADE)), []); // eslint-disable-line react-hooks/exhaustive-deps -- on mount
-  return <div ref={ref} className={`added ${className ?? ''}`} style={{ ...style, '--fade': start, opacity: 'var(--fade)' } as React.CSSProperties}>{children}</div>;
+  return <div ref={ref} className="added" style={{ '--fade': start, opacity: 'var(--fade)' } as React.CSSProperties}>{children}</div>;
 }
 
 

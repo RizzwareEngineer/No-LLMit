@@ -19,6 +19,7 @@ import { DECK } from "@/lib/phoneTable";
 import { CARD_CLASS, useCardSize } from "@/lib/tableSwitches";
 import { isDraftA } from "@/lib/layout";
 const noSub = () => () => {};
+import { arrivedDealAt } from "@/lib/stream";
 
 interface WinnerDisplay {
   name: string;
@@ -46,7 +47,6 @@ interface TableFeltProps {
   deck?: DeckPhase | null; // the deck between hands, in the board's place (TableMotion)
   blank?: boolean; // no state yet: the felt at its size with nothing on it
   compact?: boolean; // the phone table's middle (PokerTable): only the pot and the board, no grid
-  upright?: boolean; // draft B's upright table (PokerTable): the desktop felt on a phone, its bets shown as the phone's
   plain?: boolean; // draft A's tall table (PokerTable): no grid of its own, the drawn felt under it shows through
   fillIn?: boolean; // fade in as it fills; false for a felt mounted by a layout switch mid-hand (it shows the hand as it stands)
 }
@@ -124,7 +124,6 @@ export default function TableFelt({
   deck,
   blank = false,
   compact = false,
-  upright = false,
   plain = false,
   fillIn = true,
 }: TableFeltProps) {
@@ -143,7 +142,7 @@ export default function TableFelt({
   // "Next hand in Ns": its seconds drawn on each whole-second edge from the deal's time (useSecondsDraw), not rendered
   // each second; the line goes at 0, before page.tsx's render that ends the countdown.
   const countBox = useRef<HTMLElement>(null), countText = useRef<HTMLSpanElement>(null);
-  useSecondsDraw(nextDealAt ? now => nextDealAt - now : null, s => {
+  useSecondsDraw(nextDealAt ? now => arrivedDealAt(nextDealAt) - now : null, s => {
     if (s === null || !countText.current || !countBox.current) return;
     countText.current.textContent = `${s}s`;
     countBox.current.style.visibility = s > 0 ? '' : 'hidden';
@@ -155,7 +154,7 @@ export default function TableFelt({
       className={`relative flex flex-col items-center w-full h-full ${compact ? 'justify-start' : `justify-center gap-3 ${bets ? 'pt-[44px] pb-3' : 'py-2'}`} ${blank ? '[&>*]:invisible' : ''}`}
       style={compact || plain ? undefined : GRID}
     >
-      {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} compact={upright} />)}
+      {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} />)}
 
 
       {/* Winner announcement or Pot */}
@@ -229,9 +228,8 @@ export default function TableFelt({
             {!deck && cards.map((card, i) => (
               <Card key={`${card}-${i}`} value={card} className={CARD_CLASS[size]} rise={live} />
             ))}
-            {/* The phone's deck between hands takes the board's place too, as the desktop's does, 8px under the pot
-                (phoneTable's DECK; owner 2026-11-15: "the shuffle deck should not be in front of the pot count"; the audit:
-                over the pot it covered the P of POT at 375). */}
+            {/* The phone's deck between hands takes the board's place too, as the desktop's does, 8px under the pot so
+                it never covers the pot's label (phoneTable's DECK). */}
             {compact ? <AnimatePresence initial={false}>{deck && <div key="deck" className="relative" style={{ top: DECK.top + 2, width: DECK.w, height: DECK.h }}><Deck phase={deck} /></div>}</AnimatePresence>
               : <AnimatePresence initial={false}>{deck && <Deck key="deck" phase={deck} />}</AnimatePresence>}
           </>

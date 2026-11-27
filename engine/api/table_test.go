@@ -1,13 +1,18 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/rizzwareengineer/no-LLMit/engine/client"
 	"github.com/rizzwareengineer/no-LLMit/engine/game"
 	"github.com/rizzwareengineer/no-LLMit/engine/history"
+	"log"
+	"os"
 	"reflect"
+	"runtime"
+
 	"strings"
 	"sync"
 	"testing"
@@ -252,8 +257,8 @@ func TestEveryModelCallCountsTowardTheCap(t *testing.T) {
 		tbl.setPace(1e-6)
 		tbl.waitForBudget()
 		tbl.playTurn()
-		if tbl.calls != c.calls {
-			t.Errorf("%s: %d calls counted, want %d", c.reply.Status, tbl.calls, c.calls)
+		if tbl.calls != c.calls || tbl.held != 0 {
+			t.Errorf("%s: %d calls counted, %d still held, want %d and none held", c.reply.Status, tbl.calls, tbl.held, c.calls)
 		}
 	}
 	tbl := testTable(t)
@@ -325,6 +330,9 @@ func TestParseTables(t *testing.T) {
 			t.Errorf("%q parsed", bad)
 		}
 	}
+	if got, err := parseTables(" 1 / 2 : 100 ,\t5/10:200 "); err != nil || !reflect.DeepEqual(got, []tableConfig{{1, 2, 100}, {5, 10, 200}}) {
+		t.Errorf("spaces: got %v, %v", got, err)
+	}
 	t.Setenv("TABLES", "")
 	if got := tablesFromEnv(); !reflect.DeepEqual(got, defaultTables) {
 		t.Errorf("unset: %v", got)
@@ -342,6 +350,38 @@ func TestParseTables(t *testing.T) {
 	}
 }
 
+// A TABLES the engine cannot play is ignored as a whole: one log line says which entry and
+// why, and the default tables play.
+func TestBadTablesFallBackToTheDefaultsWithALogLine(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+	for _, c := range []struct{ tables, why string }{
+		{"1/2:100,5/10:200,1/2:100", `"1/2:100" is listed twice`},
+		{"1/2:100, 1 / 2:100", `"1/2:100" is listed twice`},
+		{"   ", "no tables listed"},
+		{",", "an empty entry (a stray comma)"},
+		{"1/2:100,,5/10:200", "an empty entry (a stray comma)"},
+		{"1/2:100,", "an empty entry (a stray comma)"},
+		{"5/10:0", "the depth must be 1 bb or more"},
+		{"10/10:100", "below the big blind"},
+		{"10/5:100", "below the big blind"},
+		{"0/2:100", "below the big blind"},
+		{"-1/2:100", "is not SB/BB:DEPTH"},
+		{"5/10:200000000", "over 1000000000 chips"},
+		{"5/10:9999999999", "is not SB/BB:DEPTH"},
+	} {
+		logged.Reset()
+		t.Setenv("TABLES", c.tables)
+		if got := tablesFromEnv(); !reflect.DeepEqual(got, defaultTables) {
+			t.Errorf("TABLES=%q: %v, want the default tables", c.tables, keys(got))
+		}
+		if line := logged.String(); strings.Count(line, "\n") != 1 || !strings.Contains(line, "Ignoring TABLES") || !strings.Contains(line, c.why) || !strings.Contains(line, "default tables") {
+			t.Errorf("TABLES=%q logged %q, want one line saying %q", c.tables, line, c.why)
+		}
+	}
+}
+
 func keys(cs []tableConfig) []string {
 	var out []string
 	for _, c := range cs {
@@ -353,7 +393,7 @@ func keys(cs []tableConfig) []string {
 // testTables is one table per cfg, in order, sharing one hub and one floor, each on its own
 // fake clock and seated in turn from A, B and C.
 func testTables(cfgs ...tableConfig) ([]*Table, *hub) {
-	h, f := newHub(), &floor{dailyCallCap: 1000}
+	h, f := newHubFor(len(cfgs)), &floor{dailyCallCap: 1000} // as Server.Start sizes it
 	f.setPace(1e-6)
 	var out []*Table
 	for i, cfg := range cfgs {
@@ -432,37 +472,214 @@ func TestTablesDealAtOnceAndNeverWaitOnEachOther(t *testing.T) {
 	}
 }
 
-// The daily cap is one budget for every table: two tables spend it together, and the table
-// that finds it spent says so and waits for the next day.
-func TestTablesShareOneCallCap(t *testing.T) {
-	tables, _ := testTables(tableConfig{1, 2, 100}, tableConfig{5, 10, 200})
-	a, b := tables[0], tables[1]
-	b.now, b.pause = a.now, a.pause // one clock
-	a.dailyCallCap = 3              // the shared floor's: b sees it too
-	a.startGame()
-	b.startGame()
+// sharedClock is one fake clock for tables that wait in their own goroutines, in lockstep:
+// it moves on only once every table still waiting has paused, so each sees every moment
+// the others do, however the goroutines are scheduled.
+type sharedClock struct {
+	mu      sync.Mutex
+	turned  *sync.Cond
+	at      time.Time
+	active  int           // tables still waiting; leave takes one away
+	paused  int           // of them, paused at this moment
+	step    time.Duration // how far this moment's pauses move the clock
+	moments int           // how many times the clock has moved
+}
+
+func (c *sharedClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at
+}
+
+func (c *sharedClock) pause(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	moment := c.moments
+	c.paused++
+	c.step = max(c.step, d)
+	c.moveIfAllPaused()
+	for moment == c.moments {
+		c.turned.Wait()
+	}
+}
+
+// leave is a table done waiting: the clock no longer waits for it.
+func (c *sharedClock) leave() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.active--
+	c.moveIfAllPaused()
+}
+
+func (c *sharedClock) moveIfAllPaused() {
+	if c.paused > 0 && c.paused == c.active {
+		c.at, c.paused, c.step = c.at.Add(c.step), 0, 0
+		c.moments++
+		c.turned.Broadcast()
+	}
+}
+
+// onClock puts every table on one shared fake clock at at; each calls leave when done waiting.
+func onClock(tables []*Table, at time.Time) *sharedClock {
+	c := &sharedClock{at: at, active: len(tables)}
+	c.turned = sync.NewCond(&c.mu)
+	for _, tbl := range tables {
+		tbl.now, tbl.pause = c.now, c.pause
+	}
+	return c
+}
+
+// tableNotices is the table_notice kinds one table published, in order.
+func tableNotices(t *testing.T, h *hub, key string) []string {
+	var kinds []string
+	for _, f := range h.since(0, false).frames {
+		for _, m := range parseFrames(t, f) {
+			var n TableNoticePayload
+			if m.Table == key && m.Type == MsgTableNotice && json.Unmarshal(m.Payload, &n) == nil {
+				kinds = append(kinds, n.Kind)
+			}
+		}
+	}
+	return kinds
+}
+
+// The daily cap is one budget for every table. Racing for the last calls, the tables start
+// only the turns the cap can pay for in full, a retry included, so the day's calls never go
+// past it: with 9 left, four turns that each retry (8 calls), or eight that do not (8 calls).
+func TestTablesNeverGoPastTheSharedCap(t *testing.T) {
+	for _, retried := range []bool{true, false} {
+		tables, _ := testTables(defaultTables...)
+		tables[0].dailyCallCap = 9 // the shared floor's: every table sees it
+		f := tables[0].floor
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		turns, over := map[string]int{}, 0
+		for _, tbl := range tables {
+			wg.Add(1)
+			go func() { // the table plays turns until the day has no room left for one
+				defer wg.Done()
+				for {
+					if tbl.reserve("2026-11-13") {
+						mu.Lock()
+						turns[tbl.cfg.key()]++
+						mu.Unlock()
+						tbl.settle("2026-11-13", retried)
+					}
+					f.mu.Lock()
+					if f.calls > f.dailyCallCap || f.calls+f.held > f.dailyCallCap {
+						over++
+					}
+					spent := f.held == 0 && f.calls+callsPerTurn > f.dailyCallCap // no turn in play can give a call back
+					f.mu.Unlock()
+					if spent {
+						return
+					}
+					runtime.Gosched()
+				}
+			}()
+		}
+		wg.Wait()
+		n := 0
+		for _, c := range turns {
+			n += c
+		}
+		want := map[bool]int{true: 4, false: 8}[retried]
+		if over > 0 || n != want || f.calls != 8 || f.held != 0 {
+			t.Errorf("retried %v: %d turns, %d calls, %d held, past the cap %d times; want %d turns, 8 calls", retried, n, f.calls, f.held, over, want)
+		}
+	}
+}
+
+// At the cap every waiting table says so, and at the next UTC day every one of them resumes,
+// none left waiting behind the others, with its notice cleared; the new day's count starts
+// with their turns only.
+func TestCapStopsAndResumesEveryTable(t *testing.T) {
+	tables, h := testTables(defaultTables...)
+	for _, tbl := range tables {
+		seat(tbl) // no frames yet: the ring keeps every notice
+	}
+	clock := onClock(tables, time.Date(2026, 11, 13, 23, 59, 0, 0, time.UTC))
+	f := tables[0].floor
+	f.dailyCallCap, f.calls, f.callsDay = 8, 7, "2026-11-13" // one call left: no turn can start
 
 	var wg sync.WaitGroup
-	for range 10 { // racing for the last calls: exactly the cap is spent
+	resumed := make([]time.Time, len(tables))
+	for i, tbl := range tables {
 		wg.Add(1)
-		go func() { defer wg.Done(); a.spend("2026-11-13", false); b.spend("2026-11-13", false) }()
+		go func() { defer wg.Done(); tbl.waitForBudget(); resumed[i] = tbl.now(); clock.leave() }()
 	}
 	wg.Wait()
-	if b.calls != 3 {
-		t.Fatalf("%d calls spent, want the cap of 3", b.calls)
-	}
-	var seen []string
-	pause := b.pause
-	b.pause = func(d time.Duration) {
-		if len(seen) == 0 {
-			seen = append(seen, b.notice.Kind)
+	midnight := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)
+	for i, tbl := range tables {
+		key := tbl.cfg.key()
+		if got := tableNotices(t, h, key); !reflect.DeepEqual(got, []string{"cap", ""}) {
+			t.Errorf("%s: notices %q, want cap then cleared", key, got)
 		}
-		pause(d)
+		if snap := h.since(0, true).tables[key]; snap == nil || snap.Notice != nil || tbl.budgetDay != "2026-11-14" {
+			t.Errorf("%s: snapshot notice %+v, budget day %q", key, snap.Notice, tbl.budgetDay)
+		}
+		if !resumed[i].Equal(midnight) {
+			t.Errorf("%s resumed at %v, want at the first poll after midnight, %v, with every other table", key, resumed[i], midnight)
+		}
 	}
-	b.waitForBudget()
-	a.waitForBudget()
-	if !reflect.DeepEqual(seen, []string{"cap"}) || a.calls != 2 || a.callsDay != "2026-11-14" {
-		t.Errorf("b saw %v; %d calls on %s, want the cap notice then 2 calls on 2026-11-14", seen, a.calls, a.callsDay)
+	if f.calls != 4 || f.held != 4 || f.callsDay != "2026-11-14" {
+		t.Errorf("%d calls and %d held on %s, want the four turns' 4 and 4 on 2026-11-14", f.calls, f.held, f.callsDay)
+	}
+	for _, tbl := range tables {
+		tbl.settle(tbl.budgetDay, true)
+	}
+	if f.calls != 8 || f.reserve("2026-11-14") {
+		t.Errorf("%d calls after four retried turns; another turn could start past the cap of 8", f.calls)
+	}
+}
+
+// A turn reserved before midnight and settled after it changes nothing on the new day: its
+// calls were budgeted on the old one.
+func TestTurnAcrossMidnightCountsOnItsOwnDay(t *testing.T) {
+	f := &floor{dailyCallCap: 10}
+	if !f.reserve("2026-11-13") {
+		t.Fatal("no room")
+	}
+	if !f.reserve("2026-11-14") { // another table, after midnight
+		t.Fatal("no room on the new day")
+	}
+	f.settle("2026-11-13", true)
+	if f.calls != 1 || f.held != 1 {
+		t.Errorf("new day: %d calls, %d held; want only the new day's turn (1 and 1)", f.calls, f.held)
+	}
+	f.settle("2026-11-14", false)
+	if f.calls != 1 || f.held != 0 {
+		t.Errorf("after settling: %d calls, %d held; want 1 and 0", f.calls, f.held)
+	}
+}
+
+// Outside the hours every table says it is closed, and each clears the notice when it opens.
+func TestClosedNoticeReachesAndClearsEveryTable(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip("no tzdata")
+	}
+	tables, h := testTables(defaultTables...)
+	for _, tbl := range tables {
+		seat(tbl)
+	}
+	f := tables[0].floor
+	f.openHour, f.closeHour, f.hoursZone = 9, 21, ny
+	clock := onClock(tables, time.Date(2026, 11, 13, 21, 0, 0, 0, ny))
+	var wg sync.WaitGroup
+	for _, tbl := range tables {
+		wg.Add(1)
+		go func() { defer wg.Done(); tbl.waitForOpenHours(); clock.leave() }()
+	}
+	wg.Wait()
+	for _, tbl := range tables {
+		key := tbl.cfg.key()
+		if got := tableNotices(t, h, key); !reflect.DeepEqual(got, []string{"closed", ""}) {
+			t.Errorf("%s: notices %q, want closed then cleared", key, got)
+		}
+		if snap := h.since(0, true).tables[key]; snap == nil || snap.Notice != nil {
+			t.Errorf("%s: the snapshot shows %+v, want the table with no notice", key, snap)
+		}
 	}
 }
 
@@ -500,5 +717,113 @@ func TestSnapshotHasEveryTable(t *testing.T) {
 	}
 	if s := snap.Tables["1-2-100bb"]; s.Stats != nil || s.State.Players[0].Name != "A" || snap.Tables["5-10-200bb"].State.Players[0].Name != "B" {
 		t.Errorf("1/2: stats %s, seats rotated per table: %s then %s", s.Stats, s.State.Players[0].Name, snap.Tables["5-10-200bb"].State.Players[0].Name)
+	}
+}
+
+// seat deals the table its game without publishing anything.
+func seat(tbl *Table) {
+	tbl.gs = game.NewGame(game.GameConfig{
+		PlayerNames:   tbl.seated,
+		StartingStack: tbl.cfg.startingStack(),
+		Stakes:        game.Stakes{SmallBlind: tbl.cfg.SmallBlind, BigBlind: tbl.cfg.BigBlind},
+	})
+}
+
+// A viewer that reconnects, or falls more than the ring behind, gets each table's latest
+// table_stats in the snapshot: its own, never another table's, and none for a table that has
+// none yet, whatever came after on the stream.
+func TestSnapshotAfterFallingBehindHasEachTablesLatestStats(t *testing.T) {
+	tables, h := testTables(defaultTables...)
+	for _, tbl := range tables {
+		tbl.startGame()
+	}
+	last := h.since(0, true).seq
+	pnl := func(key string, hands int) []byte {
+		return []byte(fmt.Sprintf(`{"hands":%d,"models":[{"name":%q}]}`, hands, key))
+	}
+	for n := 1; n <= 3; n++ {
+		for _, key := range []string{"1-2-100bb", "5-10-200bb", "25-50-500bb"} {
+			b := pnl(key, n)
+			h.publish(key, nil, b, ServerMessage{Type: MsgTableStats, Payload: json.RawMessage(b)})
+		}
+	}
+	for range len(h.ring) { // more than the ring holds since last
+		tables[3].mu.Lock()
+		tables[3].publish(ServerMessage{Type: MsgGameState})
+		tables[3].mu.Unlock()
+	}
+	for _, v := range []view{h.since(last, false), h.since(0, true)} { // fell behind; reconnected
+		if !v.snap {
+			t.Fatalf("%d frames behind and no snapshot", v.seq-last)
+		}
+		b, err := v.snapshotFrame()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var snap struct{ Tables map[string]tableSnap }
+		json.Unmarshal(parseFrames(t, b)[0].Payload, &snap)
+		for _, key := range []string{"1-2-100bb", "5-10-200bb", "25-50-500bb"} {
+			if got := string(snap.Tables[key].Stats); got != string(pnl(key, 3)) {
+				t.Errorf("%s: stats %s, want its latest %s", key, got, pnl(key, 3))
+			}
+		}
+		if s := snap.Tables["50-100-100bb"]; s.Stats != nil || s.Key != "50-100-100bb" {
+			t.Errorf("50/100, no stats yet: %+v", s)
+		}
+	}
+}
+
+// With every table publishing at once (four tables at the fixture's pace interleave their frames), a stream away for as
+// long as one table's ringSize frames take is still sent the frames it missed, all of them and in seq order, not a
+// snapshot: the ring keeps ringSize frames per table, so four tables do not cut the window to a quarter. A stream
+// further behind than the whole ring still gets a snapshot.
+func TestStreamAwayForOneTablesRingResumesByReplayWithEveryTablePublishing(t *testing.T) {
+	tables, h := testTables(defaultTables...)
+	for _, tbl := range tables {
+		tbl.startGame()
+	}
+	last := h.since(0, true).seq
+	// One table's ringSize frames, with every other table publishing at the same rate in between (round robin, as the
+	// four tables' frames arrive on the fixture's stream).
+	for range ringSize {
+		for _, tbl := range tables {
+			tbl.mu.Lock()
+			tbl.publish(ServerMessage{Type: MsgGameState})
+			tbl.mu.Unlock()
+		}
+	}
+	v := h.since(last, false)
+	if v.snap {
+		t.Fatalf("%d frames behind (%d tables x %d): a snapshot, want the frames replayed", v.seq-last, len(tables), ringSize)
+	}
+	if want := int(v.seq - last); len(v.frames) != want || want != len(tables)*ringSize {
+		t.Fatalf("replayed %d frames, want %d (%d tables x %d)", len(v.frames), want, len(tables), ringSize)
+	}
+	next, perTable := last+1, map[string]int{}
+	for _, f := range v.frames {
+		var m struct {
+			Seq   uint64 `json:"seq"`
+			Table string `json:"table"`
+		}
+		if err := json.Unmarshal(bytes.TrimSuffix(bytes.TrimPrefix(f, []byte("data: ")), []byte("\n\n")), &m); err != nil {
+			t.Fatal(err)
+		}
+		if m.Seq != next {
+			t.Fatalf("frame seq %d, want %d: a frame lost or out of order", m.Seq, next)
+		}
+		next++
+		perTable[m.Table]++
+	}
+	for _, tbl := range tables {
+		if n := perTable[tbl.cfg.key()]; n != ringSize {
+			t.Errorf("%s: %d frames replayed, want %d", tbl.cfg.key(), n, ringSize)
+		}
+	}
+	// One frame more than the whole ring: a snapshot, as before.
+	tables[0].mu.Lock()
+	tables[0].publish(ServerMessage{Type: MsgGameState})
+	tables[0].mu.Unlock()
+	if v := h.since(last, false); !v.snap {
+		t.Fatalf("%d frames behind a ring of %d: no snapshot", v.seq-last, len(h.ring))
 	}
 }

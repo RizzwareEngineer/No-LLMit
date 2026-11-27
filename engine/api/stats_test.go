@@ -487,13 +487,13 @@ func TestStatsPerTable(t *testing.T) {
 	micro := hands[0]
 	micro.HandID, micro.TableKey, micro.Config.SmallBlind, micro.Config.BigBlind = "micro-1", "1-2-100bb", 1, 2
 	high := hands[1]
-	high.HandID, high.TableKey, high.Config.SmallBlind, high.Config.BigBlind = "high-1", "25-50-500bb", 25, 50 // no longer configured
+	high.HandID, high.TableKey, high.Config.SmallBlind, high.Config.BigBlind = "high-1", "25-50-500bb", 25, 50 // at stakes no table plays
 	c := newTestCache(nil)
 	c.hub = newHub()
 	c.tables = []*Table{
 		{cfg: tableConfig{1, 2, 100}, seated: []string{"B", "C", "A"}},
 		{cfg: tableConfig{5, 10, 200}, seated: []string{"A", "B", "C"}},
-		{cfg: tableConfig{5, 10, 100}}, // the same blinds again: the old hands count under the first only
+		{cfg: tableConfig{5, 10, 100}}, // the same blinds again: hands without a key count under the first only
 	}
 	if code, _ := c.get("/api/stats?table=1-2-100bb"); code != http.StatusServiceUnavailable {
 		t.Errorf("before the first load: %d", code)
