@@ -102,7 +102,7 @@ function applyTurn(v: TableView, turn: Turn, now: number): TableView {
   const p = turn.payload as LLMDecision;
   return {
     ...v,
-    clock: stopped(v.clock, now), // the move has arrived: the clock holds (owner, A24)
+    clock: stopped(v.clock, now), // the move has arrived: the clock holds
     display: {
       phase: 'reasoning',
       turn: p.turn,

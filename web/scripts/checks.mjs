@@ -1566,7 +1566,7 @@ group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
 // The tables are the picture: the grid fills the first screen under the header (no band over 48px above or below it, no
-// scroll) at the owner's window sizes; at 1440x790 each of the four small tables is at least 40% of the window across;
+// scroll) at the common laptop window sizes; at 1440x790 each of the four small tables is at least 40% of the window across;
 // every piece of overview text is on one line.
 group(() => check('tables-fill-screen', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 the overview grid fills the first screen: no band over 48px between the header and the grid or under it, no page scroll; at 1440x790 each small table is drawn at least 40% of the window wide; every overview text is on one line', async () => {
   const bad = [], seen = [];

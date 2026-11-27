@@ -36,8 +36,7 @@ for (const [W, H] of TABLES) {
         if ((a.between || b.between) && [a.k, b.k].some(k => k.endsWith('bet') || k === 'board')) continue; // the deck shows between hands, in the board's place, with no bets out
         const own = a.seat !== undefined && a.seat === b.seat, kinds = [a.k, b.k].map(k => k.split(' ')[1]).sort().join('+');
         if (own && kinds === 'cards+text' ? meet((a.askew ?? b.askew), (a.askew ? b : a).r) : !own || kinds.includes('bet') || kinds === 'cards+chip' ? meet(a.r, b.r) : false) bad.push(`${a.k} on ${b.k}`);
-        // Room between players (owner 2026-11-15: "more spacing between each of these players"): two seats' logos and
-        // stacks keep 8px apart.
+        // Room between players: two seats' logos and stacks keep 8px apart.
         if (!own && a.seat !== undefined && b.seat !== undefined && /logo|text/.test(a.k) && /logo|text/.test(b.k) && meet(grow(a.r, 4), grow(b.r, 4))) bad.push(`${a.k} within 8px of ${b.k}`);
       }
     }
@@ -85,6 +84,6 @@ test('the seat label tells a family\'s models apart', () => {
   assert.deepEqual(got, ['120B', '20B', '27B', '12B', '235B', '32B', 'V3.2', 'V4 Flash', 'Haiku', 'Maverick', 'Large', 'R7B', 'Flash', 'Phi-4', 'K2']);
 });
 
-test('between hands the deck sits at least 8px under the pot (the audit: over the pot it covered the P of POT)', () => {
+test('between hands the deck sits at least 8px under the pot, clear of its label', () => {
   assert.ok(DECK.top - (POT_TOP + 30) >= 8, `${DECK.top - (POT_TOP + 30)}px`);
 });

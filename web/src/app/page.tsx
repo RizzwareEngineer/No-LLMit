@@ -9,7 +9,7 @@ import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import LandingFill, { useFill } from "@/components/LandingFill";
 import Fit from "@/components/Fit";
-// The table's width on the owner's Mac (1440x790): 1000px at the stage's zoom, 0.819. Phone draft A's header is laid out
+// The table's width at 1440x790 (a 13-inch Mac): 1000px at the stage's zoom, 0.819. Phone draft A's header is laid out
 // this wide, so beside the table (drawn from 1000px) it keeps the Mac's size and distance.
 const MAC_TABLE_W = 819;
 // Its switches (Chips/BB, Sound) drawn at under half size: each hit area reaches 24 layout px above and below (about 11px
@@ -98,7 +98,7 @@ function TitleBlock({ as: H = 'h1', className }: { as?: 'h1' | 'p'; className: s
 }
 
 // Fit-to-screen: the stage (table, sidebar, reasoning) takes one uniform zoom so the whole
-// table screen fits the window, up to 125% (the size the owner chose) and down to 75%; below
+// table screen fits the window, up to 125% and down to 75%; below
 // that the screen scrolls instead of shrinking further. Browser zoom shrinks the CSS viewport,
 // so it lowers this scale and is never fought. The phone layout (lib/layout's PHONE, passed in) is at 1.
 // The stage's width as drawn (at most the screen's, where it scrolls at the floor) is --stage-w on the root: the
@@ -734,9 +734,8 @@ export default function Home() {
       {/* Header - Title centered */}
         {desk && head('max-md:hidden')}
 
-        {/* Phone draft A without a landing fill (?fill=none): the desktop's header over the table, as on the owner's Mac
-            (owner, 2026-11-23: "the text at the top for desktop why is it not there for mobile?", then "text too close to the
-            table why cant it be same dist as the desktop?"): laid out MAC_TABLE_W across, the table's width there, and drawn
+        {/* Phone draft A without a landing fill (?fill=none): the desktop's header over the table, as at 1440x790, at the
+            desktop's distance from the table: laid out MAC_TABLE_W across, the table's width there, and drawn
             at the phone's width, so it keeps the Mac's size and distance beside the table (its pb-6, the main content's mt-6
             there). The screen is centred (globals.css, html[data-fill=none]). */}
         {phone && draftA && fill === 'none' && !tall && <Fit w={MAC_TABLE_W} data-a-head><div className={`flex flex-col items-center pb-6 ${PICTURED_TAP}`}>{head('', true)}</div></Fit>}
@@ -768,7 +767,7 @@ export default function Home() {
               />
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
-                  here, its top under the bar), Profits & Losses only (owner, 2026-11-15: no API usage on a phone). */}
+                  here, its top under the bar), Profits & Losses only (no API usage on a phone). */}
               <div id="phone-stats" className="flex flex-col w-full md:w-[240px] shrink-0 max-md:order-1 max-md:snap-start max-md:snap-always max-md:pt-[calc(var(--top-h)+12px)]">
                 <div className="flex-1 flex flex-col min-h-0">
                   <WinningsPanel players={players} />

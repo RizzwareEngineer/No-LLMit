@@ -279,18 +279,15 @@ export default function PokerTable({
         onDeck={setDeck}
         notice={!!notice}
       />}
-      {/* Phones: one table and nothing else (owner 2026-11-14: "just do logos with positions and stack sizes and cards then pot
-          in the middle"): the felt a tall oval on the page drawn as the
-          desktop's grid (owner 2026-11-15: "the felt, I think, should still be a grid"), each seat a round logo on its edge
+      {/* Phones: one table and nothing else: the felt a tall oval on the page drawn as the desktop's grid, each seat a round logo on its edge
           with its position, stack, label and cards (Player's compact seat; phoneTable's geometry), each bet between its seat
           and the pot, the pot and the board in the middle, the deck over the pot between hands. A logo taps open its model's
           basic stats (SeatStats). data-oval: what the page watches for the bar. */}
       {mounted !== 'desk' && draftA && !tall && <Fit w={tableWidth} data-a-table className="md:hidden">{deskTable('block')}</Fit>}
-      {/* Draft A's tall table (?table=tall; owner, 2026-11-26: "turn our table into a vertical table with an angle that will
-          fill the screen", "i want the extra player to be on the top ... otherwise it might make people think they're
-          player"): the desktop's own seat cards (200x128, never resized), felt and pot, laid out TALL.w x TALL.h and drawn
+      {/* Draft A's tall table (?table=tall): a vertical table seen at an angle that fills the screen, the odd seat on top
+          (at the foot it would read as the viewer's own): the desktop's own seat cards (200x128, never resized), felt and pot, laid out TALL.w x TALL.h and drawn
           as one picture (Fit) in the first screen's room over the caption (globals.css). Seat 0 on top, three down each side,
-          two at the foot (2026-11-27: "1 at the top, 3 down each side, 2 at the bottom"). The felt is a 2D trapezoid with a
+          two at the foot. The felt is a 2D trapezoid with a
           converging grid (TALL_FELT), not a 3D transform: the rotateX felt inside Fit's scale drew leaning right in Safari
           (Chrome drew it straight), so the outline is computed and symmetric by construction.
           data-a-table: draft A's card sizes and bets (globals.css), and the page's watch for the bar. */}

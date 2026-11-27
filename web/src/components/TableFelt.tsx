@@ -228,9 +228,8 @@ export default function TableFelt({
             {!deck && cards.map((card, i) => (
               <Card key={`${card}-${i}`} value={card} className={CARD_CLASS[size]} rise={live} />
             ))}
-            {/* The phone's deck between hands takes the board's place too, as the desktop's does, 8px under the pot
-                (phoneTable's DECK; owner 2026-11-15: "the shuffle deck should not be in front of the pot count"; the audit:
-                over the pot it covered the P of POT at 375). */}
+            {/* The phone's deck between hands takes the board's place too, as the desktop's does, 8px under the pot so
+                it never covers the pot's label (phoneTable's DECK). */}
             {compact ? <AnimatePresence initial={false}>{deck && <div key="deck" className="relative" style={{ top: DECK.top + 2, width: DECK.w, height: DECK.h }}><Deck phase={deck} /></div>}</AnimatePresence>
               : <AnimatePresence initial={false}>{deck && <Deck key="deck" phase={deck} />}</AnimatePresence>}
           </>
