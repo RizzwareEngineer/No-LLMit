@@ -46,7 +46,8 @@ export function gridFor(n: number, w: number, h: number, pnl: PnlVariant = 'pane
     // Never over its own size (one table is the desktop table, not a blow-up of it).
     const tw = Math.floor(Math.min(TABLE_W, pnl === 'panel' ? across - PANEL_GAP - PANEL_W : across,
       ((pnl === 'panel' ? down - LABEL_H : down - LABEL_H - ROW_GAP - ROW_H) / TABLE_H) * TABLE_W));
-    if (tw <= best.tw) continue;
+    // The larger tables win (by more than 2%); about as large, the one with more rows (it fills more of the box's height).
+    if (tw < best.tw * 1.02 && !(tw > best.tw * 0.98 && rows > best.rows)) continue;
     const th = Math.floor(TABLE_H * tw / TABLE_W);
     best = { cols, rows, s: tw / TABLE_W, tw, th,
       cellW: pnl === 'panel' ? tw + PANEL_GAP + PANEL_W : Math.max(tw, ROW_MIN_W),
@@ -160,11 +161,15 @@ function Cell({ t, tw, th, cellW, pnl, onOpen }: { t: KeyedTable; tw: number; th
 // row's tables centred under the others. Laid out from the box's size as given, in the render that mounts it: the zoom
 // out measures a cell straight away.
 export default function TablesOverview({ tables, w, h, pnl, onOpen }: { tables: KeyedTable[]; w: number; h: number; pnl: PnlVariant; onOpen: (key: string) => void }) {
-  const { cols, tw, th, cellW } = gridFor(tables.length, w, h, pnl);
+  const { cols, rows, tw, th, cellW, cellH } = gridFor(tables.length, w, h, pnl);
+  // The table size is set by the box's width: the height left over goes between the rows (up to 5 gaps' worth), not
+  // into bands over and under the grid. Rows stay closer to each other than a table's own height, so each table, its
+  // label and its panel still read as one.
+  const rowGap = rows > 1 ? Math.max(GY, Math.min(GY * 5, (h - rows * cellH - 2 * 24) / (rows - 1))) : GY;
   return (
     <div data-overview className="absolute inset-0 flex items-center justify-center">
       {tw > 0 && (
-        <div data-overview-grid className="flex flex-wrap justify-center" style={{ width: cols * cellW + (cols - 1) * GX, columnGap: GX, rowGap: GY }}>
+        <div data-overview-grid className="flex flex-wrap justify-center" style={{ width: cols * cellW + (cols - 1) * GX, columnGap: GX, rowGap }}>
           {tables.map(t => <Cell key={t.key} t={t} tw={tw} th={th} cellW={cellW} pnl={pnl} onOpen={onOpen} />)}
         </div>
       )}
