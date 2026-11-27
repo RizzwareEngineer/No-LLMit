@@ -3201,14 +3201,16 @@ group(() => check('trends-pinch-keeps-pack', 'At 1440x900 in the opened Trends c
         const v = (path.getAttribute('d') || '').match(/-?\d*\.?\d+(?:e-?\d+)?/g)?.map(Number) ?? [];
         for (let i = 0; i + 1 < v.length; i += 2) if (v[i] >= cl + 0.75 * cw && v[i] <= cl + cw) ys.push(v[i + 1]);
       }
-      // And the points held on the plot's edge, anywhere (review 5, finding 4: a step must not draw new flat runs there).
+      // And the points held on the plot's edge, anywhere, per line (review 5, finding 4: a step must not draw new flat
+      // runs there).
       const top = +c.getAttribute('y') + 2, bot = top + +c.getAttribute('height') - 4;
-      let edge = 0;
+      const per = {};
       for (const path of plot.querySelectorAll('g[clip-path] path[fill="none"]')) {
-        const v = (path.getAttribute('d') || '').match(/-?\d*\.?\d+(?:e-?\d+)?/g)?.map(Number) ?? [];
-        for (let i = 0; i + 1 < v.length; i += 2) if (v[i] >= cl && v[i] <= cl + cw && (Math.abs(v[i + 1] - top) < 0.5 || Math.abs(v[i + 1] - bot) < 0.5)) edge++;
+        const v = (path.getAttribute('d') || '').match(/-?\d*\.?\d+(?:e-?\d+)?/g)?.map(Number) ?? [], k = `${path.getAttribute('stroke')}${path.getAttribute('stroke-dasharray') ? ' ev' : ''}`;
+        for (let i = 0; i + 1 < v.length; i += 2) if (v[i] >= cl && v[i] <= cl + cw && (Math.abs(v[i + 1] - top) < 0.5 || Math.abs(v[i + 1] - bot) < 0.5)) per[k] = (per[k] ?? 0) + 1;
       }
-      return { n: ys.length, h: ys.length ? Math.max(...ys) - Math.min(...ys) : 0, plot: +c.getAttribute('height'), edge };
+      const edge = Object.values(per).reduce((a, b) => a + b, 0);
+      return { n: ys.length, h: ys.length ? Math.max(...ys) - Math.min(...ys) : 0, plot: +c.getAttribute('height'), edge, per };
     });
     const a = await spread(), s = await zoomState(p);
     if (!a.n || a.h < 5) return { pass: false, detail: `at rest the recent quarter has ${a.n} points ${a.h.toFixed(0)} tall (nothing tested)` };
@@ -3216,9 +3218,13 @@ group(() => check('trends-pinch-keeps-pack', 'At 1440x900 in the opened Trends c
     const z = await zoomState(p), b = await spread();
     if (!z.reset) return { pass: false, detail: 'one ctrl+wheel step did not zoom (nothing tested)' };
     const ratio = b.h / a.h;
-    const detail = `hands ${s.x0.toFixed(0)}–${s.x1.toFixed(0)} → ${z.x0.toFixed(0)}–${z.x1.toFixed(0)}: the recent quarter ${a.h.toFixed(0)} → ${b.h.toFixed(0)} of ${a.plot.toFixed(0)} design px (${(ratio * 100).toFixed(0)}%); points on the plot's edge ${a.edge} → ${b.edge}`;
+    // Each line's first hands (before it has RATE_FROM) are held at the edge, drawn at the chart's samples (a step of the
+    // window's hands / SAMPLES): a narrower window samples them more densely, so one sample more there on a line is the
+    // grid, not a new run (the step's own 1.5% narrowing moved the total 14 -> 17 with the fit 3% wider, clamping less).
+    const grown = Object.entries(b.per).filter(([k, v]) => v > (a.per[k] ?? 0) + 1).map(([k, v]) => `${k} ${a.per[k] ?? 0} → ${v}`);
+    const detail = `hands ${s.x0.toFixed(0)}–${s.x1.toFixed(0)} → ${z.x0.toFixed(0)}–${z.x1.toFixed(0)}: the recent quarter ${a.h.toFixed(0)} → ${b.h.toFixed(0)} of ${a.plot.toFixed(0)} design px (${(ratio * 100).toFixed(0)}%); points on the plot's edge ${a.edge} → ${b.edge}${grown.length ? `, more than a sample more on ${grown.join(', ')}` : ', none more than a sample more on any line'}`;
     // Review 5, finding 4: a 3% step moves the fit by about as much (90%, not 60%), and draws no new runs on the edge.
-    return { pass: ratio >= 0.9 && b.edge <= a.edge, detail };
+    return { pass: ratio >= 0.9 && !grown.length, detail };
   } finally { await p.close(); }
 }));
 // The same on a touch screen: two fingers pinch the plot's hands axis (never the page); one finger keeps scrolling the page.
