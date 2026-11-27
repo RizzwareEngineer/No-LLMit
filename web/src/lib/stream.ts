@@ -47,7 +47,7 @@ export interface TableView {
 }
 
 // A table's table_stats payload: its hands and each model's profit and loss there, net chips most first.
-export interface TablePnL {
+interface TablePnL {
   hands: number;
   models: { name: string; hands: number; net_chips: number; bb100: number }[];
 }

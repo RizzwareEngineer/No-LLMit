@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { animate, motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { RIFFLE, playSound } from "@/lib/sound";
-import { CARD_SIZES, cardSizeNow, deckSize, useCardSize } from "@/lib/tableSwitches";
+import { deckSize, useCardSize } from "@/lib/tableSwitches";
 
 // Seconds. A dealer pitching cards (owner 2026-11-09: the old 0.04 s deal "sounds like smacks"): a card leaves the deck
 // every DEAL_STAGGER and slides for CARD_FLIGHT, so two rounds to nine seats land in about 2.7 s. Chips fly for FLIGHT.
@@ -81,10 +81,10 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: Box | null, to: Bo
   const [x1, y1] = [to.left + to.width / 2, to.top + to.height / 2];
   if (kind === 'card') {
     // Slides flat across the felt; the seat's own card shows as it lands (Player's dealDelays).
-    // At the hole cards' size, from the deck's size (lib/tableSwitches: the board's on phones, the hole cards' on desktop).
-    const card = deckSize(); // the hole cards' size (draft A's own, lib/tableSwitches)
+    // At the hole cards' size, which is the deck's (lib/tableSwitches; draft A's own).
+    const card = deckSize();
     Object.assign(el.style, { width: `${card.w}px`, height: `${card.h}px`, marginLeft: `${-card.w / 2}px`, marginTop: `${-card.h / 2}px` });
-    animate(el, { x: [x0, x1], y: [y0, y1], scale: [(deckSize().w / card.w) * z, z], opacity: [1, 1] }, { duration: CARD_FLIGHT, delay, ease: 'easeOut' }).then(() => el.remove());
+    animate(el, { x: [x0, x1], y: [y0, y1], scale: [z, z], opacity: [1, 1] }, { duration: CARD_FLIGHT, delay, ease: 'easeOut' }).then(() => el.remove());
     return;
   }
   // Chips are tossed in a low arc and fade in the last fifth, once they have reached the pot or seat.

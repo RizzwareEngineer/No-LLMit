@@ -11,7 +11,6 @@ import { playSound } from '@/lib/sound';
 import { H, RATE_FROM, W, robustRange, series, type Metric } from '@/lib/series';
 import { isPhone } from '@/lib/layout';
 
-export { RATE_FROM, series };
 
 const GRID = 'rgba(55, 53, 47, 0.12)';
 const AXIS = 'rgba(55, 53, 47, 0.75)'; // tick marks

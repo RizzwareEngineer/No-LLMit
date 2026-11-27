@@ -206,7 +206,7 @@ export const ciTitle = (m: ModelStats) => (m.bb100_ci ? `95% range: ${signed(m.b
 export const DASH = '—';
 
 // The number formatters live in lib/format (no imports, so its unit test can load it).
-export { grouped, signed, signedBrief, signedCompact } from '@/lib/format';
+export { grouped, signed, signedBrief } from '@/lib/format';
 import { signed } from '@/lib/format';
 
 export const chips = (n: number) => signed(n, 0);

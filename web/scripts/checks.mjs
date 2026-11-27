@@ -1064,7 +1064,7 @@ group(() => check('profiles-header-lines', 'At 1440x900 at 100%, 125%, 150% and 
       await polishGo(p, 'stats-table');
       const r = await p.evaluate(() => {
         const ths = [...document.querySelectorAll('#stats-card thead th[scope=col], #stats-table thead th[scope=col]')].filter(e => e.getBoundingClientRect().width > 0 && e.textContent.trim());
-        return { n: ths.length, tall: ths.map(th => { const b = th.querySelector('button') ?? th, lh = parseFloat(getComputedStyle(b).lineHeight) || parseFloat(getComputedStyle(b).fontSize) * 1.25; const r = document.createRange(); r.selectNodeContents(b); const lines = new Set([...r.getClientRects()].filter(q => q.width > 1).map(q => Math.round(q.top))).size; return { t: th.textContent.trim(), lines }; }).filter(x => x.lines > 2) };
+        return { n: ths.length, tall: ths.map(th => { const b = th.querySelector('button') ?? th; const r = document.createRange(); r.selectNodeContents(b); const lines = new Set([...r.getClientRects()].filter(q => q.width > 1).map(q => Math.round(q.top))).size; return { t: th.textContent.trim(), lines }; }).filter(x => x.lines > 2) };
       });
       const at = `${Math.round(z * 100)}%`;
       if (!r.n) bad.push(`${at}: no column headers`); else if (r.tall.length) bad.push(`${at}: ${r.tall.map(x => `"${x.t}" ${x.lines} lines`).slice(0, 4).join(', ')}`); else seen.push(`${at}: ${r.n} headers`);
@@ -1125,7 +1125,7 @@ group(() => check('preview-rows-whole', 'At 1440x900 at 100% and 125% and 1728x1
         const out = []; let n = 0;
         for (const id of ['stats-panel', 'pairwise-panel']) {
           const tile = document.getElementById(id); if (!tile || tile.getBoundingClientRect().height === 0) continue;
-          const sc = tile.querySelector('.panel-scroll'), b = sc.getBoundingClientRect(), pad = parseFloat(getComputedStyle(tile).paddingBottom) || 0;
+          const sc = tile.querySelector('.panel-scroll'), b = sc.getBoundingClientRect();
           for (const tr of tile.querySelectorAll('tbody tr, [data-row-name]')) {
             const q = tr.getBoundingClientRect(); if (q.height === 0) continue; n++;
             if (q.top < b.bottom - 0.5 && q.bottom > b.bottom + 0.5) out.push(`${id} "${tr.textContent.trim().slice(0, 14)}" cut (${Math.round(b.bottom - q.top)} of ${Math.round(q.height)}px)`);
@@ -1152,7 +1152,7 @@ group(() => check('trends-chart-fills', 'At 1440x900 at 200% and 300% (the phone
         const card = document.querySelector('#race .card-chrome'); if (!card) return null;
         const cs = getComputedStyle(card), cb = card.getBoundingClientRect(), inner = cb.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
         const svg = [...card.querySelectorAll('svg')].sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
-        const box = svg?.parentElement?.parentElement ?? svg; const sb = box.getBoundingClientRect();
+        const box = svg?.parentElement?.parentElement ?? svg;
         const marks = [...card.querySelectorAll('svg, [data-pill]')].map(e => e.getBoundingClientRect()).filter(q => q.width > 0);
         const right = Math.max(...marks.map(q => q.right)), left = Math.min(...marks.map(q => q.left));
         return { share: (right - left) / inner, svg: svg && svg.getBoundingClientRect().width / inner };
@@ -2590,9 +2590,8 @@ main(() => check('history-tips-aligned', 'All line tips sit at the same x (one s
 main(() => check('history-no-empty-left', 'The lines start at the plot\'s left edge (no empty band before them)', async () => {
   const r = await pg.evaluate(() => {
     const svg = [...document.querySelectorAll('svg')].filter(e => { const b = e.getBoundingClientRect(); return b.width > 300 && b.top < innerHeight && b.bottom > 0; }).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
-    const xs = [...svg.querySelectorAll('[data-x-tick]')].map(t => t.getBoundingClientRect().left);
     const paths = [...svg.querySelectorAll('path')].filter(p => (p.getAttribute('stroke') || '').startsWith('#') || (p.getAttribute('stroke') || '').startsWith('rgb') ).map(p => p.getBoundingClientRect()).filter(b => b.width > 10);
-    const plotLeft = Math.min(...xs, ...paths.map(b => b.left)), leftmostLine = Math.min(...paths.map(b => b.left)), right = Math.max(...paths.map(b => b.right));
+    const leftmostLine = Math.min(...paths.map(b => b.left)), right = Math.max(...paths.map(b => b.right));
     const box = svg.getBoundingClientRect();
     return { gap: (leftmostLine - box.left) / box.width, width: (right - leftmostLine) / box.width };
   });

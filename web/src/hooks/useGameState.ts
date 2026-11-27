@@ -10,7 +10,7 @@ import { ButtonDetermination, Clock, DisplayState, EMPTY_TABLE, TableView, Table
 const OFFLINE_AFTER_MS = 4000;
 
 // Not known yet (the page has just loaded), open, or down for OFFLINE_AFTER_MS (or given up).
-export type Connection = 'connecting' | 'open' | 'down';
+type Connection = 'connecting' | 'open' | 'down';
 
 interface UseGameStateReturn {
   gameState: GameState | null;

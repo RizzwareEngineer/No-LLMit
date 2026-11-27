@@ -14,7 +14,7 @@ import type { TableView } from '@/lib/stream';
 // The tables overview (lib/tableSwitches' ?tables=1): every table at once, each a small live copy of the desktop table
 // with its profit and loss beside it, and the profit and loss across all tables. A click zooms into one (page.tsx).
 
-export type KeyedTable = TableView & { key: string };
+type KeyedTable = TableView & { key: string };
 
 // The desktop table's box in layout px: 1000 across, four rows of 128 and its frame (PokerTable). Its corner cells (200 x 128,
 // empty at every table size) carry the small table's own text: stakes and depth, the hand, the top winner and the top loser.
@@ -30,7 +30,7 @@ export const ZOOM_MS = 360;
 
 const stakesOf = (t: TableView) => t.gameState?.stakes ?? { smallBlind: 0, bigBlind: 0 };
 // "5/10 · 200 bb": the stakes and the deepest a seat starts (the rebuy), in big blinds.
-export const tableLabel = (t: TableView) => {
+const tableLabel = (t: TableView) => {
   const { smallBlind, bigBlind } = stakesOf(t);
   return `${smallBlind}/${bigBlind}${t.startingStack && bigBlind ? ` · ${t.startingStack / bigBlind} bb` : ''}`;
 };
@@ -77,7 +77,7 @@ function smallTable(t: TableView) {
 // The desktop table drawn `width` px across as one picture (Fit's transform), in its own big blind. Not interactive: the
 // cell or edge round it is the control.
 // Memoized: every stream message renders the page, and a table unchanged by it keeps its object (useGameState).
-export const SmallTable = memo(function SmallTable({ t, width }: { t: TableView; width: number }) {
+const SmallTable = memo(function SmallTable({ t, width }: { t: TableView; width: number }) {
   return (
     <TableBigBlind.Provider value={stakesOf(t).bigBlind || null}>
       <div data-small-table inert aria-hidden style={{ width }}>
@@ -180,9 +180,9 @@ function allTables(tables: KeyedTable[]) {
   return [...sums].map(([name, value]) => ({ name, value: Math.round(value * 10) / 10 })).sort((a, b) => b.value - a.value);
 }
 
-const Head = ({ title, unit }: { title: string; unit: string }) => (
+const Head = () => (
   <div className="flex items-center justify-between gap-2 px-2 whitespace-nowrap text-[11px] font-medium uppercase tracking-wider" style={{ height: PNL_HEAD }}>
-    <span style={{ color: TEXT }}>{title}</span><span style={{ color: MUTED }}>{unit}</span>
+    <span style={{ color: TEXT }}>All tables</span><span style={{ color: MUTED }}>BB</span>
   </div>
 );
 const Row = ({ name, value }: { name: string; value: number }) => (
@@ -216,7 +216,7 @@ export default function TablesOverview({ tables, w, h, onOpen, onStats }: { tabl
           {all === 'side' ? (
             <div className="flex flex-col justify-between items-center" style={{ width: ALL_W, height: gridH }}>
               <div data-all-tables className="bg-white rounded w-full pb-1" style={CARD}>
-                <Head title="All tables" unit="BB" />
+                <Head />
                 {sums.map(r => <Row key={r.name} {...r} />)}
               </div>
               {stats}
@@ -224,7 +224,7 @@ export default function TablesOverview({ tables, w, h, onOpen, onStats }: { tabl
           ) : (
             <div className="flex items-center gap-4" style={{ width: gridW, height: STRIP_H }}>
               <div data-all-tables className="flex-1 min-w-0 bg-white rounded flex items-center" style={{ ...CARD, height: STRIP_H }}>
-                <div className="shrink-0"><Head title="All tables" unit="BB" /></div>
+                <div className="shrink-0"><Head /></div>
                 <div className="flex-1 min-w-0 grid grid-flow-col pr-1" style={{ gridTemplateRows: `repeat(2, ${ROW_H}px)`, gridAutoColumns: 'minmax(0, 1fr)' }}>
                   {sums.map(r => <Row key={r.name} {...r} />)}
                 </div>
