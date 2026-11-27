@@ -427,9 +427,9 @@ export default function Home() {
       // the reasoning panel. Wide or tall enough for its label: the neighbour itself, faded; else a slim tab at that edge
       // (in the gap when there is one, else in the table's own empty corner cell).
       const LABEL = 124, TAB = 20, cx = x(t.left) + t.width / 2, cy = y(t.top) + t.height / 2, corner = (t.width / 5);
-      const cw = document.documentElement.clientWidth, lw = t.left - 24, rw = cw - side.right - 24, ug = t.top - head.bottom, dg = b.top - st.bottom;
+      const lw = t.left - s.left - 20, rw = s.right - side.right - 20, ug = t.top - head.bottom, dg = b.top - st.bottom;
       const edges: Partial<Record<Dir, EdgeRoom>> = {
-        left: lw >= LABEL ? { box: { left: x(8), top: y(t.top), width: lw, height: t.height }, tab: false }
+        left: lw >= LABEL ? { box: { left: 4, top: y(t.top), width: lw, height: t.height }, tab: false }
           : { box: { left: lw >= 0 ? x(t.left) - 6 - TAB : x(t.left) + 8, top: lw >= 0 ? cy : y(t.top) + 8, width: TAB, transform: lw >= 0 ? 'translateY(-50%)' : undefined }, tab: true },
         right: rw >= LABEL ? { box: { left: x(side.right + 16), top: y(t.top), width: rw, height: t.height }, tab: false }
           : { box: { left: rw >= 0 ? x(side.right) + 6 : x(t.right) - 8 - TAB, top: rw >= 0 ? cy : y(t.top) + 8, width: TAB, transform: rw >= 0 ? 'translateY(-50%)' : undefined }, tab: true },

@@ -20,7 +20,7 @@ export type KeyedTable = TableView & { key: string };
 // empty at every table size) carry the small table's own text: stakes and depth, the hand, the top winner and the top loser.
 const TABLE_W = 1000, TABLE_H = 514, CORNER_W = 200, CORNER_H = 128;
 // Below this scale a corner is too small for its text, and the cell takes a label line over the table instead.
-const CORNERS_MIN = 0.45;
+const CORNERS_MIN = 0.5;
 const GAP = 10, LABEL_H = 20, ALL_W = 196, ROW_H = 17, PNL_HEAD = 20, STRIP_H = 2 * ROW_H + 10;
 const CARD = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px' };
 const UP = 'rgb(15, 123, 108)', DOWN = 'rgb(200, 50, 50)';
@@ -40,14 +40,19 @@ export const tableLabel = (t: TableView) => {
 // whether the cells carry their text in the table's corners or on a label line over it. The stage's edges use the same
 // columns for their neighbours above and below.
 export function gridFor(n: number, w: number, h: number) {
-  let best = { cols: 1, rows: n, s: 0, all: 'side' as 'side' | 'below', corners: true };
+  let best = { cols: 1, rows: n, s: 0, all: 'side' as 'side' | 'below', corners: true, used: 0 };
   for (const all of ['side', 'below'] as const) for (let cols = 1; cols <= Math.max(1, n); cols++) {
     const rows = Math.ceil(n / cols);
     const cellW = (w - (all === 'side' ? ALL_W + GAP : 0) - (cols - 1) * GAP) / cols;
     const cellH = (h - (all === 'below' ? STRIP_H + GAP : 0) - (rows - 1) * GAP) / rows;
-    let s = Math.min(cellW / TABLE_W, cellH / TABLE_H), corners = true;
+    // Never over its own size (one table is the desktop table, not a blow-up of it).
+    let s = Math.min(1, cellW / TABLE_W, cellH / TABLE_H), corners = true;
     if (s < CORNERS_MIN) { corners = false; s = Math.min(cellW / TABLE_W, (cellH - LABEL_H) / TABLE_H); }
-    if (s > best.s + 1e-6) best = { cols, rows, s: Math.floor(s * 1000) / 1000, all, corners };
+    s = Math.floor(s * 1000) / 1000;
+    // The larger tables win; at the same size, the layout that leaves less of the box empty (the strip under the grid
+    // takes up room the column beside it would leave as bands).
+    const used = (rows * (TABLE_H * s + (corners ? 0 : LABEL_H)) + (rows - 1) * GAP + (all === 'below' ? STRIP_H + GAP : 0)) / h;
+    if (s > best.s + 0.002 || (s > best.s - 0.002 && used > best.used)) best = { cols, rows, s, all, corners, used };
   }
   return best;
 }
@@ -115,11 +120,11 @@ const leaders = (t: TableView) => {
 // right its hand; the foot its top winner (left) and top loser (right). The pot is the felt's own.
 function Corners({ t, s, w, h, bb }: { t: KeyedTable; s: number; w: number; h: number; bb: number | null }) {
   const g = t.gameState, cw = CORNER_W * s, ch = CORNER_H * s, { top, last } = leaders(t);
-  const at = (x: 'l' | 'r', y: 't' | 'b') => ({ position: 'absolute' as const, width: cw, height: ch, left: x === 'l' ? 0 : w - cw, top: y === 't' ? 0 : h - ch, padding: '7px 9px' });
+  const at = (x: 'l' | 'r', y: 't' | 'b') => ({ position: 'absolute' as const, width: cw, height: ch, left: x === 'l' ? 0 : w - cw, top: y === 't' ? 0 : h - ch, padding: '6px 8px' });
   return (
     <div aria-hidden className="absolute inset-0 pointer-events-none text-[12px] leading-4 tabular-nums" style={{ color: MUTED }}>
       <div data-corner="label" className="flex flex-col gap-0.5" style={at('l', 't')}>
-        <span className="text-[13px] font-bold whitespace-nowrap" style={{ color: TEXT }}>{tableLabel(t)}</span>
+        <span className="font-bold whitespace-nowrap" style={{ color: TEXT }}>{tableLabel(t)}</span>
         {t.notice && <span className="whitespace-nowrap font-medium" style={{ color: DOWN }}>{t.notice.kind === 'closed' ? 'Closed' : 'Paused'}</span>}
       </div>
       <div data-corner="hand" className="flex flex-col items-end" style={at('r', 't')}>
