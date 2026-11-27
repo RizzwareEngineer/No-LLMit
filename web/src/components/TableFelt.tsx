@@ -47,7 +47,6 @@ interface TableFeltProps {
   deck?: DeckPhase | null; // the deck between hands, in the board's place (TableMotion)
   blank?: boolean; // no state yet: the felt at its size with nothing on it
   compact?: boolean; // the phone table's middle (PokerTable): only the pot and the board, no grid
-  upright?: boolean; // draft B's upright table (PokerTable): the desktop felt on a phone, its bets shown as the phone's
   plain?: boolean; // draft A's tall table (PokerTable): no grid of its own, the drawn felt under it shows through
   fillIn?: boolean; // fade in as it fills; false for a felt mounted by a layout switch mid-hand (it shows the hand as it stands)
 }
@@ -125,7 +124,6 @@ export default function TableFelt({
   deck,
   blank = false,
   compact = false,
-  upright = false,
   plain = false,
   fillIn = true,
 }: TableFeltProps) {
@@ -156,7 +154,7 @@ export default function TableFelt({
       className={`relative flex flex-col items-center w-full h-full ${compact ? 'justify-start' : `justify-center gap-3 ${bets ? 'pt-[44px] pb-3' : 'py-2'}`} ${blank ? '[&>*]:invisible' : ''}`}
       style={compact || plain ? undefined : GRID}
     >
-      {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} compact={upright} />)}
+      {bets?.map(b => <BetStack key={b.seat} seat={b.seat} amount={b.amount} style={EDGE[b.side](b.at)} />)}
 
 
       {/* Winner announcement or Pot */}

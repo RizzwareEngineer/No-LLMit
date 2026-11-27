@@ -4,18 +4,16 @@
 // Run from web/: node --experimental-strip-types --test src/lib/phoneTable.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CHIP, DECK, LOGO, MIDDLE, POT_TOP, at, bubbleAt, chipTop, seatBox, seatLabel, seatSpots, textBox } from './phoneTable.ts';
+import { CHIP, CHIP_TOP, DECK, LOGO, MIDDLE, POT_TOP, TEXT_BOX, at, seatBox, seatLabel, seatSpots } from './phoneTable.ts';
 
-const SHAPES = ['oval', 'rect', 'stadium'];
-
-const layout = (W, H, shape, draft = 'today') => {
+const layout = (W, H) => {
   const my = at(MIDDLE, H), cx = W / 2, boxes = [];
-  seatSpots(9, shape, draft).forEach((s, i) => {
+  seatSpots(9).forEach((s, i) => {
     const x = at(s.x, W), y = at(s.y, H), c = [x + s.cards[0], y + s.cards[1]], b = [x + s.bet[0], y + s.bet[1]];
     boxes.push(
       { k: `${i} logo`, seat: i, r: [x - LOGO / 2, y - LOGO / 2, x + LOGO / 2, y + LOGO / 2] },
-      { k: `${i} text`, seat: i, r: textBox(s).map((v, j) => v + (j % 2 ? y : x)) },
-      { k: `${i} chip`, seat: i, r: [x - CHIP.w / 2, y + chipTop(s), x + CHIP.w / 2, y + chipTop(s) + CHIP.h] },
+      { k: `${i} text`, seat: i, r: TEXT_BOX.map((v, j) => v + (j % 2 ? y : x)) },
+      { k: `${i} chip`, seat: i, r: [x - CHIP.w / 2, y + CHIP_TOP, x + CHIP.w / 2, y + CHIP_TOP + CHIP.h] },
       { k: `${i} cards`, seat: i, r: [c[0] - 30, c[1] - 20, c[0] + 30, c[1] + 20], askew: [c[0] - 32, c[1] - 26, c[0] + 32, c[1] + 26] },
       { k: `${i} bet`, seat: i, r: [b[0] - 24, b[1] - 9, b[0] + 24, b[1] + 9] },
     );
@@ -29,12 +27,9 @@ const meet = (a, b) => Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 0 && Math.m
 
 // The tables of 375x667 (351x465), 390x844 (366x642) and 430x932 (406x730), and around them.
 const TABLES = [[351, 465], [366, 642], [406, 730], [359, 460], [374, 600], [351, 520], [390, 700], [374, 680]];
-// The phone seat's drafts (?seat=beside, ?seat=tucked) on the oval, also at the tables the page draws at 360x640, 375x667,
-// 390x844, 430x932 and 844x390 (326x460, 341x465, 356x642, 396x730, 810x460).
-const RUNS = [...SHAPES.map(shape => [shape, 'today', TABLES]), ...['beside', 'tucked'].map(d => ['oval', d, [...TABLES, [326, 460], [341, 465], [356, 642], [396, 730], [810, 460]]])];
-for (const [shape, draft, tables] of RUNS) for (const [W, H] of tables) {
-  test(`nothing overlaps on a ${W}x${H} ${shape} table${draft === 'today' ? '' : ` (${draft} seats)`}, and no two seats crowd each other`, () => {
-    const boxes = layout(W, H, shape, draft), bad = [];
+for (const [W, H] of TABLES) {
+  test(`nothing overlaps on a ${W}x${H} table, and no two seats crowd each other`, () => {
+    const boxes = layout(W, H), bad = [];
     for (const [i, a] of boxes.entries()) {
       if (a.r[0] < 0 || a.r[1] < 0 || a.r[2] > W || a.r[3] > H) bad.push(`${a.k} outside`);
       for (const b of boxes.slice(i + 1)) {
@@ -50,60 +45,8 @@ for (const [shape, draft, tables] of RUNS) for (const [W, H] of tables) {
   });
 }
 
-// The action's bubble (20px tall) of each of the nine draft seats keeps off every other seat's stack, label, logo and
-// cards, and off the pot and the board (the review: with ?seat=beside at 360x640 and 375x667 seat 0's bubble covered the
-// top seat's label; review 3: ?seat=tucked's seat 3 and 8 bubbles covered the river and the first flop card). Its
-// widths: 'Fold', 'Call 20' and 'Raise 632' (44, 58 and 76px at 12px bold).
-for (const draft of ['beside', 'tucked']) for (const [W, H] of [...TABLES, [326, 460], [341, 465], [356, 642], [396, 730]]) {
-  test(`no ${draft} seat's action bubble covers another seat, the pot or the board on a ${W}x${H} oval table`, () => {
-    const spots = seatSpots(9, 'oval', draft).map(s => ({ s, x: at(s.x, W), y: at(s.y, H) })), bad = [];
-    const my = at(MIDDLE, H), cx = W / 2, pot = [cx - 50, my + POT_TOP, cx + 50, my + POT_TOP + 30], board = [cx - 84, my - 2, cx + 84, my + 42];
-    spots.forEach(({ s, x, y }, i) => {
-      const b = bubbleAt(s);
-      for (const w of [44, 58, 76]) {
-        const l = x + b.x - (b.align === 'center' ? w / 2 : b.align === 'right' ? w : 0), box = [l, y + b.top, l + w, y + b.top + 20];
-        if (meet(box, pot)) bad.push(`seat ${i}'s ${w}px bubble on the pot`);
-        if (meet(box, board)) bad.push(`seat ${i}'s ${w}px bubble on the board`);
-        spots.forEach((o, j) => {
-          if (j === i) return;
-          const c = [o.x + o.s.cards[0], o.y + o.s.cards[1]];
-          if (meet(box, textBox(o.s).map((v, k) => v + (k % 2 ? o.y : o.x)))) bad.push(`seat ${i}'s ${w}px bubble on seat ${j}'s stack and label`);
-          if (meet(box, [o.x - LOGO / 2, o.y - LOGO / 2, o.x + LOGO / 2, o.y + LOGO / 2])) bad.push(`seat ${i}'s ${w}px bubble on seat ${j}'s logo`);
-          if (meet(box, [c[0] - 30, c[1] - 20, c[0] + 30, c[1] + 20])) bad.push(`seat ${i}'s ${w}px bubble on seat ${j}'s cards`);
-        });
-      }
-    });
-    assert.deepEqual([...new Set(bad)], []);
-  });
-}
-
-// Review 4, findings 6 and 7, open: on the landscape phones' tables (667x375 to 932x430 draw 633x460 to 898x460) the
-// tucked seat 3 and 8 bubbles cover seat 2's and seat 0's stack and label, and at every size their own bet's top (a bet
-// is 20px tall, up to 48px wide). A search of every fixed placement (x -130 to 60, top -90 to 70, each anchor) found
-// none clear of its own logo, cards, stack and bet and of every other seat at all these tables: the draft's seat 3 has
-// no room for it. Left to the owner's pick of the seat (the draft's geometry waits for it), so reported, not failed.
-const LANDSCAPE = [[633, 460], [706, 460], [810, 460], [862, 460], [898, 460]];
-test('no tucked seat\'s action bubble covers a bet (its own too), or another seat on a landscape table', { todo: 'review 4 findings 6 and 7: no fixed placement clears every seat; waits for the seat pick' }, () => {
-  const bad = [];
-  for (const [W, H] of [...TABLES, [326, 460], [341, 465], [356, 642], [396, 730], ...LANDSCAPE]) {
-    const spots = seatSpots(9, 'oval', 'tucked').map(s => ({ s, x: at(s.x, W), y: at(s.y, H) })), land = W > H;
-    spots.forEach(({ s, x, y }, i) => {
-      const b = bubbleAt(s);
-      for (const w of [44, 58, 76]) {
-        const l = x + b.x - (b.align === 'center' ? w / 2 : b.align === 'right' ? w : 0), box = [l, y + b.top, l + w, y + b.top + 20];
-        spots.forEach((o, j) => {
-          const bet = [o.x + o.s.bet[0], o.y + o.s.bet[1]];
-          if (meet(box, [bet[0] - 24, bet[1] - 10, bet[0] + 24, bet[1] + 10])) bad.push(`${W}x${H}: seat ${i}'s bubble on seat ${j}'s bet`);
-          if (land && j !== i && meet(box, textBox(o.s).map((v, k) => v + (k % 2 ? o.y : o.x)))) bad.push(`${W}x${H}: seat ${i}'s bubble on seat ${j}'s stack and label`);
-        });
-      }
-    });
-  }
-  assert.deepEqual([...new Set(bad)], []);
-});
-
-for (const [shape, draft] of RUNS) test(`every ${shape} seat${draft === 'today' ? '' : ` (${draft})`} sits on the edge, clockwise, the left half mirroring the right`, () => {
-  const s = seatSpots(9, shape, draft), x = s.map(p => at(p.x, 374)), y = s.map(p => at(p.y, 591));
+test('every seat sits on the edge, clockwise, the left half mirroring the right', () => {
+  const s = seatSpots(9), x = s.map(p => at(p.x, 374)), y = s.map(p => at(p.y, 591));
   for (const [l, r] of [[0, 2], [8, 3], [7, 4], [6, 5]]) assert.ok(Math.abs(x[l] + x[r] - 374) < 1e-9 && Math.abs(y[l] - y[r]) < 1e-9, `${l} mirrors ${r}`);
   assert.ok(x[0] < x[1] && x[1] < x[2] && y[2] < y[3] && y[3] < y[4] && y[4] < y[5] && x[6] < x[5]);
   for (const p of s) { const b = seatBox(p); assert.ok(b.left <= p.cards[0] - 32 && b.top <= p.cards[1] - 26 && b.left + b.width >= p.cards[0] + 32 && b.top + b.height >= p.cards[1] + 26); }
