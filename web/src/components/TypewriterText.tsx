@@ -6,6 +6,7 @@ import { typedSoFar, typingMs } from "@/lib/stream";
 interface TypewriterTextProps {
   text: string;
   turn: string; // the turn's key (hand number and turn); the caller also keys the component by it and the text
+  whole?: boolean; // shown complete at once (a reason that arrived before the view came to its table), never typed
 }
 
 let pace = 1; // the table's pace, from the stream's game_state; the page sets it
@@ -15,12 +16,14 @@ export const setTypingPace = (p?: number) => { pace = p || 1; };
 // turn with the same words types afresh.
 let began: { key: string; at: number } | null = null;
 
-export default function TypewriterText({ text, turn }: TypewriterTextProps) {
+export default function TypewriterText({ text, turn, whole = false }: TypewriterTextProps) {
   const full = text.trim();
   // Characters shown; one past the end keeps the cursor one more tick after the last character.
   const [n, setN] = useState(() => {
     if (typeof window === "undefined") return 0;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return full.length + 1;
+    // Whole: as typed long ago, so a remount for the same turn (the layout switch) shows it whole too.
+    if (whole) { began = { key: turn, at: -1e9 }; return full.length + 1; }
     const now = performance.now(), at = typedSoFar(full, turn, began, now, pace);
     if (at === 0) began = { key: turn, at: now };
     return at;

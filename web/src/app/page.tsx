@@ -331,6 +331,13 @@ export default function Home() {
   const handNumber = gameState?.handNumber || 0;
   const turnKey = displayState ? `${handNumber}:${displayState.turn}` : ''; // the typing record's key: turns restart each hand
   const winners = gameState?.winners || [];
+  // The overview's view changes (a zoom in, a slide): the reason the table landed on already had is drawn whole, as the
+  // table is (a view change replays nothing); one that arrives after it types. Noted in the render the stage changes
+  // table, while that change's animation runs (a load of ?t=KEY is no view change: its reason types as on the plain page).
+  const reasonKey = displayState?.reason ? `${turnKey}|${displayState.reason}` : '';
+  const [viewReason, setViewReason] = useState<{ key: string | null; reason: string | null }>({ key: stageKey, reason: null });
+  if (overviewOn && stageKey !== viewReason.key) setViewReason({ key: stageKey, reason: anim ? reasonKey : null });
+  const reasonWhole = overviewOn && viewReason.key === stageKey && !!reasonKey && viewReason.reason === reasonKey;
   const isHandComplete = street === 'complete';
 
   // All-time stats feed the leaderboard, the drawer and the stats sections; the stream sends them on connect and as each hand is saved.
@@ -930,6 +937,7 @@ export default function Home() {
                 blank={players.length === 0}
                 street={players.length ? street : undefined}
                 turnKey={turnKey}
+                whole={reasonWhole}
               />
             </div>}
             {phone && <div className={`md:hidden ${draftA ? 'mt-2' : 'mt-1.5'} w-full`} style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>

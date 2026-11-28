@@ -2149,7 +2149,9 @@ const VIEW_REC = () => {
     // The stage's face-up cards wherever they are drawn (a slide brings its table in from outside the window).
     const st0 = document.querySelector('.stage-zoom [data-desk-table]');
     const faces = st0 && getComputedStyle(st0).visibility !== 'hidden' ? [...st0.querySelectorAll('[data-hole] [role=img], [data-felt-cards] [role=img]')].filter(c => c.getClientRects().length && c.getAttribute('aria-label') !== 'hidden card').length : 0;
-    R.s.push({ t: ts - R.t0, key: document.querySelector('[data-stage-key]')?.dataset.stageKey ?? '', faces, cards, seats, decks, flights, els, scroll: [de.scrollWidth, de.scrollHeight], bar: [innerWidth - de.clientWidth, innerHeight - de.clientHeight] });
+    // The reasoning panel's text as drawn (a reason typing out grows it frame by frame).
+    const reason = st0 ? (document.querySelector('.stage-zoom [data-reasoning]')?.textContent ?? '').length : -1;
+    R.s.push({ t: ts - R.t0, key: document.querySelector('[data-stage-key]')?.dataset.stageKey ?? '', reason, faces, cards, seats, decks, flights, els, scroll: [de.scrollWidth, de.scrollHeight], bar: [innerWidth - de.clientWidth, innerHeight - de.clientHeight] });
   };
   const loop = ts => setTimeout(() => { if (R.on) sample(ts); requestAnimationFrame(loop); });
   requestAnimationFrame(loop);
@@ -2211,7 +2213,7 @@ const filmViews = async (w, h, { load = true } = {}) => {
 };
 let viewFilms = null;
 const viewFilmsOnce = () => (viewFilms ??= (async () => { const r = {}; for (const [w, h] of VIEW_SIZES) r[`${w}x${h}`] = await filmViews(w, h); return r; })());
-group(() => check('tables-view-no-replay', 'With ?tables=1 at 1440x790 and 1728x1117 and the stream held (nothing new reaches the page), each view change (zoom in from the overview, slide right, down, left and up, zoom out, a load of ?tables=1&t=KEY, a refresh there) and the 1.5 s after it start no card or chip flight, no deal, no peel, no shuffle and no deck: every card the state has dealt is face up at its own box (its own opacity 1, no transform of its own) from the first frame its table is drawn, and no seat or felt part fades as if the hand had just started (a load fills in as on a refresh)', async () => {
+group(() => check('tables-view-no-replay', 'With ?tables=1 at 1440x790 and 1728x1117 and the stream held (nothing new reaches the page), each view change (zoom in from the overview, slide right, down, left and up, zoom out, a load of ?tables=1&t=KEY, a refresh there) and the 1.5 s after it start no card or chip flight, no deal, no peel, no shuffle and no deck: every card the state has dealt is face up at its own box (its own opacity 1, no transform of its own) from the first frame its table is drawn, and no seat or felt part fades as if the hand had just started (a load fills in as on a refresh); after a zoom in or a slide the reasoning text is drawn whole at once (its length never grows frame to frame on the table landed on)', async () => {
   const bad = [], seen = [];
   const all = await viewFilmsOnce();
   for (const [size, films] of Object.entries(all)) for (const { name, rec, load } of films) {
@@ -2231,7 +2233,15 @@ group(() => check('tables-view-no-replay', 'With ?tables=1 at 1440x790 and 1728x
     const last = drawn.at(-1), stage = x => x.faces, first = drawn.find(x => x.key === last.key && stage(x) > 0);
     if (!load && first && stage(last) && stage(first) !== stage(last)) bad.push(`${tag}: ${stage(first)} face-up cards on the stage's first frame, ${stage(last)} on its last`);
     if (!load) { const fades = drawn.flatMap(x => x.seats); if (fades.length) bad.push(`${tag}: parts fading in as at a deal (${[...new Set(fades)].slice(0, 3).join('; ')})`); }
-    seen.push(`${tag}: ${s.length} frames, ${last.cards.length} cards at rest, ${flights.length} flights`);
+    // Round 6: the reason on show arrived before the view changed, so it is drawn whole at once: on the table landed on,
+    // the reasoning text never grows from one frame to the next (a reason typing out would).
+    let grew = 0, firstGrow = null;
+    if (!load) for (let i = 1; i < drawn.length; i++) {
+      const a = drawn[i - 1], b = drawn[i];
+      if (a.key === last.key && b.key === last.key && a.reason >= 0 && b.reason > a.reason) { grew++; firstGrow ??= `${a.reason} → ${b.reason} chars at ${Math.round(b.t)} ms`; }
+    }
+    if (grew) bad.push(`${tag}: the reasoning text grew in ${grew} frames (types out on arrival; first ${firstGrow})`);
+    seen.push(`${tag}: ${s.length} frames, ${last.cards.length} cards at rest, ${flights.length} flights, reasoning ${last.reason} chars still`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 40).join(' | ') : seen.join('; ') };
 }));
