@@ -4,11 +4,11 @@ import { createContext, useContext, useLayoutEffect, useRef, useState } from 're
 
 // ?tables=1&stacks=1|2 (a draft, the overview only): each seat's stack drawn without numbers, seen from far away
 // (PokerTable's lod), in the room the faded name and stack leave. In big blinds, so tables of different stakes compare.
-// 1: the felt's own chips in stepped columns, right of the grown logo on the stack's line; 2: a thin meter on the seat's
-// left edge with a tick at the table's starting stack. The felt's bets and the pot's chips are drawn on 1's scale too.
+// 1: the felt's own chips in stepped columns, under the grown logo; 2: a thin meter on the seat's left edge with a tick
+// at the table's starting stack; 3: 1 with the chips short of the starting stack as dashed outlines. The felt's bets and the pot's chips are drawn on 1's scale too.
 // Without the switch, or on the page's own (near) table, nothing here is drawn.
 
-export type StackDraft = { variant: 1 | 2; bb: number; start: number } | null;
+export type StackDraft = { variant: 1 | 2 | 3; bb: number; start: number } | null;
 // PokerTable provides it when it is drawn far (or zooming) and the switch is on.
 export const StackDraftContext = createContext<StackDraft>(null);
 export const useStackDraft = () => useContext(StackDraftContext);
@@ -16,7 +16,7 @@ export const useStackDraft = () => useContext(StackDraftContext);
 // meter's tick.
 export const TableDepth = createContext<{ bb: number; start: number } | null>(null);
 // ?stacks=1|2 with ?tables=1 (lib/tableSwitches), drawn far: the draft PokerTable provides.
-export const useStackDraftFor = (variant: 1 | 2 | null, far: boolean): StackDraft => {
+export const useStackDraftFor = (variant: 1 | 2 | 3 | null, far: boolean): StackDraft => {
   const t = useContext(TableDepth);
   return variant && far && t && t.bb > 0 ? { variant, bb: t.bb, start: t.start } : null;
 };
@@ -40,8 +40,9 @@ export const columnsSize = (n: number, more = false) => {
 };
 
 // `n` chips in stepped columns of PER_COL, left to right, the last one partial. 0: one chip's outline (a busted seat
-// shows an empty place, not nothing). `fresh`: the chips from this index on drop in (a real stack change).
-export function ChipColumns({ n, more = false, fresh = -1 }: { n: number; more?: boolean; fresh?: number }) {
+// shows an empty place, not nothing). `fresh`: the chips from this index on drop in (a real stack change). `upTo` (3):
+// the places from n up to it drawn as dashed outlines, the chips the seat is short of its starting stack.
+export function ChipColumns({ n, more = false, fresh = -1, upTo = 0 }: { n: number; more?: boolean; fresh?: number; upTo?: number }) {
   const ref = useRef<SVGSVGElement>(null);
   useLayoutEffect(() => {
     if (fresh < 0 || !ref.current) return;
@@ -49,11 +50,20 @@ export function ChipColumns({ n, more = false, fresh = -1 }: { n: number; more?:
       if (i >= fresh) g.animate([{ opacity: 0, transform: 'translateY(-3px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'ease-out' });
     });
   }, [fresh, n]);
-  const { w, h } = columnsSize(n, more);
+  const { w, h } = columnsSize(Math.max(n, upTo), more);
   const at = (i: number) => ({ cx: 1 + R + Math.floor(i / PER_COL) * GAP, cy: h - R / 2 - 2 - (i % PER_COL) * T });
   return (
     <svg ref={ref} data-chip-columns={n} width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden className="block shrink-0 overflow-visible">
-      {n === 0 && <ellipse data-glyph-empty cx={1 + R} cy={h - R / 2 - 2} rx={R} ry={R / 2} fill="none" stroke={CHIP.edge} strokeOpacity={0.75} strokeWidth={SW} strokeDasharray="2.5 1.5" />}
+      {n === 0 && upTo === 0 && <ellipse data-glyph-empty cx={1 + R} cy={h - R / 2 - 2} rx={R} ry={R / 2} fill="none" stroke={CHIP.edge} strokeOpacity={0.75} strokeWidth={SW} strokeDasharray="2.5 1.5" />}
+      {Array.from({ length: Math.max(0, upTo - n) }, (_, k) => {
+        const { cx, cy } = at(n + k);
+        return (
+          <g key={`o${k}`} data-glyph-short {...(n === 0 && k === 0 ? { 'data-glyph-empty': '' } : null)} fill="none" stroke={CHIP.edge} strokeOpacity={0.55} strokeWidth={SW} strokeDasharray="2.5 1.5">
+            <path d={`M ${cx - R} ${cy} v ${T} a ${R} ${R / 2} 0 0 0 ${2 * R} 0 v ${-T}`} />
+            <ellipse cx={cx} cy={cy} rx={R} ry={R / 2} />
+          </g>
+        );
+      })}
       {Array.from({ length: n }, (_, i) => {
         const { cx, cy } = at(i);
         return (
@@ -92,14 +102,16 @@ export function SeatStack({ stack, name }: { stack: number; name: string }) {
   const prev = usePrevious(`${name}|${d?.bb}|${d?.variant}`, bbs);
   if (!d) return null;
   const fade = { opacity: 'calc(1 - var(--lod-o))' } as const;
-  if (d.variant === 1) {
-    const n = chipsFor(bbs), more = bbs > CAP_BB, { h } = columnsSize(n, more);
+  if (d.variant !== 2) {
+    // 3: 1, with the chips short of the table's starting stack drawn as dashed outlines (below the buy-in shows as a pile
+    // with an empty top; above it, all solid).
+    const n = chipsFor(bbs), more = bbs > CAP_BB, upTo = d.variant === 3 && d.start > 0 ? chipsFor(d.start / d.bb) : 0, { h } = columnsSize(Math.max(n, upTo), more);
     const was = prev === undefined ? -1 : chipsFor(prev);
     return (
-      <div data-stack-glyph="1" data-bbs={Math.round(bbs)} aria-hidden className="absolute pointer-events-none origin-top-left"
+      <div data-stack-glyph={d.variant} data-bbs={Math.round(bbs)} aria-hidden className="absolute pointer-events-none origin-top-left"
         // Far: left 12 (the logo's edge), foot at FOOT. Near: on the stack number (left 40, top 28), at its height.
         style={{ ...fade, left: 'calc(12px + 28px * var(--lod-t))', top: `calc(${FOOT - h}px + ${28 - FOOT + h}px * var(--lod-t))`, transform: `scale(calc(1 - ${1 - 14 / h} * var(--lod-t)))` }}>
-        <ChipColumns n={n} more={more} fresh={was >= 0 && n > was ? was : -1} />
+        <ChipColumns n={n} more={more} fresh={was >= 0 && n > was ? was : -1} upTo={upTo} />
       </div>
     );
   }

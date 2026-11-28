@@ -42,8 +42,8 @@ export const useTallTable = () => useSyncExternalStore(noSub, () => query('table
 // neighbouring tables at the stage's edges. Desktop only. Promoting it is this one line (return true).
 function tablesOverview(search: string) { return new URLSearchParams(search).get('tables') === '1'; }
 export const useTablesOverview = () => useSyncExternalStore(noSub, () => tablesOverview(location.search), () => false);
-// ?tables=1&stacks=1|2 (a draft): the overview's seats show their stacks as a glyph, no numbers (StackGlyph).
-const stacksDraft = (): 1 | 2 | null => { if (!tablesOverview(location.search)) return null; const v = query('stacks'); return v === '1' ? 1 : v === '2' ? 2 : null; };
+// ?tables=1&stacks=1|2|3 (a draft): the overview's seats show their stacks as a glyph, no numbers (StackGlyph).
+const stacksDraft = (): 1 | 2 | 3 | null => { if (!tablesOverview(location.search)) return null; const v = query('stacks'); return v === '1' ? 1 : v === '2' ? 2 : v === '3' ? 3 : null; };
 export const useStacksDraft = () => useSyncExternalStore(noSub, stacksDraft, () => null);
 // ?tables=1&shells=N (5 to 24; a draft): the overview filled up to N tables with still mock tables (lib/shells), laid out
 // by &layout=a (the grid as it is), b (the most active live table large, the rest a wall beside or under it), c (the

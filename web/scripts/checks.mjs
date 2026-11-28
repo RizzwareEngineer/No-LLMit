@@ -2345,9 +2345,9 @@ group(() => check('tables-slide-continuous', 'With ?tables=1 at 1440x790 and 172
 // that?" ?stacks=1|2 (a draft): each seat of the overview's far tables shows its stack as a glyph in big blinds. Every
 // table is scripted to the same spread of depths (in its own big blind, rotated round its seats), bets out at four seats.
 const STACK_BBS = [0, 1, 5, 20, 50, 100, 300, 1000, 1500];
-group(() => check('tables-stacks-draft', 'With ?tables=1&stacks=1 and &stacks=2 at 1440x790 (and 1728x1117), every seat of every far table has one stack glyph inside its seat box that overlaps neither its logo nor its hole cards; the glyph\'s measured size (its drawn chips\' or fill\'s area) never shrinks as the stack in big blinds grows, across all four tables, and 20, 100, 300 and 1000 bb each draw larger than the one before by at least a quarter at 1440x790; a busted seat (0) draws an outline; with ?stacks=1 the bets\' chips grow with the bet in big blinds; without the switch no glyph is drawn, and the page\'s own table (zoomed in) draws none', async () => {
+group(() => check('tables-stacks-draft', 'With ?tables=1&stacks=1, 2 and 3 at 1440x790 (and 1728x1117), every seat of every far table has one stack glyph inside its seat box that overlaps neither its logo nor its hole cards; the glyph\'s measured size (its drawn chips\' or fill\'s area) never shrinks as the stack in big blinds grows, across all four tables, and 20, 100, 300 and 1000 bb each draw larger than the one before by at least a quarter at 1440x790; a busted seat (0) draws an outline; with 3 a seat under its table\'s starting stack draws the chips it is short of as outlines and one at or over it none; with 1 and 3 the bets\' chips grow with the bet in big blinds; without the switch no glyph is drawn, and the page\'s own table (zoomed in) draws none', async () => {
   const bad = [], seen = [];
-  for (const [v, w, h] of [[1, 1440, 790], [2, 1440, 790], [1, 1728, 1117], [2, 1728, 1117], [0, 1440, 790]]) {
+  for (const [v, w, h] of [[1, 1440, 790], [2, 1440, 790], [3, 1440, 790], [1, 1728, 1117], [2, 1728, 1117], [3, 1728, 1117], [0, 1440, 790]]) {
     const tag = `stacks=${v || 'off'} ${w}x${h}`, p = await scriptedTable(w, h, false, `tables=1${v ? `&stacks=${v}` : ''}`);
     try {
       await p.waitForFunction(() => document.querySelectorAll('[data-overview-cell]').length >= 2 && [...document.querySelectorAll('[data-overview-cell] [data-felt-cards]')].every(e => e.querySelectorAll('[role=img]').length <= 5), { timeout: 150000, polling: 500 }).catch(() => {});
@@ -2380,7 +2380,8 @@ group(() => check('tables-stacks-draft', 'With ?tables=1&stacks=1 and &stacks=2 
           seats.push({ table: cell.dataset.overviewCell, n: gs.length, bbs: g ? +g.dataset.bbs : null, size: g ? area([...g.querySelectorAll('[data-glyph-fill]')]) : 0, empty: !!g?.querySelector('[data-glyph-empty]') || (g?.dataset.stackGlyph === '2' && !!g.querySelector('[data-glyph-fill]') && area([...g.querySelectorAll('[data-glyph-fill]')]) === 0), why });
         }
         for (const b of document.querySelectorAll('[data-overview-cell] [data-far-chips]')) bets.push({ bbs: +b.dataset.farChips, size: area([...b.querySelectorAll('[data-glyph-fill]')]), bet: !!b.closest('[data-bet]') });
-        return { seats, bets, stageGlyphs: document.querySelectorAll('.stage-zoom [data-stack-glyph]').length, any: document.querySelectorAll('[data-stack-glyph], [data-far-chips]').length };
+        const short = [...document.querySelectorAll('[data-overview-cell] [data-stack-glyph]')].map(g => ({ bbs: +g.dataset.bbs, n: g.querySelectorAll('[data-glyph-short]').length, start: (() => { const l = g.closest('[data-overview-cell]').querySelector('[data-cell-label]').textContent.match(/· (\d+) bb/); return l ? +l[1] : 0; })() }));
+        return { short, seats, bets, stageGlyphs: document.querySelectorAll('.stage-zoom [data-stack-glyph]').length, any: document.querySelectorAll('[data-stack-glyph], [data-far-chips]').length };
       });
       if (!v) { if (r.any) bad.push(`${tag}: ${r.any} glyphs drawn without the switch`); else seen.push(`${tag}: no glyph`); continue; }
       if (r.seats.length < 18) bad.push(`${tag}: only ${r.seats.length} seats`);
@@ -2394,7 +2395,10 @@ group(() => check('tables-stacks-draft', 'With ?tables=1&stacks=1 and &stacks=2 
       if (w === 1440) for (let i = 1; i < 4; i++) if (steps[i] < steps[i - 1] * 1.25) bad.push(`${tag}: ${[20, 100, 300, 1000][i]} bb is not a quarter larger than ${[20, 100, 300, 1000][i - 1]} bb (${steps[i].toFixed(0)} vs ${steps[i - 1].toFixed(0)} px²)`);
       const busted = by.filter(s => s.bbs === 0);
       if (!busted.length || busted.some(s => !s.empty)) bad.push(`${tag}: a busted seat draws no outline`);
-      if (v === 1) {
+      // 3: a seat short of its table's starting stack draws the chips it is short of as outlines, one deeper draws none.
+      if (v === 3 && !r.short.some(x => x.bbs < x.start && x.n > 0)) bad.push(`${tag}: no seat under its buy-in draws its missing chips`);
+      if (v === 3 && r.short.some(x => x.bbs >= x.start && x.n > 0)) bad.push(`${tag}: a seat at or over its buy-in draws missing chips`);
+      if (v !== 2) {
         const bets = r.bets.filter(b => b.bet).sort((a, b) => a.bbs - b.bbs);
         if (bets.length < 8) bad.push(`${tag}: only ${bets.length} bets drawn far`);
         for (let i = 1; i < bets.length; i++) if (bets[i].size < bets[i - 1].size - 0.5) bad.push(`${tag}: a ${bets[i].bbs} bb bet drawn smaller than a ${bets[i - 1].bbs} bb one`);
