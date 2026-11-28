@@ -49,6 +49,7 @@ interface TableFeltProps {
   compact?: boolean; // the phone table's middle (PokerTable): only the pot and the board, no grid
   plain?: boolean; // draft A's tall table (PokerTable): no grid of its own, the drawn felt under it shows through
   fillIn?: boolean; // fade in as it fills; false for a felt mounted by a layout switch mid-hand (it shows the hand as it stands)
+  view?: string | null; // the table shown (PokerTable): the cards already out when it changes are simply there, none rises
 }
 
 // Shown on the felt while the table is closed or at its daily call cap.
@@ -127,9 +128,15 @@ export default function TableFelt({
   compact = false,
   plain = false,
   fillIn = true,
+  view,
 }: TableFeltProps) {
   const bb = useBigBlind(), size = useCardSize(), look = useCardLook(), still = useSyncExternalStore(noSub, isDraftA, () => false);
   const potIn = amountParts(pot, bb);
+  // The pot's number rolls to a new amount the table brings, not to another table's: the render that changes the view
+  // draws it at once.
+  const [potView, setPotView] = useState(view);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- after the commit that drew the new table's pot
+  useEffect(() => setPotView(view), [view]);
   const collected = Math.max(0, pot - betsOut);
   // Show button determination if in progress
   const showButtonDetermination = buttonDetermination && buttonDetermination.cards.length > 0;
@@ -140,6 +147,12 @@ export default function TableFelt({
   const [live, setLive] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- after the commit that filled the felt
   useEffect(() => { if (!blank) setLive(true); }, [blank]);
+  // Another table shown (a view change): the cards it has out are its own as it stands, drawn in place; only a card
+  // dealt after that rises. Kept by the card's key, as the board and the button draw key them.
+  const [entered, setEntered] = useState({ view, keys: new Set<string>() });
+  if (view !== entered.view) setEntered({ view, keys: new Set([...cards.map((c, i) => `${c}-${i}`), ...(buttonDetermination?.cards ?? []).map((bc, i) => `b${i}-${bc.card}`)]) });
+  if (entered.keys.size && !cards.length && !buttonDetermination?.cards.length) setEntered({ view, keys: new Set() }); // the board cleared: a new hand's cards rise
+  const rises = (key: string) => live && !entered.keys.has(key);
   // "Next hand in Ns": its seconds drawn on each whole-second edge from the deal's time (useSecondsDraw), not rendered
   // each second; the line goes at 0, before page.tsx's render that ends the countdown.
   const countBox = useRef<HTMLElement>(null), countText = useRef<HTMLSpanElement>(null);
@@ -188,7 +201,7 @@ export default function TableFelt({
             <div data-chips={pot} data-lod-pot className={`flex flex-row items-center gap-2 bg-white border-2 border-gray-700 shadow-sm ${compact ? 'h-[30px] px-3' : 'p-2 px-4'}`} aria-label={`Pot ${formatAmount(pot, bb)}`}>
               <div data-lod-text data-lod-pot-label className={`${compact ? 'text-[11px]' : 'text-xs'} uppercase tracking-wider text-gray-600`}>POT</div>
               <div className={`${compact ? 'text-[15px] leading-5' : 'text-[20px] leading-7'} text-gray-700 font-bold tabular-nums`}>
-                <NumberFlow animated={!still} value={potIn.value} format={potIn.format} suffix={potIn.suffix} locales="en-US" />
+                <NumberFlow animated={!still && view === potView} value={potIn.value} format={potIn.format} suffix={potIn.suffix} locales="en-US" />
               </div>
             </div>
             {/* data-pot: where TableMotion's chips land (the phone's: the pot itself; only the board is under it) */}
@@ -211,7 +224,7 @@ export default function TableFelt({
             <div className={`flex gap-1 justify-center${plain ? ' flex-wrap' : ''}`}>
               {buttonDetermination.cards.map((bc, i) => (
                 <div key={i} className="flex flex-col items-center gap-0.5">
-                  <Card value={bc.card} className={cardClassOf(size, look)} rise={live} />
+                  <Card value={bc.card} className={cardClassOf(size, look)} rise={rises(`b${i}-${bc.card}`)} />
                   <span data-lod-text className="text-[11px] text-gray-600 truncate max-w-[40px]">{bc.playerName.split(' ')[0]}</span>
                 </div>
               ))}
@@ -227,7 +240,7 @@ export default function TableFelt({
         ) : (
           <>
             {!deck && cards.map((card, i) => (
-              <Card key={`${card}-${i}`} value={card} className={cardClassOf(size, look)} rise={live} />
+              <Card key={`${card}-${i}`} value={card} className={cardClassOf(size, look)} rise={rises(`${card}-${i}`)} />
             ))}
             {/* The phone's deck between hands takes the board's place too, as the desktop's does, 8px under the pot so
                 it never covers the pot's label (phoneTable's DECK). */}

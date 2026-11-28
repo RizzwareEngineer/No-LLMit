@@ -49,6 +49,10 @@ interface PokerTableProps {
   // and near, which page.tsx animates (--lod-t for the sizes, --lod-o for the text).
   lod?: { k: number; morph?: boolean } | null;
   still?: boolean; // a small copy (the tables overview, the stage's edges): no flights, no deal and no sounds, which find the page's one felt
+  // The table shown (the tables overview's key, page.tsx; undefined without the overview). A view change (a zoom in, a
+  // slide, a load of ?t) is no game event: the table it brings is drawn as it stands, as after a layout switch, and only
+  // what the stream changes after that moves.
+  view?: string | null;
 }
 
 // The table seen from far away (lod): one growth factor each for every seat's logo (20px, from its top-left corner),
@@ -76,6 +80,7 @@ export default function PokerTable({
   clock = null,
   still = false,
   lod = null,
+  view,
 }: PokerTableProps) {
   const layout = getPlayerLayout(players.length || 9);
   const hidePositions = !!buttonDetermination; // the position badges wait for the button draw
@@ -92,8 +97,9 @@ export default function PokerTable({
   // the hand as it stands, not dealt again (no fade from nothing, no face down then turned over again). The hand on screen
   // when the shown layout last changed is that hand; the next one is dealt as usual.
   const mounted = useLayout(); // only the shown layout's table, once hydrated (null: both, CSS shows one)
-  const [shownAt, setShownAt] = useState({ mounted, hand: 0 });
-  if (mounted !== shownAt.mounted) setShownAt({ mounted, hand: handNumber });
+  // A view change (another table shown) counts the same: its hand is shown as it stands, not dealt again.
+  const [shownAt, setShownAt] = useState({ mounted, view, hand: 0 });
+  if (mounted !== shownAt.mounted || view !== shownAt.view) setShownAt({ mounted, view, hand: handNumber });
   const switched = shownAt.hand > 0 && handNumber === shownAt.hand;
   const dealt = !reduce && !still && firstHand > 0 && handNumber !== firstHand && !switched;
   const [deck, setDeck] = useState<DeckPhase | null>(null);
@@ -188,6 +194,7 @@ export default function PokerTable({
       deck={deck}
       blank={blank}
       fillIn={!switched}
+      view={view}
     />
   );
 
@@ -291,6 +298,8 @@ export default function PokerTable({
         nextDealAt={street === 'complete' ? nextDealAt : null}
         onDeck={setDeck}
         notice={!!notice}
+        view={view}
+        ended={street === 'complete'}
       />}
       {/* Phones: one table and nothing else: the felt a tall oval on the page drawn as the desktop's grid, each seat a round logo on its edge
           with its position, stack, label and cards (Player's compact seat; phoneTable's geometry), each bet between its seat

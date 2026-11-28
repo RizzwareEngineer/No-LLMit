@@ -2074,6 +2074,189 @@ group(() => check('tables-no-switch', 'Without ?tables=1 the page at 1440x790 sh
     return { pass: !r[0] && !r[1] && r[2] === 1, detail: `${r[0]} overview parts, ${r[1] ? 'an' : 'no'} All tables control, ${r[2]} desktop table` };
   } finally { await p.close(); }
 }));
+// Owner, round 5: a view change (a zoom in from the overview, a zoom out, a slide to a neighbour, a load of ?t=KEY, a
+// refresh inside a table) is no game event. Every table plays on the engine whether or not anyone looks, so the table
+// that comes into view is drawn as it stands: no deal, no shuffle, no card or chip flight, nothing outside the moving
+// table moves or shakes. The stream is held (VIEW_HOLD: nothing reaches the page after the hold), so any game motion
+// seen is a replay. VIEW_REC films the page frame by frame (each frame read once its animation callbacks have run).
+const VIEW_HOLD = () => {
+  // 'snap' in sessionStorage: hold from the first snapshot on (a load or a refresh); else window.__vhold, set by the check.
+  const after = sessionStorage.getItem('__vhold') === 'snap', Real = window.EventSource;
+  window.__vhold = false; window.__vevents = [];
+  window.EventSource = class extends Real {
+    set onmessage(fn) {
+      super.onmessage = e => {
+        if (window.__vhold) return;
+        let m = null; try { m = JSON.parse(e.data); } catch {}
+        fn(e);
+        if (m && m.type !== 'stats') window.__vevents.push({ t: performance.now(), table: m.table ?? null, type: m.type });
+        if (after && m?.type === 'snapshot') window.__vhold = true;
+      };
+    }
+    get onmessage() { return super.onmessage; }
+  };
+};
+const VIEW_REC = () => {
+  const R = window.__vrec = { s: [], on: false, flights: [], t0: 0 };
+  R.start = () => { R.s = []; R.flights = []; R.t0 = performance.now(); R.on = true; };
+  R.stop = () => { R.on = false; return { s: R.s, flights: R.flights, events: window.__vevents.filter(e => e.t > R.t0).map(e => ({ ...e, t: e.t - R.t0 })) }; };
+  const eff = e => { let o = 1; for (let x = e; x; x = x.parentElement) o *= +getComputedStyle(x).opacity; return o; };
+  const vis = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden' && b.bottom > 0 && b.top < innerHeight && b.right > 0 && b.left < innerWidth; };
+  const box = e => { const b = e.getBoundingClientRect(); return [+b.left.toFixed(2), +b.top.toFixed(2), +b.width.toFixed(2), +b.height.toFixed(2)]; };
+  // A transform other than none: a card rising, a chip or card mid-flight.
+  const moved = e => { const t = getComputedStyle(e).transform; if (!t || t === 'none') return false; const m = t.match(/matrix\(([^)]+)\)/); if (!m) return true; const [a, b, c, d, x, y] = m[1].split(',').map(Number); return Math.abs(a - 1) > 0.001 || Math.abs(d - 1) > 0.001 || Math.abs(b) > 0.001 || Math.abs(c) > 0.001 || Math.abs(x) > 0.5 || Math.abs(y) > 0.5; };
+  new MutationObserver(ms => { if (!R.on) return; for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && (n.matches('[data-flight], [data-deck]') || n.querySelector?.('[data-deck]'))) R.flights.push({ t: performance.now() - R.t0, what: n.matches('[data-flight]') ? `${n.dataset.flight} flight` : 'deck' }); })
+    .observe(document, { childList: true, subtree: true });
+  const sample = ts => {
+    const tables = [...document.querySelectorAll('[data-desk-table]')].filter(vis);
+    const cards = [], seats = [];
+    tables.forEach(tb => {
+      const where = tb.closest('[data-overview-cell]')?.dataset.overviewCell ?? (tb.closest('.stage-zoom') ? 'stage' : 'edge');
+      // Each hole card (its wrapper, which the deal fades in, and the card, which may rise), the board's cards, the felt's
+      // own parts and the seats' (which a fill-in fades): their own opacity and transform, not the zoom's or the slide's.
+      for (const w of tb.querySelectorAll('[data-hole] > *')) { const c = w.querySelector('[role=img]') ?? w; if (!vis(c)) continue; cards.push([where, 'hole', +getComputedStyle(w).opacity, moved(w) || moved(c), c.getAttribute('aria-label') !== 'hidden card']); }
+      for (const c of tb.querySelectorAll('[data-felt-cards] [role=img]')) if (vis(c)) cards.push([where, 'board', +getComputedStyle(c).opacity, moved(c), true]);
+      for (const e of tb.querySelectorAll('[data-felt] > *, [data-seat] > *')) if (vis(e) && +getComputedStyle(e).opacity < 0.98 && !e.matches('.opacity-40')) seats.push(`${where} ${e.closest('[data-seat]') ? `seat ${e.closest('[data-seat]').dataset.seat}` : 'felt'} part at ${(+getComputedStyle(e).opacity).toFixed(2)}`);
+    });
+    const decks = [...document.querySelectorAll('[data-deck]')].filter(vis).length, flights = document.querySelectorAll('[data-flight]').length;
+    // Everything outside the moving table: the header's title, the status row's items, the pills, the Stats button, the
+    // panels' outer boxes; with each, its opacity as drawn.
+    const els = {};
+    const put = (k, e) => { if (e && e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden') els[k] = [...box(e), +eff(e).toFixed(3)]; };
+    const sec = document.querySelector('section[data-screen]');
+    put('title', sec?.querySelector('h1'));
+    const row = document.querySelector('[data-status-hand]')?.closest('.flex-wrap');
+    if (row) {
+      const label = row.firstElementChild; put('status Live', label);
+      const hand = row.querySelector('[data-status-hand]');
+      if (hand) [...hand.children].filter(e => e.tagName === 'SPAN').forEach((e, i) => put(`status ${['Hand #', 'stakes', 'clock'][i]}`, e));
+      put('status Chips/BB', row.querySelector('[role=group]'));
+      put('status Sound', [...row.querySelectorAll('button')].at(-1));
+    }
+    for (const e of document.querySelectorAll('[data-table-nav]')) put(`pill ${e.dataset.tableNav} "${e.textContent.trim()}"`, e);
+    put('All tables', document.querySelector('[data-all-tables-button]'));
+    put('About', document.querySelector('[data-about-pill]'));
+    put('Stats button', [...document.querySelectorAll('button')].find(b => /^Stats/.test(b.textContent.trim()) && b.getClientRects().length));
+    const st = document.querySelector('.stage-zoom');
+    if (st && getComputedStyle(st).visibility !== 'hidden') { put('P&L panel', st.querySelector('#phone-stats')); put('reasoning panel', st.querySelector('[data-reasoning]')); }
+    const de = document.documentElement;
+    // The stage's face-up cards wherever they are drawn (a slide brings its table in from outside the window).
+    const st0 = document.querySelector('.stage-zoom [data-desk-table]');
+    const faces = st0 && getComputedStyle(st0).visibility !== 'hidden' ? [...st0.querySelectorAll('[data-hole] [role=img], [data-felt-cards] [role=img]')].filter(c => c.getClientRects().length && c.getAttribute('aria-label') !== 'hidden card').length : 0;
+    R.s.push({ t: ts - R.t0, key: document.querySelector('[data-stage-key]')?.dataset.stageKey ?? '', faces, cards, seats, decks, flights, els, scroll: [de.scrollWidth, de.scrollHeight], bar: [innerWidth - de.clientWidth, innerHeight - de.clientHeight] });
+  };
+  const loop = ts => setTimeout(() => { if (R.on) sample(ts); requestAnimationFrame(loop); });
+  requestAnimationFrame(loop);
+  if (sessionStorage.getItem('__vrec') === 'load') R.start();
+};
+// A page on the tables switch with the stream able to be held and the frames filmed.
+const viewPage = async (w, h, query) => {
+  const p = await newPage(); await p.setViewport({ width: w, height: h });
+  await p.evaluateOnNewDocument(VIEW_HOLD); await p.evaluateOnNewDocument(VIEW_REC);
+  await p.goto(`${BASE}/?${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p.waitForFunction(() => document.querySelectorAll('[data-seat] [data-hole]').length > 8, { timeout: 120000 });
+  await sleep(2500);
+  return p;
+};
+const stageStill = p => p.waitForFunction(() => { const t = document.querySelector('.stage-zoom [data-desk-table]'); return !t || !t.getAnimations().some(a => a.playState === 'running'); }, { timeout: 8000, polling: 50 }).catch(() => {});
+// Held, and nothing of the live play before the hold still moving: no flight, no deck, no card rising or fading in.
+const quiet = async p => {
+  await p.evaluate(() => { window.__vhold = true; });
+  await p.waitForFunction(() => !document.querySelector('[data-flight], [data-deck]') && ![...document.querySelectorAll('[data-hole] > *, [data-felt-cards] [role=img], [data-felt] > *, [data-seat] > *')].some(e => e.getAnimations().length || +getComputedStyle(e).opacity < 0.98 && e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.matches('.opacity-40')),
+    { timeout: 8000, polling: 50 }).catch(() => {});
+  await sleep(300);
+};
+// Every view change, filmed with the stream held, at a window size: each { name, rec } (rec: VIEW_REC's frames).
+const VIEW_SIZES = [[1440, 790], [1728, 1117]];
+const filmViews = async (w, h, { load = true } = {}) => {
+  const out = [], p = await viewPage(w, h, 'tables=1');
+  const filmed = async (name, act, ms = 1900) => {
+    await p.evaluate(() => { window.__vhold = true; window.__vrec.start(); });
+    await act(); await sleep(ms); await stageStill(p);
+    out.push({ name, rec: await p.evaluate(() => window.__vrec.stop()) });
+  };
+  try {
+    const keys = await p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(a => a.dataset.overviewCell));
+    await quiet(p);
+    await filmed('zoom in', () => clickCenter(p, `[data-overview-cell="${keys[0]}"] [data-small-table]`));
+    // Round the grid: each way a pill leads (the first table is the grid's top-left), then back out.
+    for (const d of ['right', 'down', 'left', 'up']) {
+      if (!(await p.$(`[data-table-nav="${d}"]`))) continue;
+      await p.evaluate(() => { window.__vhold = false; }); await sleep(600); await quiet(p); // the stream catches up between views
+      await filmed(`slide ${d}`, () => p.evaluate(d => document.querySelector(`[data-table-nav="${d}"]`).click(), d), 2100);
+    }
+    await p.evaluate(() => { window.__vhold = false; }); await sleep(600); await quiet(p);
+    await filmed('zoom out', () => p.evaluate(() => document.querySelector('[data-all-tables-button]').click()), 2000);
+    if (load) {
+      // A load of ?tables=1&t=KEY and a refresh there: filmed from the page's first frame, held from its snapshot on.
+      for (const [name, go] of [['direct load', () => p.goto(`${BASE}/?tables=1&t=${keys[1]}`, { waitUntil: 'domcontentloaded' })], ['refresh', () => p.reload({ waitUntil: 'domcontentloaded' })]]) {
+        await p.evaluate(() => { sessionStorage.setItem('__vhold', 'snap'); sessionStorage.setItem('__vrec', 'load'); });
+        await go();
+        await p.waitForFunction(() => document.querySelectorAll('.stage-zoom [data-seat] [data-hole]').length > 8 && window.__vhold, { timeout: 60000 });
+        await sleep(1700);
+        // From the frame the table is drawn (its snapshot): as on table-refresh-fades, it fills in where it sits.
+        const rec = await p.evaluate(() => window.__vrec.stop());
+        out.push({ name, rec, load: true });
+        await p.evaluate(() => { sessionStorage.removeItem('__vhold'); sessionStorage.removeItem('__vrec'); });
+      }
+    }
+  } finally { await p.close(); }
+  return out;
+};
+let viewFilms = null;
+const viewFilmsOnce = () => (viewFilms ??= (async () => { const r = {}; for (const [w, h] of VIEW_SIZES) r[`${w}x${h}`] = await filmViews(w, h); return r; })());
+group(() => check('tables-view-no-replay', 'With ?tables=1 at 1440x790 and 1728x1117 and the stream held (nothing new reaches the page), each view change (zoom in from the overview, slide right, down, left and up, zoom out, a load of ?tables=1&t=KEY, a refresh there) and the 1.5 s after it start no card or chip flight, no deal, no peel, no shuffle and no deck: every card the state has dealt is face up at its own box (its own opacity 1, no transform of its own) from the first frame its table is drawn, and no seat or felt part fades as if the hand had just started (a load fills in as on a refresh)', async () => {
+  const bad = [], seen = [];
+  const all = await viewFilmsOnce();
+  for (const [size, films] of Object.entries(all)) for (const { name, rec, load } of films) {
+    const tag = `${size} ${name}`, { s, flights, events } = rec;
+    // A stream event for the table drawn would let motion after it count: the hold means none arrive.
+    const firstEvent = events.find(e => !(load && e.type === 'snapshot'))?.t ?? Infinity;
+    const early = flights.filter(f => f.t < firstEvent);
+    if (early.length) bad.push(`${tag}: ${early.length} started (${[...new Set(early.map(f => f.what))].join(', ')}, the first at ${Math.round(early[0].t)} ms)`);
+    const drawn = s.filter(x => x.t < firstEvent && x.cards.length);
+    if (!drawn.length) { bad.push(`${tag}: no table drawn in ${s.length} frames`); continue; }
+    const off = drawn.flatMap(x => x.cards.filter(c => c[2] < 0.98 || c[3]).map(c => `${c[0]} ${c[1]} card ${c[3] ? 'moving' : `at opacity ${c[2].toFixed(2)}`} at ${Math.round(x.t)} ms`));
+    if (off.length) bad.push(`${tag}: ${off.length} card-frames not at rest (${[...new Set(off.map(o => o.replace(/ at -?\d+ ms$/, '')))].slice(0, 4).join('; ')}; first ${off[0].match(/at (-?\d+) ms$/)?.[1]} ms)`);
+    const decks = drawn.filter(x => x.decks || x.flights);
+    if (decks.length) bad.push(`${tag}: a deck or a flight drawn in ${decks.length} frames (from ${Math.round(decks[0].t)} ms)`);
+    // The stage's dealt cards: as many face up in the first frame it is drawn as in the last.
+    // (A slide's first frames are the table it leaves: from the first frame of the table it lands on.)
+    const last = drawn.at(-1), stage = x => x.faces, first = drawn.find(x => x.key === last.key && stage(x) > 0);
+    if (!load && first && stage(last) && stage(first) !== stage(last)) bad.push(`${tag}: ${stage(first)} face-up cards on the stage's first frame, ${stage(last)} on its last`);
+    if (!load) { const fades = drawn.flatMap(x => x.seats); if (fades.length) bad.push(`${tag}: parts fading in as at a deal (${[...new Set(fades)].slice(0, 3).join('; ')})`); }
+    seen.push(`${tag}: ${s.length} frames, ${last.cards.length} cards at rest, ${flights.length} flights`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 40).join(' | ') : seen.join('; ') };
+}));
+group(() => check('tables-view-stable', 'With ?tables=1 at 1440x790 and 1728x1117, filmed frame by frame through each view change (zoom in, slides right, down, left and up, zoom out, a load of ?t=KEY, a refresh there): every part outside the moving table keeps its box within 1px from the first frame to the last and in every frame between (only its opacity may change): the title, the status row\'s items (Live, Hand #, stakes, clock, Chips/BB, Sound), the pills (an arrow pill replaced by another fades, never moves while drawn), All tables, About, the Stats button, the P&L and reasoning panels\' outer boxes; the page\'s scroll size stays and no scrollbar appears. The zoom in and out open and fold the status row\'s per-table items and move the Stats button by design (tables-status-row, tables-stats-button): there those are judged only while they do not glide', async () => {
+  const bad = [], seen = [];
+  const all = await viewFilmsOnce();
+  for (const [size, films] of Object.entries(all)) for (const { name, rec, load } of films) {
+    const tag = `${size} ${name}`, s = load ? rec.s.filter(x => x.cards.length) : rec.s;
+    if (s.length < 5) { bad.push(`${tag}: only ${s.length} frames`); continue; }
+    const zoom = /^zoom/.test(name), glides = k => zoom && (/^status /.test(k) || k === 'Stats button');
+    const keys = new Set(s.flatMap(x => Object.keys(x.els))), moved = [];
+    for (const k of keys) {
+      if (glides(k)) continue;
+      // Judged while it is drawn: a part that fades in or out (a pill, a panel) never moves while any of it shows.
+      const at = s.filter(x => x.els[k] && x.els[k][4] > 0.02);
+      if (at.length < 2) continue;
+      const ref = at[0].els[k], persist = s[0].els[k] && s.at(-1).els[k];
+      let worst = 0, when = 0;
+      for (const x of at) { const d = Math.max(...[0, 1, 2, 3].map(i => Math.abs(x.els[k][i] - ref[i]))); if (d > worst) { worst = d; when = x.t; } }
+      if (persist && !k.startsWith('pill')) { const d = Math.max(...[0, 1, 2, 3].map(i => Math.abs(s[0].els[k][i] - s.at(-1).els[k][i]))); if (d > worst) { worst = d; when = s.at(-1).t; } }
+      if (worst > 1) moved.push(`${k} by ${worst.toFixed(1)}px (at ${Math.round(when)} ms: ${ref.slice(0, 4).map(Math.round).join(',')} → ${(at.find(x => x.t === when) ?? s.at(-1)).els[k]?.slice(0, 4).map(Math.round).join(',')})`);
+    }
+    if (moved.length) bad.push(`${tag}: ${moved.length} moved: ${moved.slice(0, 5).join('; ')}`);
+    const sc = s.filter(x => x.scroll.some((v, i) => Math.abs(v - s[0].scroll[i]) > 1));
+    if (sc.length) bad.push(`${tag}: the page's scroll size ${s[0].scroll} → ${sc[0].scroll} at ${Math.round(sc[0].t)} ms`);
+    const bars = s.filter(x => x.bar.some(v => v > 0));
+    if (bars.length) bad.push(`${tag}: a scrollbar in ${bars.length} frames (from ${Math.round(bars[0].t)} ms)`);
+    seen.push(`${tag}: ${keys.size} parts still over ${s.length} frames`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 40).join(' | ') : seen.join('; ') };
+}));
 // The sticky bar's pot is a table amount too, so it follows the same switch: in big blinds it reads as the felt's pot does,
 // back in chips it reads in chips, and only its text changes (same height and place; its width moves by the text's alone).
 // Read as a screen reader hears it (NumberFlow's accessible name), once its roll has settled. Bets out are scripted (pot 50).

@@ -868,6 +868,7 @@ export default function Home() {
                 clock={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? clock : null}
                 still={hidden}
                 lod={zoomLod}
+                view={overviewOn ? stageKey : undefined}
               />
               </CardLookContext.Provider>
 
