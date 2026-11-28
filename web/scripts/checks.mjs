@@ -72,6 +72,7 @@ const COVERS = [
   [/components\/(PokerTable|Player|TableFelt|TableMotion|ChipStack|Card|ReasoningPanel|WinningsPanel|SessionProgress|UsageIndicator|TypewriterText|SoundToggle|TabBar|StickyBar)\.tsx|hooks\/|lib\/(sound|amounts|phoneTable)\./, /^(seat-size|table-|phone-|no-currency|main-scroll|stats-type-scale|desktop-table-text|numbers-one-format|history-overtake-sound|a11y-axe|sound-switch-name)/],
   [/components\/CumulativeChart\.tsx|lib\/families\./, /^(history-|replay-|sync-|leader-|trends-|small-screens|stats-any-viewport|overview-history-leads|detail-alone|page-edges|handover-|glide-clean|numbers-one-format|a11y-axe|cards-top-aligned|segments-fill|no-stub-ellipsis|chart-text-11)/],
   [/lib\/timeline\./, /^(history-|replay-|sync-|leader-|profiles-rows-|matchups-cells-still)/],
+  [/components\/ReplayBar\.tsx|lib\/replayDraft\./, /^(replay-|history-|sync-|trends-)/],
   [/components\/StatsTable\.tsx/, /^(profiles-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|leader-scope|page-edges|numbers-one-format|a11y-axe|cards-top-aligned|phone-profiles-rows-whole|phone-tables-scroll-cue|preview-rows-whole|no-stub-ellipsis)/],
   [/components\/HeadToHead\.tsx/, /^(matchups-|glide-smooth|handover-|glide-clean|stats-|sync-|small-screens|detail-alone|cards-no-scope|tiles-no-scroll|leader-scope|overview-history-leads|page-edges|numbers-one-format|a11y-axe|cards-top-aligned|phone-tables-scroll-cue|preview-rows-whole|no-stub-ellipsis)/],
   [/components\/About\.tsx|components\/about\/|app\/about\/|lib\/systemPrompt\./, /^(about-|pages-|page-edges|main-scroll|no-stats-hash|scroll-consistency|dialogs-close-and-captions|focus-ring-keyboard-only|numbers-one-format|a11y-axe|cards-top-aligned|no-stub-ellipsis)/],
@@ -3729,6 +3730,79 @@ main(() => check('history-number-style', 'The Trends hover readout uses the body
 
 // The overview tile gets its own Replay once the lines have stopped (owner 2026-11-08): hidden while
 // the replay plays, it fades in after the replay ends or is skipped, restarts it, and never opens the card.
+// Replay drafts (?replay=a, ?replay=b): replay is a mode of the whole Stats screen. Its control sits at the screen's head
+// (data-stats-replay-bar), never inside the Trends tile; entering it moves all three tiles to the replay's hand and tags
+// each (data-replay-tag); no tile's box moves; Back to live (A) or Live (B) brings back the live figures.
+group(() => check('replay-drafts', 'At ?replay=a and ?replay=b (1440x900, 390x844): no Replay inside the Trends tile; a Stats-level control; entering replay moves Trends, Profiles and Matchups to the replay hand and tags all three; no tile box moves over 1px; Live restores the live figures', async () => {
+  const bad = [], notes = [];
+  for (const d of ['a', 'b']) for (const [w, h] of [[1440, 900], [390, 844]]) {
+    const at = `${d} ${w}x${h}`, phone = phoneAt(w, h);
+    const p = await newPage(); await p.setViewport(phone ? { width: w, height: h, isMobile: true, hasTouch: true } : { width: w, height: h });
+    try {
+      await p.goto(`${BASE}/${withQuery(`replay=${d}`)}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await waitStats(p); await sleep(2000); await goto(p, phone ? 'race' : 'stats'); await sleep(2000);
+      const TILES = phone ? ['race-panel', 'stats-panel', 'pairwise-card'] : ['race-panel', 'stats-panel', 'pairwise-panel'];
+      const read = () => p.evaluate(ids => {
+        const vis = e => { const r = e?.getBoundingClientRect(); return !!r && r.width > 0 && r.height > 0 && +getComputedStyle(e).opacity > 0.05 && getComputedStyle(e).visibility !== 'hidden'; };
+        const onScreen = e => { const r = e.getBoundingClientRect(); return vis(e) && r.bottom > 0 && r.top < innerHeight; };
+        const bar = [...document.querySelectorAll('[data-stats-replay-bar]')].find(onScreen);
+        return {
+          bar: !!bar,
+          enter: !!bar && vis(bar.querySelector('[data-stats-replay]')),
+          trendsButton: [...document.querySelectorAll('#race-panel button')].filter(vis).map(b => b.textContent.trim()).filter(t => /^(Replay|Skip)$/.test(t)).concat(document.querySelector('#race-panel [data-tile-replay]') ? ['data-tile-replay'] : []),
+          tiles: ids.map(id => {
+            const el = document.getElementById(id), r = el?.getBoundingClientRect();
+            const hook = el?.querySelector('[data-sync-hand]'), tag = el?.querySelector('[data-replay-tag]');
+            return { id, box: r && [r.left, r.top, r.width, r.height], hand: hook ? +hook.dataset.syncHand : null, step: hook ? +(hook.dataset.syncStep || 0) : 0, tag: tag && vis(tag) ? tag.textContent.trim() : null };
+          }),
+        };
+      }, TILES);
+      const live = await read();
+      if (live.trendsButton.length) bad.push(`${at}: Trends tile holds ${live.trendsButton.join(', ')}`);
+      if (!live.bar || !live.enter) { bad.push(`${at}: no Stats-level replay control on screen`); continue; }
+      if (live.tiles.some(t => t.tag)) bad.push(`${at}: a replay tag shows while live`);
+      const liveHands = live.tiles.map(t => t.hand);
+      // Enter replay, pause, scrub to 40%.
+      await p.evaluate(() => [...document.querySelectorAll('[data-stats-replay-bar] [data-stats-replay]')].find(e => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().bottom > 0 && e.getBoundingClientRect().top < innerHeight)?.click());
+      await sleep(800);
+      const seek = await p.evaluate(() => {
+        const bar = [...document.querySelectorAll('[data-stats-replay-bar], [data-replay-strip]')].filter(e => e.querySelector('[data-replay-scrubber]') && e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().bottom > 0 && e.getBoundingClientRect().top < innerHeight)[0];
+        const play = bar?.querySelector('[data-replay-play]'), s = bar?.querySelector('[data-replay-scrubber]');
+        if (!s) return null;
+        if (play?.getAttribute('aria-label') === 'Pause') play.click();
+        const v = Math.round(+s.max * 0.4);
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(s, String(v));
+        s.dispatchEvent(new Event('input', { bubbles: true })); s.dispatchEvent(new Event('change', { bubbles: true }));
+        return v;
+      });
+      if (seek === null) { bad.push(`${at}: no scrubber after entering replay`); continue; }
+      await sleep(1200);
+      const rep = await read();
+      if (rep.trendsButton.length) bad.push(`${at}: while replaying, Trends tile holds ${rep.trendsButton.join(', ')}`);
+      const [tr, pr, mu] = rep.tiles;
+      const step = pr.step || 25;
+      if (!(tr.hand !== null && Math.abs(tr.hand - seek) <= 1)) bad.push(`${at}: Trends at ${tr.hand}, not the replay hand ${seek}`);
+      if (!(pr.hand !== null && tr.hand - pr.hand >= 0 && tr.hand - pr.hand <= step)) bad.push(`${at}: Profiles at ${pr.hand}, not the snapshot for ${tr.hand}`);
+      if (!(mu.hand !== null && Math.abs(mu.hand - tr.hand) <= 1)) bad.push(`${at}: Matchups at ${mu.hand}, not ${tr.hand}`);
+      if (rep.tiles.some((t, i) => t.hand === liveHands[i])) bad.push(`${at}: a tile still shows live figures (${rep.tiles.map(t => t.hand).join('/')} vs live ${liveHands.join('/')})`);
+      const tags = rep.tiles.map(t => t.tag);
+      const want = `Replay · hand ${seek.toLocaleString('en-US')}`;
+      if (tags.some(t => t !== want)) bad.push(`${at}: tags ${JSON.stringify(tags)}, want "${want}" on all three`);
+      const moved = rep.tiles.map((t, i) => Math.max(...t.box.map((v, k) => Math.abs(v - live.tiles[i].box[k])))).map(v => +v.toFixed(1));
+      if (moved.some(v => v > 1)) bad.push(`${at}: tile boxes moved ${moved.join('/')}px between live and replay`);
+      // Back to live.
+      await p.evaluate(() => [...document.querySelectorAll('[data-stats-live]')].find(e => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().bottom > 0 && e.getBoundingClientRect().top < innerHeight)?.click());
+      await sleep(1200);
+      const back = await read();
+      if (back.tiles.some((t, i) => t.hand !== liveHands[i] && !(t.hand > liveHands[i]))) bad.push(`${at}: after Live, tiles at ${back.tiles.map(t => t.hand).join('/')} (live ${liveHands.join('/')})`);
+      if (back.tiles.some(t => t.tag)) bad.push(`${at}: a replay tag stays after Live`);
+      const movedBack = back.tiles.map((t, i) => Math.max(...t.box.map((v, k) => Math.abs(v - live.tiles[i].box[k])))).map(v => +v.toFixed(1));
+      if (movedBack.some(v => v > 1)) bad.push(`${at}: tile boxes moved ${movedBack.join('/')}px after Live`);
+      notes.push(`${at}: live ${liveHands.join('/')}, replay ${rep.tiles.map(t => t.hand).join('/')}, moved ${moved.join('/')}px`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : notes.join('; ') };
+}));
 group(() => check('history-overview-replay', 'The Trends tile shows Replay only once the replay has ended or been skipped; it is keyboard-focusable, restarts the replay and leaves the card closed', async () => {
   const p = await pageAt(1440, 900, 'race');
   try {

@@ -18,23 +18,43 @@ let progress = 1;
 let frame = 0;
 const subs = new Set<() => void>();
 let step = 0;
+// Held where it is (the replay drafts' pause and scrubber, ?replay=a|b): the progress it holds, else null (running or at rest).
+let held: number | null = null;
 function tick(t: number) {
   const was = progress;
-  progress = start === null ? 1 : Math.min(1, Math.max(0, ((t - start) * speed) / PLAY_MS));
-  step = progress > was && progress < 1 ? progress - was : 0;
+  progress = held !== null ? held : start === null ? 1 : Math.min(1, Math.max(0, ((t - start) * speed) / PLAY_MS));
+  step = progress > was && progress < 1 && held === null ? progress - was : 0;
   subs.forEach(f => f());
   cancelAnimationFrame(frame);
-  if (progress < 1) frame = requestAnimationFrame(tick);
+  if (progress < 1 && held === null) frame = requestAnimationFrame(tick);
 }
-export const playReplay = () => { speed = (window as { __replaySpeed?: number }).__replaySpeed || 1; start = performance.now(); tick(start); };
-export const skipReplay = () => { start = -Infinity; tick(0); };
+export const playReplay = () => { speed = (window as { __replaySpeed?: number }).__replaySpeed || 1; held = null; start = performance.now(); tick(start); };
+export const skipReplay = () => { held = null; start = -Infinity; tick(0); };
 export const replayStarted = () => start !== null;
+// The replay drafts' transport, on the same clock: pause holds the progress it has reached, resume runs on from there,
+// seek moves to `p` (0..1, short of the end: the end is live) and keeps a held replay held. Under a minute's PLAY_MS as ever.
+export const pauseReplay = () => { if (progress < 1) { held = progress; tick(performance.now()); } };
+export const resumeReplay = () => {
+  if (held === null) return;
+  speed = (window as { __replaySpeed?: number }).__replaySpeed || 1;
+  start = performance.now() - (held * PLAY_MS) / speed; held = null; tick(performance.now());
+};
+export const seekReplay = (p: number) => {
+  const to = Math.min(1 - 1e-6, Math.max(0, p));
+  if (held !== null || start === null || progress >= 1) held = to;
+  else start = performance.now() - (to * PLAY_MS) / speed;
+  if (start === null || start === -Infinity) start = performance.now();
+  tick(performance.now());
+};
+export const replayHeld = () => held !== null;
 // The share of the replay its last frame moved (0 at rest): a slow frame's step is long, and what draws only per frame (the
 // Trends axis) must look that much further ahead.
 export const replayStep = () => step;
 const subscribe = (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; };
 // `select` should return a primitive, so a component re-renders only when what it shows changes.
 export const useReplay = <T,>(select: (p: number) => T): T => useSyncExternalStore(subscribe, () => select(progress), () => select(1));
+// Whether the replay is held (paused) now: the drafts' play/pause button.
+export const useReplayHeld = () => useSyncExternalStore(subscribe, replayHeld, () => false);
 
 // GET /api/stats/timeline, indexed for lookups at any hand.
 type Profile = Pick<ModelStats, 'hands' | 'bb100' | 'vpip' | 'pfr' | 'af'>;

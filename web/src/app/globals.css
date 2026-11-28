@@ -439,3 +439,14 @@ html.phone-a[data-fill=none] [data-phone-bar] { transform: translateY(-100%); }
    table rather than running under the tab bar. */
 html.phone-a .stage-zoom:has([data-tall-room]) { height: calc(100svh - 48px - env(safe-area-inset-top) - var(--bar-h, 0px)); }
 html.phone-a [data-tall-room] { flex: 1; min-height: 0; }
+
+/* The replay drafts (?replay=a|b, components/ReplayBar): the scrubber, a 4px track filled to the replay's hand (--at) with a
+   14px thumb; and draft B's mode outline on every stats card while replaying (a box-shadow: no box moves). */
+.replay-scrubber { appearance: none; height: 28px; background: transparent; cursor: pointer; }
+.replay-scrubber::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, rgb(31, 111, 196) var(--at, 0%), rgba(55, 53, 47, 0.16) var(--at, 0%)); }
+.replay-scrubber::-moz-range-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, rgb(31, 111, 196) var(--at, 0%), rgba(55, 53, 47, 0.16) var(--at, 0%)); }
+.replay-scrubber::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: white; box-shadow: 0 0 0 2px rgb(31, 111, 196), 0 1px 3px rgba(15, 15, 15, 0.2); }
+.replay-scrubber::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: white; box-shadow: 0 0 0 2px rgb(31, 111, 196), 0 1px 3px rgba(15, 15, 15, 0.2); }
+.replay-scrubber:focus-visible { outline: none; }
+.replay-scrubber:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px rgb(31, 111, 196), 0 0 0 5px rgba(31, 111, 196, 0.25); }
+.stats-room[data-replay-mode=b] .card-chrome { box-shadow: 0 0 0 1.5px rgba(31, 111, 196, 0.6), rgba(15, 15, 15, 0.06) 0px 4px 16px !important; }

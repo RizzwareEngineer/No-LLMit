@@ -16,7 +16,9 @@ import { StatsMessage } from '@/components/StatsPanel';
 import { MIN_HANDS, MUTED, ModelStats, TEXT, leaderBy, netColor, seatedModels, signedBrief, StatsResponse } from '@/lib/stats';
 import { remember, remembered, useRememberedBox } from '@/lib/boxes';
 import { ABOUT_PART, ABOUT_WINDOW, SCREENS, WINDOW } from '@/lib/statsScreens';
-import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
+import { Timeline, matchupsAt, playedAt, profilesAt, syncAttrs, useReplay, useReplayHand, useReplaySnap, useTimeline } from '@/lib/timeline';
+import { useReplayDraft } from '@/lib/replayDraft';
+import { ReplayStrip, ReplayTag, StatsReplayBar } from '@/components/ReplayBar';
 
 // Screens 2-6, each an empty full-height snap point in the page flow. Over them sits one layer:
 // the overview stage, About (the main scroll's last screen, under the overview in the flow: the two move
@@ -404,6 +406,18 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
   const hands = data?.scope.hands;
   const fetched = useTimeline(hands === undefined ? undefined : Math.floor(hands / 25));
   const tl = useMemo(() => (fetched && hands !== undefined && hands > fetched.hands ? { ...fetched, hands } : fetched), [fetched, hands]);
+  // The replay drafts (?replay=a|b, lib/replayDraft): the Stats screen's own live/replay control at its head (StatsReplayBar,
+  // its row reserved: --rb), in the stage and on each card at the same place, so it stays put through the glide and the
+  // cards; each tile's title carries the replay's hand (ReplayTag). `replaying` changes only on entering and leaving.
+  const draft = useReplayDraft();
+  const replaying = useReplay(p => !!tl && p < 1);
+  const titled = (t: string) => (draft ? <span className="relative">{t}<ReplayTag tl={tl} /></span> : t);
+  const head = draft && <div className="shrink-0 mb-2"><StatsReplayBar draft={draft} tl={tl} /></div>;
+  const foot = draft === 'b' && (
+    <div className="absolute bottom-[var(--bar-h,0px)] inset-x-0 flex items-center justify-center pointer-events-none" style={{ height: BELOW }}>
+      <div className="pointer-events-auto md:[zoom:var(--sz,1)]" style={{ width: 'calc(var(--stage-w, 1264px) / var(--sz, 1))' }}><ReplayStrip tl={tl} /></div>
+    </div>
+  );
   // The leader, in one unit and one scope on every screen: bb/100 over the range shown, among the models shown.
   const lead = ready && <Leader tl={tl} models={field} />;
   // The Matchups card's lineup: the models seated now (the tile's, and Trends' default) or everyone with hands.
@@ -463,9 +477,10 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
     <div
       ref={room}
       className="stats-room relative isolate w-full"
-      style={{ timelineScope: '--card-stats, --card-pairwise' } as React.CSSProperties}
-      // A click on the page around a detail screen's card (not on the card) goes back to the overview.
-      onClick={e => !(e.target as Element).closest('.card-chrome') && backToOverview()}
+      data-replay-mode={draft && replaying ? draft : undefined}
+      style={{ timelineScope: '--card-stats, --card-pairwise', '--rb': draft ? '40px' : undefined } as React.CSSProperties}
+      // A click on the page around a detail screen's card (not on the card, nor the replay drafts' controls) goes back to the overview.
+      onClick={e => !(e.target as Element).closest('.card-chrome, [data-stats-replay-bar], [data-replay-strip]') && backToOverview()}
     >
       {SCREENS.map(id => (
         <div
@@ -490,6 +505,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
               About band under it, exactly the window), so it is neither centred lower nor narrowed by a scrollbar. */}
           <div className={`@container ${BLOCK} ${WIDE} max-md:h-auto ${on && on !== 'race' ? '' : 'max-md:min-h-full'} max-md:pb-[var(--bar-h,0px)]`} style={WIDE_VARS}>
             <StatsZoom>
+            {head}
             {/* Overview: three tiles, each a miniature of its screen, Trends on top (stacked on phones). Profiles
                 at its content's width, Matchups across the rest; the rows share the height (BLOCK_VARS). On a phone, a
                 focused tile's card takes the window's box (Trends: its own height), as the cards do. */}
@@ -502,7 +518,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
                 '--mu-h': `calc(max(${27 * field.length + 2}px, 100cqw - ${32 + NAMES}px) + ${MU_V}px)`,
               } as React.CSSProperties}
             >
-              <Panel id="race-panel" title="Trends" away={{ y: -1 }} className="row-start-1 md:col-span-2 max-md:h-(--race-tile)" aside={lead} fit={raceFit} blank={blank} {...tile('race')}>
+              <Panel id="race-panel" title={titled('Trends')} away={{ y: -1 }} className="row-start-1 md:col-span-2 max-md:h-(--race-tile)" aside={lead} fit={raceFit} blank={blank} {...tile('race')}>
                 {/* One chart in both states, so the lines never redraw on the glide. */}
                 {ready ? (
                   part >= 1 && <CumulativeChart race mini={!zoomed} bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
@@ -511,7 +527,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
 
               <Panel
                 id="stats-panel"
-                title="Profiles"
+                title={titled('Profiles')}
                 away={{ x: -1 }}
                 className="row-start-2 md:col-start-1"
                 extra={on === 'stats-table' && <div className={`${ASIDE} added`}>{lead}</div>}
@@ -524,7 +540,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
 
               <Panel
                 id="pairwise-panel"
-                title="Matchups"
+                title={titled('Matchups')}
                 away={{ x: 1 }}
                 className="row-start-3 md:row-start-2 md:col-start-2 max-md:h-(--mu-h)"
                 extra={on === 'pairwise' && <div className={`${ASIDE} added`}>{muAside}</div>}
@@ -539,9 +555,9 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
           </div>
           {/* "About ↓", centred in the band under the block, on the overview only (it pages like a gesture). */}
           <motion.div
-            inert={on !== null}
+            inert={on !== null || (draft === 'b' && replaying)}
             initial={false}
-            animate={{ opacity: on === null ? 1 : 0 }}
+            animate={{ opacity: on === null && !(draft === 'b' && replaying) ? 1 : 0 }}
             transition={GLIDE}
             className="absolute bottom-[var(--bar-h,0px)] inset-x-0 flex items-center justify-center max-md:relative max-md:bottom-auto"
             style={{ height: BELOW }}
@@ -551,6 +567,7 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
               About <ArrowDown size={16} weight="bold" aria-hidden />
             </button>
           </motion.div>
+          {foot}
         </Recede>
 
         {/* About: the screen under the overview, its cards in the overview's block (width, centre, margins), centred in the
@@ -568,11 +585,11 @@ function WideStats({ stats: data, error }: { stats: StatsResponse | null; error:
         {/* The History screen's scroll range: the stage stays as it is. */}
         <div className="h-svh" aria-hidden />
 
-        <Card id="stats-card" title="Profiles" aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit blank={blank || part < 3}>
+        <Card id="stats-card" title={titled('Profiles')} head={head} foot={foot} aside={lead} by={pairwiseScreen} timeline="--card-pairwise" ref={statsCard} z="z-10" fit blank={blank || part < 3}>
           {part >= 3 && statsBody(true)}
         </Card>
 
-        <Card id="pairwise-card" title="Matchups" aside={muAside} z="z-20" fit="hug" blank={blank || part < 4} record={muLineup === 'seated'}>
+        <Card id="pairwise-card" title={titled('Matchups')} head={head} foot={foot} aside={muAside} z="z-20" fit="hug" blank={blank || part < 4} record={muLineup === 'seated'}>
           {part >= 4 && pairwiseBody(true, muFold ? field : muModels)}
         </Card>
       </div>
@@ -634,6 +651,11 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
   }, [open]);
   const shown = (id: Part) => !draftA || open === id;
   const aboutLayout = useAboutLayout();
+  // The replay drafts (?replay=a|b): the control's one row at the top of each stats window (each window is a whole screen
+  // here), the same control in all three; each card's title carries the replay's hand.
+  const replayD = useReplayDraft();
+  const replaying = useReplay(p => !!tl && p < 1);
+  const phoneBar = replayD && <div className="shrink-0 mb-2 px-1"><StatsReplayBar draft={replayD} tl={tl} phone /></div>;
 
   // The window crossing the middle of the screen is the page's screen (the tab bar's Stats or About).
   useEffect(() => {
@@ -686,7 +708,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
         <div className="flex items-center gap-1 min-w-0">
           {/* 32px drawn, 44px to a touch (its ::before). */}
           {draftA && <button type="button" onClick={backToOverview} aria-label="Back to the stats" className="relative -ml-2 size-8 shrink-0 flex items-center justify-center rounded before:absolute before:-inset-1.5 before:content-[''] [-webkit-tap-highlight-color:transparent] active:bg-black/[0.05]"><CaretLeft size={20} weight="bold" style={{ color: TEXT }} aria-hidden /></button>}
-          <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{title}</h2>
+          <h2 id={`${id}-title`} className={TITLE} style={{ color: TEXT }}>{replayD ? <span className="relative">{title}<ReplayTag tl={tl} /></span> : title}</h2>
         </div>
         {aside && <div className={ASIDE}>{aside}</div>}
       </div>
@@ -700,7 +722,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
     // than its window leaves it (the top bar, the card's padding, its two-line header, the column logos and the key under
     // the grid: five 20px lines and their gaps), so a swipe on it pages instead of scrolling it; never under 26px cells
     // (a short window scrolls it instead).
-    <div ref={room} className="stats-room relative w-full" style={{ ...BLOCK_VARS, '--card-m-phone': `min(100cqw - 36px, clamp(${26 * Math.max(1, field.length)}px, max(100svh, var(--win-min, 0px)) - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 104px - 28px - 116px, ${40 * Math.max(1, field.length)}px))` } as React.CSSProperties}>
+    <div ref={room} className="stats-room relative w-full" data-replay-mode={replayD && replaying ? replayD : undefined} style={{ ...BLOCK_VARS, '--card-m-phone': `min(100cqw - 36px, clamp(${26 * Math.max(1, field.length)}px, max(100svh, var(--win-min, 0px)) - var(--top-h) - 8px - var(--bar-h, 0px) - 8px - 32px - 104px - 28px - 116px, ${40 * Math.max(1, field.length)}px))` } as React.CSSProperties}>
       {draftA && !open && (
         <section id="stats" data-screen aria-label="Stats" className={WINDOW}>
           <MacOverview ready={ready} blank={blank} message={message} tl={tl} models={models} field={field} seated={seated} bigBlind={bigBlind} profView={profView} />
@@ -708,11 +730,13 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
       )}
       {shown('race') && <section id="race" data-screen aria-label="Trends" className={WINDOW}>
         {!draftA && <div id="stats" aria-hidden className="absolute top-0" />}
+        {phoneBar}
         {card('race-panel', 'Trends', ready && <Leader tl={tl} models={field} />, ready ? (
           <CumulativeChart race compact bigBlind={bigBlind} models={field} everyone={models} timeline={tl} />
         ) : message)}
       </section>}
       {shown('stats-table') && <section id="stats-table" data-screen aria-label="Profiles" className={WINDOW}>
+        {phoneBar}
         {card('stats-panel', 'Profiles', ready && <Leader tl={tl} models={field} />, !ready ? message : (
           <>
             <Definition>
@@ -726,6 +750,7 @@ function PhoneStats({ stats: data, error }: { stats: StatsResponse | null; error
         ))}
       </section>}
       {shown('pairwise') && <section id="pairwise" data-screen aria-label="Matchups" className={WINDOW}>
+        {phoneBar}
         {card('pairwise-card', 'Matchups', ready && (
           <>
             {/* Wraps (the switch under its label) where the row does not fit: never past the card's edge. */}
@@ -965,7 +990,8 @@ const BLOCK_VARS = {
 // 2026-11-15: "standardize this so that it doesn't change this drastically"). In the zoom a length is in layout px, so
 // the block's width and the window's room divide by --sz, and so does the page above and below it; the measured widths
 // (--prof-w, --mu-names) are layout px already. Phones keep BLOCK_VARS and PAD, unzoomed.
-const WIDE_ROOM = `((100svh - 44px - var(--bar-h, 0px) - ${MARGIN} - ${BELOW}) / var(--sz, 1))`;
+// --rb: the replay drafts' control row at the head (lib/replayDraft), in layout px; unset (0) without the switch.
+const WIDE_ROOM = `((100svh - 44px - var(--bar-h, 0px) - ${MARGIN} - ${BELOW}) / var(--sz, 1) - var(--rb, 0px))`;
 const WIDE_VARS = { ...BLOCK_VARS, '--block-w': 'calc(var(--stage-w, 1264px) / var(--sz, 1))', '--rows': `calc(${WIDE_ROOM} - 12px)` } as React.CSSProperties;
 const WIDE = `pt-[calc(44px+var(--top))] pb-[calc(var(--below)+var(--bar-h,0px))] md:[zoom:var(--sz,1)] md:pt-[calc((44px+var(--top))/var(--sz,1))] md:pb-[calc((var(--below)+var(--bar-h,0px))/var(--sz,1))]`;
 // Phones (under md, lib/layout's PHONE: a phone, or a laptop past about 145% zoom) stack the tiles at their content's size: Trends
@@ -1028,11 +1054,15 @@ function Card({
   fit = false,
   blank = false,
   record = true,
+  head,
+  foot,
   children,
 }: {
   id: string;
   title: React.ReactNode;
   aside?: React.ReactNode;
+  head?: React.ReactNode; // the replay drafts' control row, over the card where it sits over the overview's tiles
+  foot?: React.ReactNode; // draft B's transport, in the band under the block
   by?: React.RefObject<HTMLElement | null>;
   timeline?: string;
   ref?: React.Ref<HTMLElement>;
@@ -1049,6 +1079,7 @@ function Card({
       <Recede by={by} timeline={timeline} className="h-full">
         <div className={`@container ${BLOCK} ${WIDE}`} style={WIDE_VARS}>
           <StatsZoom>
+          {head}
           {/* The overview's box, where its tile stands in for this card. */}
           <div className="relative h-full md:h-(--block-h)">
           <div ref={chrome} {...attrs} className={`${CARD} absolute ${fit === 'hug' ? HUG : `inset-x-0 inset-y-0 mb-auto max-h-full ${fit ? 'h-fit' : ''}`} ${blank ? '[&>*]:invisible' : ''}`} style={{ boxShadow: CARD_SHADOW, ...size }}>
@@ -1063,6 +1094,7 @@ function Card({
           </StatsZoom>
         </div>
       </Recede>
+      {foot}
     </section>
   );
 }

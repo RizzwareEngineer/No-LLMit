@@ -6,6 +6,7 @@ import { GLIDE_MS, SHADOW, Segmented } from '@/components/Section';
 import LLMLogo, { modelColor } from '@/components/LLMLogo';
 import { family, openWeights } from '@/lib/families';
 import { MUTED, ModelStats, TEXT, chips, ciHalf, netColor, signed } from '@/lib/stats';
+import { replayDraft, useReplayDraft } from '@/lib/replayDraft';
 import { PLAY_MS, Timeline, playReplay, playedAt, replaySpeed, replayStarted, replayStep, skipReplay, syncAttrs, useReplay } from '@/lib/timeline';
 import { playSound } from '@/lib/sound';
 import { H, RATE_FROM, W, fitFrom, robustRange, series, type Metric } from '@/lib/series';
@@ -378,11 +379,14 @@ export default function CumulativeChart({
   // from when the tile first scrolls into view; Skip and Replay control it. The clock is shared:
   // Profiles and Matchups show the hand it has reached.
   const clock = useReplay(p => p);
-  const progress = race && !reduce ? clock : 1; // 0..1 of the way from the first hand to the last
+  // The replay drafts (?replay=a|b) make replay a mode the viewer enters on purpose: it follows the clock even under reduced
+  // motion (it opens held there), and never starts by itself.
+  const draft = useReplayDraft();
+  const progress = race && (!reduce || draft) ? clock : 1; // 0..1 of the way from the first hand to the last
   const playing = progress < 1;
   useEffect(() => {
     const el = area.current;
-    if (!el || !race || reduce || replayStarted()) return;
+    if (!el || !race || reduce || replayStarted() || replayDraft()) return;
     const io = new IntersectionObserver(([e]) => {
       if (!e.isIntersecting) return;
       io.disconnect();
@@ -1189,7 +1193,7 @@ export default function CumulativeChart({
             {/* The race clock: the hand the lines have reached, with Skip while it plays and Replay after. */}
             {race && (playing || interactive) && (
               <div className="absolute flex items-center gap-2 tabular-nums" style={{ right, top: 0, height: padTop - 4, fontSize: ts, color: MUTED }}>
-                {playing && (
+                {playing && !draft && (
                   <span data-race-clock>
                     Hand <b style={{ color: TEXT }}>{(handNow === null ? Math.round(head) : Math.floor(handNow)).toLocaleString('en-US')}</b> of {(handNow === null ? lastHand : timeline!.hands).toLocaleString('en-US')}
                   </span>
@@ -1199,7 +1203,7 @@ export default function CumulativeChart({
                     Reset zoom
                   </button>
                 )}
-                {interactive && (
+                {interactive && !draft && (
                   <button onPointerMove={ev => ev.stopPropagation()} onPointerDown={ev => ev.stopPropagation()} onClick={playing ? skipReplay : playReplay} className={CLOCK_BTN} style={CLOCK_BTN_STYLE}>
                     {playing ? 'Skip' : 'Replay'}
                   </button>
@@ -1239,7 +1243,7 @@ export default function CumulativeChart({
         {/* The tile's Replay, once the race has run (ended or skipped): over the clock's place at the plot's
             scale, but outside the plot, whose role="img" hides its children from screen readers. It
             restarts the shared replay and never opens the card. */}
-        {race && mini && !playing && replayStarted() && (
+        {race && mini && !playing && replayStarted() && !draft && (
           <div className="absolute pointer-events-none" style={{ left: (box.w - lw * s) / 2, top: 0, width: lw * s, height: lh * s }}>
             <div className="absolute left-0 top-0 origin-top-left" style={{ width: lw, height: lh, transform: s === 1 ? undefined : `scale(${s})` }}>
               <div className="absolute flex items-center" style={{ right, top: 0, height: padTop - 4, fontSize: ts }}>
