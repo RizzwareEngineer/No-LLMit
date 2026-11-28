@@ -46,11 +46,12 @@ export const useTablesOverview = () => useSyncExternalStore(noSub, () => tablesO
 const stacksDraft = (): 1 | 2 | null => { if (!tablesOverview(location.search)) return null; const v = query('stacks'); return v === '1' ? 1 : v === '2' ? 2 : null; };
 export const useStacksDraft = () => useSyncExternalStore(noSub, stacksDraft, () => null);
 // ?tables=1&shells=N (5 to 24; a draft): the overview filled up to N tables with still mock tables (lib/shells), laid out
-// by &layout=a (the grid as it is), b (the most active live table large, the rest a wall beside or under it) or c (the
-// grid, its tables under FARTHER_W drawn farther: TablesOverview). As "N:a" (a string, so the snapshot is stable).
-export type ShellsDraft = { n: number; layout: 'a' | 'b' | 'c' } | null;
-const shellsKey = () => { if (!tablesOverview(location.search)) return ''; const n = Number(query('shells')), l = query('layout'); return Number.isInteger(n) && n >= 5 && n <= 24 ? `${n}:${l === 'b' || l === 'c' ? l : 'a'}` : ''; };
-export const parseShells = (k: string): ShellsDraft => (k ? { n: Number(k.split(':')[0]), layout: k.split(':')[1] as 'a' | 'b' | 'c' } : null);
+// by &layout=a (the grid as it is), b (the most active live table large, the rest a wall beside or under it), c (the
+// grid, its tables under FARTHER_W drawn farther: TablesOverview) or d (b, its wall drawn as c draws). As "N:a" (a string,
+// so the snapshot is stable).
+export type ShellsDraft = { n: number; layout: 'a' | 'b' | 'c' | 'd' } | null;
+const shellsKey = () => { if (!tablesOverview(location.search)) return ''; const n = Number(query('shells')), l = query('layout'); return Number.isInteger(n) && n >= 5 && n <= 24 ? `${n}:${l === 'b' || l === 'c' || l === 'd' ? l : 'a'}` : ''; };
+export const parseShells = (k: string): ShellsDraft => (k ? { n: Number(k.split(':')[0]), layout: k.split(':')[1] as 'a' | 'b' | 'c' | 'd' } : null);
 export const useShellsKey = () => useSyncExternalStore(noSub, shellsKey, () => '');
 // Run as the page is parsed: landing on the overview, the stage is hidden until the overview is drawn over it (page.tsx),
 // so the first paint is not the single table.

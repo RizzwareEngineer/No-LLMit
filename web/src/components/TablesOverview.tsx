@@ -129,7 +129,7 @@ function ShellCell({ t, tw, th, far, farther = false }: { t: KeyedTable; tw: num
 // seats out of the hand show their logo only, the logos grow a little more. Over it and under the page's table: far.
 export const FARTHER_W = 300;
 
-// ?shells=N&layout=b: one table large (the featured: the most active live table) and the others as a wall beside it or
+// ?shells=N&layout=b (and d, its wall drawn farther as c draws): one table large (the featured: the most active live table) and the others as a wall beside it or
 // under it, whichever gives the wall's tables more room while the featured one stays about twice their width.
 export function featuredFor(n: number, w: number, h: number) {
   let best = { side: true, fw: 0, fh: 0, rail: gridFor(Math.max(1, n - 1), w, h), score: -1 };
@@ -158,7 +158,8 @@ export default function TablesOverview({ tables, w, h, nearW, onOpen }: { tables
   // b's featured table: the live table with the largest pot in big blinds, switched at most once a hand and only at a hand
   // boundary (the featured table's next hand), so the layout never thrashes.
   const [feat, setFeat] = useState<{ key: string; hand: number } | null>(null);
-  const cand = shells?.layout === 'b' && tables.length ? tables.reduce((a, t) => (potBB(t) > potBB(a) ? t : a)) : null;
+  const featuring = shells?.layout === 'b' || shells?.layout === 'd';
+  const cand = featuring && tables.length ? tables.reduce((a, t) => (potBB(t) > potBB(a) ? t : a)) : null;
   const cur = feat && tables.find(t => t.key === feat.key);
   if (cand) {
     const hand = (t: TableView) => t.gameState?.handNumber ?? 0;
@@ -166,14 +167,14 @@ export default function TablesOverview({ tables, w, h, nearW, onOpen }: { tables
     else if (hand(cur) !== feat.hand) setFeat(cand.key !== cur.key ? { key: cand.key, hand: hand(cand) } : { key: cur.key, hand: hand(cur) });
   }
   const cell = (t: KeyedTable & { shell?: true }, tw: number, th: number) => {
-    const far = tw < nearW, farther = shells?.layout === 'c' && tw < FARTHER_W;
+    const far = tw < nearW, farther = (shells?.layout === 'c' || shells?.layout === 'd') && tw < FARTHER_W;
     return t.shell ? <ShellCell key={t.key} t={t} tw={tw} th={th} far={far} farther={farther} /> : <Cell key={t.key} t={t} tw={tw} th={th} far={far} farther={farther} onOpen={onOpen} />;
   };
-  const featured = shells?.layout === 'b' ? (cur ?? cand) : null;
+  const featured = featuring ? (cur ?? cand) : null;
   if (featured) {
     const { side, fw, fh, rail } = featuredFor(all.length, w, h), rest = all.filter(t => t.key !== featured.key);
     return (
-      <div data-overview data-overview-layout="b" className="absolute inset-0 flex items-center justify-center" style={{ flexDirection: side ? 'row' : 'column', gap: GX }}>
+      <div data-overview data-overview-layout={shells?.layout} className="absolute inset-0 flex items-center justify-center" style={{ flexDirection: side ? 'row' : 'column', gap: GX }}>
         <div data-overview-featured={featured.key}>{cell(featured as KeyedTable, fw, fh)}</div>
         <div data-overview-grid className="flex flex-wrap justify-center content-center" style={{ width: rail.cols * rail.cellW + (rail.cols - 1) * GX, columnGap: GX, rowGap: GY }}>
           {rest.map(t => cell(t, rail.tw, rail.th))}

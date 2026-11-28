@@ -2439,16 +2439,16 @@ const SHELL_MEASURE = () => {
     const board = [...e.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(x => x.getBoundingClientRect().width);
     return { key: e.dataset.overviewCell ?? e.dataset.overviewShell, shell: e.matches('[data-overview-shell]'), box: R(e), tw: t.getBoundingClientRect().width,
       logo: Math.min(...logos), hole: holes.length ? Math.min(...holes) : null, board: board.length ? Math.min(...board) : null,
-      tag: !!e.querySelector('[data-mock-tag]') && vis(e.querySelector('[data-mock-tag]')), link: e.tagName === 'A',
+      tag: !!e.querySelector('[data-mock-tag]') && vis(e.querySelector('[data-mock-tag]')), link: e.tagName === 'A', farther: !!e.querySelector('[data-lod-farther]'),
       cursor: getComputedStyle(t).cursor, oneLine: label.getBoundingClientRect().height <= 21 && label.scrollWidth <= label.clientWidth + 1 };
   });
   const used = per.reduce((a, x) => a + (x.box[2] - x.box[0]) * (x.box[3] - x.box[1]), 0);
   const de = document.documentElement;
-  return { per, empty: 1 - used / (ov.width * ov.height), hscroll: de.scrollWidth > de.clientWidth + 0.5, live: per.filter(x => !x.shell).map(x => x.key) };
+  return { per, empty: 1 - used / (ov.width * ov.height), hscroll: de.scrollWidth > de.clientWidth + 0.5, live: per.filter(x => !x.shell).map(x => x.key), featured: document.querySelector('[data-overview-featured]')?.dataset.overviewFeatured ?? null };
 };
-group(() => check('tables-shells-draft', 'With ?tables=1&shells=10 and each of &layout=a, b, c at 1280x720, 1440x790, 1440x900 and 1728x1117: exactly 10 tables drawn (the live ones first, then shells), none overlapping, each label one line; every shell carries a visible "mock" tag, is no link, has the default cursor, and a click on it leaves the URL as it was; the live tables are links, still live (their state changes), and a click on one opens it (?t=KEY); no horizontal scroll', async () => {
+group(() => check('tables-shells-draft', 'With ?tables=1&shells=10 and each of &layout=a, b, c, d at 1280x720, 1440x790, 1440x900 and 1728x1117: exactly 10 tables drawn (the live ones first, then shells), none overlapping, each label one line; every shell carries a visible "mock" tag, is no link, has the default cursor, and a click on it leaves the URL as it was; the live tables are links, still live (their state changes), and a click on one opens it (?t=KEY); no horizontal scroll', async () => {
   const bad = [], seen = [];
-  for (const layout of ['a', 'b', 'c']) for (const [w, h] of OVERVIEW_SIZES) {
+  for (const layout of ['a', 'b', 'c', 'd']) for (const [w, h] of OVERVIEW_SIZES) {
     const tag = `${layout} ${w}x${h}`, p = await newPage();
     try {
       await p.setViewport({ width: w, height: h });
@@ -2459,7 +2459,7 @@ group(() => check('tables-shells-draft', 'With ?tables=1&shells=10 and each of &
       const hit = (a, b) => a[0] < b[2] - 0.5 && b[0] < a[2] - 0.5 && a[1] < b[3] - 0.5 && b[1] < a[3] - 0.5;
       if (m.per.length !== 10) bad.push(`${tag}: ${m.per.length} tables drawn, not 10`);
       const firstShell = m.per.findIndex(x => x.shell);
-      if (layout !== 'b' && firstShell >= 0 && m.per.slice(firstShell).some(x => !x.shell)) bad.push(`${tag}: a live table after a shell`);
+      if (layout !== 'b' && layout !== 'd' && firstShell >= 0 && m.per.slice(firstShell).some(x => !x.shell)) bad.push(`${tag}: a live table after a shell`);
       for (let i = 0; i < m.per.length; i++) for (let j = i + 1; j < m.per.length; j++) if (hit(m.per[i].box, m.per[j].box)) bad.push(`${tag}: ${m.per[i].key} and ${m.per[j].key} overlap`);
       for (const x of m.per) {
         if (x.box[0] < -0.5 || x.box[2] > w + 0.5 || x.box[1] < -0.5 || x.box[3] > h + 0.5) bad.push(`${tag}: ${x.key} runs out of the window`);
@@ -2468,6 +2468,11 @@ group(() => check('tables-shells-draft', 'With ?tables=1&shells=10 and each of &
         if (!x.shell && !x.link) bad.push(`${tag}: live ${x.key} is no link`);
       }
       if (m.hscroll) bad.push(`${tag}: horizontal scroll`);
+      // b and d feature a live table; c and d draw a table under 300px farther (and only those), a and b never.
+      const featuring = layout === 'b' || layout === 'd', farLevel = layout === 'c' || layout === 'd';
+      if (featuring !== !!m.featured || (m.featured && !m.live.includes(m.featured))) bad.push(`${tag}: featured ${m.featured ?? 'none'}`);
+      const wrongLevel = m.per.filter(x => x.farther !== (farLevel && x.tw < 300));
+      if (wrongLevel.length) bad.push(`${tag}: ${wrongLevel.length} tables at the wrong level of detail (${wrongLevel.map(x => `${x.key} ${x.tw.toFixed(0)}px ${x.farther ? 'farther' : 'far'}`).slice(0, 3).join(', ')})`);
       // A click on a shell: nothing.
       const shell = m.per.find(x => x.shell), url0 = p.url();
       if (shell) { await clickCenter(p, `[data-overview-shell="${shell.key}"] [data-cell-table]`); await sleep(500); if (p.url() !== url0) bad.push(`${tag}: a click on shell ${shell.key} changed the URL to ${p.url()}`); }
