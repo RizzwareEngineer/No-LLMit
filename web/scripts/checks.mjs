@@ -5217,6 +5217,85 @@ group(() => check('about-no-system-design', 'About never mentions or links the s
   if (linked.length) bad.push(`links ${linked.join(', ')}`);
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : `${got.links.length} links, none to a design doc` };
 }));
+// Owner, 2026-11-28: "the amount of text is just a little bit too much still ... reduce the amount of content ... and also
+// keep the table running." Three drafts of a shorter About on /about?about=a, b and c (about/drafts.tsx). In each, at
+// 1440x900 and 390x844: the six things About must say are each named by a heading, tab or button and open to their
+// words (how it works; the system prompt and the user prompt, each from its first line in lib/systemPrompt.ts; the
+// caveats; the hours; what's next); the live table is on the page and the stream moves it; nothing scrolls sideways; and
+// on a desktop the first screen holds at most 60 words of copy (everything but the nav, the footer, the live table, tab
+// labels, switches and buttons or links that only name an action).
+const DRAFT_ITEMS = () => [
+  ['how', /^how it works$/i, 'The engine (deals|checks)|Every model gets the same two prompts'],
+  ['system', /^(the )?system prompt$/i, PROMPT_LINES.SYSTEM_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')],
+  ['user', /^(the )?user prompt$/i, PROMPT_LINES.EXAMPLE_USER_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')],
+  ['caveats', /^caveats$/i, 'No memory between hands'],
+  ['hours', /^hours$/i, '9am to 9pm ET'],
+  ['next', /^what.s next$/i, 'open-source dataset'],
+];
+group(() => check('about-drafts', 'The About drafts (/about?about=a, b, c) at 1440x900 and 390x844: the six required items each named by a heading, tab or button and opening to their words (the prompts from lib/systemPrompt.ts), the live table present and moved by the stream, no sideways scroll, and at most 60 words of copy on the desktop\'s first screen', async () => {
+  const bad = [], seen = [];
+  for (const d of ['a', 'b', 'c']) for (const [w, h] of [[1440, 900], [390, 844]]) {
+    const at = `${d} ${w}x${h}`, phone = w < 700;
+    const p = await newPage();
+    await p.setViewport({ width: w, height: h, isMobile: phone, hasTouch: phone, deviceScaleFactor: 1 });
+    await p.goto(`${BASE}/about?about=${d}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    const up = await p.waitForFunction(() => document.querySelector('[data-about-draft] [data-live-table] [data-seat]'), { timeout: 60000 }).then(() => true, () => false);
+    if (!up) { bad.push(`${at}: no live table`); await p.close(); continue; }
+    await sleep(2500);
+    // The stream moves the table: its seats, pot or board change within 15 s.
+    const moved = await p.evaluate(() => new Promise(res => {
+      const t = document.querySelector('[data-live-table]');
+      const mo = new MutationObserver(() => { mo.disconnect(); res(true); });
+      mo.observe(t, { subtree: true, childList: true, characterData: true });
+      setTimeout(() => { mo.disconnect(); res(false); }, 15000);
+    }));
+    if (!moved) bad.push(`${at}: the live table did not change in 15 s`);
+    const first = await p.evaluate(() => {
+      const skip = 'nav, footer, [role=tab], [data-seg], [data-live-table], dialog, [role=dialog], [aria-hidden=true], .sr-only, input, label, a:not(:has([data-copy])), button:not(:has([data-copy]))';
+      const out = [], tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const hidden = el => { for (let e = el; e; e = e.parentElement) { const c = getComputedStyle(e); if (c.visibility === 'hidden' || c.display === 'none' || +c.opacity === 0) return true; } return false; };
+      for (let n; (n = tw.nextNode());) {
+        const t = n.textContent.trim(), el = n.parentElement;
+        if (!t || !el || el.closest(skip) || hidden(el)) continue;
+        const r = document.createRange(); r.selectNodeContents(n); const b = r.getBoundingClientRect();
+        if (b.width && b.bottom > 0 && b.top < innerHeight) out.push(t);
+      }
+      return { words: out.join(' ').split(/\s+/).filter(x => /[\p{L}\p{N}]/u.test(x)).length, side: document.documentElement.scrollWidth - innerWidth };
+    });
+    if (first.side > 0) bad.push(`${at}: scrolls ${first.side}px sideways`);
+    if (!phone && first.words > 60) bad.push(`${at}: ${first.words} words on the first screen (at most 60)`);
+    const opened = [];
+    for (const [id, name, words] of DRAFT_ITEMS()) {
+      const r = await p.evaluate(async (id, nameSrc, wordsSrc) => {
+        const name = new RegExp(nameSrc, 'i'), re = new RegExp(wordsSrc);
+        const vis = el => { if (!el.getClientRects().length) return false; for (let e = el; e; e = e.parentElement) { const c = getComputedStyle(e); if (c.visibility === 'hidden' || c.display === 'none' || +c.opacity === 0) return false; } return true; };
+        const label = el => (el.getAttribute('aria-label') || el.textContent).trim().replace(/^Open /, '');
+        const named = [...document.querySelectorAll('h1, h2, h3, [role=tab], button')].some(el => vis(el) && name.test(label(el)));
+        const shows = () => [...document.querySelectorAll('[data-about-draft] *')].some(el => [...el.childNodes].some(n => n.nodeType === 3 && re.test(n.textContent)) && vis(el));
+        const on = el => ['aria-selected', 'aria-expanded', 'aria-pressed'].some(a => el.getAttribute(a) === 'true');
+        const tried = [];
+        for (let i = 0; i < 4 && !shows(); i++) {
+          const next = [...document.querySelectorAll(`[data-open~="${id}"]`)].find(el => vis(el) && !on(el) && !tried.includes(el))
+            ?? [...document.querySelectorAll('[role=tab], button')].find(el => vis(el) && !on(el) && !tried.includes(el) && name.test(label(el)));
+          if (!next) break;
+          tried.push(next); next.scrollIntoView({ block: 'center' }); next.click();
+          await new Promise(r => setTimeout(r, 400));
+        }
+        const ok = shows();
+        document.querySelectorAll('dialog[open]').forEach(dl => dl.close());
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await new Promise(r => setTimeout(r, 300));
+        return { named, ok, clicks: tried.length };
+      }, id, name.source, words);
+      if (!r.named) bad.push(`${at}: nothing named ${id}`);
+      if (!r.ok) bad.push(`${at}: ${id} never showed its words`);
+      opened.push(`${id}${r.clicks ? `(${r.clicks})` : ''}`);
+    }
+    seen.push(`${at}: ${first.words} words, ${opened.join(' ')}`);
+    await p.close();
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join('; ') };
+}));
 // Owner, 2026-11-09: "I do want a support section, and that should honestly be highlighted a bit better because that's the main
 // thing. I'm trying to get people to donate." The donate button (the GitHub Sponsors link) is in the window without scrolling at
 // 1440x900, on the home page's About screen (under the sticky bar) and on /about; and it is About's most prominent control:

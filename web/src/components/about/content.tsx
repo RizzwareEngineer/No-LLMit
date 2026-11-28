@@ -19,12 +19,12 @@ export const RULE = 'rgba(55, 53, 47, 0.16)'; // hairlines between sections
 export const LABEL = 'text-[13px] leading-snug font-medium uppercase tracking-wider';
 
 // The day the open dataset ships: one constant, so moving it is a one-word change.
-const DATASET_DATE = 'Wednesday, Nov 18';
+export const DATASET_DATE = 'Wednesday, Nov 18';
 
 type Heading = 'h1' | 'h2' | 'h3';
 
 // Secondary text: 14px muted, under About's 16px body.
-function Label({ as: Tag = 'p', className = '', children, ...rest }: { as?: 'p' | 'li' | 'span'; className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLElement>) {
+export function Label({ as: Tag = 'p', className = '', children, ...rest }: { as?: 'p' | 'li' | 'span'; className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLElement>) {
   return <Tag {...rest} className={`text-[14px] leading-normal ${className}`} style={{ color: MUTED }}>{children}</Tag>;
 }
 
@@ -48,7 +48,7 @@ export function Intro() {
 }
 
 // The volume.
-const HANDS_A_DAY = 150;
+export const HANDS_A_DAY = 150;
 
 // How it works: the same two prompts for every model (each opens in the dialog below), and the reply.
 export function How() {
@@ -66,7 +66,7 @@ export function How() {
 }
 
 // The caveats: each headline, then why.
-const CAVEATS: [string, string][] = [
+export const CAVEATS: [string, string][] = [
   ['No memory between hands.', 'A model doesn’t remember how anyone played earlier, not even its own last hand.'],
   ['No tells or leaks.', 'The only information is the action on the table.'],
   ['An illegal or unreadable reply gets one retry.', 'If that fails too, it checks if it can, otherwise folds.'],
@@ -122,7 +122,7 @@ const SAID: Partial<Record<Status, string>> = {
   invalid: 'That doesn’t look like an email.',
   failed: 'Couldn’t join right now, try again.',
 };
-function Waitlist() {
+export function Waitlist() {
   const ref = useRef<HTMLFormElement>(null);
   // On About's dial the form is clipped out of view until its row turns forward: watch the dial's window instead.
   const near = useRef<Element | null>(null);
@@ -201,7 +201,7 @@ export function Support({ as: H, className = '' }: { as: Heading; className?: st
 }
 
 // A link out, in the site's link blue.
-function Out({ href, children }: { href: string; children: React.ReactNode }) {
+export function Out({ href, children }: { href: string; children: React.ReactNode }) {
   return <a href={href} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: BLUE }}>{children}</a>;
 }
 
@@ -221,7 +221,7 @@ export function Footer() {
 }
 
 // The prompts, as code.
-function Code({ children }: { children: string }) {
+export function Code({ children }: { children: string }) {
   return (
     <pre className="p-3 rounded-lg text-[13px] leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono" style={{ background: 'rgba(55, 53, 47, 0.04)' }}>
       {children}
@@ -241,20 +241,11 @@ const useHold = () => useSyncExternalStore(onHold, () => document.documentElemen
 
 // "Read the system prompt" and "Read the user prompt": the real prompt text (lib/systemPrompt.ts, never copied here) in a modal
 // <dialog> over the page, so opening it never changes About's size (the page leaves wheel and keys inside a dialog alone).
-type View = 'system' | 'user';
+export type View = 'system' | 'user';
 const VIEWS: { label: string; value: View }[] = [{ label: 'System prompt', value: 'system' }, { label: 'User prompt', value: 'user' }];
 
 function PromptLinks() {
   const [view, setView] = useState<View | null>(null);
-  const ref = useRef<HTMLDialogElement>(null), title = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    const d = ref.current;
-    if (view && !d?.open) { d?.showModal(); title.current?.focus(); }
-    if (!view && d?.open) d.close();
-    document.documentElement.toggleAttribute(HOLD, !!view);
-  }, [view]);
-  useEffect(() => () => document.documentElement.removeAttribute(HOLD), []);
-  const close = () => setView(null);
   return (
     <>
       <div className="flex flex-wrap gap-x-5 gap-y-1">
@@ -271,6 +262,24 @@ function PromptLinks() {
           </button>
         ))}
       </div>
+      <PromptDialog view={view} onView={setView} />
+    </>
+  );
+}
+
+// The prompt dialog itself (PromptLinks', and the About drafts' "Show full prompt"): open while `view` is set.
+export function PromptDialog({ view, onView }: { view: View | null; onView: (v: View | null) => void }) {
+  const ref = useRef<HTMLDialogElement>(null), title = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    if (view && !d?.open) { d?.showModal(); title.current?.focus(); }
+    if (!view && d?.open) d.close();
+    document.documentElement.toggleAttribute(HOLD, !!view);
+  }, [view]);
+  useEffect(() => () => document.documentElement.removeAttribute(HOLD), []);
+  const close = () => onView(null);
+  const setView = onView;
+  return (
       <dialog
         ref={ref}
         aria-labelledby="about-prompt-title"
@@ -318,7 +327,6 @@ function PromptLinks() {
           </div>
         </div>
       </dialog>
-    </>
   );
 }
 
