@@ -397,7 +397,7 @@ type CardId = 'how' | 'system' | 'user' | 'caveats' | 'hours' | 'next';
 const SYS_LINES = SYSTEM_PROMPT.split('\n').filter(Boolean).length;
 
 function DraftC() {
-  const { actor, step: live } = useLive();
+  const { actor, step: live, gameState } = useLive();
   const s = useStep();
   const [open, setOpen] = useState<CardId | null>(null);
   const opener = useRef<Partial<Record<CardId, HTMLButtonElement | null>>>({});
@@ -419,14 +419,22 @@ function DraftC() {
     { id: 'next', title: 'What’s next', line: 'An open-source dataset.', fig: <span className="tabular-nums">{DATASET_DATE.split(', ')[1]}</span>, body: <NextBody /> },
   ];
   const sheet = CARDS.find(c => c.id === open);
-  const marks = open === 'how' ? [stepMark(s.step, actor)] : open === 'user' && actor >= 0 ? [{ n: 'You', sel: seatSel(actor) }] : [];
+  // The open card's place on the table, else the card under the pointer or focus: how it works the step the hand is on,
+  // the user prompt the seat it is sent to, the system prompt every seat.
+  const [hot, setHot] = useState<CardId | null>(null);
+  const seats = gameState?.players.length ?? 0;
+  const on = open ?? hot;
+  const marks: Mark[] = on === 'how' ? [stepMark(s.step, actor)]
+    : on === 'user' && actor >= 0 ? [{ n: 'You', sel: seatSel(actor) }]
+    : on === 'system' ? Array.from({ length: seats }, (_, i) => ({ n: '', sel: seatSel(i) }))
+    : [];
   return (
     <div className="flex flex-col gap-6 md:grid md:grid-cols-[auto_520px] md:gap-x-10">
       <LiveTable marks={marks} className="md:w-[var(--tw)]" />
       <div className="relative min-w-0">
         <div inert={!!open || undefined} className="grid grid-cols-2 gap-3 h-full md:auto-rows-fr">
           {CARDS.map(c => (
-            <article key={c.id} data-card={c.id} className="relative flex flex-col gap-2 rounded-lg bg-white p-3.5 hover:bg-[#fcfcfb] focus-within:[outline:2px_solid_rgb(35,131,226)] focus-within:[outline-offset:2px]" style={{ boxShadow: CARD_SHADOW }}>
+            <article key={c.id} data-card={c.id} onPointerEnter={() => setHot(c.id)} onPointerLeave={() => setHot(h => (h === c.id ? null : h))} onFocus={() => setHot(c.id)} onBlur={() => setHot(h => (h === c.id ? null : h))} className="relative flex flex-col gap-2 rounded-lg bg-white p-3.5 hover:bg-[#fcfcfb] focus-within:[outline:2px_solid_rgb(35,131,226)] focus-within:[outline-offset:2px]" style={{ boxShadow: CARD_SHADOW }}>
               <h2 className={LABEL} style={{ color: MUTED }}>{c.title}</h2>
               <div className="text-[20px] leading-8 font-bold min-h-[34px] flex items-center">{c.fig}</div>
               <p className="text-[14px] leading-normal mt-auto" style={{ color: MUTED }}>{c.line}</p>

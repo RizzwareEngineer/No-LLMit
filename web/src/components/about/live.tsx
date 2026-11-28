@@ -105,8 +105,8 @@ function Marks({ box, marks }: { box: React.RefObject<HTMLDivElement | null>; ma
       const b = box.current?.getBoundingClientRect();
       if (b) {
         const next = marks.flatMap(m => {
-          const el = m.sel.split(' || ').map(q => box.current!.querySelector(q)).find(Boolean);
-          const r = el?.getBoundingClientRect();
+          // The first selector whose part is drawn (an empty board has no width: the felt then).
+          const r = m.sel.split(' || ').map(q => box.current!.querySelector(q)?.getBoundingClientRect()).find(x => x && x.width > 0 && x.height > 0);
           return r && r.width ? [{ n: m.n, x: r.left - b.left, y: r.top - b.top, w: r.width, h: r.height }] : [];
         });
         setAt(prev => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
@@ -124,7 +124,11 @@ function Marks({ box, marks }: { box: React.RefObject<HTMLDivElement | null>; ma
           key={i}
           data-mark={m.n}
           className={`absolute rounded-md ${reduce ? '' : 'transition-[left,top,width,height] duration-300'}`}
-          style={{ left: m.x - 4, top: m.y - 4, width: m.w + 8, height: m.h + 8, boxShadow: `0 0 0 2px ${BLUE}, 0 0 0 6px rgba(35, 131, 226, 0.15)`, transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
+          // A numbered mark rings its part from just outside; an unnumbered one (one of many: every opponent's seat) tints
+          // it from inside, so neighbouring seats' marks never run into each other.
+          style={m.n === ''
+            ? { left: m.x + 2, top: m.y + 2, width: m.w - 4, height: m.h - 4, boxShadow: `inset 0 0 0 1.5px ${BLUE}`, background: 'rgba(35, 131, 226, 0.06)', transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }
+            : { left: m.x - 4, top: m.y - 4, width: m.w + 8, height: m.h + 8, boxShadow: `0 0 0 2px ${BLUE}, 0 0 0 6px rgba(35, 131, 226, 0.15)`, transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
         >
           {m.n !== '' && <span className="absolute -left-3 -top-3 grid place-items-center h-6 min-w-6 px-1.5 rounded-full text-[13px] font-bold tabular-nums text-white whitespace-nowrap" style={{ background: BLUE }}>{m.n}</span>}
         </div>
@@ -137,7 +141,7 @@ function Marks({ box, marks }: { box: React.RefObject<HTMLDivElement | null>; ma
 // for the answer, the seat's action for the check (the seat itself until its action shows).
 export function stepMark(step: Step, actor: number): Mark {
   const seat = actor >= 0 ? `[data-seat="${actor}"]` : '[data-felt]';
-  if (step === 1) return { n: 1, sel: '[data-felt-cards]' };
+  if (step === 1) return { n: 1, sel: '[data-felt-cards] || [data-felt]' };
   if (step === 2) return { n: 2, sel: seat };
   if (step === 3) return { n: 3, sel: '[data-caption]' };
   return { n: 4, sel: actor >= 0 ? `[data-seat="${actor}"] [data-action] || ${seat}` : seat };
