@@ -1,5 +1,6 @@
 "use client";
 
+import { SeatStack } from "@/components/StackGlyph";
 import Card from "@/components/Card";
 import FitName from "@/components/FitName";
 import LLMLogo from "@/components/LLMLogo";
@@ -200,6 +201,8 @@ export default function Player({ player, active, position, winAmount, winDesc, i
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(55, 53, 47, 0.03)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'inherit'; }}
       >
+        {/* ?stacks=1|2 on the overview (a draft): the stack as a glyph, seen from far away only (StackGlyph). */}
+        <SeatStack stack={player.stack} name={player.name} />
         {/* Top-left, as in the original seat: logo, then the name over the stack. The name has the
             whole row because the hole cards sit bottom-right, so it fits on one line. */}
         <div data-seat-top className="flex items-start justify-between min-w-0 gap-2 p-3 pb-0">

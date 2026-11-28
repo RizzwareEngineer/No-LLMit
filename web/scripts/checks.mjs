@@ -2335,6 +2335,88 @@ group(() => check('tables-slide-continuous', 'With ?tables=1 at 1440x790 and 172
   if (seen.length + bad.length < 8) bad.push(`only ${seen.length + bad.length} slides filmed`);
   return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join('; ') };
 }));
+// Owner, round 6: "how can we visually display the stack sizes ... no numbers, but just stack sizes? Where can we put
+// that?" ?stacks=1|2 (a draft): each seat of the overview's far tables shows its stack as a glyph in big blinds. Every
+// table is scripted to the same spread of depths (in its own big blind, rotated round its seats), bets out at four seats.
+const STACK_BBS = [0, 1, 5, 20, 50, 100, 300, 1000, 1500];
+group(() => check('tables-stacks-draft', 'With ?tables=1&stacks=1 and &stacks=2 at 1440x790 (and 1728x1117), every seat of every far table has one stack glyph inside its seat box that overlaps neither its logo nor its hole cards; the glyph\'s measured size (its drawn chips\' or fill\'s area) never shrinks as the stack in big blinds grows, across all four tables, and 20, 100, 300 and 1000 bb each draw larger than the one before by at least a quarter at 1440x790; a busted seat (0) draws an outline; with ?stacks=1 the bets\' chips grow with the bet in big blinds; without the switch no glyph is drawn, and the page\'s own table (zoomed in) draws none', async () => {
+  const bad = [], seen = [];
+  for (const [v, w, h] of [[1, 1440, 790], [2, 1440, 790], [1, 1728, 1117], [2, 1728, 1117], [0, 1440, 790]]) {
+    const tag = `stacks=${v || 'off'} ${w}x${h}`, p = await scriptedTable(w, h, false, `tables=1${v ? `&stacks=${v}` : ''}`);
+    try {
+      await p.waitForFunction(() => document.querySelectorAll('[data-overview-cell]').length >= 2 && [...document.querySelectorAll('[data-overview-cell] [data-felt-cards]')].every(e => e.querySelectorAll('[role=img]').length <= 5), { timeout: 150000, polling: 500 }).catch(() => {});
+      await p.evaluate(BBS => {
+        const s = window.__stream; s.scripted = true;
+        s.keys().forEach((key, ti) => {
+          const l = s.by[key], bb = l.stakes?.bigBlind ?? 10;
+          const payload = { ...l, street: 'flop', communityCards: ['Kh', '7d', '2c'], pot: 30 * bb, winners: undefined, nextHandInMs: undefined,
+            players: l.players.map((q, i) => ({ ...q, status: 'active', stack: BBS[(i + ti * 2) % BBS.length] * bb, currentBet: [1, 5, 20, 100][i] !== undefined ? [1, 5, 20, 100][i] * bb : 0, acted: false })) };
+          s.by[key] = payload; s.feed({ table: key, type: 'game_state', payload });
+        });
+      }, STACK_BBS);
+      await sleep(1200);
+      const r = await p.evaluate(() => {
+        const R = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+        const hit = (a, b) => a[0] < b[2] - 0.5 && b[0] < a[2] - 0.5 && a[1] < b[3] - 0.5 && b[1] < a[3] - 0.5;
+        const vis = e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden';
+        const area = es => es.filter(vis).reduce((a, e) => { const b = e.getBoundingClientRect(); return a + b.width * b.height; }, 0);
+        const seats = [], bets = [];
+        for (const cell of document.querySelectorAll('[data-overview-cell]')) for (const seat of cell.querySelectorAll('[data-desk-seat]')) {
+          const gs = [...seat.querySelectorAll('[data-stack-glyph]')], s = R(seat), why = [];
+          const logo = seat.querySelector('[data-lod-logo]'), hole = [...seat.querySelectorAll('[data-hole] [role=img]')].filter(vis);
+          const g = gs[0];
+          if (g) {
+            const parts = [g, ...g.querySelectorAll('*')].filter(vis).map(R).filter(b => b[2] > b[0] && b[3] > b[1]);
+            if (parts.some(b => b[0] < s[0] - 0.5 || b[1] < s[1] - 0.5 || b[2] > s[2] + 0.5 || b[3] > s[3] + 0.5)) why.push('outside its seat box');
+            if (logo && parts.some(b => hit(b, R(logo)))) why.push('over the logo');
+            if (hole.some(c => parts.some(b => hit(b, R(c))))) why.push('over a hole card');
+          }
+          seats.push({ table: cell.dataset.overviewCell, n: gs.length, bbs: g ? +g.dataset.bbs : null, size: g ? area([...g.querySelectorAll('[data-glyph-fill]')]) : 0, empty: !!g?.querySelector('[data-glyph-empty]') || (g?.dataset.stackGlyph === '2' && !!g.querySelector('[data-glyph-fill]') && area([...g.querySelectorAll('[data-glyph-fill]')]) === 0), why });
+        }
+        for (const b of document.querySelectorAll('[data-overview-cell] [data-far-chips]')) bets.push({ bbs: +b.dataset.farChips, size: area([...b.querySelectorAll('[data-glyph-fill]')]), bet: !!b.closest('[data-bet]') });
+        return { seats, bets, stageGlyphs: document.querySelectorAll('.stage-zoom [data-stack-glyph]').length, any: document.querySelectorAll('[data-stack-glyph], [data-far-chips]').length };
+      });
+      if (!v) { if (r.any) bad.push(`${tag}: ${r.any} glyphs drawn without the switch`); else seen.push(`${tag}: no glyph`); continue; }
+      if (r.seats.length < 18) bad.push(`${tag}: only ${r.seats.length} seats`);
+      for (const s of r.seats) {
+        if (s.n !== 1) bad.push(`${tag} ${s.table}: a seat with ${s.n} glyphs`);
+        for (const y of s.why) bad.push(`${tag} ${s.table} ${s.bbs} bb: the glyph ${y}`);
+      }
+      const by = [...r.seats].filter(s => s.n === 1).sort((a, b) => a.bbs - b.bbs);
+      for (let i = 1; i < by.length; i++) if (by[i].size < by[i - 1].size - 0.5) bad.push(`${tag}: ${by[i].bbs} bb (${by[i].table}) drawn smaller than ${by[i - 1].bbs} bb (${by[i].size.toFixed(0)} < ${by[i - 1].size.toFixed(0)} px²)`);
+      const at = b => by.find(s => s.bbs === b)?.size ?? 0, steps = [20, 100, 300, 1000].map(at);
+      if (w === 1440) for (let i = 1; i < 4; i++) if (steps[i] < steps[i - 1] * 1.25) bad.push(`${tag}: ${[20, 100, 300, 1000][i]} bb is not a quarter larger than ${[20, 100, 300, 1000][i - 1]} bb (${steps[i].toFixed(0)} vs ${steps[i - 1].toFixed(0)} px²)`);
+      const busted = by.filter(s => s.bbs === 0);
+      if (!busted.length || busted.some(s => !s.empty)) bad.push(`${tag}: a busted seat draws no outline`);
+      if (v === 1) {
+        const bets = r.bets.filter(b => b.bet).sort((a, b) => a.bbs - b.bbs);
+        if (bets.length < 8) bad.push(`${tag}: only ${bets.length} bets drawn far`);
+        for (let i = 1; i < bets.length; i++) if (bets[i].size < bets[i - 1].size - 0.5) bad.push(`${tag}: a ${bets[i].bbs} bb bet drawn smaller than a ${bets[i - 1].bbs} bb one`);
+      }
+      // A real stack change from the stream eases (the chips added drop in, the meter's fill grows); the draw above, a
+      // first draw, did not animate (nothing ran a second after it).
+      const still0 = await p.evaluate(() => [...document.querySelectorAll('[data-stack-glyph], [data-stack-glyph] *')].some(e => e.getAnimations().length));
+      if (still0) bad.push(`${tag}: a glyph animating with no stack change`);
+      const eased = await p.evaluate(() => new Promise(res => {
+        const s = window.__stream, key = s.keys()[0], l = s.by[key], bb = l.stakes?.bigBlind ?? 10;
+        const payload = { ...l, players: l.players.map((q, i) => (i === 0 ? { ...q, stack: 700 * bb } : q)) };
+        s.by[key] = payload; s.feed({ table: key, type: 'game_state', payload });
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const g = document.querySelector(`[data-overview-cell="${key}"] [data-seat="0"] [data-stack-glyph]`);
+          res(!!g && ([...g.querySelectorAll('*')].some(e => e.getAnimations().length) || /height/.test(getComputedStyle(g.querySelector('[data-glyph-fill]') ?? g).transitionProperty)));
+        }));
+      }));
+      if (!eased) bad.push(`${tag}: a stack change from the stream did not ease`);
+      seen.push(`${tag}: ${by.length} seats, 20/100/300/1000 bb = ${steps.map(x => x.toFixed(0)).join('/')} px²`);
+      // Zoomed in, the page's own table draws no glyph.
+      const key = r.seats[0].table;
+      await clickCenter(p, `[data-overview-cell="${key}"] [data-small-table]`); await sleep(1200); await stageStill(p);
+      const st = await p.evaluate(() => document.querySelectorAll('.stage-zoom [data-stack-glyph], .stage-zoom [data-far-chips]').length);
+      if (st) bad.push(`${tag}: ${st} glyphs on the page's own table`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 30).join(' | ') : seen.join('; ') };
+}));
 // Owner, round 5: "for the 50/100 100bb game (in the four-table overview) the pot is behind the cards". Seen from far
 // away (PokerTable's lod) the board grows x1.4 from its centre (LOD.board), and it reached over the pot's box. Each small
 // table of the overview is read every 200 ms until every table has shown every street (preflop, flop, turn, river): its

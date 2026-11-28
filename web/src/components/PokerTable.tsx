@@ -5,12 +5,13 @@ import type { CSSProperties } from "react";
 import { useReducedMotion } from "motion/react";
 import Player, { LOGO_RIM } from "@/components/Player";
 import TableFelt, { BetStack, FeltBet, GRID } from "@/components/TableFelt";
+import { StackDraftContext, useStackDraftFor } from "@/components/StackGlyph";
 import TableMotion, { CARD_FLIGHT, DeckPhase, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import { ModelStats } from "@/lib/stats";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { FELT, LOGO, MIDDLE, POT_TOP, type Spot, css, seatPlace, seatSpots } from "@/lib/phoneTable";
-import { useLayout, useTallTable } from "@/lib/tableSwitches";
+import { useLayout, useStacksDraft, useTallTable } from "@/lib/tableSwitches";
 import SeatStats from "@/components/SeatStats";
 import { isDraftA } from "@/lib/layout";
 import Fit from "@/components/Fit";
@@ -85,6 +86,8 @@ export default function PokerTable({
   view,
 }: PokerTableProps) {
   const layout = getPlayerLayout(players.length || 9);
+  // ?stacks=1|2 on the overview (a draft): seen from far away, each seat's stack as a glyph (StackGlyph).
+  const stackDraft = useStackDraftFor(useStacksDraft(), !!lod);
   const hidePositions = !!buttonDetermination; // the position badges wait for the button draw
   // The engine keeps each seat's last action until the hand ends; it shows only once taken on this street (the engine's
   // `acted`). Before that the seat says WAITING, then THINKING on its turn, never an earlier street's action.
@@ -208,6 +211,7 @@ export default function PokerTable({
   // The desktop table: seats round the felt; the table is only for layout. Phone draft A (app/a) draws it on a phone too,
   // at its own proportions (200x128 cells), scaled as one picture to the page's width (Fit).
   const deskTable = (cls: string) => (
+      <StackDraftContext.Provider value={stackDraft}>
       <div
         data-desk-table
         data-lod={lod ? (lod.morph ? 'morph' : 'far') : undefined}
@@ -288,6 +292,7 @@ export default function PokerTable({
           </tbody>
         </table>
       </div>
+      </StackDraftContext.Provider>
   );
 
   return (

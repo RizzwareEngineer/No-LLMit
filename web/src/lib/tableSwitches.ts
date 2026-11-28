@@ -42,6 +42,9 @@ export const useTallTable = () => useSyncExternalStore(noSub, () => query('table
 // neighbouring tables at the stage's edges. Desktop only. Promoting it is this one line (return true).
 function tablesOverview(search: string) { return new URLSearchParams(search).get('tables') === '1'; }
 export const useTablesOverview = () => useSyncExternalStore(noSub, () => tablesOverview(location.search), () => false);
+// ?tables=1&stacks=1|2 (a draft): the overview's seats show their stacks as a glyph, no numbers (StackGlyph).
+const stacksDraft = (): 1 | 2 | null => { if (!tablesOverview(location.search)) return null; const v = query('stacks'); return v === '1' ? 1 : v === '2' ? 2 : null; };
+export const useStacksDraft = () => useSyncExternalStore(noSub, stacksDraft, () => null);
 // Run as the page is parsed: landing on the overview, the stage is hidden until the overview is drawn over it (page.tsx),
 // so the first paint is not the single table.
 export const OVERVIEW_FIRST = `(${tablesOverview})(location.search)&&!new URLSearchParams(location.search).get('t')&&matchMedia(${JSON.stringify(DESK)}).matches&&document.documentElement.setAttribute('data-overview','')`;

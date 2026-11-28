@@ -4,6 +4,10 @@ import Card from "@/components/Card";
 import NumberFlow from '@number-flow/react';
 import { CircleNotch, Moon } from "@phosphor-icons/react";
 import ChipStack from "@/components/ChipStack";
+import { FarChips, useStackDraft } from "@/components/StackGlyph";
+// A bet's or the pot's amount seen far with ?stacks=1|2: folded to no width with its gap, so the chips stand alone where
+// the pile and its amount stood (the zoom unfolds it with --lod-o).
+const FAR_TEXT = { maxWidth: 'calc(var(--lod-o) * 6em)', marginLeft: 'calc(var(--lod-o) * 6px)', overflow: 'hidden' } as const;
 import Link from "next/link";
 import { type CSSProperties, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence } from "motion/react";
@@ -92,11 +96,13 @@ function TableNoticeCard({ notice }: { notice: TableNoticePayload }) {
 // edges (EDGE); the phone table places each between its seat and the pot, as one chip (compact).
 export function BetStack({ seat, amount, style, compact }: { seat: number; amount: number; style: CSSProperties; compact?: boolean }) {
   const bb = useBigBlind();
+  const far = !!useStackDraft() && !compact; // ?stacks=1|2 seen far: the chips on the seats' scale, the amount folded away
   if (amount <= 0) return null;
   return (
-    <div data-bet={seat} className={`absolute flex items-center ${compact ? 'gap-1' : 'gap-1.5 max-md:hidden'}`} style={style} title={`Bet ${formatAmount(amount, bb)}`}>
-      <ChipStack amount={compact ? Math.min(amount, 9) : amount} />
-      <span data-lod-text data-chips={amount} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(amount, bb)}</span>
+    <div data-bet={seat} className={`absolute flex items-center ${compact ? 'gap-1' : far ? 'max-md:hidden' : 'gap-1.5 max-md:hidden'}`} style={style} title={`Bet ${formatAmount(amount, bb)}`}>
+      {far ? <span className="relative flex"><span className="flex" style={{ opacity: 'var(--lod-o)' }}><ChipStack amount={amount} /></span><FarChips amount={amount} /></span>
+        : <ChipStack amount={compact ? Math.min(amount, 9) : amount} />}
+      <span data-lod-text data-chips={amount} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)', ...(far ? FAR_TEXT : null) }}>{formatAmount(amount, bb)}</span>
     </div>
   );
 }
@@ -132,6 +138,7 @@ export default function TableFelt({
 }: TableFeltProps) {
   const bb = useBigBlind(), size = useCardSize(), look = useCardLook(), still = useSyncExternalStore(noSub, isDraftA, () => false);
   const potIn = amountParts(pot, bb);
+  const stackFar = !!useStackDraft() && !compact; // ?stacks=1|2 seen far: the pot's chips on the seats' scale
   // The pot's number rolls to a new amount the table brings, not to another table's: the render that changes the view
   // draws it at once.
   const [potView, setPotView] = useState(view);
@@ -205,9 +212,9 @@ export default function TableFelt({
               </div>
             </div>
             {/* data-pot: where TableMotion's chips land (the phone's: the pot itself; only the board is under it) */}
-            {!compact && <div data-pot className={`flex items-center gap-1.5 h-[18px] ${collected > 0 ? '' : 'invisible'}`} aria-hidden={collected <= 0} title="Chips collected so far">
-              <ChipStack amount={collected} />
-              <span data-lod-text data-chips={collected} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)' }}>{formatAmount(collected, bb)}</span>
+            {!compact && <div data-pot className={`flex items-center ${stackFar ? '' : 'gap-1.5'} h-[18px] ${collected > 0 ? '' : 'invisible'}`} aria-hidden={collected <= 0} title="Chips collected so far">
+              {stackFar ? <span className="relative flex"><span className="flex" style={{ opacity: 'var(--lod-o)' }}><ChipStack amount={collected} /></span>{collected > 0 && <FarChips amount={collected} />}</span> : <ChipStack amount={collected} />}
+              <span data-lod-text data-chips={collected} className="text-[12px] font-bold tabular-nums leading-5" style={{ color: 'rgb(55, 53, 47)', ...(stackFar ? FAR_TEXT : null) }}>{formatAmount(collected, bb)}</span>
             </div>}
           </div>
         )}

@@ -3,6 +3,7 @@
 import { memo } from 'react';
 import PokerTable from '@/components/PokerTable';
 import Fit from '@/components/Fit';
+import { TableDepth } from '@/components/StackGlyph';
 import { TableBigBlind } from '@/lib/amounts';
 import { MUTED, TEXT } from '@/lib/stats';
 import type { TableView } from '@/lib/stream';
@@ -71,9 +72,11 @@ function smallTable(t: TableView) {
 const SmallTable = memo(function SmallTable({ t, width, far = false, named = false }: { t: TableView; width: number; far?: boolean; named?: boolean }) {
   return (
     <TableBigBlind.Provider value={stakesOf(t).bigBlind || null}>
+      <TableDepth.Provider value={{ bb: stakesOf(t).bigBlind, start: t.startingStack ?? 0 }}>
       <div data-small-table inert={!named || undefined} aria-hidden={!named || undefined} className={named ? 'pointer-events-none' : undefined} style={{ width }}>
         <Fit w={TABLE_W}><PokerTable {...smallTable(t)} still lod={far ? { k: TABLE_W / width } : null} /></Fit>
       </div>
+      </TableDepth.Provider>
     </TableBigBlind.Provider>
   );
 });

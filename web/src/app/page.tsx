@@ -18,6 +18,7 @@ const MAC_TABLE_W = 819;
 const PICTURED_TAP = "[&_button]:relative [&_button]:after:absolute [&_button]:after:-inset-x-1 [&_button]:after:-inset-y-[24px] [&_button]:after:content-['']";
 const noSub = () => () => {};
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
+import { TableDepth } from "@/components/StackGlyph";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import StatsSections from "@/components/StatsScreens";
@@ -407,6 +408,9 @@ export default function Home() {
   // The status row's per-table texts of every table, so on the overview the row keeps one width whatever table shows.
   const reserve = useMemo(() => overviewOn ? { hands: tables.map(t => `Hand #${t.gameState?.handNumber || '0'}`), stakes: tables.map(t => `${t.gameState?.stakes.smallBlind ?? 0}/${t.gameState?.stakes.bigBlind ?? 0}`) } : undefined, [overviewOn, tables]);
   const target = targetOf(focusParam, keys);
+  // The stage's table's big blind and depth, for ?stacks=1|2's glyphs while it zooms (seen far: StackGlyph).
+  const stageStart = tables.find(t => t.key === stageKey)?.startingStack ?? 0;
+  const stageDepth = useMemo(() => (overviewOn ? { bb: stakes.bigBlind, start: stageStart } : null), [overviewOn, stakes.bigBlind, stageStart]);
   const atRest = !anim, hidden = overviewOn && shown === null && atRest; // the stage under the overview
   const showOverview = overviewOn && (shown === null || anim?.kind === 'in' || anim?.kind === 'out');
   const chrome = overviewOn && !!shown && atRest; // the way back and the neighbours, at rest on a table
@@ -895,6 +899,7 @@ export default function Home() {
             <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative max-md:contents">
               {/* Main game grid */}
               <CardLookContext.Provider value={cardLook}>
+              <TableDepth.Provider value={stageDepth}>
               <PokerTable
                 players={players}
                 currentPlayerIdx={currentPlayerIdx}
@@ -914,6 +919,7 @@ export default function Home() {
                 lod={zoomLod}
                 view={overviewOn ? stageKey : undefined}
               />
+              </TableDepth.Provider>
               </CardLookContext.Provider>
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
