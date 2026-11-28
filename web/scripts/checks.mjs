@@ -2263,6 +2263,68 @@ group(() => check('tables-view-stable', 'With ?tables=1 at 1440x790 and 1728x111
   }
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 40).join(' | ') : seen.join('; ') };
 }));
+// Owner, round 6: every arrow slide had about 120 ms with nothing on the stage (the old table faded out before the new
+// one began to fade in). Filmed frame by frame at each size: from the click on a pill to the slide's end, the stage box
+// (the table's box at rest) is covered, in every frame, by some table drawn there: its opacity as drawn (its own and its
+// ancestors') times the share of the stage box it covers. The floor, 0.4: in a push the two tables meet half way, each
+// covering half the box at full opacity (0.5), and a crossfade's midpoint gives about 0.5 x 0.5 to 1; 0.4 leaves room for
+// the ease's frame steps but not for an empty stage (0) or a table mostly faded out over a stage half bare. The slide may
+// not take longer than it did (140 ms of fading pills, 200 ms out and 300 ms in: 640 ms; 40 ms of frame slack).
+const SLIDE_REC = () => {
+  const eff = e => { let o = 1; for (let x = e; x; x = x.parentElement) o *= +getComputedStyle(x).opacity; return o; };
+  const R = window.__srec = { s: [], on: false };
+  R.start = box => { R.s = []; R.box = box; R.t0 = performance.now(); R.on = true; };
+  R.stop = () => { R.on = false; return R.s; };
+  const tick = () => {
+    if (R.on) {
+      const S = R.box, area = S.width * S.height;
+      let best = 0, n = 0;
+      for (const e of document.querySelectorAll('.stage-zoom [data-desk-table], .stage-zoom [data-slide-ghost]')) {
+        if (getComputedStyle(e).visibility === 'hidden') continue;
+        const b = e.getBoundingClientRect(), w = Math.max(0, Math.min(b.right, S.left + S.width) - Math.max(b.left, S.left)), h = Math.max(0, Math.min(b.bottom, S.top + S.height) - Math.max(b.top, S.top));
+        const v = eff(e) * w * h / area; n++;
+        if (v > best) best = v;
+      }
+      const moving = [...document.querySelectorAll('.stage-zoom [data-desk-table], .stage-zoom [data-slide-ghost]')].some(e => e.getAnimations().some(a => a.playState === 'running'));
+      R.s.push({ t: performance.now() - R.t0, v: best, n, moving });
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+};
+group(() => check('tables-slide-continuous', 'With ?tables=1 at 1440x790 and 1728x1117, in every frame of each arrow slide (right, down, left, up) some table is drawn on the stage: its opacity as drawn times the share of the stage\'s box (the table\'s box at rest) it covers is at least 0.4 (no frame shows an empty stage), and the slide takes no longer than before (640 ms)', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of VIEW_SIZES) {
+    const p = await viewPage(w, h, 'tables=1');
+    try {
+      await p.evaluate(SLIDE_REC);
+      const keys = await p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(a => a.dataset.overviewCell));
+      await clickCenter(p, `[data-overview-cell="${keys[0]}"] [data-small-table]`);
+      await sleep(1200); await stageStill(p);
+      for (const d of ['right', 'down', 'left', 'up']) {
+        if (!(await p.$(`[data-table-nav="${d}"]`))) continue;
+        await sleep(500);
+        await p.evaluate(d => {
+          const b = document.querySelector('.stage-zoom [data-desk-table]').getBoundingClientRect();
+          window.__srec.start({ left: b.left, top: b.top, width: b.width, height: b.height });
+          document.querySelector(`[data-table-nav="${d}"]`).click();
+        }, d);
+        await sleep(1100); await stageStill(p);
+        const s = await p.evaluate(() => window.__srec.stop());
+        const tag = `${w}x${h} slide ${d}`;
+        // The slide: from the click to the last frame anything on the stage moved.
+        const end = s.findLastIndex(x => x.moving), frames = s.slice(0, end + 2);
+        if (end < 0) { bad.push(`${tag}: nothing moved`); continue; }
+        const low = frames.filter(x => x.v < 0.4), dur = frames.at(-1).t;
+        if (low.length) bad.push(`${tag}: ${low.length} of ${frames.length} frames under 0.4 (lowest ${Math.min(...low.map(x => x.v)).toFixed(2)} at ${Math.round(low.reduce((a, x) => (x.v < a.v ? x : a)).t)} ms, from ${Math.round(low[0].t)} to ${Math.round(low.at(-1).t)} ms)`);
+        if (dur > 680) bad.push(`${tag}: the slide took ${Math.round(dur)} ms (over 640)`);
+        seen.push(`${tag}: ${frames.length} frames, ${Math.round(dur)} ms, lowest ${Math.min(...frames.map(x => x.v)).toFixed(2)}`);
+      }
+    } finally { await p.close(); }
+  }
+  if (seen.length + bad.length < 8) bad.push(`only ${seen.length + bad.length} slides filmed`);
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join('; ') };
+}));
 // Owner, round 5: "for the 50/100 100bb game (in the four-table overview) the pot is behind the cards". Seen from far
 // away (PokerTable's lod) the board grows x1.4 from its centre (LOD.board), and it reached over the pot's box. Each small
 // table of the overview is read every 200 ms until every table has shown every street (preflop, flop, turn, river): its

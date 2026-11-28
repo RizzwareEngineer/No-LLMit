@@ -185,6 +185,21 @@ const panelsOut = (panels: HTMLElement[]) => panels.map(p => p.animate([{ opacit
 const stop = (...els: (HTMLElement | null | undefined)[]) => els.forEach(e => e?.getAnimations().forEach(a => a.cancel()));
 // The way round a table (its arrow buttons or edges, and "All tables"): faded out before a zoom out or a slide.
 const navParts = () => [...document.querySelectorAll<HTMLElement>('[data-table-nav], [data-edge], [data-all-tables-button]')];
+// A slide (page.tsx): the two tables move together, one table's size and this gap apart (layout px), over SLIDE_MS on
+// one curve, so they stay side by side the whole way (a push); before it, 140 ms of the pills fading.
+const SLIDE_MS = 380, SLIDE_GAP = 48, SLIDE_EASE = 'cubic-bezier(0.65, 0, 0.35, 1)';
+// The table as it stands, as a still picture: its DOM copied (drawn by the same CSS), not a table the page looks for
+// (no data-desk-table, no ids), nothing in it a control, and no flight or deck mid-way.
+function ghostOf(table: HTMLElement) {
+  const g = table.cloneNode(true) as HTMLElement;
+  g.removeAttribute('data-desk-table');
+  g.querySelectorAll('[id]').forEach(e => e.removeAttribute('id'));
+  g.querySelectorAll('[data-flight], [data-deck]').forEach(e => e.remove());
+  g.setAttribute('data-slide-ghost', '');
+  g.setAttribute('aria-hidden', 'true');
+  g.inert = true;
+  return g;
+}
 
 // Where the arrow buttons go, in the screen's px (measured in page.tsx's room): a compass round the table, each one
 // GAP off the edge it leads past. Left and right: centred on the table's height, outside the table (left) and the
@@ -393,6 +408,9 @@ export default function Home() {
   const mainRef = useRef<HTMLDivElement>(null), statsButton = useRef<HTMLButtonElement>(null), overlay = useRef<HTMLDivElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
   const animId = useRef(0); // the running animation's id: an end of any other is stale and ignored
+  // A slide's still picture of the table it leaves (ghostOf), pushed out beside the new one; gone when the slide ends.
+  const ghost = useRef<HTMLElement | null>(null);
+  const dropGhost = () => { ghost.current?.remove(); ghost.current = null; };
   // Where the overview, the edges and the way back go, in the screen's px (measured below).
   // Each arrow pill's width as drawn, by its label (NavPill reports it), for where it goes and whether it lies on its side.
   const [pillW, setPillW] = useState<Record<string, number>>({});
@@ -433,6 +451,7 @@ export default function Home() {
     const z = () => table.getBoundingClientRect().width / table.offsetWidth;
     const rest = () => { table.style.zIndex = table.style.transformOrigin = ''; };
     const landed = () => { if (!mine()) return; rest(); setShown(to); setAnim(null); };
+    if (kind === 'in' || kind === 'out') dropGhost();
     if (kind === 'in') {
       const cell = cellOf(to);
       if (!cell || reduced()) { stop(table, ...panels, overlay.current); landed(); return; }
@@ -468,18 +487,26 @@ export default function Home() {
       overlay.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'backwards' });
       shrink.finished.then(done, () => {});
     } else if (kind === 'slideOut') {
-      // The table leaves the way the new one lies, the panels and the way round fade; then the new one arrives from the other side.
-      // The way round is gone before the table moves (as in the zoom out), so no pill floats over a moving table.
+      // The panels and the way round fade first, the table still (as in the zoom out), so no pill floats over a moving
+      // table; then the stage takes the new table at once and a still picture of the old one (its DOM, copied as it
+      // stands) is pushed out as the new one comes in beside it, both the same way: no frame shows an empty stage.
+      dropGhost();
       panelsOut([...panels, ...navParts()]);
-      const out = table.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${-dx * innerWidth * 0.5 / z()}px, ${-dy * innerHeight * 0.5 / z()}px)`, opacity: 0 }],
-        { duration: reduced() ? 0 : 200, delay: reduced() ? 0 : 140, easing: 'ease-in', fill: 'forwards' });
-      out.finished.then(() => { if (mine()) setAnim({ ...anim, kind: 'slideIn' }); }, () => {});
+      const wait = table.animate([{ transform: 'none' }, { transform: 'none' }], { duration: reduced() ? 0 : 140 });
+      wait.finished.then(() => { if (!mine()) return; if (!reduced()) ghost.current = ghostOf(table); setAnim({ ...anim, kind: 'slideIn' }); }, () => {});
     } else {
       stop(table, ...panels);
-      if (reduced()) { landed(); return; }
-      const arrive = table.animate([{ transform: `translate(${dx * innerWidth * 0.5 / z()}px, ${dy * innerHeight * 0.5 / z()}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300, easing: EASE });
-      panelsIn(panels, 300);
-      arrive.finished.then(landed, () => {});
+      const g = ghost.current;
+      if (reduced() || !g) { dropGhost(); landed(); return; }
+      // The old table's picture over its own place, the new table one table's width (or height) and a gap away.
+      Object.assign(g.style, { position: 'absolute', left: `${table.offsetLeft}px`, top: `${table.offsetTop}px`, width: `${table.offsetWidth}px`, margin: '0', pointerEvents: 'none', zIndex: '1' });
+      (table.offsetParent ?? table.parentElement)!.appendChild(g);
+      const D = [dx * (table.offsetWidth + SLIDE_GAP), dy * (table.offsetHeight + SLIDE_GAP)];
+      const o = { duration: SLIDE_MS, easing: SLIDE_EASE };
+      g.animate([{ transform: 'none', opacity: 1 }, { opacity: 1, offset: 0.55 }, { transform: `translate(${-D[0]}px, ${-D[1]}px)`, opacity: 0 }], o);
+      const arrive = table.animate([{ transform: `translate(${D[0]}px, ${D[1]}px)`, opacity: 0 }, { opacity: 1, offset: 0.45 }, { transform: 'none', opacity: 1 }], o);
+      panelsIn(panels, SLIDE_MS);
+      arrive.finished.then(() => { dropGhost(); landed(); }, () => {});
     }
   }, [anim]);
   // A click on the table while it shrinks into its cell is a click on that cell (the viewer sees the table they just
