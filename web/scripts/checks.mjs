@@ -1730,9 +1730,11 @@ const statusParts = p => p.evaluate(() => {
   const box = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.width]; };
   const live = row.firstElementChild, units = row.querySelector('[role=group][aria-label="Amounts in"]'), sound = row.lastElementChild;
   const title = document.querySelector('h1:not(.sr-only)').getBoundingClientRect();
-  return { live: box(live), units: box(units), sound: box(sound), win: 2 * (title.left + title.width / 2), mid: document.querySelector('[data-status-table]')?.getBoundingClientRect().width ?? null };
+  // The overview holds each per-table text at the widest table's (page.tsx's StatusRow `held`): what that adds to the row.
+  const held = [...row.querySelectorAll('[data-status-hand] .inline-grid')].reduce((a, g) => a + g.getBoundingClientRect().width - g.firstElementChild.getBoundingClientRect().width, 0);
+  return { live: box(live), units: box(units), sound: box(sound), win: 2 * (title.left + title.width / 2), mid: document.querySelector('[data-status-table]')?.getBoundingClientRect().width ?? null, held };
 });
-group(() => check('tables-status-row', 'With ?tables=1 at 1440x790 and 1280x720: on the overview the status row\'s Live, Chips/BB and Sound are one group centred under the title within 2px with the per-table items folded to nothing; inside a table (after the zoom) Live, Chips/BB and Sound are within 1px of where the page without the switch draws them', async () => {
+group(() => check('tables-status-row', 'With ?tables=1 at 1440x790 and 1280x720: on the overview the status row\'s Live, Chips/BB and Sound are one group centred under the title within 2px with the per-table items folded to nothing; inside a table (after the zoom) Live, Chips/BB and Sound are within 1px of where the page without the switch draws them, but for the room the row holds for the widest table\'s hand number and stakes (so a slide moves nothing; tables-view-stable): the row is that much wider, half each side', async () => {
   const bad = [], seen = [];
   for (const [w, h] of TABLE_SIZES) {
     const size = `${w}x${h}`, plain = await scriptedTable(w, h);
@@ -1744,8 +1746,12 @@ group(() => check('tables-status-row', 'With ?tables=1 at 1440x790 and 1280x720:
       if (Math.abs(off) > 2 || o.mid > 0.5) bad.push(`${size} overview: group ${Math.round(l)}..${Math.round(r)} (${off.toFixed(1)} off the middle), per-table items ${o.mid}px`);
       await clickCenter(p, '[data-overview-cell="5-10-200bb"] [data-small-table]'); await sleep(1200);
       const t = await statusParts(p);
-      for (const k of ['live', 'units', 'sound']) if (t[k].some((v, i) => Math.abs(v - want[k][i]) > 1)) bad.push(`${size} in a table: ${k} at ${t[k].map(Math.round)}, the page's ${want[k].map(Math.round)}`);
-      seen.push(`${size}: overview group ${Math.round(l)}..${Math.round(r)} (off ${off.toFixed(1)}); in a table units at ${Math.round(t.units[0])} (page ${Math.round(want.units[0])})`);
+      // The held room: what the row grows by against the page's, which must be exactly the held texts' own.
+      const extra = (t.units[0] - t.live[0]) - (want.units[0] - want.live[0]);
+      if (Math.abs(extra - t.held) > 1) bad.push(`${size} in a table: the row is ${extra.toFixed(1)}px wider than the page's, its held texts ${t.held.toFixed(1)}px`);
+      const by = { live: -t.held / 2, units: t.held / 2, sound: t.held / 2 };
+      for (const k of ['live', 'units', 'sound']) if (t[k].some((v, i) => Math.abs(v - want[k][i] - (i ? 0 : by[k])) > 1)) bad.push(`${size} in a table: ${k} at ${t[k].map(Math.round)}, the page's ${want[k].map(Math.round)} (held room ${t.held.toFixed(1)}px)`);
+      seen.push(`${size}: overview group ${Math.round(l)}..${Math.round(r)} (off ${off.toFixed(1)}); in a table units at ${Math.round(t.units[0])} (page ${Math.round(want.units[0])}, held room ${t.held.toFixed(1)}px)`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
@@ -2256,6 +2262,44 @@ group(() => check('tables-view-stable', 'With ?tables=1 at 1440x790 and 1728x111
     seen.push(`${tag}: ${keys.size} parts still over ${s.length} frames`);
   }
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 40).join(' | ') : seen.join('; ') };
+}));
+// Owner, round 5: "for the 50/100 100bb game (in the four-table overview) the pot is behind the cards". Seen from far
+// away (PokerTable's lod) the board grows x1.4 from its centre (LOD.board), and it reached over the pot's box. Each small
+// table of the overview is read every 200 ms until every table has shown every street (preflop, flop, turn, river): its
+// pot box, its board cards and its bets' chip stacks, as drawn.
+const POT_CLEAR = () => {
+  const vis = e => { if (!e.getClientRects().length) return false; let o = 1; for (let x = e; x; x = x.parentElement) { const c = getComputedStyle(x); o *= +c.opacity; if (c.visibility === 'hidden' || c.display === 'none') return false; } return o > 0.05; };
+  const R = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+  return [...document.querySelectorAll('[data-overview-cell]')].map(a => {
+    const f = a.querySelector('[data-felt]');
+    const pot = [...f.querySelectorAll('[data-lod-pot], [data-pot][data-lod-text]')].filter(vis).map(R);
+    const board = [...f.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(R);
+    const chips = [...f.querySelectorAll('[data-bet] > :first-child')].filter(vis).map(R);
+    return { key: a.dataset.overviewCell, n: board.length, pot, board, chips };
+  });
+};
+group(() => check('tables-pot-clear', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117, every table of the overview on every street (preflop, flop, turn, river; read as the tables play): its pot box and each board card are at least 2px apart, and neither covers a bet\'s chip stack', async () => {
+  const bad = [], seen = [];
+  await Promise.all(OVERVIEW_SIZES.map(async ([w, h]) => {
+    const size = `${w}x${h}`, p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const streets = {}, hit = (a, b, gap = 0) => a[0] < b[2] + gap && b[0] < a[2] + gap && a[1] < b[3] + gap && b[1] < a[3] + gap;
+      const t0 = Date.now(), done = () => Object.keys(streets).length && Object.values(streets).every(s => s.size === 4);
+      while (Date.now() - t0 < 150000 && !done()) {
+        for (const t of await p.evaluate(POT_CLEAR)) {
+          (streets[t.key] ??= new Set()).add({ 0: 'preflop', 3: 'flop', 4: 'turn', 5: 'river' }[t.n] ?? `${t.n} cards`);
+          const why = [];
+          for (const pb of t.pot) { if (t.board.some(c => hit(pb, c, 2))) why.push('the pot box and a board card'); if (t.chips.some(c => hit(pb, c))) why.push('the pot box and a chip stack'); }
+          if (t.board.some(c => t.chips.some(k => hit(c, k)))) why.push('a board card and a chip stack');
+          for (const y of why) { const k = `${size} ${t.key} with ${t.n} board cards: ${y} closer than allowed`; if (!bad.includes(k)) bad.push(k); }
+        }
+        await sleep(200);
+      }
+      if (!done()) bad.push(`${size}: not every street seen in 150 s (${Object.entries(streets).map(([k, s]) => `${k}: ${[...s].join('/')}`).join('; ')})`);
+      seen.push(`${size}: ${Object.keys(streets).length} tables, every street`);
+    } finally { await p.close(); }
+  }));
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 16).join(' | ') : seen.join('; ') };
 }));
 // The sticky bar's pot is a table amount too, so it follows the same switch: in big blinds it reads as the felt's pot does,
 // back in chips it reads in chips, and only its text changes (same height and place; its width moves by the text's alone).

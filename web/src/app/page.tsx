@@ -176,9 +176,10 @@ const stageParts = (stage: HTMLElement) => ({
   panels: [stage.querySelector<HTMLElement>('#phone-stats'), stage.querySelector<HTMLElement>('[data-reasoning]')].filter(e => !!e),
 });
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-// Panels in: the sidebar from the right, the reasoning from below, after `delay`; out: faded, held until cancelled.
-const panelsIn = (panels: HTMLElement[], delay: number) => panels.forEach((p, i) => p.animate(
-  [{ opacity: 0, transform: i ? 'translateY(16px)' : 'translateX(24px)' }, { opacity: 1, transform: 'none' }],
+// Panels in: faded in where they stand, after `delay` (never moved: a view change shakes nothing outside the table);
+// out: faded, held until cancelled.
+const panelsIn = (panels: HTMLElement[], delay: number) => panels.forEach(p => p.animate(
+  [{ opacity: 0 }, { opacity: 1 }],
   { duration: reduced() ? 0 : 220, delay: reduced() ? 0 : delay, easing: EASE, fill: 'backwards' }));
 const panelsOut = (panels: HTMLElement[]) => panels.map(p => p.animate([{ opacity: 1 }, { opacity: 0 }], { duration: reduced() ? 0 : 140, easing: 'ease-out', fill: 'forwards' }));
 const stop = (...els: (HTMLElement | null | undefined)[]) => els.forEach(e => e?.getAnimations().forEach(a => a.cancel()));
@@ -381,6 +382,8 @@ export default function Home() {
   const cardLook = useCardLookParam();
   useEffect(() => setPageCardLook(cardLook), [cardLook]);
   const keys = useMemo(() => tables.map(t => t.key), [tables]);
+  // The status row's per-table texts of every table, so on the overview the row keeps one width whatever table shows.
+  const reserve = useMemo(() => overviewOn ? { hands: tables.map(t => `Hand #${t.gameState?.handNumber || '0'}`), stakes: tables.map(t => `${t.gameState?.stakes.smallBlind ?? 0}/${t.gameState?.stakes.bigBlind ?? 0}`) } : undefined, [overviewOn, tables]);
   const target = targetOf(focusParam, keys);
   const atRest = !anim, hidden = overviewOn && shown === null && atRest; // the stage under the overview
   const showOverview = overviewOn && (shown === null || anim?.kind === 'in' || anim?.kind === 'out');
@@ -512,8 +515,12 @@ export default function Home() {
     return focusIdx >= 0 && col + dx >= 0 && col + dx < cols && i >= 0 && i < tables.length ? tables[i] : null;
   };
   const openTable = pushFocus;
-  // At rest on a table with a table below whose pill stacks over Stats, Stats moves down under it (navAt).
-  const shift = chrome && room && edges === 'buttons' && neighbour('down') ? statsShift(room.nav) : 0;
+  // Inside a table, where a table below has its pill stacked over Stats, Stats moves down under it (navAt). The same for
+  // every table of a grid with more than one row, and held through a slide, so a slide never moves it; it moves (glides)
+  // only with a zoom in or out, from the zoom's start.
+  const inTable = overviewOn && (anim ? anim.kind !== 'out' : !!shown);
+  const shift = inTable && room && edges === 'buttons' && cols < tables.length ? statsShift(room.nav) : 0;
+  const statsGlide = anim?.kind === 'in' || anim?.kind === 'out';
   const backToTables = () => { if (target !== null) toAllTables(); };
   // To a neighbour: only at rest on a table (an arrow held down steps one table per slide).
   const goTo = (d: Dir) => { const n = neighbour(d); if (n && atRest && shown === target) pushFocus(n.key); };
@@ -540,11 +547,14 @@ export default function Home() {
     const main = mainRef.current, stage = stageRef.current, screen = stage?.closest('section'), btn = statsButton.current;
     if (!overviewOn || !main || !stage || !screen || !btn) return;
     const measure = () => {
+      // Not while the table zooms or slides: its box is moving, and what is placed from it (the pills) would move with it.
+      if (stage.querySelector('[data-desk-table]')?.getAnimations().some(a => a.playState === 'running')) return;
       const s = screen.getBoundingClientRect(), t = stage.querySelector('[data-desk-table]')!.getBoundingClientRect(), st = stage.getBoundingClientRect();
       const side = stage.querySelector('#phone-stats')!.getBoundingClientRect(), head = main.previousElementSibling!.getBoundingClientRect(), b = btn.getBoundingClientRect();
       const x = (r: number) => r - s.left, y = (r: number) => r - s.top;
       // Stats where it always is: inside a table it may be moved down under the table below's pill (statsShift).
-      const bTop = b.top - (parseFloat(btn.dataset.shift ?? '') || 0);
+      // (Its translate as drawn now, not the shift asked for: mid-glide those differ, and the overview's box then chased it.)
+      const bTop = b.top - new DOMMatrixReadOnly(getComputedStyle(btn).transform === 'none' ? undefined : getComputedStyle(btn).transform).m42;
       // The overview: the first screen under the header, down to the Stats button (the single-table page's, where it always is),
       // 40px in from the window's sides, so it never runs wall to wall.
       const foot = Math.min(s.bottom, innerHeight);
@@ -588,7 +598,7 @@ export default function Home() {
     let live = true;
     document.fonts?.ready.then(() => { if (live) measure(); });
     return () => { live = false; ro.disconnect(); };
-  }, [overviewOn, chrome]);
+  }, [overviewOn, chrome, atRest]);
 
   const tableRef = useRef<HTMLDivElement>(null);
   // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
@@ -811,7 +821,7 @@ export default function Home() {
       {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
           it when a window crosses into the desktop layout. */}
       <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown} perTable={perTable} fold={overviewOn} outDelay={anim?.kind === 'out' ? 140 : 0} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
-        watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
+        watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} reserve={reserve} />
 
       <div className={hide}><SessionProgress table={usageError ? undefined : usage?.table} /></div>
     </>
@@ -919,7 +929,7 @@ export default function Home() {
           })}
         </>}
         {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} data-shift={shift || undefined}
-          style={shift ? { ...NEXT_STYLE, transform: `translateY(${shift}px)`, transition: `transform 220ms ${EASE}` } : overviewOn ? { ...NEXT_STYLE, transition: `transform 220ms ${EASE}` } : NEXT_STYLE}>
+          style={shift ? { ...NEXT_STYLE, transform: `translateY(${shift}px)`, transition: statsGlide ? `transform 220ms ${EASE}` : undefined } : overviewOn ? { ...NEXT_STYLE, transition: statsGlide ? `transform 220ms ${EASE}` : undefined } : NEXT_STYLE}>
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>}
 
@@ -977,10 +987,18 @@ export default function Home() {
 
 // The desktop status row. Its hooks live here, not in Table, so they run when the row mounts: a window that loads in
 // the phone layout and widens past the switch still remembers the label and hand number boxes.
-function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fold = false, outDelay = 0, isLive, label, watching, handNumber, stakes, elapsedTime }: {
+function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fold = false, outDelay = 0, isLive, label, watching, handNumber, stakes, elapsedTime, reserve }: {
   className?: string; statusKnown: boolean; handKnown: boolean; perTable?: boolean; fold?: boolean; outDelay?: number; isLive: boolean; label: string; watching: number | undefined;
   handNumber: number; stakes: { smallBlind: number; bigBlind: number }; elapsedTime: string;
+  reserve?: { hands: string[]; stakes: string[] }; // the overview's: every table's texts, whose widest each box keeps
 }) {
+  // On the overview a slide changes the table under the row: each per-table text holds the widest box of any table's
+  // (the others drawn hidden in the same grid cell), so nothing in the row moves when the table changes.
+  const held = (now: string, all?: string[]) => !all ? now : (
+    <span className="inline-grid justify-items-center">
+      {[now, ...all.filter(l => l !== now)].map((l, i) => <span key={i} aria-hidden={i ? true : undefined} style={{ gridArea: '1 / 1', visibility: i ? 'hidden' : undefined }}>{l}</span>)}
+    </span>
+  );
   const labelRef = useRef<HTMLDivElement>(null), handRef = useRef<HTMLDivElement>(null);
   // The tables overview (`fold`): the per-table items fold to nothing between Live and the units, so Live, the units and
   // Sound stand together in the middle; they open (and fold) with the zoom's curve and time, the row's groups gliding to
@@ -1002,15 +1020,15 @@ function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fo
   useFillIn(labelRef, statusKnown);
   useFillIn(handRef, handKnown);
   const [labelBox, labelSize, labelAttrs] = useRememberedBox<HTMLSpanElement>('status-label', statusKnown, 'wh');
-  const [handBox, handSize, handAttrs] = useRememberedBox<HTMLSpanElement>('hand-no', handKnown, 'wh');
+  const [handBox, handSize, handAttrs] = useRememberedBox<HTMLSpanElement>(fold ? 'hand-no-tables' : 'hand-no', handKnown, 'wh'); // the overview's held box is its own
   // Without the overview exactly the row as it always was (the items in the row itself, display: contents); on the
   // overview's first paint html[data-overview] hides them (globals.css), as the folded box will.
   const handItems = (
     <div ref={handRef} data-status-hand className={`${fold ? 'flex items-center gap-x-4 shrink-0' : 'contents'} ${handKnown ? '' : '[&>*]:invisible'}`}>
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-      <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '0'}</span>
+      <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>{held(`Hand #${handNumber || '0'}`, reserve?.hands)}</span>
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-      <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
+      <span className="text-[14px]" style={{ color: MUTED }}>{held(`${stakes.smallBlind}/${stakes.bigBlind}`, reserve?.stakes)}</span>
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
       <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
     </div>
