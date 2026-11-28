@@ -197,7 +197,7 @@ export default function TableFelt({
           // One labelled number, as the big rooms do it: POT is the whole pot, bets out included
           // (the number pot odds need). The chips already collected are drawn under it as a chip
           // stack with a bare amount, like the stacks in front of the seats; no second label.
-          <div data-pot={compact || undefined} className={`flex flex-col items-center ${compact ? '' : 'gap-3'}`}>
+          <div data-pot={compact || undefined} data-lod-potcol className={`flex flex-col items-center ${compact ? '' : 'gap-3'}`}>
             <div data-chips={pot} data-lod-pot className={`flex flex-row items-center gap-2 bg-white border-2 border-gray-700 shadow-sm ${compact ? 'h-[30px] px-3' : 'p-2 px-4'}`} aria-label={`Pot ${formatAmount(pot, bb)}`}>
               <div data-lod-text data-lod-pot-label className={`${compact ? 'text-[11px]' : 'text-xs'} uppercase tracking-wider text-gray-600`}>POT</div>
               <div className={`${compact ? 'text-[15px] leading-5' : 'text-[20px] leading-7'} text-gray-700 font-bold tabular-nums`}>

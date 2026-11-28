@@ -58,7 +58,9 @@ interface PokerTableProps {
 // The table seen from far away (lod): one growth factor each for every seat's logo (20px, from its top-left corner),
 // every seat's two hole cards (40x56 side by side, from their bottom-right corner) and the board (from its centre), in the
 // room the faded text leaves; the pot's amount (20px) stays where it reads at minText or more on screen.
-export const LOD = { logo: 2.8, hole: 1.3, board: 1.4, pot: 20, minText: 11 } as const;
+// The board moves down by boardDown and the pot up by potUp (px of the table) as they do, so the grown board never
+// reaches the pot's chips (owner, round 5: "the pot is behind the cards").
+export const LOD = { logo: 2.8, hole: 1.3, board: 1.4, pot: 20, minText: 11, boardDown: 8, potUp: 6 } as const;
 
 // The phone's action bubble: "Raise 79", "Call 10", "Fold".
 const SAY: Record<string, string> = { FOLD: 'Fold', CHECK: 'Check', CALL: 'Call', RAISE: 'Raise', BET: 'Bet', ALL_IN: 'All-in' };
@@ -211,7 +213,7 @@ export default function PokerTable({
         data-lod={lod ? (lod.morph ? 'morph' : 'far') : undefined}
         data-lod-pot={lod ? (LOD.pot / lod.k >= LOD.minText ? 'show' : 'hide') : undefined}
         className={`${cls} relative bg-white shrink-0 self-stretch rounded`}
-        style={{ width: tableWidth, ...cardStyle, ...(lod ? { '--lod-g': LOD.logo, '--lod-f': LOD.hole, '--lod-b': LOD.board } as CSSProperties : null) }}
+        style={{ width: tableWidth, ...cardStyle, ...(lod ? { '--lod-g': LOD.logo, '--lod-f': LOD.hole, '--lod-b': LOD.board, '--lod-bd': `${LOD.boardDown}px`, '--lod-pu': `${LOD.potUp}px` } as CSSProperties : null) }}
       >
         <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
           <tbody>

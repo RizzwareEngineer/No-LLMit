@@ -2272,34 +2272,53 @@ const POT_CLEAR = () => {
   const R = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
   return [...document.querySelectorAll('[data-overview-cell]')].map(a => {
     const f = a.querySelector('[data-felt]');
-    const pot = [...f.querySelectorAll('[data-lod-pot], [data-pot][data-lod-text]')].filter(vis).map(R);
+    // The pot: its box (POT and the amount), and the chips already collected drawn under it (its chip stack), which is
+    // what the grown board covered; or the winner's box in its place.
+    const pot = [...f.querySelectorAll('[data-lod-pot], [data-pot][data-lod-text], [data-pot]:not([data-lod-text]) > :first-child')].filter(vis).map(R);
     const board = [...f.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(R);
     const chips = [...f.querySelectorAll('[data-bet] > :first-child')].filter(vis).map(R);
-    return { key: a.dataset.overviewCell, n: board.length, pot, board, chips };
+    return { key: a.dataset.overviewCell, n: board.length, pot, board, chips, potHidden: a.querySelector('[data-desk-table]')?.dataset.lodPot === 'hide' };
   });
 };
-group(() => check('tables-pot-clear', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117, every table of the overview on every street (preflop, flop, turn, river; read as the tables play): its pot box and each board card are at least 2px apart, and neither covers a bet\'s chip stack', async () => {
+group(() => check('tables-pot-clear', 'With ?tables=1 at 1280x720, 1440x790, 1440x900, 1728x1117 and 2000x1270 (the owner\'s), every table of the overview on every street (preflop, flop, turn, river; each table driven through them, a bet out at every seat, the pot large): its pot (the POT box and the collected chips\' stack under it) and each board card are at least 2px apart, and neither covers a bet\'s chip stack', async () => {
   const bad = [], seen = [];
-  await Promise.all(OVERVIEW_SIZES.map(async ([w, h]) => {
+  for (const [w, h] of [...OVERVIEW_SIZES, [2000, 1270]]) {
     const size = `${w}x${h}`, p = await scriptedTable(w, h, false, 'tables=1');
     try {
-      const streets = {}, hit = (a, b, gap = 0) => a[0] < b[2] + gap && b[0] < a[2] + gap && a[1] < b[3] + gap && b[1] < a[3] + gap;
-      const t0 = Date.now(), done = () => Object.keys(streets).length && Object.values(streets).every(s => s.size === 4);
-      while (Date.now() - t0 < 150000 && !done()) {
+      const hit = (a, b, gap = 0) => a[0] < b[2] + gap && b[0] < a[2] + gap && a[1] < b[3] + gap && b[1] < a[3] + gap;
+      // After a session's start every table draws for the button (a card per seat on the felt): driven once that is over.
+      await p.waitForFunction(() => [...document.querySelectorAll('[data-overview-cell] [data-felt-cards]')].every(e => e.querySelectorAll('[role=img]').length <= 5), { timeout: 150000, polling: 500 }).catch(() => {});
+      const keys = await p.evaluate(() => window.__stream.keys());
+      for (const [street, n] of [['preflop', 0], ['flop', 3], ['turn', 4], ['river', 5]]) {
+        // Every table on this street at once, each seat with a bet in front of it and the pot in six figures.
+        await p.evaluate((street, n) => {
+          const s = window.__stream, board = ['Kh', '7d', '2c', 'Qs', '9h'].slice(0, n);
+          s.scripted = true;
+          for (const key of s.keys()) {
+            const l = s.by[key], bb = l.stakes?.bigBlind ?? 10;
+            const payload = { ...l, street, communityCards: board, pot: 1234 * bb, currentBet: 12 * bb, winners: undefined, nextHandInMs: undefined,
+              players: l.players.map((q, i) => ({ ...q, status: 'active', currentBet: (i + 1) * bb, acted: false })) };
+            s.by[key] = payload;
+            s.feed({ table: key, type: 'game_state', payload });
+          }
+        }, street, n);
+        await sleep(900); // the cards' rise and the pot's roll settle
         for (const t of await p.evaluate(POT_CLEAR)) {
-          (streets[t.key] ??= new Set()).add({ 0: 'preflop', 3: 'flop', 4: 'turn', 5: 'river' }[t.n] ?? `${t.n} cards`);
           const why = [];
+          if (t.n !== n) why.push(`${t.n} board cards drawn, not ${n}`);
           for (const pb of t.pot) { if (t.board.some(c => hit(pb, c, 2))) why.push('the pot box and a board card'); if (t.chips.some(c => hit(pb, c))) why.push('the pot box and a chip stack'); }
           if (t.board.some(c => t.chips.some(k => hit(c, k)))) why.push('a board card and a chip stack');
-          for (const y of why) { const k = `${size} ${t.key} with ${t.n} board cards: ${y} closer than allowed`; if (!bad.includes(k)) bad.push(k); }
+          if (!t.pot.length && !t.potHidden) why.push('no pot box drawn'); // (hidden by design where its text would be under 11px: data-lod-pot=hide)
+          const gap = Math.min(...t.pot.flatMap(pb => t.board.map(c => Math.max(c[1] - pb[3], pb[1] - c[3], c[0] - pb[2], pb[0] - c[2]))));
+          for (const y of why) bad.push(`${size} ${t.key} ${street}: ${y}${y.startsWith('the pot box and a board') ? ` (gap ${gap.toFixed(1)}px)` : ''}`);
+          if (!why.length && n && t.pot.length) seen.push(`${size} ${t.key} ${street}: gap ${gap.toFixed(1)}px`);
         }
-        await sleep(200);
       }
-      if (!done()) bad.push(`${size}: not every street seen in 150 s (${Object.entries(streets).map(([k, s]) => `${k}: ${[...s].join('/')}`).join('; ')})`);
-      seen.push(`${size}: ${Object.keys(streets).length} tables, every street`);
+      if (keys.length < 2) bad.push(`${size}: only ${keys.length} tables`);
     } finally { await p.close(); }
-  }));
-  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 16).join(' | ') : seen.join('; ') };
+  }
+  const gaps = seen.map(x => +x.match(/gap (-?[\d.]+)px/)[1]);
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 24).join(' | ') : `every table, every street at ${OVERVIEW_SIZES.length + 1} sizes: the pot box, where drawn (${seen.length} table-streets), at least ${Math.min(...gaps).toFixed(1)}px from the board` };
 }));
 // The sticky bar's pot is a table amount too, so it follows the same switch: in big blinds it reads as the felt's pot does,
 // back in chips it reads in chips, and only its text changes (same height and place; its width moves by the text's alone).
