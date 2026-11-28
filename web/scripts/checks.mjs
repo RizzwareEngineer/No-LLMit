@@ -2303,7 +2303,9 @@ group(() => check('tables-pot-clear', 'With ?tables=1 at 1280x720, 1440x790, 144
           }
         }, street, n);
         await sleep(900); // the cards' rise and the pot's roll settle
-        for (const t of await p.evaluate(POT_CLEAR)) {
+        const ts = await p.evaluate(POT_CLEAR);
+        if (ts.length < 2) bad.push(`${size} ${street}: only ${ts.length} overview tables drawn`);
+        for (const t of ts) {
           const why = [];
           if (t.n !== n) why.push(`${t.n} board cards drawn, not ${n}`);
           for (const pb of t.pot) { if (t.board.some(c => hit(pb, c, 2))) why.push('the pot box and a board card'); if (t.chips.some(c => hit(pb, c))) why.push('the pot box and a chip stack'); }
@@ -2318,6 +2320,7 @@ group(() => check('tables-pot-clear', 'With ?tables=1 at 1280x720, 1440x790, 144
     } finally { await p.close(); }
   }
   const gaps = seen.map(x => +x.match(/gap (-?[\d.]+)px/)[1]);
+  if (!gaps.length) bad.push('no pot drawn beside a board at any size: nothing judged');
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 24).join(' | ') : `every table, every street at ${OVERVIEW_SIZES.length + 1} sizes: the pot box, where drawn (${seen.length} table-streets), at least ${Math.min(...gaps).toFixed(1)}px from the board` };
 }));
 // The sticky bar's pot is a table amount too, so it follows the same switch: in big blinds it reads as the felt's pot does,
