@@ -15,6 +15,7 @@ interface ReasoningPanelProps {
   blank?: boolean; // no table state yet: the bar at its size with nothing in it
   street?: string; // the hand's street, named in the name cell between turns
   turnKey: string; // the turn on screen (hand number and turn), so the typing resumes only for the same turn
+  whole?: boolean; // the reason on show arrived before the view changed to this table (page.tsx): drawn whole, not typed
 }
 
 const STAGE: Record<string, string> = { preflop: 'Preflop', flop: 'Flop', turn: 'Turn', river: 'River', complete: 'Hand over' };
@@ -25,6 +26,7 @@ export default function ReasoningPanel({
   blank = false,
   street,
   turnKey,
+  whole = false,
 }: ReasoningPanelProps) {
   const bb = useBigBlind(); // the action's amount follows the Chips/BB switch; the model's own words stay as written
   const ref = useRef<HTMLDivElement>(null);
@@ -122,7 +124,7 @@ export default function ReasoningPanel({
               </div>
               {reason && (
                 <p className={`${reasonFontSize} italic line-clamp-3 leading-snug`} style={{ color: 'rgb(55, 53, 47)' }}>
-                  <TypewriterText key={`${turnKey}|${reason}`} text={reason} turn={turnKey} />
+                  <TypewriterText key={`${turnKey}|${reason}`} text={reason} turn={turnKey} whole={whole} />
                 </p>
               )}
             </>

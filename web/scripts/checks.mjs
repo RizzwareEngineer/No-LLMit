@@ -1547,12 +1547,13 @@ group(() => check('table-bb-toggle', 'A Chips/BB switch in the status row turns 
 const TABLE_SIZES = [[1440, 790], [1280, 720]];
 const deskBox = p => p.evaluate(() => { const b = document.querySelector('.stage-zoom [data-desk-table]').getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
 const cellsOf = p => p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(a => {
-  const b = a.getBoundingClientRect(), t = a.querySelector('[data-small-table]'), d = t?.querySelector('[data-desk-table]'), r = d?.getBoundingClientRect();
-  const lab = a.querySelector('[data-corner="label"] > span, [data-cell-label] > span');
-  return { key: a.dataset.overviewCell, name: a.getAttribute('aria-label'), label: lab?.textContent ?? '', text: a.textContent, bottom: b.bottom, right: b.right, seats: t?.querySelectorAll('[data-seat]').length ?? 0,
-    sx: r && r.width / d.offsetWidth, sy: r && r.height / d.offsetHeight, w: d?.offsetWidth };
+  const t = a.querySelector('[data-small-table]'), d = t?.querySelector('[data-desk-table]'), r = d?.getBoundingClientRect();
+  const lab = a.querySelector('[data-cell-label] > span'), item = a.closest('[data-overview-item]');
+  return { key: a.dataset.overviewCell, name: a.getAttribute('aria-label'), label: lab?.textContent ?? '', text: a.textContent, bottom: item.getBoundingClientRect().bottom, right: item.getBoundingClientRect().right, seats: t?.querySelectorAll('[data-seat]').length ?? 0,
+    sx: r && r.width / d.offsetWidth, sy: r && r.height / d.offsetHeight, w: d?.offsetWidth, lod: d?.dataset.lod, panel: !!item.querySelector('[data-box="pnl"], [data-overview-pnl], [data-pnl-row]'),
+    labelBottom: lab?.parentElement.getBoundingClientRect().bottom, tableTop: t?.getBoundingClientRect().top };
 }));
-group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1280x720 the landing shows every table the engine runs, in its order, each a link named by its stakes and depth, labelled with stakes and depth and showing its hand, its table the 1000px desktop table drawn at one scale both ways with its seats, all inside the first screen with no scroll', async () => {
+group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1280x720 the landing shows every table the engine runs, in its order, each a link named by its stakes and depth, labelled on one line over its table with stakes and depth, its table the 1000px desktop table drawn at one scale both ways with its seats and seen from far away (data-lod=far), no Profits & Losses with it, all inside the first screen with no scroll', async () => {
   const bad = [], seen = [];
   for (const [w, h] of TABLE_SIZES) {
     const p = await scriptedTable(w, h, false, 'tables=1');
@@ -1563,9 +1564,10 @@ group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1
       for (const c of cells) {
         const [, sb, bb, depth] = c.key.match(/^(\d+)-(\d+)-(\d+)bb$/) ?? [];
         if (c.name !== `Table ${sb}/${bb}, ${depth} bb`) bad.push(`${size} ${c.key}: named '${c.name}'`);
-        if (c.label !== `${sb}/${bb} · ${depth} bb` || !/Hand #[1-9]\d*/.test(c.text)) bad.push(`${size} ${c.key}: label '${c.label}'`);
-        if (c.w !== 1000 || !c.sx || Math.abs(c.sx - c.sy) > 0.003) bad.push(`${size} ${c.key}: table ${c.w}px drawn at ${c.sx?.toFixed(3)} x ${c.sy?.toFixed(3)}`);
+        if (c.label !== `${sb}/${bb} · ${depth} bb` || !(c.labelBottom <= c.tableTop + 0.5)) bad.push(`${size} ${c.key}: label '${c.label}' (its foot ${c.labelBottom}, the table's top ${c.tableTop})`);
+        if (c.w !== 1000 || !c.sx || Math.abs(c.sx - c.sy) > 0.003 || c.lod !== 'far') bad.push(`${size} ${c.key}: table ${c.w}px drawn at ${c.sx?.toFixed(3)} x ${c.sy?.toFixed(3)}, lod ${c.lod}`);
         if (c.seats < 6) bad.push(`${size} ${c.key}: ${c.seats} seats`);
+        if (c.panel) bad.push(`${size} ${c.key}: a Profits & Losses panel with it`);
         if (c.bottom > h || c.right > w) bad.push(`${size} ${c.key}: runs past the window (${Math.round(c.right)}, ${Math.round(c.bottom)})`);
       }
       if (scroll[0] || scroll[1]) bad.push(`${size}: the page scrolled ${scroll}`);
@@ -1574,10 +1576,11 @@ group(() => check('tables-overview-shows-all', 'With ?tables=1 at 1440x790 and 1
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-// The tables are the picture: the grid fills the first screen under the header (no band over 48px above or below it, no
-// scroll) at the common laptop window sizes; at 1440x790 each of the four small tables is at least 40% of the window across;
-// every piece of overview text is on one line.
-group(() => check('tables-fill-screen', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 the overview grid fills the first screen: no band over 48px between the header and the grid or under it, no page scroll; at 1440x790 each small table is drawn at least 40% of the window wide; every overview text is on one line', async () => {
+// The tables are the picture: the grid fills the first screen between the header and the Stats button (no band over 48px
+// above or below it, no scroll) at the common laptop window sizes, for 4 tables (TABLES_N, the engine's TABLES, for the
+// others); at 1440x790 each of the four small tables, with no Profits & Losses beside it any more, is at least 32% of the
+// window wide (it was 31% with the panels); every piece of overview text is on one line.
+group(() => check('tables-fill-screen', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 the overview grid fills the first screen: no band over 48px between the header and the grid or between the grid and the Stats button, no page scroll; at 1440x790 each small table is at least 32% of the window wide; every overview text is on one line', async () => {
   const bad = [], seen = [];
   for (const [w, h] of [[1280, 720], [1440, 790], [1440, 900], [1728, 1117]]) {
     const p = await scriptedTable(w, h, false, 'tables=1');
@@ -1586,17 +1589,183 @@ group(() => check('tables-fill-screen', 'With ?tables=1 at 1280x720, 1440x790, 1
       const r = await p.evaluate(() => {
         const g = document.querySelector('[data-overview-grid]').getBoundingClientRect(), main = document.querySelector('.stage-zoom').parentElement;
         const head = main.previousElementSibling.getBoundingClientRect();
+        const stats = [...document.querySelectorAll('button')].find(b => /^Stats/.test(b.textContent.trim()) && !b.closest('[data-overview]')).getBoundingClientRect();
         const tables = [...document.querySelectorAll('[data-overview-cell] [data-small-table]')].map(e => e.getBoundingClientRect().width);
         const texts = [...document.querySelectorAll('[data-overview] span')].filter(e => !e.closest('[data-small-table]') && getComputedStyle(e).visibility !== 'hidden' && e.textContent.trim() && e.getClientRects().length)
           .filter(e => { const lh = parseFloat(getComputedStyle(e).lineHeight) || 18; return e.getBoundingClientRect().height > lh * 1.5 || e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflow !== 'visible'; }).map(e => e.textContent.trim().slice(0, 24));
-        return { above: g.top - head.bottom, below: innerHeight - g.bottom, tables, texts, scroll: [document.documentElement.scrollWidth > innerWidth, scrollY, document.querySelector('[data-overview]').scrollHeight > document.querySelector('[data-overview]').clientHeight + 1] };
+        return { above: g.top - head.bottom, below: stats.top - g.bottom, tables, texts, scroll: [document.documentElement.scrollWidth > innerWidth, scrollY, document.querySelector('[data-overview]').scrollHeight > document.querySelector('[data-overview]').clientHeight + 1] };
       });
-      const size = `${w}x${h}`;
+      const size = `${w}x${h}`, n = +(process.env.TABLES_N || 4);
       if (r.above > 48 || r.below > 48 || r.above < 0 || r.below < 0) bad.push(`${size}: bands ${Math.round(r.above)} above, ${Math.round(r.below)} below`);
       if (r.scroll.some(Boolean)) bad.push(`${size}: scroll ${r.scroll}`);
-      if (w === 1440 && h === 790 && (r.tables.length !== 4 || r.tables.some(t => t < 0.4 * w))) bad.push(`${size}: tables ${r.tables.map(Math.round)} px across (want >= ${0.4 * w})`);
+      if (r.tables.length !== n) bad.push(`${size}: ${r.tables.length} tables (want ${n})`);
+      if (w === 1440 && h === 790 && n === 4 && r.tables.some(t => t < 0.32 * w)) bad.push(`${size}: tables ${r.tables.map(Math.round)} px across (want ${0.32 * w} or more)`);
       if (r.texts.length) bad.push(`${size}: text over one line: ${r.texts.join(', ')}`);
       seen.push(`${size}: bands ${Math.round(r.above)}/${Math.round(r.below)}, tables ${r.tables.map(Math.round).join(',')}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// The owner's review of the overview: centred, no all-tables column, nothing drawn under the legibility floor, the far
+// table's seats drawn as their logos only (no name, stack, status or bet amount) but each named for screen readers.
+const OVERVIEW_SIZES = [[1280, 720], [1440, 790], [1440, 900], [1728, 1117]];
+group(() => check('tables-grid-centred', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 the overview grid is centred across the window within 2px', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of OVERVIEW_SIZES) {
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const r = await p.evaluate(() => {
+        const items = [...document.querySelectorAll('[data-overview-item]')].map(e => e.getBoundingClientRect());
+        return { l: Math.min(...items.map(b => b.left)), r: Math.max(...items.map(b => b.right)), win: document.documentElement.clientWidth };
+      });
+      const off = (r.l + r.r) / 2 - r.win / 2;
+      if (Math.abs(off) > 2) bad.push(`${w}x${h}: the grid's middle is ${off.toFixed(1)}px off the window's`);
+      seen.push(`${w}x${h}: ${Math.round(r.l)}..${Math.round(r.r)} (off ${off.toFixed(1)})`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('tables-no-all-tables', 'With ?tables=1 at 1440x790 there is no all-tables Profits & Losses and no "All tables" control on the overview: no [data-all-tables], no "All tables" text in the overview, no visible "All tables" button', async () => {
+  const p = await scriptedTable(1440, 790, false, 'tables=1');
+  try {
+    const r = await p.evaluate(() => [document.querySelectorAll('[data-all-tables]').length, /all tables/i.test(document.querySelector('[data-overview]')?.textContent ?? ''),
+      [...document.querySelectorAll('button, a')].filter(b => /all tables/i.test(b.textContent) && b.getClientRects().length && getComputedStyle(b).visibility !== 'hidden' && +getComputedStyle(b).opacity > 0.05).length]);
+    return { pass: !r[0] && !r[1] && !r[2], detail: `${r[0]} all-tables panels, ${r[1] ? '' : 'no '}"All tables" text, ${r[2]} visible "All tables" buttons` };
+  } finally { await p.close(); }
+}));
+// Seen from far away a small table fades the text too small to read (names, stacks, statuses, position letters, bet
+// amounts, the countdown; the pot's amount where under 11px) and grows its logos and hole cards in place: what shows is
+// 11px or more, logos 24px or more, hole cards 22px wide or more, each pair inside its seat box and clear of its logo.
+// Card faces are judged by the card's size (a rank on a 22px card is about 8px), not as text.
+const OVERVIEW_LOD = () => {
+  const out = { small: [], names: [], texts: 0, logos: [], holes: [], boards: [], out: [], touch: [], pots: [] };
+  const names = new Set(window.__stream.last.players.map(q => q.name));
+  const seen = e => { let o = 1; for (let x = e; x && !x.matches('[data-overview]'); x = x.parentElement) { const c = getComputedStyle(x); o *= +c.opacity; if (c.visibility === 'hidden' || c.display === 'none') return 0; } return o; };
+  const walk = document.createTreeWalker(document.querySelector('[data-overview]'), NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    const e = n.parentElement, t = n.textContent.trim();
+    if (!t || !e.getClientRects().length || e.closest('[aria-hidden=true]') || seen(e) < 0.05) continue;
+    const c = getComputedStyle(e), col = c.color.match(/[\d.]+/g); if (col?.length === 4 && +col[3] < 0.05) continue;
+    const d = e.closest('[data-small-table]')?.querySelector('[data-desk-table]'), z = d ? d.getBoundingClientRect().width / d.offsetWidth : 1, px = parseFloat(c.fontSize) * z;
+    out.texts++;
+    if (px < 10.95) out.small.push(`${t.slice(0, 16)} ${px.toFixed(1)}px`);
+    if (e.closest('[data-small-table]') && names.has(t)) out.names.push(t);
+    if (e.closest('[data-lod-pot]')) out.pots.push(px);
+  }
+  for (const seat of document.querySelectorAll('[data-small-table] [data-desk-seat]')) {
+    const sb = seat.getBoundingClientRect(), logo = seat.querySelector('[data-lod-logo]')?.getBoundingClientRect(), cards = [...seat.querySelectorAll('[data-hole] [role=img]')].map(c => c.getBoundingClientRect());
+    if (logo) out.logos.push(logo.width);
+    for (const c of cards) {
+      out.holes.push(c.width);
+      if (c.left < sb.left - 0.5 || c.right > sb.right + 0.5 || c.top < sb.top - 0.5 || c.bottom > sb.bottom + 0.5) out.out.push('card');
+      if (logo && c.left < logo.right + 1 && c.right > logo.left - 1 && c.top < logo.bottom + 1 && c.bottom > logo.top - 1) out.touch.push('card on logo');
+    }
+    if (logo && (logo.left < sb.left - 0.5 || logo.right > sb.right + 0.5 || logo.top < sb.top - 0.5 || logo.bottom > sb.bottom + 0.5)) out.out.push('logo');
+    for (let i = 1; i < cards.length; i++) if (cards[i].left < cards[i - 1].right + 0.5) out.touch.push('cards overlap');
+  }
+  for (const c of document.querySelectorAll('[data-small-table] [data-felt-cards] [role=img]')) out.boards.push(c.getBoundingClientRect().width);
+  return out;
+};
+group(() => check('tables-legibility', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117, mid-hand with bets out: no visible text in a small table or the overview under 11px (seat names, stacks, statuses, position letters, bet amounts faded out), every logo 24px or more, every hole card 22px wide or more, each inside its seat box, side by side, clear of its logo', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of OVERVIEW_SIZES) {
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      await p.evaluate(() => window.__stream.bets());
+      await sleep(600);
+      const r = await p.evaluate(OVERVIEW_LOD);
+      const size = `${w}x${h}`, min = a => (a.length ? Math.min(...a) : NaN);
+      if (r.small.length) bad.push(`${size}: small text ${r.small.slice(0, 5).join(', ')}`);
+      if (r.names.length) bad.push(`${size}: seat names drawn: ${r.names.slice(0, 3).join(', ')}`);
+      if (!r.logos.length || min(r.logos) < 23.95) bad.push(`${size}: a logo ${min(r.logos).toFixed(1)}px`);
+      if (!r.holes.length || min(r.holes) < 21.95) bad.push(`${size}: a hole card ${min(r.holes).toFixed(1)}px wide`);
+      if (r.out.length || r.touch.length) bad.push(`${size}: ${[...new Set([...r.out.map(x => `${x} out of its seat`), ...r.touch])].join(', ')}`);
+      seen.push(`${size}: ${r.texts} texts (pot ${r.pots.length ? `${min(r.pots).toFixed(1)}px` : 'faded'}), logos ${min(r.logos).toFixed(1)}px, hole cards ${min(r.holes).toFixed(1)}px, board ${r.boards.length ? min(r.boards).toFixed(1) + 'px' : '-'}`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+// The small table is the real table at its real proportions: each seat box, divided by the table's scale, is the
+// single-table page's (place in the table and size), and no Profits & Losses is in the overview.
+const seatGeometry = sel => document.querySelectorAll(sel).length && [...document.querySelectorAll(sel)].map(d => {
+  const r = d.getBoundingClientRect(), z = r.width / d.offsetWidth;
+  return [...d.querySelectorAll('[data-desk-seat]')].map(s => { const b = s.getBoundingClientRect(); return [(b.left - r.left) / z, (b.top - r.top) / z, b.width / z, b.height / z]; });
+});
+group(() => check('tables-real-proportions', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 each small table\'s seat boxes, divided by its scale, equal the single-table page\'s seat boxes (place and size) within 1px, and no Profits & Losses or winnings element is in the overview', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of OVERVIEW_SIZES) {
+    const plain = await scriptedTable(w, h), want = (await plain.evaluate(seatGeometry, '.stage-zoom [data-desk-table]').finally(() => plain.close()))[0];
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const got = await p.evaluate(seatGeometry, '[data-overview] [data-desk-table]');
+      const pnl = await p.evaluate(() => document.querySelectorAll('[data-overview] :is([data-box="pnl"], [data-box^="pnl:"], [data-overview-pnl], [data-pnl-row], [data-testid*=pnl i], [data-testid*=winnings i], [aria-label^="Profits"])').length);
+      let worst = 0;
+      if (!got || !want) { bad.push(`${w}x${h}: no tables`); continue; }
+      got.forEach((t, i) => { if (t.length !== want.length) bad.push(`${w}x${h} table ${i}: ${t.length} seats, the page ${want.length}`); t.forEach((b, j) => b.forEach((v, k) => { worst = Math.max(worst, Math.abs(v - (want[j]?.[k] ?? 1e9))); })); });
+      if (worst > 1) bad.push(`${w}x${h}: a seat box ${worst.toFixed(2)}px off the page's`);
+      if (pnl) bad.push(`${w}x${h}: ${pnl} P&L elements in the overview`);
+      seen.push(`${w}x${h}: ${got.length} tables x ${want.length} seats, worst ${worst.toFixed(2)}px`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('tables-seat-names', 'With ?tables=1 at 1440x790 every seat of every small table keeps an accessible name, its model\'s (the accessibility tree: the seat\'s name, faded but not removed), and each table\'s link is named "Table SB/BB, N bb"', async () => {
+  const p = await scriptedTable(1440, 790, false, 'tables=1');
+  try {
+    const names = await p.evaluate(() => window.__stream.last.players.map(q => q.name));
+    const tree = await p.accessibility.snapshot({ interestingOnly: false });
+    const links = [];
+    let named = 0;
+    const texts = (n, acc) => { if (n.name) acc.push(n.name); (n.children ?? []).forEach(c => texts(c, acc)); return acc; };
+    const walk = n => { if (n.role === 'link' && /^Table /.test(n.name)) { links.push(n.name); const t = texts(n, []); named += names.filter(m => t.includes(m) || t.includes(`${m} logo`)).length; } else (n.children ?? []).forEach(walk); };
+    walk(tree);
+    const n = await p.evaluate(() => window.__stream.keys().length);
+    return { pass: named >= n * names.length && links.length === n, detail: `${named} named seats (want ${n * names.length}), ${links.length} links (want ${n}): ${links.join(', ')}` };
+  } finally { await p.close(); }
+}));
+// The header's status row: on the overview Live, the units and Sound are one group in the middle (the per-table items
+// folded away); inside a table every item is where the page without the switch puts it.
+const statusParts = p => p.evaluate(() => {
+  const row = document.querySelector('[data-status-table]')?.parentElement ?? [...document.querySelectorAll('div')].find(d => d.querySelector('[role=group][aria-label="Amounts in"]') && /Live|Offline|Closed|Paused/.test(d.textContent) && d.className.includes('flex-wrap'));
+  const box = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.width]; };
+  const live = row.firstElementChild, units = row.querySelector('[role=group][aria-label="Amounts in"]'), sound = row.lastElementChild;
+  const title = document.querySelector('h1:not(.sr-only)').getBoundingClientRect();
+  // The overview holds each per-table text at the widest table's (page.tsx's StatusRow `held`): what that adds to the row.
+  const held = [...row.querySelectorAll('[data-status-hand] .inline-grid')].reduce((a, g) => a + g.getBoundingClientRect().width - g.firstElementChild.getBoundingClientRect().width, 0);
+  return { live: box(live), units: box(units), sound: box(sound), win: 2 * (title.left + title.width / 2), mid: document.querySelector('[data-status-table]')?.getBoundingClientRect().width ?? null, held };
+});
+group(() => check('tables-status-row', 'With ?tables=1 at 1440x790 and 1280x720: on the overview the status row\'s Live, Chips/BB and Sound are one group centred under the title within 2px with the per-table items folded to nothing; inside a table (after the zoom) Live, Chips/BB and Sound are within 1px of where the page without the switch draws them, but for the room the row holds for the widest table\'s hand number and stakes (so a slide moves nothing; tables-view-stable): the row is that much wider, half each side', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of TABLE_SIZES) {
+    const size = `${w}x${h}`, plain = await scriptedTable(w, h);
+    const want = await statusParts(plain).finally(() => plain.close());
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const o = await statusParts(p);
+      const l = o.live[0], r = o.sound[0] + o.sound[2], off = (l + r) / 2 - o.win / 2;
+      if (Math.abs(off) > 2 || o.mid > 0.5) bad.push(`${size} overview: group ${Math.round(l)}..${Math.round(r)} (${off.toFixed(1)} off the middle), per-table items ${o.mid}px`);
+      await clickCenter(p, '[data-overview-cell="5-10-200bb"] [data-small-table]'); await sleep(1200);
+      const t = await statusParts(p);
+      // The held room: what the row grows by against the page's, which must be exactly the held texts' own.
+      const extra = (t.units[0] - t.live[0]) - (want.units[0] - want.live[0]);
+      if (Math.abs(extra - t.held) > 1) bad.push(`${size} in a table: the row is ${extra.toFixed(1)}px wider than the page's, its held texts ${t.held.toFixed(1)}px`);
+      const by = { live: -t.held / 2, units: t.held / 2, sound: t.held / 2 };
+      for (const k of ['live', 'units', 'sound']) if (t[k].some((v, i) => Math.abs(v - want[k][i] - (i ? 0 : by[k])) > 1)) bad.push(`${size} in a table: ${k} at ${t[k].map(Math.round)}, the page's ${want[k].map(Math.round)} (held room ${t.held.toFixed(1)}px)`);
+      seen.push(`${size}: overview group ${Math.round(l)}..${Math.round(r)} (off ${off.toFixed(1)}); in a table units at ${Math.round(t.units[0])} (page ${Math.round(want.units[0])}, held room ${t.held.toFixed(1)}px)`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
+}));
+group(() => check('tables-stats-button', 'With ?tables=1 at 1280x720, 1440x790, 1440x900 and 1728x1117 the Stats button on the overview is the single-table page\'s, its box the same within 1px', async () => {
+  const bad = [], seen = [];
+  const statsBox = p => p.evaluate(() => { const b = [...document.querySelectorAll('button')].filter(b => /^Stats/.test(b.textContent.trim()) && b.getClientRects().length && getComputedStyle(b).visibility !== 'hidden'); return b.map(e => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }); });
+  for (const [w, h] of OVERVIEW_SIZES) {
+    const plain = await scriptedTable(w, h), want = await statsBox(plain).finally(() => plain.close());
+    const p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const got = await statsBox(p);
+      if (got.length !== 1 || want.length !== 1 || got[0].some((v, i) => Math.abs(v - want[0][i]) > 1)) bad.push(`${w}x${h}: ${JSON.stringify(got.map(b => b.map(Math.round)))} vs the page's ${JSON.stringify(want.map(b => b.map(Math.round)))}`);
+      seen.push(`${w}x${h}: ${got[0]?.map(Math.round)}`);
     } finally { await p.close(); }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
@@ -1624,19 +1793,42 @@ group(() => check('tables-zoom-lands', 'With ?tables=1 at 1440x790 and 1280x720,
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
-group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 1280x720 (edges live, then outline): every neighbour in the overview grid shows at that edge (the table faded, or a tab with its label), none over a seat, the sidebar, the reasoning panel or the header; a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
+group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1280x720, 1440x790, 1440x900 and 1728x1117, by default: an arrow button for every neighbour in the overview grid (named "Go to table …"), each as tall as the Stats button, none over a seat, a bet, the sidebar, the reasoning panel, the header, the Stats button or another button, every one at least 8px inside the window, no faded edge; "All tables" at the page\'s top-left (16,16) and About at its top-right (the page box\'s right edge, 16px down), neither cut, both clear of the header\'s text, one About link; every pill (arrows, Stats, All tables, About) the same height and type size; the table\'s box the page without the switch draws (within 1px). In 1/2 (a table below): its pill centred over Stats, 8px apart, where the window has the height for both, else on Stats\' line to its left (lifted to stay 8px inside the window where Stats runs past its foot), Stats where the page without the switch draws it across. At 1440x790 and 1280x720 with edges=live and edges=outline the faded edges show instead (the table faded, or a tab with its label), none over those. Every way: a click on the right one moves to 50/100 (?t=50-100-100bb), and ← back to 25/50', async () => {
   const bad = [], seen = [];
-  for (const [w, h] of TABLE_SIZES) for (const variant of ['live', 'outline']) {
-    const size = `${w}x${h} ${variant}`, p = await scriptedTable(w, h, false, `tables=1&t=25-50-500bb&edges=${variant}`);
+  const runs = [...[[1280, 720], [1440, 790], [1440, 900], [1728, 1117]].map(s => [...s, 'buttons']), ...TABLE_SIZES.flatMap(s => ['live', 'outline'].map(v => [...s, v]))];
+  const plainBox = {};
+  for (const [w, h, variant] of runs) {
+    const size = `${w}x${h} ${variant}`, buttons = variant === 'buttons';
+    if (buttons) { const plain = await scriptedTable(w, h); plainBox[size] = await deskBox(plain).finally(() => plain.close()); }
+    const p = await scriptedTable(w, h, false, `tables=1&t=25-50-500bb${buttons ? '' : `&edges=${variant}`}`);
     try {
-      await sleep(500);
-      const r = await p.evaluate(() => {
+      await sleep(700);
+      const r = await p.evaluate(sel => {
         const box = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
         const meets = (a, b) => a[0] < b[2] - 0.5 && b[0] < a[2] - 0.5 && a[1] < b[3] - 0.5 && b[1] < a[3] - 0.5;
         const main = document.querySelector('.stage-zoom').parentElement;
-        const keep = [...document.querySelectorAll('.stage-zoom [data-seat], #phone-stats, [data-reasoning]'), ...[...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).filter(e => e.offsetHeight)];
-        return [...document.querySelectorAll('[data-edge]')].map(e => ({ dir: e.dataset.edge, tab: e.dataset.edgeTab !== undefined, name: e.getAttribute('aria-label'), over: keep.filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.id ?? k.className.slice(0, 20)) }));
-      });
+        const stats = [...document.querySelectorAll('section[data-screen] button')].find(b => /^Stats/.test(b.textContent.trim()));
+        const keep = [...document.querySelectorAll('.stage-zoom [data-seat], .stage-zoom [data-bet], #phone-stats, [data-reasoning]'), ...[...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).filter(e => e.offsetHeight), stats, ...document.querySelectorAll('[data-all-tables-button], [data-about-pill]')];
+        const els = [...document.querySelectorAll(sel)];
+        return {
+          stats: stats.getBoundingClientRect().height, faded: document.querySelectorAll('[data-edge]').length,
+          edges: els.map(e => ({ dir: e.dataset.edge ?? e.dataset.tableNav, tab: e.dataset.edgeTab !== undefined, name: e.getAttribute('aria-label'), h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width, vertical: getComputedStyle(e).writingMode !== 'horizontal-tb',
+            out: (([l, t, r, b]) => l < 8 - 0.5 || t < 8 - 0.5 || r > Math.min(document.documentElement.clientWidth, document.documentElement.getBoundingClientRect().right) - 8 + 0.5 || b > innerHeight - 8 + 0.5)(box(e)), font: getComputedStyle(e).fontSize,
+            // Not cut by anything round it (a clipping parent): its four inner corners are its own.
+            cut: (([l, t, r, b]) => [[l + 4, (t + b) / 2], [r - 4, (t + b) / 2], [(l + r) / 2, t + 4], [(l + r) / 2, b - 4]].some(([x, y]) => !e.contains(document.elementFromPoint(x, y))))(box(e)),
+            over: [...keep, ...els.filter(o => o !== e)].filter(k => meets(box(e), box(k))).map(k => k.dataset.seat ?? k.dataset.tableNav ?? (k === stats ? 'Stats' : k.id || k.className.slice(0, 20))) })),
+          pills: [stats, ...document.querySelectorAll('[data-all-tables-button], [data-about-pill]')].map(e => ({ h: e.getBoundingClientRect().height, font: getComputedStyle(e).fontSize, name: e.textContent.trim() })),
+          corners: (() => { const a = document.querySelector('[data-all-tables-button]')?.getBoundingClientRect(), b = document.querySelector('[data-about-pill]')?.getBoundingClientRect();
+            const head = [...main.parentElement.children].slice(0, [...main.parentElement.children].indexOf(main)).flatMap(x => [...x.querySelectorAll('h1, p, button, a, span, [role=group]')]).filter(x => x.getClientRects().length && !x.closest('[data-all-tables-button], [data-about-pill]') && x.offsetWidth < innerWidth * 0.8);
+            const hit = r => r && head.filter(x => meets(box(x), [r.left, r.top, r.right, r.bottom])).map(x => x.textContent.trim().slice(0, 16));
+            const sec = document.querySelector('section[data-screen]').getBoundingClientRect(), mine = (el, r) => r && [[r.left + 4, r.top + r.height / 2], [r.right - 4, r.top + r.height / 2]].every(([x, y]) => el.contains(document.elementFromPoint(x, y)));
+            return { all: a && [a.left, a.top], about: b && [sec.right - b.right, b.top], cut: !mine(document.querySelector('[data-all-tables-button]'), a) || !mine(document.querySelector('[data-about-pill]'), b), hits: [...(hit(a) ?? []), ...(hit(b) ?? [])],
+              abouts: [...document.querySelectorAll('a[href="/about"]')].filter(x => x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden' && x.getBoundingClientRect().bottom < innerHeight).length };
+          })(),
+          back: (() => { const b = document.querySelector('[data-all-tables-button]')?.getBoundingClientRect(), pg = document.querySelector('[data-page]'), sec = document.querySelector('section[data-screen]');
+            return b && { dx: b.left - (pg.getBoundingClientRect().left + parseFloat(getComputedStyle(pg).paddingLeft)), dy: b.top - (sec.getBoundingClientRect().top + parseFloat(getComputedStyle(sec).paddingTop)) }; })(),
+        };
+      }, buttons ? '[data-table-nav]' : '[data-edge]');
       // Every neighbour in the overview's grid (the hidden overview's cells: same row beside it, same column above and below).
       const want = await p.evaluate(() => {
         const cells = [...document.querySelectorAll('[data-overview-cell]')].map(a => { const b = a.getBoundingClientRect(); return { key: a.dataset.overviewCell, x: Math.round(b.left), y: Math.round(b.top) }; });
@@ -1644,19 +1836,69 @@ group(() => check('tables-edges', 'With ?tables=1&t=25-50-500bb at 1440x790 and 
         const at = (dx, dy) => cells.find(c => c.x === xs[xs.indexOf(me.x) + dx] && c.y === ys[ys.indexOf(me.y) + dy]);
         return Object.entries({ left: at(-1, 0), right: at(1, 0), up: at(0, -1), down: at(0, 1) }).filter(([, c]) => c).map(([d]) => d).sort();
       });
-      const got = r.map(e => e.dir).sort();
-      if (want.join() !== got.join()) bad.push(`${size}: neighbours ${want} but edges ${got}`);
-      const right = r.find(e => e.dir === 'right');
-      if (!right || right.name !== 'Table 50/100, 100 bb') bad.push(`${size}: right edge ${right?.name}`);
-      for (const e of r) if (e.over.length) bad.push(`${size}: the ${e.dir} edge covers ${e.over.join(', ')}`);
-      await clickCenter(p, '[data-edge="right"]'); await sleep(1200);
+      const got = r.edges.map(e => e.dir).sort();
+      if (want.join() !== got.join()) bad.push(`${size}: neighbours ${want} but ${buttons ? 'buttons' : 'edges'} ${got}`);
+      const right = r.edges.find(e => e.dir === 'right');
+      if (!right || right.name !== (buttons ? 'Go to table 50/100, 100 bb' : 'Table 50/100, 100 bb')) bad.push(`${size}: right ${right?.name}`);
+      for (const e of r.edges) if (e.over.length) bad.push(`${size}: the ${e.dir} ${buttons ? 'button' : 'edge'} covers ${e.over.join(', ')}`);
+      if (buttons) {
+        if (r.faded) bad.push(`${size}: ${r.faded} faded edges by default`);
+        for (const e of r.edges) {
+          const tall = e.vertical ? e.w : e.h;
+          if (Math.abs(tall - r.stats) > 0.5) bad.push(`${size}: the ${e.dir} button is ${tall.toFixed(1)}px, Stats ${r.stats.toFixed(1)}px`);
+          if (e.out) bad.push(`${size}: the ${e.dir} button is less than 8px inside the window`);
+          if (e.cut) bad.push(`${size}: the ${e.dir} button is cut or covered`);
+          if (e.font !== r.pills[0].font) bad.push(`${size}: the ${e.dir} button's type ${e.font}, Stats ${r.pills[0].font}`);
+        }
+        for (const q of r.pills) if (Math.abs(q.h - r.stats) > 0.5 || q.font !== r.pills[0].font) bad.push(`${size}: ${q.name} ${q.h.toFixed(1)}px tall, type ${q.font} (Stats ${r.stats.toFixed(1)}px, ${r.pills[0].font})`);
+        const c = r.corners;
+        if (!c.all || Math.abs(c.all[0] - 16) > 1 || Math.abs(c.all[1] - 16) > 1) bad.push(`${size}: All tables at ${c.all?.map(Math.round)} (want 16,16)`);
+        if (!c.about || Math.abs(c.about[0]) > 1 || Math.abs(c.about[1] - 16) > 1) bad.push(`${size}: About ${c.about?.map(Math.round)} from the page's top-right (want 0,16)`);
+        if (c.cut) bad.push(`${size}: a corner pill is cut or covered`);
+        if (c.hits.length) bad.push(`${size}: a corner pill over the header's ${c.hits.join(', ')}`);
+        if (c.abouts !== 1) bad.push(`${size}: ${c.abouts} About links on the first screen`);
+        if (!r.back || Math.hypot(r.back.dx, r.back.dy) > 24) bad.push(`${size}: All tables ${r.back ? `${r.back.dx.toFixed(1)},${r.back.dy.toFixed(1)}px` : 'missing'} from the page's top-left content corner`);
+        const got = await deskBox(p), wantBox = plainBox[size];
+        if (got.some((v, i) => Math.abs(v - wantBox[i]) > 1)) bad.push(`${size}: table at ${got.map(Math.round)}, the page without the switch ${wantBox.map(Math.round)}`);
+      }
+      await clickCenter(p, buttons ? '[data-table-nav="right"]' : '[data-edge="right"]'); await sleep(1200);
       const moved = await p.evaluate(() => location.search);
-      if (!/t=50-100-100bb/.test(moved)) bad.push(`${size}: after the right edge, URL ${moved}`);
+      if (!/t=50-100-100bb/.test(moved)) bad.push(`${size}: after the right ${buttons ? 'button' : 'edge'}, URL ${moved}`);
       await p.keyboard.press('ArrowLeft'); await sleep(1200);
       const back = await p.evaluate(() => location.search);
       if (!/t=25-50-500bb/.test(back)) bad.push(`${size}: after ←, URL ${back}`);
-      seen.push(`${size}: edges ${r.map(e => `${e.dir}${e.tab ? ' (tab)' : ''} ${e.name}`).join(', ')}`);
+      seen.push(`${size}: ${r.edges.map(e => `${e.dir}${e.tab ? ' (tab)' : ''}${e.vertical ? ' (on its side)' : ''} ${e.name}${buttons ? ` ${Math.round(e.w)}x${Math.round(e.h)}` : ''}`).join(', ')}${buttons ? `; Stats ${r.stats.toFixed(1)}px, All tables at +${r.back?.dx.toFixed(0)},+${r.back?.dy.toFixed(0)}` : ''}`);
     } finally { await p.close(); }
+    if (!buttons) continue;
+    // The table below (from 1/2): centred over Stats where both fit with 8px to spare under them, else on Stats' line.
+    const statsOf = q => q.evaluate(() => { const b = [...document.querySelectorAll('section[data-screen] button')].find(x => /^Stats/.test(x.textContent.trim())).getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
+    const plain = await scriptedTable(w, h), plainStats = await statsOf(plain).finally(() => plain.close());
+    const q = await scriptedTable(w, h, false, 'tables=1&t=1-2-100bb');
+    try {
+      await sleep(900);
+      const st = await statsOf(q), d = await q.evaluate(() => { const e = document.querySelector('[data-table-nav="down"]'); if (!e) return null; const b = e.getBoundingClientRect(); return [b.left, b.top, b.width, b.height, document.querySelector('.stage-zoom').getBoundingClientRect().bottom, innerHeight]; });
+      const table = await deskBox(q), wantBox = plainBox[size];
+      if (table.some((v, i) => Math.abs(v - wantBox[i]) > 1)) bad.push(`${size} in 1/2: table at ${table.map(Math.round)}, the page without the switch ${wantBox.map(Math.round)}`);
+      if (!d) { bad.push(`${size} in 1/2: no button to the table below`); continue; }
+      const stacked = d[4] + 8 + 2 * d[3] + 8 + 8 <= d[5] + 0.5;
+      if (Math.abs(st[0] - plainStats[0]) > 1) bad.push(`${size} in 1/2: Stats moved across (${Math.round(st[0])}, the page's ${Math.round(plainStats[0])})`);
+      if (stacked) {
+        if (Math.abs(d[0] + d[2] / 2 - (st[0] + st[2] / 2)) > 1 || Math.abs(d[1] + d[3] + 8 - st[1]) > 1 || st[1] + st[3] > d[5] - 8 + 0.5) bad.push(`${size} in 1/2: down ${d.slice(0, 4).map(Math.round)} not centred 8px over Stats ${st.map(Math.round)} inside the window`);
+      } else if (Math.abs(d[1] - Math.min(st[1], d[5] - 8 - d[3])) > 1 || d[0] + d[2] > st[0] - 8 || Math.abs(st[1] - plainStats[1]) > 1) bad.push(`${size} in 1/2: down ${d.slice(0, 4).map(Math.round)} not on Stats' line to its left (Stats ${st.map(Math.round)}, the page's ${plainStats.map(Math.round)})`);
+      seen.push(`${size} in 1/2: down ${stacked ? 'over' : 'beside'} Stats at ${d.slice(0, 2).map(Math.round)}, Stats ${st.slice(0, 2).map(Math.round)}`);
+    } finally { await q.close(); }
+    // In every table: no button cut by the page's edge or closer than 8px to the window's.
+    for (const key of ['1-2-100bb', '5-10-200bb', '50-100-100bb']) {
+      const k = await scriptedTable(w, h, false, `tables=1&t=${key}`);
+      try {
+        await sleep(900);
+        const cut = await k.evaluate(() => [...document.querySelectorAll('[data-table-nav]')].filter(e => {
+          const { left: l, top: t, right: r, bottom: b } = e.getBoundingClientRect(), edge = Math.min(document.documentElement.clientWidth, document.documentElement.getBoundingClientRect().right);
+          return l < 7.5 || t < 7.5 || r > edge - 7.5 || b > innerHeight - 7.5 || [[l + 4, (t + b) / 2], [r - 4, (t + b) / 2]].some(([x, y]) => !e.contains(document.elementFromPoint(x, y)));
+        }).map(e => e.dataset.tableNav));
+        if (cut.length) bad.push(`${size} in ${key}: ${cut.join(', ')} cut or under 8px from the window's edge`);
+      } finally { await k.close(); }
+    }
   }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join(' | ') };
 }));
@@ -1688,7 +1930,7 @@ group(() => check('tables-inputs-interleaved', 'With ?tables=1 at 1440x790, ever
     ['Esc, click the same cell at 300 ms', async p => { await openAtRest(p, A); const a = await cellAt(p, A); await p.keyboard.press('Escape'); await sleep(300); await p.mouse.click(...a); }, { t: A }],
     ['Esc, click another cell at 300 ms', async p => { await openAtRest(p, A); const b = await cellAt(p, B); await p.keyboard.press('Escape'); await sleep(300); await p.mouse.click(...b); }],
     ['click, click another cell', async p => { const [a, b] = [await cellAt(p, A), await cellAt(p, B)]; await p.mouse.click(...a); await p.mouse.click(...b); }],
-    ['edge click during a slide', async p => { await openAtRest(p, B); const r = await p.evaluate(() => { const e = document.querySelector('[data-edge="right"]').getBoundingClientRect(); return [e.left + e.width / 2, e.top + e.height / 2]; }); await p.mouse.click(...r); await sleep(80); await p.mouse.click(...r); await p.keyboard.press('ArrowLeft'); }],
+    ['edge click during a slide', async p => { await openAtRest(p, B); const r = await p.evaluate(() => { const e = document.querySelector('[data-table-nav="right"]').getBoundingClientRect(); return [e.left + e.width / 2, e.top + e.height / 2]; }); await p.mouse.click(...r); await sleep(80); await p.mouse.click(...r); await p.keyboard.press('ArrowLeft'); }],
     ['arrows held down', async p => { await openAtRest(p, A); for (const k of ['ArrowDown', 'ArrowLeft', 'ArrowUp']) { for (let i = 0; i < 8; i++) await p.keyboard.down(k, { autoRepeat: i > 0 }); await p.keyboard.up(k); } }],
     ['Back during a zoom in', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await sleep(100); await p.evaluate(() => history.back()); }],
     ['Back, Forward during a zoom in', async p => { const a = await cellAt(p, A); await p.mouse.click(...a); await p.evaluate(() => { history.back(); setTimeout(() => history.forward(), 60); }); }],
@@ -1837,6 +2079,479 @@ group(() => check('tables-no-switch', 'Without ?tables=1 the page at 1440x790 sh
     const r = await p.evaluate(() => [document.querySelectorAll('[data-overview], [data-overview-cell], [data-edge], [data-small-table]').length, [...document.querySelectorAll('button')].some(b => /All tables/.test(b.textContent)), document.querySelectorAll('[data-desk-table]').length]);
     return { pass: !r[0] && !r[1] && r[2] === 1, detail: `${r[0]} overview parts, ${r[1] ? 'an' : 'no'} All tables control, ${r[2]} desktop table` };
   } finally { await p.close(); }
+}));
+// Owner, round 5: a view change (a zoom in from the overview, a zoom out, a slide to a neighbour, a load of ?t=KEY, a
+// refresh inside a table) is no game event. Every table plays on the engine whether or not anyone looks, so the table
+// that comes into view is drawn as it stands: no deal, no shuffle, no card or chip flight, nothing outside the moving
+// table moves or shakes. The stream is held (VIEW_HOLD: nothing reaches the page after the hold), so any game motion
+// seen is a replay. VIEW_REC films the page frame by frame (each frame read once its animation callbacks have run).
+const VIEW_HOLD = () => {
+  // 'snap' in sessionStorage: hold from the first snapshot on (a load or a refresh); else window.__vhold, set by the check.
+  const after = sessionStorage.getItem('__vhold') === 'snap', Real = window.EventSource;
+  window.__vhold = false; window.__vevents = [];
+  window.EventSource = class extends Real {
+    set onmessage(fn) {
+      super.onmessage = e => {
+        if (window.__vhold) return;
+        let m = null; try { m = JSON.parse(e.data); } catch {}
+        fn(e);
+        if (m && m.type !== 'stats') window.__vevents.push({ t: performance.now(), table: m.table ?? null, type: m.type });
+        if (after && m?.type === 'snapshot') window.__vhold = true;
+      };
+    }
+    get onmessage() { return super.onmessage; }
+  };
+};
+const VIEW_REC = () => {
+  const R = window.__vrec = { s: [], on: false, flights: [], t0: 0 };
+  R.start = () => { R.s = []; R.flights = []; R.t0 = performance.now(); R.on = true; };
+  R.stop = () => { R.on = false; return { s: R.s, flights: R.flights, events: window.__vevents.filter(e => e.t > R.t0).map(e => ({ ...e, t: e.t - R.t0 })) }; };
+  const eff = e => { let o = 1; for (let x = e; x; x = x.parentElement) o *= +getComputedStyle(x).opacity; return o; };
+  const vis = e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden' && b.bottom > 0 && b.top < innerHeight && b.right > 0 && b.left < innerWidth; };
+  const box = e => { const b = e.getBoundingClientRect(); return [+b.left.toFixed(2), +b.top.toFixed(2), +b.width.toFixed(2), +b.height.toFixed(2)]; };
+  // A transform other than none: a card rising, a chip or card mid-flight.
+  const moved = e => { const t = getComputedStyle(e).transform; if (!t || t === 'none') return false; const m = t.match(/matrix\(([^)]+)\)/); if (!m) return true; const [a, b, c, d, x, y] = m[1].split(',').map(Number); return Math.abs(a - 1) > 0.001 || Math.abs(d - 1) > 0.001 || Math.abs(b) > 0.001 || Math.abs(c) > 0.001 || Math.abs(x) > 0.5 || Math.abs(y) > 0.5; };
+  new MutationObserver(ms => { if (!R.on) return; for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && (n.matches('[data-flight], [data-deck]') || n.querySelector?.('[data-deck]'))) R.flights.push({ t: performance.now() - R.t0, what: n.matches('[data-flight]') ? `${n.dataset.flight} flight` : 'deck' }); })
+    .observe(document, { childList: true, subtree: true });
+  const sample = ts => {
+    const tables = [...document.querySelectorAll('[data-desk-table]')].filter(vis);
+    const cards = [], seats = [];
+    tables.forEach(tb => {
+      const where = tb.closest('[data-overview-cell]')?.dataset.overviewCell ?? (tb.closest('.stage-zoom') ? 'stage' : 'edge');
+      // Each hole card (its wrapper, which the deal fades in, and the card, which may rise), the board's cards, the felt's
+      // own parts and the seats' (which a fill-in fades): their own opacity and transform, not the zoom's or the slide's.
+      for (const w of tb.querySelectorAll('[data-hole] > *')) { const c = w.querySelector('[role=img]') ?? w; if (!vis(c)) continue; cards.push([where, 'hole', +getComputedStyle(w).opacity, moved(w) || moved(c), c.getAttribute('aria-label') !== 'hidden card']); }
+      for (const c of tb.querySelectorAll('[data-felt-cards] [role=img]')) if (vis(c)) cards.push([where, 'board', +getComputedStyle(c).opacity, moved(c), true]);
+      for (const e of tb.querySelectorAll('[data-felt] > *, [data-seat] > *')) if (vis(e) && +getComputedStyle(e).opacity < 0.98 && !e.matches('.opacity-40')) seats.push(`${where} ${e.closest('[data-seat]') ? `seat ${e.closest('[data-seat]').dataset.seat}` : 'felt'} part at ${(+getComputedStyle(e).opacity).toFixed(2)}`);
+    });
+    const decks = [...document.querySelectorAll('[data-deck]')].filter(vis).length, flights = document.querySelectorAll('[data-flight]').length;
+    // Everything outside the moving table: the header's title, the status row's items, the pills, the Stats button, the
+    // panels' outer boxes; with each, its opacity as drawn.
+    const els = {};
+    const put = (k, e) => { if (e && e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden') els[k] = [...box(e), +eff(e).toFixed(3)]; };
+    const sec = document.querySelector('section[data-screen]');
+    put('title', sec?.querySelector('h1'));
+    const row = document.querySelector('[data-status-hand]')?.closest('.flex-wrap');
+    if (row) {
+      const label = row.firstElementChild; put('status Live', label);
+      const hand = row.querySelector('[data-status-hand]');
+      if (hand) [...hand.children].filter(e => e.tagName === 'SPAN').forEach((e, i) => put(`status ${['Hand #', 'stakes', 'clock'][i]}`, e));
+      put('status Chips/BB', row.querySelector('[role=group]'));
+      put('status Sound', [...row.querySelectorAll('button')].at(-1));
+    }
+    for (const e of document.querySelectorAll('[data-table-nav]')) put(`pill ${e.dataset.tableNav} "${e.textContent.trim()}"`, e);
+    put('All tables', document.querySelector('[data-all-tables-button]'));
+    put('About', document.querySelector('[data-about-pill]'));
+    put('Stats button', [...document.querySelectorAll('button')].find(b => /^Stats/.test(b.textContent.trim()) && b.getClientRects().length));
+    const st = document.querySelector('.stage-zoom');
+    if (st && getComputedStyle(st).visibility !== 'hidden') { put('P&L panel', st.querySelector('#phone-stats')); put('reasoning panel', st.querySelector('[data-reasoning]')); }
+    const de = document.documentElement;
+    // The stage's face-up cards wherever they are drawn (a slide brings its table in from outside the window).
+    const st0 = document.querySelector('.stage-zoom [data-desk-table]');
+    const faces = st0 && getComputedStyle(st0).visibility !== 'hidden' ? [...st0.querySelectorAll('[data-hole] [role=img], [data-felt-cards] [role=img]')].filter(c => c.getClientRects().length && c.getAttribute('aria-label') !== 'hidden card').length : 0;
+    // The reasoning panel's text as drawn (a reason typing out grows it frame by frame).
+    const reason = st0 ? (document.querySelector('.stage-zoom [data-reasoning]')?.textContent ?? '').length : -1;
+    R.s.push({ t: ts - R.t0, key: document.querySelector('[data-stage-key]')?.dataset.stageKey ?? '', reason, faces, cards, seats, decks, flights, els, scroll: [de.scrollWidth, de.scrollHeight], bar: [innerWidth - de.clientWidth, innerHeight - de.clientHeight] });
+  };
+  const loop = ts => setTimeout(() => { if (R.on) sample(ts); requestAnimationFrame(loop); });
+  requestAnimationFrame(loop);
+  if (sessionStorage.getItem('__vrec') === 'load') R.start();
+};
+// A page on the tables switch with the stream able to be held and the frames filmed.
+const viewPage = async (w, h, query) => {
+  const p = await newPage(); await p.setViewport({ width: w, height: h });
+  await p.evaluateOnNewDocument(VIEW_HOLD); await p.evaluateOnNewDocument(VIEW_REC);
+  await p.goto(`${BASE}/?${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await p.waitForFunction(() => document.querySelectorAll('[data-seat] [data-hole]').length > 8, { timeout: 120000 });
+  await sleep(2500);
+  return p;
+};
+const stageStill = p => p.waitForFunction(() => { const t = document.querySelector('.stage-zoom [data-desk-table]'); return !t || !t.getAnimations().some(a => a.playState === 'running'); }, { timeout: 8000, polling: 50 }).catch(() => {});
+// Held, and nothing of the live play before the hold still moving: no flight, no deck, no card rising or fading in.
+const quiet = async p => {
+  await p.evaluate(() => { window.__vhold = true; });
+  await p.waitForFunction(() => !document.querySelector('[data-flight], [data-deck]') && ![...document.querySelectorAll('[data-hole] > *, [data-felt-cards] [role=img], [data-felt] > *, [data-seat] > *')].some(e => e.getAnimations().length || +getComputedStyle(e).opacity < 0.98 && e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.matches('.opacity-40')),
+    { timeout: 8000, polling: 50 }).catch(() => {});
+  await sleep(300);
+};
+// Every view change, filmed with the stream held, at a window size: each { name, rec } (rec: VIEW_REC's frames).
+const VIEW_SIZES = [[1440, 790], [1728, 1117]];
+const filmViews = async (w, h, { load = true } = {}) => {
+  const out = [], p = await viewPage(w, h, 'tables=1');
+  const filmed = async (name, act, ms = 1900) => {
+    await p.evaluate(() => { window.__vhold = true; window.__vrec.start(); });
+    await act(); await sleep(ms); await stageStill(p);
+    out.push({ name, rec: await p.evaluate(() => window.__vrec.stop()) });
+  };
+  try {
+    const keys = await p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(a => a.dataset.overviewCell));
+    await quiet(p);
+    await filmed('zoom in', () => clickCenter(p, `[data-overview-cell="${keys[0]}"] [data-small-table]`));
+    // Round the grid: each way a pill leads (the first table is the grid's top-left), then back out.
+    for (const d of ['right', 'down', 'left', 'up']) {
+      if (!(await p.$(`[data-table-nav="${d}"]`))) continue;
+      await p.evaluate(() => { window.__vhold = false; }); await sleep(600); await quiet(p); // the stream catches up between views
+      await filmed(`slide ${d}`, () => p.evaluate(d => document.querySelector(`[data-table-nav="${d}"]`).click(), d), 2100);
+    }
+    await p.evaluate(() => { window.__vhold = false; }); await sleep(600); await quiet(p);
+    await filmed('zoom out', () => p.evaluate(() => document.querySelector('[data-all-tables-button]').click()), 2000);
+    if (load) {
+      // A load of ?tables=1&t=KEY and a refresh there: filmed from the page's first frame, held from its snapshot on.
+      for (const [name, go] of [['direct load', () => p.goto(`${BASE}/?tables=1&t=${keys[1]}`, { waitUntil: 'domcontentloaded' })], ['refresh', () => p.reload({ waitUntil: 'domcontentloaded' })]]) {
+        await p.evaluate(() => { sessionStorage.setItem('__vhold', 'snap'); sessionStorage.setItem('__vrec', 'load'); });
+        await go();
+        await p.waitForFunction(() => document.querySelectorAll('.stage-zoom [data-seat] [data-hole]').length > 8 && window.__vhold, { timeout: 60000 });
+        await sleep(1700);
+        // From the frame the table is drawn (its snapshot): as on table-refresh-fades, it fills in where it sits.
+        const rec = await p.evaluate(() => window.__vrec.stop());
+        out.push({ name, rec, load: true });
+        await p.evaluate(() => { sessionStorage.removeItem('__vhold'); sessionStorage.removeItem('__vrec'); });
+      }
+    }
+  } finally { await p.close(); }
+  return out;
+};
+let viewFilms = null;
+const viewFilmsOnce = () => (viewFilms ??= (async () => { const r = {}; for (const [w, h] of VIEW_SIZES) r[`${w}x${h}`] = await filmViews(w, h); return r; })());
+group(() => check('tables-view-no-replay', 'With ?tables=1 at 1440x790 and 1728x1117 and the stream held (nothing new reaches the page), each view change (zoom in from the overview, slide right, down, left and up, zoom out, a load of ?tables=1&t=KEY, a refresh there) and the 1.5 s after it start no card or chip flight, no deal, no peel, no shuffle and no deck: every card the state has dealt is face up at its own box (its own opacity 1, no transform of its own) from the first frame its table is drawn, and no seat or felt part fades as if the hand had just started (a load fills in as on a refresh); after a zoom in or a slide the reasoning text is drawn whole at once (its length never grows frame to frame on the table landed on)', async () => {
+  const bad = [], seen = [];
+  const all = await viewFilmsOnce();
+  for (const [size, films] of Object.entries(all)) for (const { name, rec, load } of films) {
+    const tag = `${size} ${name}`, { s, flights, events } = rec;
+    // A stream event for the table drawn would let motion after it count: the hold means none arrive.
+    const firstEvent = events.find(e => !(load && e.type === 'snapshot'))?.t ?? Infinity;
+    const early = flights.filter(f => f.t < firstEvent);
+    if (early.length) bad.push(`${tag}: ${early.length} started (${[...new Set(early.map(f => f.what))].join(', ')}, the first at ${Math.round(early[0].t)} ms)`);
+    const drawn = s.filter(x => x.t < firstEvent && x.cards.length);
+    if (!drawn.length) { bad.push(`${tag}: no table drawn in ${s.length} frames`); continue; }
+    const off = drawn.flatMap(x => x.cards.filter(c => c[2] < 0.98 || c[3]).map(c => `${c[0]} ${c[1]} card ${c[3] ? 'moving' : `at opacity ${c[2].toFixed(2)}`} at ${Math.round(x.t)} ms`));
+    if (off.length) bad.push(`${tag}: ${off.length} card-frames not at rest (${[...new Set(off.map(o => o.replace(/ at -?\d+ ms$/, '')))].slice(0, 4).join('; ')}; first ${off[0].match(/at (-?\d+) ms$/)?.[1]} ms)`);
+    const decks = drawn.filter(x => x.decks || x.flights);
+    if (decks.length) bad.push(`${tag}: a deck or a flight drawn in ${decks.length} frames (from ${Math.round(decks[0].t)} ms)`);
+    // The stage's dealt cards: as many face up in the first frame it is drawn as in the last.
+    // (A slide's first frames are the table it leaves: from the first frame of the table it lands on.)
+    const last = drawn.at(-1), stage = x => x.faces, first = drawn.find(x => x.key === last.key && stage(x) > 0);
+    if (!load && first && stage(last) && stage(first) !== stage(last)) bad.push(`${tag}: ${stage(first)} face-up cards on the stage's first frame, ${stage(last)} on its last`);
+    if (!load) { const fades = drawn.flatMap(x => x.seats); if (fades.length) bad.push(`${tag}: parts fading in as at a deal (${[...new Set(fades)].slice(0, 3).join('; ')})`); }
+    // Round 6: the reason on show arrived before the view changed, so it is drawn whole at once: on the table landed on,
+    // the reasoning text never grows from one frame to the next (a reason typing out would).
+    let grew = 0, firstGrow = null;
+    if (!load) for (let i = 1; i < drawn.length; i++) {
+      const a = drawn[i - 1], b = drawn[i];
+      if (a.key === last.key && b.key === last.key && a.reason >= 0 && b.reason > a.reason) { grew++; firstGrow ??= `${a.reason} → ${b.reason} chars at ${Math.round(b.t)} ms`; }
+    }
+    if (grew) bad.push(`${tag}: the reasoning text grew in ${grew} frames (types out on arrival; first ${firstGrow})`);
+    seen.push(`${tag}: ${s.length} frames, ${last.cards.length} cards at rest, ${flights.length} flights, reasoning ${last.reason} chars still`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 40).join(' | ') : seen.join('; ') };
+}));
+group(() => check('tables-view-stable', 'With ?tables=1 at 1440x790 and 1728x1117, filmed frame by frame through each view change (zoom in, slides right, down, left and up, zoom out, a load of ?t=KEY, a refresh there): every part outside the moving table keeps its box within 1px from the first frame to the last and in every frame between (only its opacity may change): the title, the status row\'s items (Live, Hand #, stakes, clock, Chips/BB, Sound), the pills (an arrow pill replaced by another fades, never moves while drawn), All tables, About, the Stats button, the P&L and reasoning panels\' outer boxes; the page\'s scroll size stays and no scrollbar appears. The zoom in and out open and fold the status row\'s per-table items and move the Stats button by design (tables-status-row, tables-stats-button): there those are judged only while they do not glide', async () => {
+  const bad = [], seen = [];
+  const all = await viewFilmsOnce();
+  for (const [size, films] of Object.entries(all)) for (const { name, rec, load } of films) {
+    const tag = `${size} ${name}`, s = load ? rec.s.filter(x => x.cards.length) : rec.s;
+    if (s.length < 5) { bad.push(`${tag}: only ${s.length} frames`); continue; }
+    const zoom = /^zoom/.test(name), glides = k => zoom && (/^status /.test(k) || k === 'Stats button');
+    const keys = new Set(s.flatMap(x => Object.keys(x.els))), moved = [];
+    for (const k of keys) {
+      if (glides(k)) continue;
+      // Judged while it is drawn: a part that fades in or out (a pill, a panel) never moves while any of it shows.
+      const at = s.filter(x => x.els[k] && x.els[k][4] > 0.02);
+      if (at.length < 2) continue;
+      const ref = at[0].els[k], persist = s[0].els[k] && s.at(-1).els[k];
+      let worst = 0, when = 0;
+      for (const x of at) { const d = Math.max(...[0, 1, 2, 3].map(i => Math.abs(x.els[k][i] - ref[i]))); if (d > worst) { worst = d; when = x.t; } }
+      if (persist && !k.startsWith('pill')) { const d = Math.max(...[0, 1, 2, 3].map(i => Math.abs(s[0].els[k][i] - s.at(-1).els[k][i]))); if (d > worst) { worst = d; when = s.at(-1).t; } }
+      if (worst > 1) moved.push(`${k} by ${worst.toFixed(1)}px (at ${Math.round(when)} ms: ${ref.slice(0, 4).map(Math.round).join(',')} → ${(at.find(x => x.t === when) ?? s.at(-1)).els[k]?.slice(0, 4).map(Math.round).join(',')})`);
+    }
+    if (moved.length) bad.push(`${tag}: ${moved.length} moved: ${moved.slice(0, 5).join('; ')}`);
+    const sc = s.filter(x => x.scroll.some((v, i) => Math.abs(v - s[0].scroll[i]) > 1));
+    if (sc.length) bad.push(`${tag}: the page's scroll size ${s[0].scroll} → ${sc[0].scroll} at ${Math.round(sc[0].t)} ms`);
+    const bars = s.filter(x => x.bar.some(v => v > 0));
+    if (bars.length) bad.push(`${tag}: a scrollbar in ${bars.length} frames (from ${Math.round(bars[0].t)} ms)`);
+    seen.push(`${tag}: ${keys.size} parts still over ${s.length} frames`);
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 40).join(' | ') : seen.join('; ') };
+}));
+// Owner, round 6: every arrow slide had about 120 ms with nothing on the stage (the old table faded out before the new
+// one began to fade in). Filmed frame by frame at each size: from the click on a pill to the slide's end, the stage box
+// (the table's box at rest) is covered, in every frame, by some table drawn there: its opacity as drawn (its own and its
+// ancestors') times the share of the stage box it covers. The floor, 0.4: in a push the two tables meet half way, each
+// covering half the box at full opacity (0.5), and a crossfade's midpoint gives about 0.5 x 0.5 to 1; 0.4 leaves room for
+// the ease's frame steps but not for an empty stage (0) or a table mostly faded out over a stage half bare. The slide may
+// not take longer than it did (140 ms of fading pills, 200 ms out and 300 ms in: 640 ms), judged as scheduled (each
+// animation's delay and duration on the stage's table), since a busy machine's late frames stretch the time filmed.
+const SLIDE_REC = () => {
+  const eff = e => { let o = 1; for (let x = e; x; x = x.parentElement) o *= +getComputedStyle(x).opacity; return o; };
+  const R = window.__srec = { s: [], on: false };
+  R.start = box => { R.s = []; R.box = box; R.t0 = performance.now(); R.on = true; R.seen = new WeakSet(); R.sched = 0; };
+  R.stop = () => { R.on = false; return R.s; };
+  const tick = () => {
+    if (R.on) {
+      const S = R.box, area = S.width * S.height;
+      let best = 0, n = 0;
+      for (const e of document.querySelectorAll('.stage-zoom [data-desk-table], .stage-zoom [data-slide-ghost]')) {
+        if (getComputedStyle(e).visibility === 'hidden') continue;
+        const b = e.getBoundingClientRect(), w = Math.max(0, Math.min(b.right, S.left + S.width) - Math.max(b.left, S.left)), h = Math.max(0, Math.min(b.bottom, S.top + S.height) - Math.max(b.top, S.top));
+        const v = eff(e) * w * h / area; n++;
+        if (v > best) best = v;
+      }
+      const els = [...document.querySelectorAll('.stage-zoom [data-desk-table], .stage-zoom [data-slide-ghost]')];
+      const moving = els.some(e => e.getAnimations().some(a => a.playState === 'running'));
+      // Each animation run on the stage's table, once, as scheduled (its delay and duration): the slide's length by design,
+      // which a loaded machine's late frames do not stretch.
+      for (const a of els.filter(e => e.matches('[data-desk-table]')).flatMap(e => e.getAnimations())) if (a.playState !== 'finished' && !R.seen.has(a)) { R.seen.add(a); const t = a.effect.getTiming(); R.sched += (t.delay || 0) + (+t.duration || 0); }
+      R.s.push({ t: performance.now() - R.t0, v: best, n, moving, sched: R.sched });
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+};
+group(() => check('tables-slide-continuous', 'With ?tables=1 at 1440x790 and 1728x1117, in every frame of each arrow slide (right, down, left, up) some table is drawn on the stage: its opacity as drawn times the share of the stage\'s box (the table\'s box at rest) it covers is at least 0.4 (no frame shows an empty stage), and the slide is scheduled for no longer than before (640 ms: its animations\' delays and durations, which a busy machine does not stretch; the time filmed is reported)', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of VIEW_SIZES) {
+    const p = await viewPage(w, h, 'tables=1');
+    try {
+      await p.evaluate(SLIDE_REC);
+      const keys = await p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(a => a.dataset.overviewCell));
+      await clickCenter(p, `[data-overview-cell="${keys[0]}"] [data-small-table]`);
+      await sleep(1200); await stageStill(p);
+      for (const d of ['right', 'down', 'left', 'up']) {
+        if (!(await p.$(`[data-table-nav="${d}"]`))) continue;
+        await sleep(500);
+        await p.evaluate(d => {
+          const b = document.querySelector('.stage-zoom [data-desk-table]').getBoundingClientRect();
+          window.__srec.start({ left: b.left, top: b.top, width: b.width, height: b.height });
+          document.querySelector(`[data-table-nav="${d}"]`).click();
+        }, d);
+        await sleep(1100); await stageStill(p);
+        const s = await p.evaluate(() => window.__srec.stop());
+        const tag = `${w}x${h} slide ${d}`;
+        // The slide: from the click to the last frame anything on the stage moved.
+        const end = s.findLastIndex(x => x.moving), frames = s.slice(0, end + 2);
+        if (end < 0) { bad.push(`${tag}: nothing moved`); continue; }
+        const low = frames.filter(x => x.v < 0.4), dur = frames.at(-1).t, sched = s.at(-1).sched;
+        if (low.length) bad.push(`${tag}: ${low.length} of ${frames.length} frames under 0.4 (lowest ${Math.min(...low.map(x => x.v)).toFixed(2)} at ${Math.round(low.reduce((a, x) => (x.v < a.v ? x : a)).t)} ms, from ${Math.round(low[0].t)} to ${Math.round(low.at(-1).t)} ms)`);
+        // Its length as scheduled (the stage table's animations one after another: before, 140 + 200 out, then 300 in).
+        if (sched > 640) bad.push(`${tag}: the slide is scheduled for ${Math.round(sched)} ms (over 640)`);
+        seen.push(`${tag}: ${frames.length} frames, ${Math.round(sched)} ms scheduled (${Math.round(dur)} ms filmed), lowest ${Math.min(...frames.map(x => x.v)).toFixed(2)}`);
+      }
+    } finally { await p.close(); }
+  }
+  if (seen.length + bad.length < 8) bad.push(`only ${seen.length + bad.length} slides filmed`);
+  return { pass: !bad.length, detail: bad.length ? bad.join(' | ') : seen.join('; ') };
+}));
+// Owner, round 6: "how can we visually display the stack sizes ... no numbers, but just stack sizes? Where can we put
+// that?" ?stacks=1|2 (a draft): each seat of the overview's far tables shows its stack as a glyph in big blinds. Every
+// table is scripted to the same spread of depths (in its own big blind, rotated round its seats), bets out at four seats.
+const STACK_BBS = [0, 1, 5, 20, 50, 100, 300, 1000, 1500];
+group(() => check('tables-stacks-draft', 'With ?tables=1&stacks=1, 2 and 3 at 1440x790 (and 1728x1117), every seat of every far table has one stack glyph inside its seat box that overlaps neither its logo nor its hole cards; the glyph\'s measured size (its drawn chips\' or fill\'s area) never shrinks as the stack in big blinds grows, across all four tables, and 20, 100, 300 and 1000 bb each draw larger than the one before by at least a quarter at 1440x790; a busted seat (0) draws an outline; with 3 a seat under its table\'s starting stack draws the chips it is short of as outlines and one at or over it none; with 1 and 3 the bets\' chips grow with the bet in big blinds; without the switch no glyph is drawn, and the page\'s own table (zoomed in) draws none', async () => {
+  const bad = [], seen = [];
+  for (const [v, w, h] of [[1, 1440, 790], [2, 1440, 790], [3, 1440, 790], [1, 1728, 1117], [2, 1728, 1117], [3, 1728, 1117], [0, 1440, 790]]) {
+    const tag = `stacks=${v || 'off'} ${w}x${h}`, p = await scriptedTable(w, h, false, `tables=1${v ? `&stacks=${v}` : ''}`);
+    try {
+      await p.waitForFunction(() => document.querySelectorAll('[data-overview-cell]').length >= 2 && [...document.querySelectorAll('[data-overview-cell] [data-felt-cards]')].every(e => e.querySelectorAll('[role=img]').length <= 5), { timeout: 150000, polling: 500 }).catch(() => {});
+      await p.evaluate(BBS => {
+        const s = window.__stream; s.scripted = true;
+        s.keys().forEach((key, ti) => {
+          const l = s.by[key], bb = l.stakes?.bigBlind ?? 10;
+          const payload = { ...l, street: 'flop', communityCards: ['Kh', '7d', '2c'], pot: 30 * bb, winners: undefined, nextHandInMs: undefined,
+            players: l.players.map((q, i) => ({ ...q, status: 'active', stack: BBS[(i + ti * 2) % BBS.length] * bb, currentBet: [1, 5, 20, 100][i] !== undefined ? [1, 5, 20, 100][i] * bb : 0, acted: false })) };
+          s.by[key] = payload; s.feed({ table: key, type: 'game_state', payload });
+        });
+      }, STACK_BBS);
+      await sleep(1200);
+      const r = await p.evaluate(() => {
+        const R = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+        const hit = (a, b) => a[0] < b[2] - 0.5 && b[0] < a[2] - 0.5 && a[1] < b[3] - 0.5 && b[1] < a[3] - 0.5;
+        const vis = e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden';
+        const area = es => es.filter(vis).reduce((a, e) => { const b = e.getBoundingClientRect(); return a + b.width * b.height; }, 0);
+        const seats = [], bets = [];
+        for (const cell of document.querySelectorAll('[data-overview-cell]')) for (const seat of cell.querySelectorAll('[data-desk-seat]')) {
+          const gs = [...seat.querySelectorAll('[data-stack-glyph]')], s = R(seat), why = [];
+          const logo = seat.querySelector('[data-lod-logo]'), hole = [...seat.querySelectorAll('[data-hole] [role=img]')].filter(vis);
+          const g = gs[0];
+          if (g) {
+            const parts = [g, ...g.querySelectorAll('*')].filter(vis).map(R).filter(b => b[2] > b[0] && b[3] > b[1]);
+            if (parts.some(b => b[0] < s[0] - 0.5 || b[1] < s[1] - 0.5 || b[2] > s[2] + 0.5 || b[3] > s[3] + 0.5)) why.push('outside its seat box');
+            if (logo && parts.some(b => hit(b, R(logo)))) why.push('over the logo');
+            if (hole.some(c => parts.some(b => hit(b, R(c))))) why.push('over a hole card');
+          }
+          seats.push({ table: cell.dataset.overviewCell, n: gs.length, bbs: g ? +g.dataset.bbs : null, size: g ? area([...g.querySelectorAll('[data-glyph-fill]')]) : 0, empty: !!g?.querySelector('[data-glyph-empty]') || (g?.dataset.stackGlyph === '2' && !!g.querySelector('[data-glyph-fill]') && area([...g.querySelectorAll('[data-glyph-fill]')]) === 0), why });
+        }
+        for (const b of document.querySelectorAll('[data-overview-cell] [data-far-chips]')) bets.push({ bbs: +b.dataset.farChips, size: area([...b.querySelectorAll('[data-glyph-fill]')]), bet: !!b.closest('[data-bet]') });
+        const short = [...document.querySelectorAll('[data-overview-cell] [data-stack-glyph]')].map(g => ({ bbs: +g.dataset.bbs, n: g.querySelectorAll('[data-glyph-short]').length, start: (() => { const l = g.closest('[data-overview-cell]').querySelector('[data-cell-label]').textContent.match(/· (\d+) bb/); return l ? +l[1] : 0; })() }));
+        return { short, seats, bets, stageGlyphs: document.querySelectorAll('.stage-zoom [data-stack-glyph]').length, any: document.querySelectorAll('[data-stack-glyph], [data-far-chips]').length };
+      });
+      if (!v) { if (r.any) bad.push(`${tag}: ${r.any} glyphs drawn without the switch`); else seen.push(`${tag}: no glyph`); continue; }
+      if (r.seats.length < 18) bad.push(`${tag}: only ${r.seats.length} seats`);
+      for (const s of r.seats) {
+        if (s.n !== 1) bad.push(`${tag} ${s.table}: a seat with ${s.n} glyphs`);
+        for (const y of s.why) bad.push(`${tag} ${s.table} ${s.bbs} bb: the glyph ${y}`);
+      }
+      const by = [...r.seats].filter(s => s.n === 1).sort((a, b) => a.bbs - b.bbs);
+      for (let i = 1; i < by.length; i++) if (by[i].size < by[i - 1].size - 0.5) bad.push(`${tag}: ${by[i].bbs} bb (${by[i].table}) drawn smaller than ${by[i - 1].bbs} bb (${by[i].size.toFixed(0)} < ${by[i - 1].size.toFixed(0)} px²)`);
+      const at = b => by.find(s => s.bbs === b)?.size ?? 0, steps = [20, 100, 300, 1000].map(at);
+      if (w === 1440) for (let i = 1; i < 4; i++) if (steps[i] < steps[i - 1] * 1.25) bad.push(`${tag}: ${[20, 100, 300, 1000][i]} bb is not a quarter larger than ${[20, 100, 300, 1000][i - 1]} bb (${steps[i].toFixed(0)} vs ${steps[i - 1].toFixed(0)} px²)`);
+      const busted = by.filter(s => s.bbs === 0);
+      if (!busted.length || busted.some(s => !s.empty)) bad.push(`${tag}: a busted seat draws no outline`);
+      // 3: a seat short of its table's starting stack draws the chips it is short of as outlines, one deeper draws none.
+      if (v === 3 && !r.short.some(x => x.bbs < x.start && x.n > 0)) bad.push(`${tag}: no seat under its buy-in draws its missing chips`);
+      if (v === 3 && r.short.some(x => x.bbs >= x.start && x.n > 0)) bad.push(`${tag}: a seat at or over its buy-in draws missing chips`);
+      if (v !== 2) {
+        const bets = r.bets.filter(b => b.bet).sort((a, b) => a.bbs - b.bbs);
+        if (bets.length < 8) bad.push(`${tag}: only ${bets.length} bets drawn far`);
+        for (let i = 1; i < bets.length; i++) if (bets[i].size < bets[i - 1].size - 0.5) bad.push(`${tag}: a ${bets[i].bbs} bb bet drawn smaller than a ${bets[i - 1].bbs} bb one`);
+      }
+      // A real stack change from the stream eases (the chips added drop in, the meter's fill grows); the draw above, a
+      // first draw, did not animate (nothing ran a second after it).
+      const still0 = await p.evaluate(() => [...document.querySelectorAll('[data-stack-glyph], [data-stack-glyph] *')].some(e => e.getAnimations().length));
+      if (still0) bad.push(`${tag}: a glyph animating with no stack change`);
+      const eased = await p.evaluate(() => new Promise(res => {
+        const s = window.__stream, key = s.keys()[0], l = s.by[key], bb = l.stakes?.bigBlind ?? 10;
+        const payload = { ...l, players: l.players.map((q, i) => (i === 0 ? { ...q, stack: 700 * bb } : q)) };
+        s.by[key] = payload; s.feed({ table: key, type: 'game_state', payload });
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const g = document.querySelector(`[data-overview-cell="${key}"] [data-seat="0"] [data-stack-glyph]`);
+          res(!!g && ([...g.querySelectorAll('*')].some(e => e.getAnimations().length) || /height/.test(getComputedStyle(g.querySelector('[data-glyph-fill]') ?? g).transitionProperty)));
+        }));
+      }));
+      if (!eased) bad.push(`${tag}: a stack change from the stream did not ease`);
+      seen.push(`${tag}: ${by.length} seats, 20/100/300/1000 bb = ${steps.map(x => x.toFixed(0)).join('/')} px²`);
+      // Zoomed in, the page's own table draws no glyph.
+      const key = r.seats[0].table;
+      await clickCenter(p, `[data-overview-cell="${key}"] [data-small-table]`); await sleep(1200); await stageStill(p);
+      const st = await p.evaluate(() => document.querySelectorAll('.stage-zoom [data-stack-glyph], .stage-zoom [data-far-chips]').length);
+      if (st) bad.push(`${tag}: ${st} glyphs on the page's own table`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 30).join(' | ') : seen.join('; ') };
+}));
+// Owner, round 6: "explore views where we have 10 tables going on ... they can just be mock tables ... just shells".
+// ?tables=1&shells=10 with each layout (a: the grid as it is; b: the most active live table large, a wall of the rest;
+// c: the grid, tables under 300px drawn farther) at the four overview sizes. Also measured for the report: each table's
+// width, the logo's and the hole card's drawn size, the space the tables leave.
+const SHELL_MEASURE = () => {
+  const vis = e => { if (!e.getClientRects().length) return false; for (let x = e; x; x = x.parentElement) { const c = getComputedStyle(x); if (c.visibility === 'hidden' || c.display === 'none' || +c.opacity < 0.05) return false; } return true; };
+  const items = [...document.querySelectorAll('[data-overview-cell], [data-overview-shell]')];
+  const R = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+  const ov = document.querySelector('[data-overview]').getBoundingClientRect();
+  const per = items.map(e => {
+    const t = e.querySelector('[data-small-table]'), label = e.querySelector('[data-cell-label]');
+    const logos = [...e.querySelectorAll('[data-lod-logo]')].filter(vis).map(x => x.getBoundingClientRect().width);
+    const holes = [...e.querySelectorAll('[data-hole] [role=img]')].filter(vis).map(x => x.getBoundingClientRect().width);
+    const board = [...e.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(x => x.getBoundingClientRect().width);
+    return { key: e.dataset.overviewCell ?? e.dataset.overviewShell, shell: e.matches('[data-overview-shell]'), box: R(e), tw: t.getBoundingClientRect().width,
+      logo: Math.min(...logos), hole: holes.length ? Math.min(...holes) : null, board: board.length ? Math.min(...board) : null,
+      tag: !!e.querySelector('[data-mock-tag]') && vis(e.querySelector('[data-mock-tag]')), link: e.tagName === 'A', farther: !!e.querySelector('[data-lod-farther]'),
+      cursor: getComputedStyle(t).cursor, oneLine: label.getBoundingClientRect().height <= 21 && label.scrollWidth <= label.clientWidth + 1 };
+  });
+  const used = per.reduce((a, x) => a + (x.box[2] - x.box[0]) * (x.box[3] - x.box[1]), 0);
+  const de = document.documentElement;
+  return { per, empty: 1 - used / (ov.width * ov.height), hscroll: de.scrollWidth > de.clientWidth + 0.5, live: per.filter(x => !x.shell).map(x => x.key), featured: document.querySelector('[data-overview-featured]')?.dataset.overviewFeatured ?? null };
+};
+group(() => check('tables-shells-draft', 'With ?tables=1&shells=10 and each of &layout=a, b, c, d at 1280x720, 1440x790, 1440x900 and 1728x1117: exactly 10 tables drawn (the live ones first, then shells), none overlapping, each label one line; every shell carries a visible "mock" tag, is no link, has the default cursor, and a click on it leaves the URL as it was; the live tables are links, still live (their state changes), and a click on one opens it (?t=KEY); no horizontal scroll', async () => {
+  const bad = [], seen = [];
+  for (const layout of ['a', 'b', 'c', 'd']) for (const [w, h] of OVERVIEW_SIZES) {
+    const tag = `${layout} ${w}x${h}`, p = await newPage();
+    try {
+      await p.setViewport({ width: w, height: h });
+      await p.goto(`${BASE}/?tables=1&shells=10&layout=${layout}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => document.querySelectorAll('[data-overview-cell] [data-seat] [data-hole]').length > 8, { timeout: 120000 });
+      await sleep(1500);
+      const m = await p.evaluate(SHELL_MEASURE);
+      const hit = (a, b) => a[0] < b[2] - 0.5 && b[0] < a[2] - 0.5 && a[1] < b[3] - 0.5 && b[1] < a[3] - 0.5;
+      if (m.per.length !== 10) bad.push(`${tag}: ${m.per.length} tables drawn, not 10`);
+      const firstShell = m.per.findIndex(x => x.shell);
+      if (layout !== 'b' && layout !== 'd' && firstShell >= 0 && m.per.slice(firstShell).some(x => !x.shell)) bad.push(`${tag}: a live table after a shell`);
+      for (let i = 0; i < m.per.length; i++) for (let j = i + 1; j < m.per.length; j++) if (hit(m.per[i].box, m.per[j].box)) bad.push(`${tag}: ${m.per[i].key} and ${m.per[j].key} overlap`);
+      for (const x of m.per) {
+        if (x.box[0] < -0.5 || x.box[2] > w + 0.5 || x.box[1] < -0.5 || x.box[3] > h + 0.5) bad.push(`${tag}: ${x.key} runs out of the window`);
+        if (!x.oneLine) bad.push(`${tag}: ${x.key}'s label is not one line`);
+        if (x.shell && (!x.tag || x.link || x.cursor !== 'default' && x.cursor !== 'auto')) bad.push(`${tag}: shell ${x.key} ${!x.tag ? 'has no mock tag' : x.link ? 'is a link' : `has cursor ${x.cursor}`}`);
+        if (!x.shell && !x.link) bad.push(`${tag}: live ${x.key} is no link`);
+      }
+      if (m.hscroll) bad.push(`${tag}: horizontal scroll`);
+      // b and d feature a live table; c and d draw a table under 300px farther (and only those), a and b never.
+      const featuring = layout === 'b' || layout === 'd', farLevel = layout === 'c' || layout === 'd';
+      if (featuring !== !!m.featured || (m.featured && !m.live.includes(m.featured))) bad.push(`${tag}: featured ${m.featured ?? 'none'}`);
+      const wrongLevel = m.per.filter(x => x.farther !== (farLevel && x.tw < 300));
+      if (wrongLevel.length) bad.push(`${tag}: ${wrongLevel.length} tables at the wrong level of detail (${wrongLevel.map(x => `${x.key} ${x.tw.toFixed(0)}px ${x.farther ? 'farther' : 'far'}`).slice(0, 3).join(', ')})`);
+      // A click on a shell: nothing.
+      const shell = m.per.find(x => x.shell), url0 = p.url();
+      if (shell) { await clickCenter(p, `[data-overview-shell="${shell.key}"] [data-cell-table]`); await sleep(500); if (p.url() !== url0) bad.push(`${tag}: a click on shell ${shell.key} changed the URL to ${p.url()}`); }
+      // Live: the live tables' state changes within a few seconds (the stream plays on).
+      const snap = () => p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(e => e.querySelector('[data-desk-table]').innerHTML.length + ':' + e.textContent).join('|'));
+      const s0 = await snap(); let moved = false;
+      for (let i = 0; i < 20 && !moved; i++) { await sleep(500); moved = (await snap()) !== s0; }
+      if (!moved) bad.push(`${tag}: the live tables did not change in 10 s`);
+      await clickCenter(p, `[data-overview-cell="${m.live[0]}"] [data-cell-table]`); await sleep(900);
+      if (new URL(p.url()).searchParams.get('t') !== m.live[0]) bad.push(`${tag}: a click on live ${m.live[0]} did not open it (${p.url()})`);
+      const tws = m.per.map(x => x.tw), f = v => (v === null || !isFinite(v) ? '-' : v.toFixed(1));
+      seen.push(`${tag}: tables ${f(Math.min(...tws))}${Math.max(...tws) > Math.min(...tws) + 1 ? `-${f(Math.max(...tws))}` : ''}px, logo ${f(Math.min(...m.per.map(x => x.logo)))}px, hole ${f(Math.min(...m.per.map(x => x.hole ?? Infinity)))}px, board ${f(Math.min(...m.per.map(x => x.board ?? Infinity)))}px, empty ${(m.empty * 100).toFixed(0)}%`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 30).join(' | ') : seen.join('; ') };
+}));
+// Owner, round 5: "for the 50/100 100bb game (in the four-table overview) the pot is behind the cards". Seen from far
+// away (PokerTable's lod) the board grows x1.4 from its centre (LOD.board), and it reached over the pot's box. Each small
+// table of the overview is read every 200 ms until every table has shown every street (preflop, flop, turn, river): its
+// pot box, its board cards and its bets' chip stacks, as drawn.
+const POT_CLEAR = () => {
+  const vis = e => { if (!e.getClientRects().length) return false; let o = 1; for (let x = e; x; x = x.parentElement) { const c = getComputedStyle(x); o *= +c.opacity; if (c.visibility === 'hidden' || c.display === 'none') return false; } return o > 0.05; };
+  const R = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+  return [...document.querySelectorAll('[data-overview-cell]')].map(a => {
+    const f = a.querySelector('[data-felt]');
+    // The pot: its box (POT and the amount), and the chips already collected drawn under it (its chip stack), which is
+    // what the grown board covered; or the winner's box in its place.
+    const pot = [...f.querySelectorAll('[data-lod-pot], [data-pot][data-lod-text], [data-pot]:not([data-lod-text]) > :first-child')].filter(vis).map(R);
+    const board = [...f.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(R);
+    const chips = [...f.querySelectorAll('[data-bet] > :first-child')].filter(vis).map(R);
+    return { key: a.dataset.overviewCell, n: board.length, pot, board, chips, potHidden: a.querySelector('[data-desk-table]')?.dataset.lodPot === 'hide' };
+  });
+};
+group(() => check('tables-pot-clear', 'With ?tables=1 at 1280x720, 1440x790, 1440x900, 1728x1117 and 2000x1270 (the owner\'s), every table of the overview on every street (preflop, flop, turn, river; each table driven through them, a bet out at every seat, the pot large): its pot (the POT box and the collected chips\' stack under it) and each board card are at least 2px apart, and neither covers a bet\'s chip stack', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [...OVERVIEW_SIZES, [2000, 1270]]) {
+    const size = `${w}x${h}`, p = await scriptedTable(w, h, false, 'tables=1');
+    try {
+      const hit = (a, b, gap = 0) => a[0] < b[2] + gap && b[0] < a[2] + gap && a[1] < b[3] + gap && b[1] < a[3] + gap;
+      // After a session's start every table draws for the button (a card per seat on the felt): driven once that is over.
+      await p.waitForFunction(() => [...document.querySelectorAll('[data-overview-cell] [data-felt-cards]')].every(e => e.querySelectorAll('[role=img]').length <= 5), { timeout: 150000, polling: 500 }).catch(() => {});
+      const keys = await p.evaluate(() => window.__stream.keys());
+      for (const [street, n] of [['preflop', 0], ['flop', 3], ['turn', 4], ['river', 5]]) {
+        // Every table on this street at once, each seat with a bet in front of it and the pot in six figures.
+        await p.evaluate((street, n) => {
+          const s = window.__stream, board = ['Kh', '7d', '2c', 'Qs', '9h'].slice(0, n);
+          s.scripted = true;
+          for (const key of s.keys()) {
+            const l = s.by[key], bb = l.stakes?.bigBlind ?? 10;
+            const payload = { ...l, street, communityCards: board, pot: 1234 * bb, currentBet: 12 * bb, winners: undefined, nextHandInMs: undefined,
+              players: l.players.map((q, i) => ({ ...q, status: 'active', currentBet: (i + 1) * bb, acted: false })) };
+            s.by[key] = payload;
+            s.feed({ table: key, type: 'game_state', payload });
+          }
+        }, street, n);
+        await sleep(900); // the cards' rise and the pot's roll settle
+        const ts = await p.evaluate(POT_CLEAR);
+        if (ts.length < 2) bad.push(`${size} ${street}: only ${ts.length} overview tables drawn`);
+        for (const t of ts) {
+          const why = [];
+          if (t.n !== n) why.push(`${t.n} board cards drawn, not ${n}`);
+          for (const pb of t.pot) { if (t.board.some(c => hit(pb, c, 2))) why.push('the pot box and a board card'); if (t.chips.some(c => hit(pb, c))) why.push('the pot box and a chip stack'); }
+          if (t.board.some(c => t.chips.some(k => hit(c, k)))) why.push('a board card and a chip stack');
+          if (!t.pot.length && !t.potHidden) why.push('no pot box drawn'); // (hidden by design where its text would be under 11px: data-lod-pot=hide)
+          const gap = Math.min(...t.pot.flatMap(pb => t.board.map(c => Math.max(c[1] - pb[3], pb[1] - c[3], c[0] - pb[2], pb[0] - c[2]))));
+          for (const y of why) bad.push(`${size} ${t.key} ${street}: ${y}${y.startsWith('the pot box and a board') ? ` (gap ${gap.toFixed(1)}px)` : ''}`);
+          if (!why.length && n && t.pot.length) seen.push(`${size} ${t.key} ${street}: gap ${gap.toFixed(1)}px`);
+        }
+      }
+      if (keys.length < 2) bad.push(`${size}: only ${keys.length} tables`);
+    } finally { await p.close(); }
+  }
+  const gaps = seen.map(x => +x.match(/gap (-?[\d.]+)px/)[1]);
+  if (!gaps.length) bad.push('no pot drawn beside a board at any size: nothing judged');
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 24).join(' | ') : `every table, every street at ${OVERVIEW_SIZES.length + 1} sizes: the pot box, where drawn (${seen.length} table-streets), at least ${Math.min(...gaps).toFixed(1)}px from the board` };
 }));
 // The sticky bar's pot is a table amount too, so it follows the same switch: in big blinds it reads as the felt's pot does,
 // back in chips it reads in chips, and only its text changes (same height and place; its width moves by the text's alone).
@@ -2041,6 +2756,63 @@ group(() => check('table-card-sizes', 'Hole cards 40x56 on desktop and 28x40 on 
       } finally { await p.close(); }
     }
   }
+  return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
+}));
+
+// The bolder-cards draft (?cards=bold, look c; owner's review 2026-11-27: "make the cards more bold because they blend too
+// much with the background"): the page's own table draws its cards 45x64 on desktop and 31x44 on phones, the deck and the
+// board the hole cards' size, every card with the look's edge, no desktop hole card over a seat's text, seats and table
+// unchanged; the overview's small tables keep today's cards.
+group(() => check('table-card-bold', 'With ?cards=bold the page\'s table draws hole cards 45x64 on desktop (1440x900, 1440x790) and 31x44 on phones (390x844), the board and the deck the same size, every card with the bold look, no desktop hole card over a seat\'s name, stack, badge or action text, seats 200x128 and the table 1000px; with ?tables=1&cards=bold the overview\'s small tables keep today\'s cards', async () => {
+  const bad = [], seen = [];
+  for (const [w, h] of [[1440, 900], [1440, 790], [390, 844]]) {
+    const p = await newPage(), tag = `${w}x${h}`, desk = !phoneAt(w, h), want = desk ? [45, 64] : [31, 44];
+    await p.setViewport({ width: w, height: h });
+    try {
+      await scriptStream(p);
+      await p.goto(`${BASE}/?cards=bold`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => window.__stream?.last?.players?.length && document.querySelector('[data-seat] [data-hole] [role=img]'), { timeout: 120000 });
+      await sleep(1500);
+      // In layout px: the desktop stage's zoom divided out (draft A and phones draw at 1).
+      const read = sel => p.evaluate(s => {
+        const z = document.querySelector('.stage-zoom')?.style.zoom || 1, e = [...document.querySelectorAll(s)].find(x => x.getBoundingClientRect().width > 0);
+        if (!e) return null; const b = e.getBoundingClientRect(); return { w: Math.round(b.width / z * 10) / 10, h: Math.round(b.height / z * 10) / 10 };
+      }, sel);
+      const hole = await read('[data-seat] [data-hole] [role=img]');
+      if (!hole || Math.abs(hole.w - want[0]) > 0.6 || Math.abs(hole.h - want[1]) > 0.6) bad.push(`${tag}: hole card ${hole?.w}x${hole?.h}, want ${want.join('x')}`);
+      const r = await p.evaluate(() => {
+        const plain = [...document.querySelectorAll('.stage-zoom [role=img]')].filter(e => e.getAttribute('aria-label')?.includes(' of ') || e.getAttribute('aria-label') === 'hidden card').filter(e => e.dataset.cardLook !== 'c').length;
+        const over = [];
+        for (const s of document.querySelectorAll('[data-desk-seat]')) {
+          const cards = [...s.querySelectorAll('[data-hole] [role=img]')].map(e => e.getBoundingClientRect());
+          for (const t of s.querySelectorAll('[data-position], [data-chips], [data-action], .text-\\[11px\\]')) {
+            if (t.closest('[data-hole]')) continue;
+            const rg = document.createRange(); rg.selectNodeContents(t); const b = rg.getBoundingClientRect();
+            if (b.width && cards.some(c => c.left < b.right - 0.5 && b.left < c.right - 0.5 && c.top < b.bottom - 0.5 && b.top < c.bottom - 0.5)) over.push(`seat ${s.dataset.seat} "${t.textContent.trim().slice(0, 16)}"`);
+          }
+        }
+        const c = document.querySelector('td.w-\\[200px\\]');
+        return { plain, over, cell: [c?.offsetWidth, c?.offsetHeight], table: document.querySelector('table')?.offsetWidth };
+      });
+      if (r.plain) bad.push(`${tag}: ${r.plain} cards without the bold look`);
+      if (r.over.length) bad.push(`${tag}: hole cards over ${r.over.slice(0, 4).join(', ')}`);
+      if (desk && (Math.abs(r.cell[0] - 200) > 1 || Math.abs(r.cell[1] - 128) > 2 || Math.abs(r.table - 1000) > 1)) bad.push(`${tag}: seat ${r.cell.join('x')}, table ${r.table}px`);
+      await p.evaluate(() => window.__stream.end(4000));
+      await sleep(500); const board = await read('[data-felt-cards] [role=img]');
+      await sleep(2800); const deck = await read('[data-deck]');
+      const off = c => !c || Math.abs(c.w - want[0]) > 0.6 || Math.abs(c.h - want[1]) > 0.6;
+      if (off(board) || off(deck)) bad.push(`${tag}: board card ${board?.w}x${board?.h}, deck ${deck?.w}x${deck?.h}, want ${want.join('x')}`);
+      seen.push(`${tag}: hole ${hole?.w}x${hole?.h}, board ${board?.w}x${board?.h}, deck ${deck?.w}x${deck?.h}${desk ? `, seats ${r.cell.join('x')}, no text covered` : ''}`);
+    } finally { await p.close(); }
+  }
+  const p = await newPage(); await p.setViewport({ width: 1440, height: 790 });
+  try {
+    await p.goto(`${BASE}/?tables=1&cards=bold`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await p.waitForFunction(() => document.querySelector('[data-small-table] [role=img]'), { timeout: 120000 });
+    const n = await p.evaluate(() => [...document.querySelectorAll('[data-small-table] [role=img]')].filter(e => e.dataset.cardLook).length);
+    if (n) bad.push(`overview: ${n} small-table cards with the bold look`);
+    seen.push('overview: small tables keep today\'s cards');
+  } finally { await p.close(); }
   return { pass: !bad.length, detail: bad.length ? bad.join('; ') : seen.join('; ') };
 }));
 
@@ -3797,6 +4569,12 @@ const share = (f, box, test) => {
   for (let y = t; y < b; y += 2) for (let x = l; x < r; x += 2) { const i = (y * f.w + x) * 4; all++; if (test(f.px[i], f.px[i + 1], f.px[i + 2])) n++; }
   return all ? n / all : 0;
 };
+// Whether ANY pixel of a box (every one, not every other) passes `test`: a thin anti-aliased glyph can fall between a sampled grid.
+const anyInk = (f, box, test) => {
+  const [l, t, r, b] = clip(f, box);
+  for (let y = t; y < b; y++) for (let x = l; x < r; x++) { const i = (y * f.w + x) * 4; if (test(f.px[i], f.px[i + 1], f.px[i + 2])) return true; }
+  return false;
+};
 const PAGE = (r, g, b) => Math.abs(r - 250) + Math.abs(g - 250) + Math.abs(b - 249) <= 6; // the page colour (pages-one-background)
 const INK = (r, g, b) => r + g + b < 300; // text at full strength (TEXT is 155); the darkest cell tint sums 464
 // How much a set of boxes is drawn: the darkness summed over their pixels, in pixels of black.
@@ -3948,7 +4726,7 @@ const judge = (fr, name, how, state) => {
     for (const row of f.s.rows) {
       if (!row.hit || row.o < 0.99 || row.cy[0] < Math.max(t, 44, f.s.head - 1) || Math.max(row.cy[1], row.nx[3]) > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar or the card's pinned header (scrolled)
       if (share(f, [row.cx[0], row.cy[0], row.cx[1], row.cy[1]], INK) * (row.cx[1] - row.cx[0]) * (row.cy[1] - row.cy[0]) / 4 < 8) continue; // no numbers drawn
-      if (share(f, [row.nx[0], row.cy[0], row.nx[2], row.cy[1]], INK) === 0 && !torn.has(row.n)) torn.set(row.n, at(n));
+      if (!anyInk(f, [row.nx[0], row.cy[0], row.nx[2], row.cy[1]], INK) && !torn.has(row.n)) torn.set(row.n, at(n));
     }
     if (f.post && f.s.tip && share(f, f.s.tip, (r, g, b) => r + g + b >= 759) > 0.5) tips.push(at(n));
     // Trends' tile shows its scrollbars while gliding too (its own, out of this work): judged on Profiles and Matchups.

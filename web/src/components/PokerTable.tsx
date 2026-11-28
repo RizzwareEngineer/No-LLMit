@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { CSSProperties } from "react";
 import { useReducedMotion } from "motion/react";
 import Player, { LOGO_RIM } from "@/components/Player";
 import TableFelt, { BetStack, FeltBet, GRID } from "@/components/TableFelt";
+import { StackDraftContext, useStackDraftFor } from "@/components/StackGlyph";
 import TableMotion, { CARD_FLIGHT, DeckPhase, dealStart } from "@/components/TableMotion";
 import { PlayerState, TableNoticePayload } from "@/lib/api";
 import { ModelStats } from "@/lib/stats";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { FELT, LOGO, MIDDLE, POT_TOP, type Spot, css, seatPlace, seatSpots } from "@/lib/phoneTable";
-import { useLayout, useTallTable } from "@/lib/tableSwitches";
+import { useLayout, useStacksDraft, useTallTable } from "@/lib/tableSwitches";
 import SeatStats from "@/components/SeatStats";
 import { isDraftA } from "@/lib/layout";
 import Fit from "@/components/Fit";
@@ -43,8 +45,25 @@ interface PokerTableProps {
   stats?: Record<string, ModelStats>; // by model name, for the phone seat's stats popup (SeatStats)
   display?: DisplayState | null; // the turn on screen: the phone shows each action over its seat for a moment
   clock?: Clock | null; // the shot clock while its turn is on screen (null: no clock): the phone's ring round the seat on the clock
+  // Seen from far away (the tables overview): the same table, drawn at a scale of 1/k, with the text too small to read
+  // there faded out and its logos, hole cards and board grown in place (LOD, globals.css). `morph`: the zoom between far
+  // and near, which page.tsx animates (--lod-t for the sizes, --lod-o for the text).
+  lod?: { k: number; morph?: boolean; farther?: boolean } | null;
   still?: boolean; // a small copy (the tables overview, the stage's edges): no flights, no deal and no sounds, which find the page's one felt
+  // The table shown (the tables overview's key, page.tsx; undefined without the overview). A view change (a zoom in, a
+  // slide, a load of ?t) is no game event: the table it brings is drawn as it stands, as after a layout switch, and only
+  // what the stream changes after that moves.
+  view?: string | null;
 }
+
+// The table seen from far away (lod): one growth factor each for every seat's logo (20px, from its top-left corner),
+// every seat's two hole cards (40x56 side by side, from their bottom-right corner) and the board (from its centre), in the
+// room the faded text leaves; the pot's amount (20px) stays where it reads at minText or more on screen.
+// The board moves down by boardDown and the pot up by potUp (px of the table) as they do, so the grown board never
+// reaches the pot's chips (owner, round 5: "the pot is behind the cards").
+// fartherLogo: the logo seen farther still (a table under 300px across, ?shells=N&layout=c), as large as it grows before
+// it would reach the hole cards.
+export const LOD = { logo: 2.8, hole: 1.3, board: 1.4, pot: 20, minText: 11, boardDown: 8, potUp: 6, fartherLogo: 3.2 } as const;
 
 // The phone's action bubble: "Raise 79", "Call 10", "Fold".
 const SAY: Record<string, string> = { FOLD: 'Fold', CHECK: 'Check', CALL: 'Call', RAISE: 'Raise', BET: 'Bet', ALL_IN: 'All-in' };
@@ -65,8 +84,12 @@ export default function PokerTable({
   display = null,
   clock = null,
   still = false,
+  lod = null,
+  view,
 }: PokerTableProps) {
   const layout = getPlayerLayout(players.length || 9);
+  // ?stacks=1|2 on the overview (a draft): seen from far away, each seat's stack as a glyph (StackGlyph).
+  const stackDraft = useStackDraftFor(useStacksDraft(), !!lod);
   const hidePositions = !!buttonDetermination; // the position badges wait for the button draw
   // The engine keeps each seat's last action until the hand ends; it shows only once taken on this street (the engine's
   // `acted`). Before that the seat says WAITING, then THINKING on its turn, never an earlier street's action.
@@ -81,8 +104,9 @@ export default function PokerTable({
   // the hand as it stands, not dealt again (no fade from nothing, no face down then turned over again). The hand on screen
   // when the shown layout last changed is that hand; the next one is dealt as usual.
   const mounted = useLayout(); // only the shown layout's table, once hydrated (null: both, CSS shows one)
-  const [shownAt, setShownAt] = useState({ mounted, hand: 0 });
-  if (mounted !== shownAt.mounted) setShownAt({ mounted, hand: handNumber });
+  // A view change (another table shown) counts the same: its hand is shown as it stands, not dealt again.
+  const [shownAt, setShownAt] = useState({ mounted, view, hand: 0 });
+  if (mounted !== shownAt.mounted || view !== shownAt.view) setShownAt({ mounted, view, hand: handNumber });
   const switched = shownAt.hand > 0 && handNumber === shownAt.hand;
   const dealt = !reduce && !still && firstHand > 0 && handNumber !== firstHand && !switched;
   const [deck, setDeck] = useState<DeckPhase | null>(null);
@@ -177,6 +201,7 @@ export default function PokerTable({
       deck={deck}
       blank={blank}
       fillIn={!switched}
+      view={view}
     />
   );
 
@@ -188,10 +213,14 @@ export default function PokerTable({
   // The desktop table: seats round the felt; the table is only for layout. Phone draft A (app/a) draws it on a phone too,
   // at its own proportions (200x128 cells), scaled as one picture to the page's width (Fit).
   const deskTable = (cls: string) => (
+      <StackDraftContext.Provider value={stackDraft}>
       <div
         data-desk-table
+        data-lod={lod ? (lod.morph ? 'morph' : 'far') : undefined}
+        data-lod-pot={lod ? (LOD.pot / lod.k >= LOD.minText ? 'show' : 'hide') : undefined}
+        data-lod-farther={lod?.farther || undefined}
         className={`${cls} relative bg-white shrink-0 self-stretch rounded`}
-        style={{ width: tableWidth, ...cardStyle }}
+        style={{ width: tableWidth, ...cardStyle, ...(lod ? { '--lod-g': lod.farther ? LOD.fartherLogo : LOD.logo, '--lod-f': LOD.hole, '--lod-b': LOD.board, '--lod-bd': `${LOD.boardDown}px`, '--lod-pu': `${LOD.potUp}px` } as CSSProperties : null) }}
       >
         <table role="presentation" className="table-fixed w-full h-full" style={{ borderCollapse: 'collapse', borderSpacing: 0 }}>
           <tbody>
@@ -266,6 +295,7 @@ export default function PokerTable({
           </tbody>
         </table>
       </div>
+      </StackDraftContext.Provider>
   );
 
   return (
@@ -278,6 +308,8 @@ export default function PokerTable({
         nextDealAt={street === 'complete' ? nextDealAt : null}
         onDeck={setDeck}
         notice={!!notice}
+        view={view}
+        ended={street === 'complete'}
       />}
       {/* Phones: one table and nothing else: the felt a tall oval on the page drawn as the desktop's grid, each seat a round logo on its edge
           with its position, stack, label and cards (Player's compact seat; phoneTable's geometry), each bet between its seat

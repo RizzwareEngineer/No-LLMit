@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 import { DESK, isDraftA, isPhone, onLayoutChange } from "@/lib/layout";
 
 // Card sizes in px, the card's 0.7 ratio: phones' 28x40 and desktop's 40x56. Every card on the table is this size: hole
@@ -7,11 +7,30 @@ export const CARD_SIZES = [{ w: 28, h: 40 }, { w: 40, h: 56 }] as const;
 // Literal classes, so Tailwind sees each one.
 export const CARD_CLASS = ['w-7 h-10', 'w-10 h-14'] as const;
 
+// ?cards=bold (a draft): bolder cards on the page's own table (desktop and phones), set apart from the white seat and the
+// felt; ?cards=a|b|c each option, for comparing. a: a darker 1px border and a soft shadow at today's size; b: a's border
+// with bigger, heavier rank and suit, stacked; c: b on the largest card the seat holds (45x64; phones 31x44), a seat's two
+// overlapping. bold is c. Without it, nothing changes. Only where the page provides it (CardLookContext, page.tsx): the
+// overview's small tables keep their cards.
+export type CardLook = 'a' | 'b' | 'c';
+const cardLookOf = (search: string): CardLook | null => { const v = new URLSearchParams(search).get('cards'); return v === 'bold' ? 'c' : v === 'a' || v === 'b' || v === 'c' ? v : null; };
+export const useCardLookParam = () => useSyncExternalStore(noSub, () => cardLookOf(location.search), () => null);
+export const CardLookContext = createContext<CardLook | null>(null);
+export const useCardLook = () => useContext(CardLookContext);
+export const CARD_SIZES_C = [{ w: 31, h: 44 }, { w: 45, h: 64 }] as const;
+export const CARD_CLASS_C = ['w-[31px] h-[44px]', 'w-[45px] h-[64px]'] as const;
+// A seat's second hole card over its first by this much with look c (the hand fits the seat's corner as today's did).
+export const HOLE_OVERLAP_C = [6, 12] as const;
+export const cardClassOf = (size: number, look: CardLook | null) => (look === 'c' ? CARD_CLASS_C : CARD_CLASS)[size];
+// The page's look, for the dealt cards' flights (drawn outside React): set by the page's provider.
+let pageLook: CardLook | null = null;
+export const setPageCardLook = (l: CardLook | null) => { pageLook = l; };
+
 // Phones keep today's size: the phone table's seats are laid out for it (phoneTable.ts). The layout is lib/layout's.
 export const cardSizeNow = (): number => (isPhone() ? 0 : 1);
 // The deck's size in px: the hole cards'.
 // Draft A (app/a) draws the desktop table, so its deck and dealt cards are the desktop's.
-export const deckSize = (size = cardSizeNow()) => (isDraftA() ? CARD_SIZES[1] : CARD_SIZES[size]);
+export const deckSize = (size = cardSizeNow(), look: CardLook | null = pageLook) => { const s = look === 'c' ? CARD_SIZES_C : CARD_SIZES; return isDraftA() ? s[1] : s[size]; };
 
 export const useCardSize = () => useSyncExternalStore(onLayoutChange, cardSizeNow, () => 0);
 
@@ -23,11 +42,25 @@ export const useTallTable = () => useSyncExternalStore(noSub, () => query('table
 // neighbouring tables at the stage's edges. Desktop only. Promoting it is this one line (return true).
 function tablesOverview(search: string) { return new URLSearchParams(search).get('tables') === '1'; }
 export const useTablesOverview = () => useSyncExternalStore(noSub, () => tablesOverview(location.search), () => false);
+// ?tables=1&stacks=1|2|3 (a draft): the overview's seats show their stacks as a glyph, no numbers (StackGlyph).
+const stacksDraft = (): 1 | 2 | 3 | null => { if (!tablesOverview(location.search)) return null; const v = query('stacks'); return v === '1' ? 1 : v === '2' ? 2 : v === '3' ? 3 : null; };
+export const useStacksDraft = () => useSyncExternalStore(noSub, stacksDraft, () => null);
+// ?tables=1&shells=N (5 to 24; a draft): the overview filled up to N tables with still mock tables (lib/shells), laid out
+// by &layout=a (the grid as it is), b (the most active live table large, the rest a wall beside or under it), c (the
+// grid, its tables under FARTHER_W drawn farther: TablesOverview) or d (b, its wall drawn as c draws). As "N:a" (a string,
+// so the snapshot is stable).
+export type ShellsDraft = { n: number; layout: 'a' | 'b' | 'c' | 'd' } | null;
+const shellsKey = () => { if (!tablesOverview(location.search)) return ''; const n = Number(query('shells')), l = query('layout'); return Number.isInteger(n) && n >= 5 && n <= 24 ? `${n}:${l === 'b' || l === 'c' || l === 'd' ? l : 'a'}` : ''; };
+export const parseShells = (k: string): ShellsDraft => (k ? { n: Number(k.split(':')[0]), layout: k.split(':')[1] as 'a' | 'b' | 'c' | 'd' } : null);
+export const useShellsKey = () => useSyncExternalStore(noSub, shellsKey, () => '');
 // Run as the page is parsed: landing on the overview, the stage is hidden until the overview is drawn over it (page.tsx),
 // so the first paint is not the single table.
 export const OVERVIEW_FIRST = `(${tablesOverview})(location.search)&&!new URLSearchParams(location.search).get('t')&&matchMedia(${JSON.stringify(DESK)}).matches&&document.documentElement.setAttribute('data-overview','')`;
-// ?edges=outline: the neighbours at the stage's edges as an outline and a label; without it, their live tables.
-export const useEdges = () => useSyncExternalStore(noSub, (): 'live' | 'outline' => (query('edges') === 'outline' ? 'outline' : 'live'), () => 'live' as const);
+// How a table's neighbours show round it: by default an arrow button per neighbour (TableNav); ?edges=live their live
+// tables faded at the stage's edges, ?edges=outline only their outlines (TablesOverview's Edge).
+export type EdgesMode = 'buttons' | 'live' | 'outline';
+const edgesMode = (): EdgesMode => { const e = query('edges'); return e === 'live' || e === 'outline' ? e : 'buttons'; };
+export const useEdges = () => useSyncExternalStore(noSub, edgesMode, () => 'buttons' as const);
 // ?t=KEY: the table in focus (the stream's key, e.g. 5-10-200bb), so Back, a reload or a shared link finds it.
 const onUrl = (cb: () => void) => { addEventListener('popstate', cb); addEventListener('focuschange', cb); return () => { removeEventListener('popstate', cb); removeEventListener('focuschange', cb); }; };
 export const useFocusParam = () => useSyncExternalStore(onUrl, () => query('t'), () => null);

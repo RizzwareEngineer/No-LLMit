@@ -400,6 +400,30 @@ html:has([data-screen]) {
 html.phone-a #phone-stats { display: none; }
 /* The overview landing's first paint (lib/tableSwitches' OVERVIEW_FIRST): the stage it is drawn over stays hidden. */
 html[data-overview] .stage-zoom { visibility: hidden; }
+/* The table seen from far away (the tables overview; PokerTable's lod): the same table drawn small, the text too small
+   to read there faded out (--lod-o 0), and each seat's logo, its hole cards and the board grown in place by one factor
+   each (--lod-g, --lod-f, --lod-b, set on the table) into the room the text leaves (--lod-t 0). The full table has both
+   at 1; the zoom between them (page.tsx) animates them on the table. Nothing else changes. */
+@property --lod-t { syntax: '<number>'; inherits: true; initial-value: 1; }
+@property --lod-o { syntax: '<number>'; inherits: true; initial-value: 1; }
+[data-lod="far"] { --lod-t: 0; --lod-o: 0; }
+[data-lod] [data-lod-text], [data-lod][data-lod-pot="hide"] [data-lod-pot] { opacity: var(--lod-o); }
+/* The pot's label (12px) never reads from far away: where its amount does, the label folds to nothing with the text's
+   fade, so the box hugs the amount instead of keeping a blank where the label was. */
+[data-lod] [data-lod-pot-label] { max-width: calc(var(--lod-o) * 3em); margin-right: calc((var(--lod-o) - 1) * 8px); overflow: hidden; }
+[data-lod] [data-lod-btn] { color: rgb(255 255 255 / var(--lod-o)); }
+[data-lod] [data-lod-logo] { transform-origin: 0 0; transform: scale(calc(1 + (var(--lod-g) - 1) * (1 - var(--lod-t)))); }
+[data-lod] [data-desk-seat] [data-hole] { transform-origin: 100% 100%; transform: scale(calc(1 + (var(--lod-f) - 1) * (1 - var(--lod-t)))); }
+/* The board grows from its centre, up into the pot's chips: from far away it moves down and the pot up (--lod-bd,
+   --lod-pu: px of the table), so the pot and the board stay apart however far; near (--lod-t 1) both are where they are. */
+[data-lod] [data-felt-cards] { transform: translateY(calc(var(--lod-bd) * (1 - var(--lod-t)))) scale(calc(1 + (var(--lod-b) - 1) * (1 - var(--lod-t)))); }
+/* Farther still (?shells=N&layout=c, a table under 300px across): a seat out of the hand shows its logo only, its cards
+   gone; the seats in it keep theirs, with the board and the pot. The logo grows a little more (LOD.fartherLogo). */
+[data-lod-farther] [data-desk-seat][data-out] [data-hole] { visibility: hidden; }
+[data-lod] [data-lod-potcol] { transform: translateY(calc(var(--lod-pu) * (var(--lod-t) - 1))); }
+/* The header's per-table items (page.tsx's StatusRow) on the overview's first paint: folded away, so Live, the units and
+   Sound stand together in the middle before the page runs. */
+html[data-overview] [data-status-hand] { display: none; }
 html.phone-a [data-a-table] [data-hole] [role=img], html.phone-a [data-a-table] [data-felt-cards] [role=img] { width: 40px; height: 56px; }
 html.phone-a [data-a-table] [role=img] span { font-size: 14px; }
 html.phone-a [data-a-table] [role=img] svg { width: 12px; height: 12px; }

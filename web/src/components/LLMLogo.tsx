@@ -5,6 +5,7 @@ import { familyColor, logoFile } from '@/lib/families';
 interface LLMLogoProps {
   model: string;
   size?: number;
+  lodGrow?: boolean; // a desktop seat's logo: grows in place when the table is seen from far away (PokerTable's lod)
 }
 
 // Brand logos in public/logos, from @lobehub/icons-static-svg (MIT). The marks belong to
@@ -26,13 +27,14 @@ export function modelColor(name: string): string {
   return MODEL_COLORS[name] || familyColor(name) || 'rgb(120, 119, 116)';
 }
 
-export default function LLMLogo({ model, size = 28 }: LLMLogoProps) {
+export default function LLMLogo({ model, size = 28, lodGrow = false }: LLMLogoProps) {
   const logo = logoFile(model);
   const box = { width: size, height: size, minWidth: size, minHeight: size };
 
   if (logo) {
     return (
       <div
+        data-lod-logo={lodGrow ? '' : undefined}
         className="bg-white border border-neutral-200 rounded-sm flex items-center justify-center shrink-0"
         style={box}
       >
@@ -44,6 +46,7 @@ export default function LLMLogo({ model, size = 28 }: LLMLogoProps) {
 
   return (
     <div
+      data-lod-logo={lodGrow ? '' : undefined}
       className="bg-neutral-800/20 text-neutral-700 border border-neutral-600/50 rounded-sm flex items-center justify-center shrink-0 font-bold text-[11px]"
       style={box}
     >

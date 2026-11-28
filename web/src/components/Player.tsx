@@ -1,5 +1,6 @@
 "use client";
 
+import { SeatStack } from "@/components/StackGlyph";
 import Card from "@/components/Card";
 import FitName from "@/components/FitName";
 import LLMLogo from "@/components/LLMLogo";
@@ -10,7 +11,7 @@ import { motion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { formatAmount, useBigBlind } from "@/lib/amounts";
 import { BLUE, MUTED, modelHref } from "@/lib/stats";
-import { CARD_CLASS, useCardSize } from "@/lib/tableSwitches";
+import { HOLE_OVERLAP_C, cardClassOf, useCardLook, useCardSize } from "@/lib/tableSwitches";
 import { useFillIn } from "@/lib/boxes";
 import { arrivedClock, clockMs, clockShare, type Clock } from "@/lib/stream";
 import { useSecondsDraw } from "@/hooks/useSecondsDraw";
@@ -77,8 +78,10 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   const positionColor = position ? POSITION_COLORS[position] || 'bg-gray-600 text-white' : '';
   const folded = player.status === 'folded';
   const isWinner = winAmount !== undefined && winAmount > 0;
-  const size = useCardSize();
-  const cardClass = CARD_CLASS[size];
+  const size = useCardSize(), look = useCardLook();
+  const cardClass = cardClassOf(size, look);
+  // Look c (?cards=c): the second card over the first, so the larger pair takes no more of the seat than today's.
+  const overlap = look === 'c' ? HOLE_OVERLAP_C[size] : 0;
   const seatBg = isWinner ? 'rgb(237, 253, 244)' : '#ffffff';
   // A seat mounts where the blank one stood (PokerTable) when the table fills: its content fades in.
   // Not a seat mounted by a layout switch (PokerTable): it shows the table as it was. Only how it mounted counts.
@@ -96,7 +99,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
   useFillIn(ref, fill);
 
   const hole = (
-    <div data-hole className="flex flex-row items-center gap-1 shrink-0">
+    <div data-hole className={`flex flex-row items-center shrink-0 ${overlap ? '[&>*+*]:-ml-[var(--hole-overlap)]' : 'gap-1'}`} style={overlap ? { ['--hole-overlap' as string]: `${overlap}px` } : undefined}>
       {cards.length > 0 ? (
         cards.map((card, i) => (
           // Face up as soon as it is dealt (no face-down deal). Keyed by hand, so a
@@ -107,27 +110,31 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             animate={{ opacity: 1 }}
             transition={{ duration: 0.1, delay: dealDelays?.[i] ?? 0 }}
           >
-            <Card value={card} className={cardClass} />
+            <Card value={card} className={cardClass} covered={i < cards.length - 1 ? overlap : 0} />
           </motion.div>
         ))
       ) : (
         <>
-          <Card value="" className={cardClass} />
+          <Card value="" className={cardClass} covered={overlap} />
           <Card value="" className={cardClass} />
         </>
       )}
     </div>
   );
+  // Seen from far away (PokerTable's lod) the dealer's badge stays as the table draws it, its letters faded with the
+  // other text too small to read; the other position badges are text only and fade with it.
   const badge = position && (
     <div
       data-position
+      {...(position === 'BTN' ? { 'data-lod-btn': '' } : { 'data-lod-text': '' })}
       className={`min-w-8 px-1 text-[11px] leading-4 rounded font-bold shrink-0 text-center whitespace-nowrap ${positionColor}`}
       title={getPositionFullName(position)}
     >
       {position}
     </div>
   );
-  const seatBox = `overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${folded && !isWinner ? "opacity-40" : ""} transition-colors rounded`;
+  const dim = folded && !isWinner ? "opacity-40" : "";
+  const seatBox = `overflow-hidden relative ${active ? "border-animation" : ""} h-full w-full flex flex-col ${dim} transition-colors rounded`;
   const seatStyle = { boxShadow: 'rgba(15, 15, 15, 0.1) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 2px 4px', background: seatBg };
 
   if (compact && spot) {
@@ -165,7 +172,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
             ? <div data-label data-lcp="seat-label" data-chips={winAmount} className="text-[11px] leading-[14px] font-bold" style={{ color: 'rgb(15, 123, 108)' }} aria-label={`won ${formatAmount(winAmount, bb)}, ${winDesc}`}>+{formatAmount(winAmount, bb)}</div>
             : <div data-label data-lcp="seat-label" className="text-[11px] leading-[14px]" style={{ color: MUTED }}>{seatLabel(player.name)}</div>}
         </div>
-        <div className="absolute pointer-events-auto" style={{ left: ox + c[0] - 30, top: oy + c[1] - 20 }}>{hole}</div>
+        <div className="absolute pointer-events-auto" style={look === 'c' ? { left: ox + c[0] - (2 * 31 - overlap) / 2, top: oy + c[1] - 22 } : { left: ox + c[0] - 30, top: oy + c[1] - 20 }}>{hole}</div>
         {/* The action, for a moment, on the seat's side away from the middle, where its cards never are: over the logo
             for a seat in the table's top half (its cards are under it), under its stack, over its label, for one in the
             bottom half (its cards are over it) and for the side seats whose neighbour sits over them (phoneTable's
@@ -185,6 +192,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
       ref={ref}
       data-seat={seatIdx}
       data-desk-seat
+      data-out={player.status === 'folded' || player.status === 'eliminated' || undefined}
       className={seatBox}
       style={seatStyle}
     >
@@ -194,12 +202,16 @@ export default function Player({ player, active, position, winAmount, winDesc, i
         onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(55, 53, 47, 0.03)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'inherit'; }}
       >
+        {/* ?stacks=1|2 on the overview (a draft): the stack as a glyph, seen from far away only (StackGlyph). */}
+        <SeatStack stack={player.stack} name={player.name} />
         {/* Top-left, as in the original seat: logo, then the name over the stack. The name has the
             whole row because the hole cards sit bottom-right, so it fits on one line. */}
         <div data-seat-top className="flex items-start justify-between min-w-0 gap-2 p-3 pb-0">
           <div className="flex items-center min-w-0 gap-2">
-            <LLMLogo model={player.name} size={20} />
-            <div className="flex flex-col min-w-0">
+            {/* Seen from far away (PokerTable's lod) the logo grows in place from its top-left corner, into the room the
+                faded name and stack leave (globals.css); the hole cards grow from their bottom-right corner. */}
+            <LLMLogo model={player.name} size={20} lodGrow />
+            <div data-lod-text className="flex flex-col min-w-0">
               <FitName name={player.name} className="text-[11px] font-bold" style={{ color: 'rgb(55, 53, 47)' }} />
               <div data-chips={player.stack} className="text-[11px] tabular-nums whitespace-nowrap" style={{ color: MUTED }}>{formatAmount(player.stack, bb)}</div>
             </div>
@@ -210,7 +222,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
 
         {/* Bottom row: the action at the left, the hole cards at the right. */}
         <div data-seat-bottom className="mt-auto flex min-w-0 items-end justify-between gap-2 p-3 pt-0">
-          <div className="flex items-center min-w-0 gap-2 mb-0.5">
+          <div data-lod-text className="flex items-center min-w-0 gap-2 mb-0.5">
             {isWinner ? (
               <div className="flex flex-row items-center gap-1 min-w-0">
                 <span data-chips={winAmount} className="font-bold text-[11px] shrink-0 tabular-nums" style={{ color: 'rgb(15, 123, 108)' }}>+{formatAmount(winAmount, bb)}</span>

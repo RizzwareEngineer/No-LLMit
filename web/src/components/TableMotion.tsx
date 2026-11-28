@@ -1,11 +1,11 @@
 "use client";
 
-import { memo, useEffect, useEffectEvent, useRef, useSyncExternalStore } from "react";
+import { memo, useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { animate, motion, useReducedMotion } from "motion/react";
 import { PlayerState } from "@/lib/api";
 import { RIFFLE, playSound } from "@/lib/sound";
-import { deckSize, useCardSize } from "@/lib/tableSwitches";
+import { deckSize, useCardLook, useCardSize } from "@/lib/tableSwitches";
 
 // Seconds. A dealer pitching cards (owner 2026-11-09: the old 0.04 s deal "sounds like smacks"): a card leaves the deck
 // every DEAL_STAGGER and slides for CARD_FLIGHT, so two rounds to nine seats land in about 2.7 s. Chips fly for FLIGHT.
@@ -31,6 +31,7 @@ type Box = Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>;
 const noSubscribe = () => () => {};
 
 interface Snapshot {
+  view: string | null | undefined; // the table it was taken of (PokerTable's view)
   hand: number;
   stacks: Record<string, number>;
   bets: Record<string, number>;
@@ -102,7 +103,7 @@ function fly(layer: HTMLElement, kind: 'chip' | 'card', from: Box | null, to: Bo
 export function Deck({ phase }: { phase: DeckPhase }) {
   // The riffle's sound starts with the riffle (TableMotion's showDeck), not here: a felt mounted by a layout switch while
   // the deck is out shows it squared (TableFelt's AnimatePresence initial={false}) and silent.
-  const size = useCardSize(), box = deckSize(size);
+  const size = useCardSize(), box = deckSize(size, useCardLook());
   return (
     <motion.div
       data-deck={phase}
@@ -143,11 +144,13 @@ interface TableMotionProps {
   nextDealAt: number | null; // Date.now() at which the next hand is dealt, while the hand is over and the countdown shows
   onDeck: (phase: DeckPhase | null) => void; // shows or hides the deck on the felt
   notice?: boolean; // a table notice is up: it is drawn where the deck would be, so no shuffle (deck or sound)
+  view?: string | null; // the table shown (PokerTable): another one is adopted as it stands, nothing flies or sounds for it
+  ended?: boolean; // the hand is over (its street is complete), whether or not its countdown shows yet
 }
 
 // Chips and cards flying across the table, the shuffle between hands, and the table sounds. Driven only by the
 // difference between consecutive game states and the next-hand countdown; it never holds up the server's timing.
-export default function TableMotion({ players, handNumber, boardCount, winnerIdxs, nextDealAt, onDeck, notice = false }: TableMotionProps) {
+export default function TableMotion({ players, handNumber, boardCount, winnerIdxs, nextDealAt, onDeck, notice = false, view, ended = false }: TableMotionProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const prev = useRef<Snapshot | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]); // deal sounds and the deck's steps
@@ -164,6 +167,7 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
     const felt = visibleRect('[data-felt]');
     const bet = (idx: number) => visibleRect(`[data-bet="${idx}"]`);
     const now: Snapshot = {
+      view,
       hand: handNumber,
       stacks: Object.fromEntries(players.map(p => [p.id, p.stack])),
       bets: Object.fromEntries(players.map(p => [p.id, p.currentBet])),
@@ -177,6 +181,15 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
     });
     prev.current = now;
     if (!before || players.length === 0) return;
+    // A view change (another table shown): its state is adopted as it stands. What was flying or due for the table left
+    // (its flights, deal sounds and deck) stops; nothing is dealt, tossed or shuffled for the one that came.
+    if (before.view !== view) {
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+      layerRef.current?.replaceChildren();
+      if (deck.current) showDeck(null);
+      return;
+    }
 
     const newHand = now.hand !== before.hand;
     if (newHand) {
@@ -254,7 +267,12 @@ export default function TableMotion({ players, handNumber, boardCount, winnerIdx
   // whole-second countdown would then put the deal up to 1 s nearer than it reads). Too little time left: none.
   // None while a table notice is up (an outage, a failed save): the notice hides the deck, and a notice that comes after
   // the timer is set cancels it through the effect's cleanup, the reduced-motion sound included.
-  const pauseOf = nextDealAt && !notice ? handNumber : 0;
+  // On the tables overview (`view`), nor for a pause that was already under way when the table came into view: that hand
+  // ended unseen, so no shuffle starts for it out of nowhere; the next hand is dealt from the felt's middle.
+  const [entry, setEntry] = useState<{ view: string | null | undefined; hand: number } | null>(null);
+  if (view !== undefined && entry?.view !== view) setEntry({ view, hand: ended ? handNumber : 0 });
+  const unseen = view !== undefined && entry?.view === view && entry.hand === handNumber;
+  const pauseOf = nextDealAt && !notice && !unseen ? handNumber : 0;
   const shuffle = useEffectEvent(() => {
     const wait = nextDealAt ? nextDealAt - Date.now() - RIFFLE.length * 1000 - 1100 : -1;
     if (wait < 0) return;

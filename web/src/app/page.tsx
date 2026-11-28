@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import type { CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { MotionConfig } from "motion/react";
-import { ArrowDown, ArrowLeft, CircleNotch } from "@phosphor-icons/react";
+import { ArrowDown, ArrowLeft, CircleNotch, Info } from "@phosphor-icons/react";
 import PokerTable from "@/components/PokerTable";
 import WinningsPanel from "@/components/WinningsPanel";
 import LandingFill, { useFill } from "@/components/LandingFill";
@@ -17,6 +18,7 @@ const MAC_TABLE_W = 819;
 const PICTURED_TAP = "[&_button]:relative [&_button]:after:absolute [&_button]:after:-inset-x-1 [&_button]:after:-inset-y-[24px] [&_button]:after:content-['']";
 const noSub = () => () => {};
 import ReasoningPanel, { Caption } from "@/components/ReasoningPanel";
+import { TableDepth } from "@/components/StackGlyph";
 import SoundToggle, { UnitToggle } from "@/components/SoundToggle";
 import UsageIndicator, { useUsage } from "@/components/UsageIndicator";
 import StatsSections from "@/components/StatsScreens";
@@ -39,9 +41,10 @@ import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, page
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
-import { OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
+import { parseShells, useShellsKey, CardLookContext, setPageCardLook, useCardLookParam, OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
 import { type Anim, nextAnim, stageKeyOf, targetOf } from "@/lib/overviewMachine";
-import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor, type EdgeRoom } from "@/components/TablesOverview";
+import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor, tableLabel, type EdgeRoom } from "@/components/TablesOverview";
+import { NavPill, pillWidth, useFadeIn } from "@/components/TableNav";
 
 // The URL hash: #model=<slug> opens the model drawer, and Back closes it.
 // openedInPage: the drawer's history entry was pushed by a click here, not a deep link, so
@@ -77,21 +80,22 @@ const closeModel = () => {
 
 // The site's title: No-LLMit and what it is, with About's link (the desktop's header, and phone draft A's: page's head).
 // `as`: a phone's page has its own (screen-reader) h1, so its pictured title is not a second one.
-function TitleBlock({ as: H = 'h1', className }: { as?: 'h1' | 'p'; className: string }) {
+// `about`: the link at the subtitle's end; off where About is the page's top-right pill (AboutPill, with ?tables=1).
+function TitleBlock({ as: H = 'h1', className, about = true }: { as?: 'h1' | 'p'; className: string; about?: boolean }) {
   return (
     <div className={className}>
       <H className="text-[28px] font-bold text-balance" style={{ color: 'rgb(55, 53, 47)', lineHeight: 1.1 }}>No-LLMit</H>
       <p className="text-[14px]" style={{ color: MUTED }}>
-        Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{' '}
+        Spectate (or play against) SOTA LLMs in a No Limit Texas Hold&apos;em cash game.{about && ' '}
         {/* The home page's last screen; /about stays its own page (a new tab, a shared link). */}
-        <Link
+        {about && <Link
           href="/about"
           onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about', isPhone()); } }}
           className="underline underline-offset-2 decoration-1 decoration-[rgba(31,111,196,0.4)]"
           style={{ color: BLUE }}
         >
           ⓘ About
-        </Link>
+        </Link>}
       </p>
     </div>
   );
@@ -173,12 +177,79 @@ const stageParts = (stage: HTMLElement) => ({
   panels: [stage.querySelector<HTMLElement>('#phone-stats'), stage.querySelector<HTMLElement>('[data-reasoning]')].filter(e => !!e),
 });
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-// Panels in: the sidebar from the right, the reasoning from below, after `delay`; out: faded, held until cancelled.
-const panelsIn = (panels: HTMLElement[], delay: number) => panels.forEach((p, i) => p.animate(
-  [{ opacity: 0, transform: i ? 'translateY(16px)' : 'translateX(24px)' }, { opacity: 1, transform: 'none' }],
+// Panels in: faded in where they stand, after `delay` (never moved: a view change shakes nothing outside the table);
+// out: faded, held until cancelled.
+const panelsIn = (panels: HTMLElement[], delay: number) => panels.forEach(p => p.animate(
+  [{ opacity: 0 }, { opacity: 1 }],
   { duration: reduced() ? 0 : 220, delay: reduced() ? 0 : delay, easing: EASE, fill: 'backwards' }));
 const panelsOut = (panels: HTMLElement[]) => panels.map(p => p.animate([{ opacity: 1 }, { opacity: 0 }], { duration: reduced() ? 0 : 140, easing: 'ease-out', fill: 'forwards' }));
 const stop = (...els: (HTMLElement | null | undefined)[]) => els.forEach(e => e?.getAnimations().forEach(a => a.cancel()));
+// The way round a table (its arrow buttons or edges, and "All tables"): faded out before a zoom out or a slide.
+const navParts = () => [...document.querySelectorAll<HTMLElement>('[data-table-nav], [data-edge], [data-all-tables-button]')];
+// A slide (page.tsx): the two tables move together, one table's size and this gap apart (layout px), over SLIDE_MS on
+// one curve, so they stay side by side the whole way (a push); before it, 140 ms of the pills fading.
+const SLIDE_MS = 380, SLIDE_GAP = 48, SLIDE_EASE = 'cubic-bezier(0.65, 0, 0.35, 1)';
+// The table as it stands, as a still picture: its DOM copied (drawn by the same CSS), not a table the page looks for
+// (no data-desk-table, no ids), nothing in it a control, and no flight or deck mid-way.
+function ghostOf(table: HTMLElement) {
+  const g = table.cloneNode(true) as HTMLElement;
+  g.removeAttribute('data-desk-table');
+  g.querySelectorAll('[id]').forEach(e => e.removeAttribute('id'));
+  g.querySelectorAll('[data-flight], [data-deck]').forEach(e => e.remove());
+  g.setAttribute('data-slide-ghost', '');
+  g.setAttribute('aria-hidden', 'true');
+  g.inert = true;
+  return g;
+}
+
+// Where the arrow buttons go, in the screen's px (measured in page.tsx's room): a compass round the table, each one
+// GAP off the edge it leads past. Left and right: centred on the table's height, outside the table (left) and the
+// sidebar (right); laid on their side (the pill's height across) where the pill would come closer than MARGIN to the
+// window's edge. `w`: the pill's width as drawn (NavPill measures it; until then the canvas measure, with slack).
+// Up: on the table's left edge, above it. Down: the owner's "at the bottom, with Stats under it": centred over Stats
+// where the window has the height for both (Stats moves down under it, `statsShift`; the table never moves), else on
+// Stats' line, to its left, Stats staying at the page's centre.
+type NavRoom = { table: Box; stageBottom: number; sideRight: number; leftRoom: number; rightRoom: number; h: number; font: string; stats: Box; foot: number };
+const NAV_GAP = 8, NAV_MARGIN = 8, BESIDE_STATS = 16;
+const downStacked = (r: NavRoom) => r.stageBottom + NAV_GAP + 2 * r.h + NAV_GAP + NAV_MARGIN <= r.foot;
+// How far Stats moves down inside a table whose neighbour below is stacked over it (0: it stays where it always is).
+const statsShift = (r: NavRoom) => (downStacked(r) ? Math.max(0, r.stageBottom + 2 * NAV_GAP + r.h - r.stats.top) : 0);
+function navAt(d: Dir, label: string, r: NavRoom, drawn?: number) {
+  const w = drawn ?? pillWidth(label, r.font) + 12, { table: t, h } = r, cy = t.top + t.height / 2;
+  if (d === 'up') return { at: { left: t.left, top: t.top - NAV_GAP - h }, vertical: false };
+  if (d === 'down') return downStacked(r)
+    ? { at: { left: r.stats.left + r.stats.width / 2 - w / 2, top: r.stageBottom + NAV_GAP }, vertical: false }
+    // On Stats' line; where Stats itself runs past the window's foot (1280x720: the table's fit floor), lifted just
+    // enough to be whole: a control cut off is worse than one a few px off the line.
+    : { at: { left: r.stats.left - BESIDE_STATS - w, top: Math.min(r.stats.top, r.foot - NAV_MARGIN - h) }, vertical: false };
+  const room = d === 'left' ? r.leftRoom : r.rightRoom, vertical = room < w + NAV_GAP + NAV_MARGIN, across = vertical ? h : w;
+  return { at: { left: d === 'left' ? t.left - NAV_GAP - across : r.sideRight + NAV_GAP, top: cy - (vertical ? w : h) / 2 }, vertical };
+}
+
+// About, with ?tables=1: the Stats button's pill at the page's top-right corner, across from "All tables" (the
+// subtitle's link was a 14px line in a sentence; a pill of the family's height there would make the header taller).
+function AboutPill({ top }: { top: number }) {
+  return (
+    <Link href="/about" data-about-pill
+      onClick={e => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); pageTo('about', false); } }}
+      className={`absolute z-20 right-0 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgb(31,111,196)] ${NEXT_BUTTON}`}
+      style={{ ...NEXT_STYLE, top }}>
+      <Info size={16} weight="bold" aria-hidden style={{ color: BLUE }} /> About
+    </Link>
+  );
+}
+
+// "All tables": the way back to the overview, the Stats button's pill at the page's top-left corner.
+function AllTables({ ref, at, still, onClick }: { ref: React.RefObject<HTMLButtonElement | null>; at: { left: number; top: number }; still: boolean; onClick: () => void }) {
+  useFadeIn(ref);
+  return (
+    <button ref={ref} type="button" data-all-tables-button onClick={onClick}
+      className={`absolute z-20 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgb(31,111,196)] ${NEXT_BUTTON}`}
+      style={{ ...NEXT_STYLE, ...at, pointerEvents: still ? 'none' : undefined }}>
+      <ArrowLeft size={16} weight="bold" aria-hidden style={{ color: 'rgba(55, 53, 47, 0.6)' }} /> All tables
+    </button>
+  );
+}
 
 export default function Home() {
   // The tables overview's machine (lib/overviewMachine; below): what the stage shows at rest (undefined: not started)
@@ -261,6 +332,13 @@ export default function Home() {
   const handNumber = gameState?.handNumber || 0;
   const turnKey = displayState ? `${handNumber}:${displayState.turn}` : ''; // the typing record's key: turns restart each hand
   const winners = gameState?.winners || [];
+  // The overview's view changes (a zoom in, a slide): the reason the table landed on already had is drawn whole, as the
+  // table is (a view change replays nothing); one that arrives after it types. Noted in the render the stage changes
+  // table, while that change's animation runs (a load of ?t=KEY is no view change: its reason types as on the plain page).
+  const reasonKey = displayState?.reason ? `${turnKey}|${displayState.reason}` : '';
+  const [viewReason, setViewReason] = useState<{ key: string | null; reason: string | null }>({ key: stageKey, reason: null });
+  if (overviewOn && stageKey !== viewReason.key) setViewReason({ key: stageKey, reason: anim ? reasonKey : null });
+  const reasonWhole = overviewOn && viewReason.key === stageKey && !!reasonKey && viewReason.reason === reasonKey;
   const isHandComplete = street === 'complete';
 
   // All-time stats feed the leaderboard, the drawer and the stats sections; the stream sends them on connect and as each hand is saved.
@@ -323,17 +401,41 @@ export default function Home() {
   // table lands exactly where it always is. The URL decides where the page goes (lib/overviewMachine): an input changes it
   // (a click or an edge pushes ?t, Esc and "All tables" go back), and the machine animates toward it one step at a time.
   const edges = useEdges();
+  // ?cards=bold|a|b|c (a draft): the bolder cards on this page's own table (not the overview's small ones).
+  const cardLook = useCardLookParam();
+  useEffect(() => setPageCardLook(cardLook), [cardLook]);
   const keys = useMemo(() => tables.map(t => t.key), [tables]);
+  // The status row's per-table texts of every table, so on the overview the row keeps one width whatever table shows.
+  const reserve = useMemo(() => overviewOn ? { hands: tables.map(t => `Hand #${t.gameState?.handNumber || '0'}`), stakes: tables.map(t => `${t.gameState?.stakes.smallBlind ?? 0}/${t.gameState?.stakes.bigBlind ?? 0}`) } : undefined, [overviewOn, tables]);
   const target = targetOf(focusParam, keys);
+  // The stage's table's big blind and depth, for ?stacks=1|2's glyphs while it zooms (seen far: StackGlyph).
+  const stageStart = tables.find(t => t.key === stageKey)?.startingStack ?? 0;
+  const stageDepth = useMemo(() => (overviewOn ? { bb: stakes.bigBlind, start: stageStart } : null), [overviewOn, stakes.bigBlind, stageStart]);
   const atRest = !anim, hidden = overviewOn && shown === null && atRest; // the stage under the overview
   const showOverview = overviewOn && (shown === null || anim?.kind === 'in' || anim?.kind === 'out');
   const chrome = overviewOn && !!shown && atRest; // the way back and the neighbours, at rest on a table
+  // Drawn from the landing until they have faded out before a zoom out or a slide (the anim effect fades them).
+  const navShown = overviewOn && !!shown && (atRest || anim?.kind === 'out' || anim?.kind === 'slideOut');
   const mainRef = useRef<HTMLDivElement>(null), statsButton = useRef<HTMLButtonElement>(null), overlay = useRef<HTMLDivElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
   const animId = useRef(0); // the running animation's id: an end of any other is stale and ignored
+  // A slide's still picture of the table it leaves (ghostOf), pushed out beside the new one; gone when the slide ends.
+  const ghost = useRef<HTMLElement | null>(null);
+  const dropGhost = () => { ghost.current?.remove(); ghost.current = null; };
   // Where the overview, the edges and the way back go, in the screen's px (measured below).
-  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; w: number } | null>(null);
-  const cols = room ? gridFor(tables.length, room.overview.width, room.overview.height).cols : 1;
+  // Each arrow pill's width as drawn, by its label (NavPill reports it), for where it goes and whether it lies on its side.
+  const [pillW, setPillW] = useState<Record<string, number>>({});
+  const drawnPill = useCallback((label: string, w: number) => setPillW(m => (Math.abs((m[label] ?? 0) - w) < 0.5 ? m : { ...m, [label]: w })), []);
+  const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; w: number; nav: NavRoom } | null>(null);
+  // ?shells=N (a draft): the overview draws N tables, the live ones first (TablesOverview); its grid's columns are the
+  // neighbours' above and below, and its table's width where the zoom starts.
+  const shellsN = parseShells(useShellsKey())?.n ?? 0;
+  const grid = room ? gridFor(Math.max(tables.length, shellsN), room.overview.width, room.overview.height) : null, cols = grid?.cols ?? 1;
+  // The header's per-table items (hand, stakes, clock) open as a table zooms in and fold away as it zooms out (StatusRow).
+  const perTable = !overviewOn || !(anim ? anim.kind === 'out' : (shown === undefined ? target === null : shown === null));
+  // In the zoom the stage's table is the overview's small one growing: it starts seen from far away, as the cell drew it,
+  // and becomes the page's table (PokerTable's lod, the --lod-t and --lod-o animations below); zooming out, back.
+  const zoomLod = overviewOn && room && grid?.tw && grid.tw < room.w && (anim?.kind === 'in' || anim?.kind === 'out') ? { k: 1000 / grid.tw, morph: true } : null;
   // A ?t no table has (a stale link, or a table gone from the stream) is dropped, so the page is on the overview.
   useEffect(() => { if (overviewOn && focusParam && keys.length && !keys.includes(focusParam)) clearFocus(); }, [overviewOn, focusParam, keys]);
   // Off (a resize to a phone): forget the machine, and any animation still running ends unheard.
@@ -363,6 +465,7 @@ export default function Home() {
     const z = () => table.getBoundingClientRect().width / table.offsetWidth;
     const rest = () => { table.style.zIndex = table.style.transformOrigin = ''; };
     const landed = () => { if (!mine()) return; rest(); setShown(to); setAnim(null); };
+    if (kind === 'in' || kind === 'out') dropGhost();
     if (kind === 'in') {
       const cell = cellOf(to);
       if (!cell || reduced()) { stop(table, ...panels, overlay.current); landed(); return; }
@@ -371,6 +474,10 @@ export default function Home() {
       table.style.transformOrigin = '0 0';
       const grow = table.animate([{ transform: `translate(${(cell.left - b.left) / z()}px, ${(cell.top - b.top) / z()}px) scale(${cell.width / b.width})` }, { transform: 'none' }],
         { duration: ZOOM_MS, easing: EASE });
+      // One table growing: its logos and cards ease from their far size to their own with the zoom's curve (--lod-t), and
+      // the text the overview fades out fades in over the last third (--lod-o; globals.css).
+      table.animate([{ '--lod-t': 0 }, { '--lod-t': 1 }], { duration: ZOOM_MS, easing: EASE, fill: 'both' });
+      table.animate([{ '--lod-o': 0 }, { '--lod-o': 0, offset: 2 / 3 }, { '--lod-o': 1 }], { duration: ZOOM_MS, easing: 'linear', fill: 'both' });
       panelsIn(panels, ZOOM_MS);
       overlay.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ZOOM_MS, easing: EASE, fill: 'forwards' });
       grow.finished.then(landed, () => {});
@@ -382,26 +489,38 @@ export default function Home() {
       const done = () => { if (!mine()) return; stop(table, ...panels, overlay.current); rest(); flushSync(() => { setShown(null); setAnim(null); }); };
       stop(overlay.current);
       if (!cell || reduced()) { done(); return; }
-      panelsOut(panels);
+      panelsOut([...panels, ...navParts()]);
       const b = table.getBoundingClientRect();
       table.style.zIndex = '30';
       table.style.transformOrigin = '0 0';
       const shrink = table.animate([{ transform: 'none' }, { transform: `translate(${(cell.left - b.left) / z()}px, ${(cell.top - b.top) / z()}px) scale(${cell.width / b.width})` }],
         { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'forwards' });
+      // The reverse: the detail fades out over the first third, so the table that lands is the overview's far one.
+      table.animate([{ '--lod-t': 1 }, { '--lod-t': 0 }], { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'both' });
+      table.animate([{ '--lod-o': 1 }, { '--lod-o': 0, offset: 1 / 3 }, { '--lod-o': 0 }], { duration: ZOOM_MS, delay: 140, easing: 'linear', fill: 'both' });
       overlay.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ZOOM_MS, delay: 140, easing: EASE, fill: 'backwards' });
       shrink.finished.then(done, () => {});
     } else if (kind === 'slideOut') {
-      // The table leaves the way the new one lies, the panels fade; then the new one arrives from the other side.
-      panelsOut(panels);
-      const out = table.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${-dx * innerWidth * 0.5 / z()}px, ${-dy * innerHeight * 0.5 / z()}px)`, opacity: 0 }],
-        { duration: reduced() ? 0 : 200, easing: 'ease-in', fill: 'forwards' });
-      out.finished.then(() => { if (mine()) setAnim({ ...anim, kind: 'slideIn' }); }, () => {});
+      // The panels and the way round fade first, the table still (as in the zoom out), so no pill floats over a moving
+      // table; then the stage takes the new table at once and a still picture of the old one (its DOM, copied as it
+      // stands) is pushed out as the new one comes in beside it, both the same way: no frame shows an empty stage.
+      dropGhost();
+      panelsOut([...panels, ...navParts()]);
+      const wait = table.animate([{ transform: 'none' }, { transform: 'none' }], { duration: reduced() ? 0 : 140 });
+      wait.finished.then(() => { if (!mine()) return; if (!reduced()) ghost.current = ghostOf(table); setAnim({ ...anim, kind: 'slideIn' }); }, () => {});
     } else {
       stop(table, ...panels);
-      if (reduced()) { landed(); return; }
-      const arrive = table.animate([{ transform: `translate(${dx * innerWidth * 0.5 / z()}px, ${dy * innerHeight * 0.5 / z()}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300, easing: EASE });
-      panelsIn(panels, 300);
-      arrive.finished.then(landed, () => {});
+      const g = ghost.current;
+      if (reduced() || !g) { dropGhost(); landed(); return; }
+      // The old table's picture over its own place, the new table one table's width (or height) and a gap away.
+      Object.assign(g.style, { position: 'absolute', left: `${table.offsetLeft}px`, top: `${table.offsetTop}px`, width: `${table.offsetWidth}px`, margin: '0', pointerEvents: 'none', zIndex: '1' });
+      (table.offsetParent ?? table.parentElement)!.appendChild(g);
+      const D = [dx * (table.offsetWidth + SLIDE_GAP), dy * (table.offsetHeight + SLIDE_GAP)];
+      const o = { duration: SLIDE_MS, easing: SLIDE_EASE };
+      g.animate([{ transform: 'none', opacity: 1 }, { opacity: 1, offset: 0.55 }, { transform: `translate(${-D[0]}px, ${-D[1]}px)`, opacity: 0 }], o);
+      const arrive = table.animate([{ transform: `translate(${D[0]}px, ${D[1]}px)`, opacity: 0 }, { opacity: 1, offset: 0.45 }, { transform: 'none', opacity: 1 }], o);
+      panelsIn(panels, SLIDE_MS);
+      arrive.finished.then(() => { dropGhost(); landed(); }, () => {});
     }
   }, [anim]);
   // A click on the table while it shrinks into its cell is a click on that cell (the viewer sees the table they just
@@ -437,6 +556,12 @@ export default function Home() {
     return focusIdx >= 0 && col + dx >= 0 && col + dx < cols && i >= 0 && i < tables.length ? tables[i] : null;
   };
   const openTable = pushFocus;
+  // Inside a table, where a table below has its pill stacked over Stats, Stats moves down under it (navAt). The same for
+  // every table of a grid with more than one row, and held through a slide, so a slide never moves it; it moves (glides)
+  // only with a zoom in or out, from the zoom's start.
+  const inTable = overviewOn && (anim ? anim.kind !== 'out' : !!shown);
+  const shift = inTable && room && edges === 'buttons' && cols < tables.length ? statsShift(room.nav) : 0;
+  const statsGlide = anim?.kind === 'in' || anim?.kind === 'out';
   const backToTables = () => { if (target !== null) toAllTables(); };
   // To a neighbour: only at rest on a table (an arrow held down steps one table per slide).
   const goTo = (d: Dir) => { const n = neighbour(d); if (n && atRest && shown === target) pushFocus(n.key); };
@@ -463,17 +588,22 @@ export default function Home() {
     const main = mainRef.current, stage = stageRef.current, screen = stage?.closest('section'), btn = statsButton.current;
     if (!overviewOn || !main || !stage || !screen || !btn) return;
     const measure = () => {
+      // Not while the table zooms or slides: its box is moving, and what is placed from it (the pills) would move with it.
+      if (stage.querySelector('[data-desk-table]')?.getAnimations().some(a => a.playState === 'running')) return;
       const s = screen.getBoundingClientRect(), t = stage.querySelector('[data-desk-table]')!.getBoundingClientRect(), st = stage.getBoundingClientRect();
       const side = stage.querySelector('#phone-stats')!.getBoundingClientRect(), head = main.previousElementSibling!.getBoundingClientRect(), b = btn.getBoundingClientRect();
       const x = (r: number) => r - s.left, y = (r: number) => r - s.top;
-      // The overview: the first screen under the header, down to the window's foot (its own Stats button is at its end),
-      // 24px in from the window's sides.
+      // Stats where it always is: inside a table it may be moved down under the table below's pill (statsShift).
+      // (Its translate as drawn now, not the shift asked for: mid-glide those differ, and the overview's box then chased it.)
+      const bTop = b.top - new DOMMatrixReadOnly(getComputedStyle(btn).transform === 'none' ? undefined : getComputedStyle(btn).transform).m42;
+      // The overview: the first screen under the header, down to the Stats button (the single-table page's, where it always is),
+      // 40px in from the window's sides, so it never runs wall to wall.
       const foot = Math.min(s.bottom, innerHeight);
       // Each neighbour's room: the free space beside the table and the sidebar, between the header and the table, under
       // the reasoning panel. Wide or tall enough for its label: the neighbour itself, faded; else a slim tab at that edge
       // (in the gap when there is one, else in the table's own empty corner cell).
       const LABEL = 124, TAB = 20, cx = x(t.left) + t.width / 2, cy = y(t.top) + t.height / 2, corner = (t.width / 5);
-      const lw = t.left - s.left - 20, rw = s.right - side.right - 20, ug = t.top - head.bottom, dg = b.top - st.bottom;
+      const lw = t.left - s.left - 20, rw = s.right - side.right - 20, ug = t.top - head.bottom, dg = bTop - st.bottom;
       const edges: Partial<Record<Dir, EdgeRoom>> = {
         left: lw >= LABEL ? { box: { left: 4, top: y(t.top), width: lw, height: t.height }, tab: false }
           : { box: { left: lw >= 0 ? x(t.left) - 6 - TAB : x(t.left) + 8, top: lw >= 0 ? cy : y(t.top) + 8, width: TAB, transform: lw >= 0 ? 'translateY(-50%)' : undefined }, tab: true },
@@ -484,11 +614,21 @@ export default function Home() {
         down: dg >= 72 ? { box: { left: x(t.left), top: y(st.bottom) + 6, width: t.width, height: dg - 12 }, tab: false }
           : { box: { left: dg >= TAB + 4 ? cx : x(t.left) + corner / 2, top: dg >= TAB + 4 ? y(st.bottom) + (dg - TAB) / 2 : y(t.bottom) - 8 - TAB, height: TAB, transform: 'translateX(-50%)' }, tab: true },
       };
+      const pad = parseFloat(getComputedStyle(screen).paddingTop);
       const next = {
-        overview: { left: x(24), top: y(head.bottom) + 6, width: document.documentElement.clientWidth - 48, height: foot - head.bottom - 14 },
+        overview: { left: x(40), top: y(head.bottom) + 6, width: document.documentElement.clientWidth - 80, height: Math.min(foot, bTop) - head.bottom - 12 },
         edges,
-        back: { left: x(t.left), top: y(main.parentElement!.firstElementChild!.getBoundingClientRect().top) },
+        // "All tables": the page's top-left content corner (the screen's left edge, under its top padding).
+        back: { left: 0, top: pad },
         w: t.width,
+        nav: {
+          table: { left: x(t.left), top: y(t.top), width: t.width, height: t.height }, stageBottom: y(st.bottom), sideRight: x(side.right),
+          // The room beside the table and the sidebar, to the screen's own edges: it scrolls sideways (overflow), so it
+          // clips anything past them, and on this page it ends short of the window's right edge.
+          leftRoom: t.left - s.left, rightRoom: Math.min(s.right, document.documentElement.clientWidth) - side.right, h: b.height, font: getComputedStyle(btn).font,
+          // Stats where it always is (its own shift taken off), and the window's foot.
+          stats: { left: x(b.left), top: y(bTop), width: b.width, height: b.height }, foot: y(innerHeight),
+        },
       };
       setRoom(r => (JSON.stringify(r) === JSON.stringify(next) ? r : next));
     };
@@ -499,7 +639,7 @@ export default function Home() {
     let live = true;
     document.fonts?.ready.then(() => { if (live) measure(); });
     return () => { live = false; ro.disconnect(); };
-  }, [overviewOn, chrome]);
+  }, [overviewOn, chrome, atRest]);
 
   const tableRef = useRef<HTMLDivElement>(null);
   // Plain IntersectionObserver: motion's useInView never reports "out" for an element that
@@ -712,7 +852,7 @@ export default function Home() {
   // wrapper has none, and the desktop table shrank), `hide` its rule under md (the desktop's, for the prerender on a phone).
   const head = (hide: string, phone = false) => (
     <>
-      <TitleBlock as={phone ? 'p' : 'h1'} className={`mb-1 text-center ${hide}`} />
+      <TitleBlock as={phone ? 'p' : 'h1'} className={`mb-1 text-center ${hide}`} about={phone || !overviewOn} />
 
       {/* Action buttons row */}
       <div className={`mb-1.5 flex items-center justify-center gap-3 ${hide}`}>
@@ -721,8 +861,8 @@ export default function Home() {
 
       {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
           it when a window crosses into the desktop layout. */}
-      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown && !showOverview} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
-        watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} />
+      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown} perTable={perTable} fold={overviewOn} outDelay={anim?.kind === 'out' ? 140 : 0} zooming={anim?.kind === 'in' || anim?.kind === 'out'} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+        watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} reserve={reserve} />
 
       <div className={hide}><SessionProgress table={usageError ? undefined : usage?.table} /></div>
     </>
@@ -761,6 +901,8 @@ export default function Home() {
                 table and the sidebar after it (order). */}
             <div id="table" ref={tableRef} className="flex flex-col md:flex-row gap-4 md:gap-6 items-stretch relative max-md:contents">
               {/* Main game grid */}
+              <CardLookContext.Provider value={cardLook}>
+              <TableDepth.Provider value={stageDepth}>
               <PokerTable
                 players={players}
                 currentPlayerIdx={currentPlayerIdx}
@@ -777,7 +919,11 @@ export default function Home() {
                 display={displayState}
                 clock={displayState?.phase === 'thinking' || displayState?.phase === 'reasoning' ? clock : null}
                 still={hidden}
+                lod={zoomLod}
+                view={overviewOn ? stageKey : undefined}
               />
+              </TableDepth.Provider>
+              </CardLookContext.Provider>
 
               {/* Right sidebar column - leaderboard, then API usage. Phones: the top of the stats (the tab bar's Stats lands
                   here, its top under the bar), Profits & Losses only (no API usage on a phone). */}
@@ -800,6 +946,7 @@ export default function Home() {
                 blank={players.length === 0}
                 street={players.length ? street : undefined}
                 turnKey={turnKey}
+                whole={reasonWhole}
               />
             </div>}
             {phone && <div className={`md:hidden ${draftA ? 'mt-2' : 'mt-1.5'} w-full`} style={{ marginBottom: 'calc(var(--phone-slack, 0px) / 2 + 8px)' }}>
@@ -813,19 +960,20 @@ export default function Home() {
             Between the stage and the Stats button: fitStage measures the screen from its first child to its last. */}
         {/* Mounted for as long as the switch is on (hidden while a table is in focus), so zooming out draws no new tables. */}
         {overviewOn && room && <div ref={overlay} className="absolute z-20" style={{ ...room.overview, ...(showOverview ? null : { visibility: 'hidden', pointerEvents: 'none' }) }} aria-hidden={!showOverview || undefined}>
-          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} onOpen={openTable} onStats={() => pageBy(1)} />
+          <TablesOverview tables={tables} w={room.overview.width} h={room.overview.height} nearW={room.w} onOpen={openTable} />
         </div>}
-        {chrome && room && <>
-          <button ref={backButton} onClick={backToTables} className="absolute z-20 flex items-center gap-1.5 rounded px-2 py-1 text-[14px] font-medium hover:bg-black/5 outline-none focus-visible:outline-2 focus-visible:outline-[rgb(31,111,196)]"
-            style={{ ...room.back, color: 'rgb(55, 53, 47)' }}>
-            <ArrowLeft size={14} weight="bold" aria-hidden /> All tables
-          </button>
+        {overviewOn && room && <AboutPill top={room.back.top} />}
+        {navShown && room && <>
+          <AllTables ref={backButton} at={room.back} still={!atRest} onClick={backToTables} />
           {(Object.keys(STEP) as Dir[]).map(d => {
             const n = neighbour(d), r = room.edges[d];
-            return n && r && <Edge key={d} t={n} dir={d} variant={edges} room={r} width={room.w * (d === 'left' || d === 'right' ? 0.8 : 0.6)} onGo={() => goTo(d)} />;
+            if (!n) return null;
+            if (edges === 'buttons') return <NavPill key={d} dir={d} label={tableLabel(n)} still={!atRest} onGo={() => goTo(d)} onMeasure={drawnPill} {...navAt(d, tableLabel(n), room.nav, pillW[tableLabel(n)])} />;
+            return r && <Edge key={d} t={n} dir={d} variant={edges} room={r} width={room.w * (d === 'left' || d === 'right' ? 0.8 : 0.6)} onGo={() => goTo(d)} />;
           })}
         </>}
-        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} style={hidden ? { ...NEXT_STYLE, visibility: 'hidden' } : NEXT_STYLE}>
+        {desk && <button ref={statsButton} onClick={() => pageBy(1)} className={`mt-6 max-md:hidden ${NEXT_BUTTON}`} data-shift={shift || undefined}
+          style={shift ? { ...NEXT_STYLE, transform: `translateY(${shift}px)`, transition: statsGlide ? `transform 220ms ${EASE}` : undefined } : overviewOn ? { ...NEXT_STYLE, transition: statsGlide ? `transform 220ms ${EASE}` : undefined } : NEXT_STYLE}>
           Stats <ArrowDown size={16} weight="bold" aria-hidden />
         </button>}
 
@@ -883,15 +1031,62 @@ export default function Home() {
 
 // The desktop status row. Its hooks live here, not in Table, so they run when the row mounts: a window that loads in
 // the phone layout and widens past the switch still remembers the label and hand number boxes.
-function StatusRow({ className = '', statusKnown, handKnown, isLive, label, watching, handNumber, stakes, elapsedTime }: {
-  className?: string; statusKnown: boolean; handKnown: boolean; isLive: boolean; label: string; watching: number | undefined;
+function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fold = false, outDelay = 0, zooming = false, isLive, label, watching, handNumber, stakes, elapsedTime, reserve }: {
+  className?: string; statusKnown: boolean; handKnown: boolean; perTable?: boolean; fold?: boolean; outDelay?: number; zooming?: boolean; isLive: boolean; label: string; watching: number | undefined;
   handNumber: number; stakes: { smallBlind: number; bigBlind: number }; elapsedTime: string;
+  reserve?: { hands: string[]; stakes: string[] }; // the overview's: every table's texts, whose widest each box keeps
 }) {
+  // On the overview a slide changes the table under the row: each per-table text holds the widest box of any table's
+  // (the others drawn hidden in the same grid cell), so nothing in the row moves when the table changes.
+  // (Without the overview the row's texts are as they always were: StatusRow's callers pass no `reserve`.)
+  const held = (now: string, all: string[]) => (
+    <span className="inline-grid justify-items-center">
+      {[now, ...all.filter(l => l !== now)].map((l, i) => <span key={i} aria-hidden={i ? true : undefined} style={{ gridArea: '1 / 1', visibility: i ? 'hidden' : undefined }}>{l}</span>)}
+    </span>
+  );
   const labelRef = useRef<HTMLDivElement>(null), handRef = useRef<HTMLDivElement>(null);
+  // The tables overview (`fold`): the per-table items fold to nothing between Live and the units, so Live, the units and
+  // Sound stand together in the middle; they open (and fold) with the zoom's curve and time, the row's groups gliding to
+  // their places. Their width is measured, so the glide ends on the row as it always is (and on a refresh html[data-overview]
+  // holds them folded from the first paint, globals.css). Without the overview they are simply the row's items.
+  const [midW, setMidW] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = handRef.current;
+    if (!fold || !el) return;
+    const ro = new ResizeObserver(() => setMidW(el.offsetWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fold]);
+  // And on every commit, before the paint: the observer reports a frame late, and the row drew one frame at the old
+  // width (Live and Sound a few px off) when its texts changed.
+  useLayoutEffect(() => {
+    const el = handRef.current;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- measured before the paint, so no frame has the old width
+    if (fold && el && el.offsetWidth !== midW) setMidW(el.offsetWidth);
+  });
+  const glide = (p: string) => `${p} ${ZOOM_MS}ms ${EASE} ${perTable ? 0 : outDelay}ms`;
+  const midStyle: CSSProperties | undefined = fold ? {
+    width: perTable ? midW ?? undefined : 0, marginLeft: perTable ? 0 : -16, opacity: perTable ? 1 : 0,
+    // Glides only with a zoom in or out: a width that settles otherwise (the held texts once the tables arrive) is drawn
+    // at once, not glided across the row.
+    transition: reduced() || !zooming ? 'none' : ['width', 'margin-left', 'opacity'].map(glide).join(', '),
+  } : undefined;
   useFillIn(labelRef, statusKnown);
   useFillIn(handRef, handKnown);
   const [labelBox, labelSize, labelAttrs] = useRememberedBox<HTMLSpanElement>('status-label', statusKnown, 'wh');
-  const [handBox, handSize, handAttrs] = useRememberedBox<HTMLSpanElement>('hand-no', handKnown, 'wh');
+  const [handBox, handSize, handAttrs] = useRememberedBox<HTMLSpanElement>(fold ? 'hand-no-tables' : 'hand-no', handKnown, 'wh'); // the overview's held box is its own
+  // Without the overview exactly the row as it always was (the items in the row itself, display: contents); on the
+  // overview's first paint html[data-overview] hides them (globals.css), as the folded box will.
+  const handItems = (
+    <div ref={handRef} data-status-hand className={`${fold ? 'flex items-center gap-x-4 shrink-0' : 'contents'} ${handKnown ? '' : '[&>*]:invisible'}`}>
+      <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+      <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>{reserve ? held(`Hand #${handNumber || '0'}`, reserve.hands) : <>Hand #{handNumber || '0'}</>}</span>
+      <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+      <span className="text-[14px]" style={{ color: MUTED }}>{reserve ? held(`${stakes.smallBlind}/${stakes.bigBlind}`, reserve.stakes) : <>{stakes.smallBlind}/{stakes.bigBlind}</>}</span>
+      <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
+      <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
+    </div>
+  );
   return (
     <div className={`mb-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 ${className}`}>
       {/* Live indicator */}
@@ -911,14 +1106,7 @@ function StatusRow({ className = '', statusKnown, handKnown, isLive, label, watc
           to the same lines) and nothing under it moves when they fill in. The blank hand number is one digit (tabular
           figures), never wider than the one remembered from the last visit, so on a refresh the remembered width holds
           it exactly (a "#00" blank was wider than "#2" and the row shifted 4px when a session's first hands arrived). */}
-      <div ref={handRef} className={`contents ${handKnown ? '' : '[&>*]:invisible'}`}>
-        <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-        <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>Hand #{handNumber || '0'}</span>
-        <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-        <span className="text-[14px]" style={{ color: MUTED }}>{stakes.smallBlind}/{stakes.bigBlind}</span>
-        <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-        <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
-      </div>
+      {fold ? <div data-status-table aria-hidden={!perTable || undefined} className="flex items-center overflow-hidden shrink-0" style={midStyle}>{handItems}</div> : handItems}
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
       <UnitToggle bigBlind={stakes.bigBlind} />
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
