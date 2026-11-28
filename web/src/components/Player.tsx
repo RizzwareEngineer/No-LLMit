@@ -192,6 +192,7 @@ export default function Player({ player, active, position, winAmount, winDesc, i
       ref={ref}
       data-seat={seatIdx}
       data-desk-seat
+      data-out={player.status === 'folded' || player.status === 'eliminated' || undefined}
       className={seatBox}
       style={seatStyle}
     >

@@ -2417,6 +2417,67 @@ group(() => check('tables-stacks-draft', 'With ?tables=1&stacks=1 and &stacks=2 
   }
   return { pass: !bad.length, detail: bad.length ? bad.slice(0, 30).join(' | ') : seen.join('; ') };
 }));
+// Owner, round 6: "explore views where we have 10 tables going on ... they can just be mock tables ... just shells".
+// ?tables=1&shells=10 with each layout (a: the grid as it is; b: the most active live table large, a wall of the rest;
+// c: the grid, tables under 300px drawn farther) at the four overview sizes. Also measured for the report: each table's
+// width, the logo's and the hole card's drawn size, the space the tables leave.
+const SHELL_MEASURE = () => {
+  const vis = e => { if (!e.getClientRects().length) return false; for (let x = e; x; x = x.parentElement) { const c = getComputedStyle(x); if (c.visibility === 'hidden' || c.display === 'none' || +c.opacity < 0.05) return false; } return true; };
+  const items = [...document.querySelectorAll('[data-overview-cell], [data-overview-shell]')];
+  const R = e => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+  const ov = document.querySelector('[data-overview]').getBoundingClientRect();
+  const per = items.map(e => {
+    const t = e.querySelector('[data-small-table]'), label = e.querySelector('[data-cell-label]');
+    const logos = [...e.querySelectorAll('[data-lod-logo]')].filter(vis).map(x => x.getBoundingClientRect().width);
+    const holes = [...e.querySelectorAll('[data-hole] [role=img]')].filter(vis).map(x => x.getBoundingClientRect().width);
+    const board = [...e.querySelectorAll('[data-felt-cards] [role=img]')].filter(vis).map(x => x.getBoundingClientRect().width);
+    return { key: e.dataset.overviewCell ?? e.dataset.overviewShell, shell: e.matches('[data-overview-shell]'), box: R(e), tw: t.getBoundingClientRect().width,
+      logo: Math.min(...logos), hole: holes.length ? Math.min(...holes) : null, board: board.length ? Math.min(...board) : null,
+      tag: !!e.querySelector('[data-mock-tag]') && vis(e.querySelector('[data-mock-tag]')), link: e.tagName === 'A',
+      cursor: getComputedStyle(t).cursor, oneLine: label.getBoundingClientRect().height <= 21 && label.scrollWidth <= label.clientWidth + 1 };
+  });
+  const used = per.reduce((a, x) => a + (x.box[2] - x.box[0]) * (x.box[3] - x.box[1]), 0);
+  const de = document.documentElement;
+  return { per, empty: 1 - used / (ov.width * ov.height), hscroll: de.scrollWidth > de.clientWidth + 0.5, live: per.filter(x => !x.shell).map(x => x.key) };
+};
+group(() => check('tables-shells-draft', 'With ?tables=1&shells=10 and each of &layout=a, b, c at 1280x720, 1440x790, 1440x900 and 1728x1117: exactly 10 tables drawn (the live ones first, then shells), none overlapping, each label one line; every shell carries a visible "mock" tag, is no link, has the default cursor, and a click on it leaves the URL as it was; the live tables are links, still live (their state changes), and a click on one opens it (?t=KEY); no horizontal scroll', async () => {
+  const bad = [], seen = [];
+  for (const layout of ['a', 'b', 'c']) for (const [w, h] of OVERVIEW_SIZES) {
+    const tag = `${layout} ${w}x${h}`, p = await newPage();
+    try {
+      await p.setViewport({ width: w, height: h });
+      await p.goto(`${BASE}/?tables=1&shells=10&layout=${layout}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      await p.waitForFunction(() => document.querySelectorAll('[data-overview-cell] [data-seat] [data-hole]').length > 8, { timeout: 120000 });
+      await sleep(1500);
+      const m = await p.evaluate(SHELL_MEASURE);
+      const hit = (a, b) => a[0] < b[2] - 0.5 && b[0] < a[2] - 0.5 && a[1] < b[3] - 0.5 && b[1] < a[3] - 0.5;
+      if (m.per.length !== 10) bad.push(`${tag}: ${m.per.length} tables drawn, not 10`);
+      const firstShell = m.per.findIndex(x => x.shell);
+      if (layout !== 'b' && firstShell >= 0 && m.per.slice(firstShell).some(x => !x.shell)) bad.push(`${tag}: a live table after a shell`);
+      for (let i = 0; i < m.per.length; i++) for (let j = i + 1; j < m.per.length; j++) if (hit(m.per[i].box, m.per[j].box)) bad.push(`${tag}: ${m.per[i].key} and ${m.per[j].key} overlap`);
+      for (const x of m.per) {
+        if (x.box[0] < -0.5 || x.box[2] > w + 0.5 || x.box[1] < -0.5 || x.box[3] > h + 0.5) bad.push(`${tag}: ${x.key} runs out of the window`);
+        if (!x.oneLine) bad.push(`${tag}: ${x.key}'s label is not one line`);
+        if (x.shell && (!x.tag || x.link || x.cursor !== 'default' && x.cursor !== 'auto')) bad.push(`${tag}: shell ${x.key} ${!x.tag ? 'has no mock tag' : x.link ? 'is a link' : `has cursor ${x.cursor}`}`);
+        if (!x.shell && !x.link) bad.push(`${tag}: live ${x.key} is no link`);
+      }
+      if (m.hscroll) bad.push(`${tag}: horizontal scroll`);
+      // A click on a shell: nothing.
+      const shell = m.per.find(x => x.shell), url0 = p.url();
+      if (shell) { await clickCenter(p, `[data-overview-shell="${shell.key}"] [data-cell-table]`); await sleep(500); if (p.url() !== url0) bad.push(`${tag}: a click on shell ${shell.key} changed the URL to ${p.url()}`); }
+      // Live: the live tables' state changes within a few seconds (the stream plays on).
+      const snap = () => p.evaluate(() => [...document.querySelectorAll('[data-overview-cell]')].map(e => e.querySelector('[data-desk-table]').innerHTML.length + ':' + e.textContent).join('|'));
+      const s0 = await snap(); let moved = false;
+      for (let i = 0; i < 20 && !moved; i++) { await sleep(500); moved = (await snap()) !== s0; }
+      if (!moved) bad.push(`${tag}: the live tables did not change in 10 s`);
+      await clickCenter(p, `[data-overview-cell="${m.live[0]}"] [data-cell-table]`); await sleep(900);
+      if (new URL(p.url()).searchParams.get('t') !== m.live[0]) bad.push(`${tag}: a click on live ${m.live[0]} did not open it (${p.url()})`);
+      const tws = m.per.map(x => x.tw), f = v => (v === null || !isFinite(v) ? '-' : v.toFixed(1));
+      seen.push(`${tag}: tables ${f(Math.min(...tws))}${Math.max(...tws) > Math.min(...tws) + 1 ? `-${f(Math.max(...tws))}` : ''}px, logo ${f(Math.min(...m.per.map(x => x.logo)))}px, hole ${f(Math.min(...m.per.map(x => x.hole ?? Infinity)))}px, board ${f(Math.min(...m.per.map(x => x.board ?? Infinity)))}px, empty ${(m.empty * 100).toFixed(0)}%`);
+    } finally { await p.close(); }
+  }
+  return { pass: !bad.length, detail: bad.length ? bad.slice(0, 30).join(' | ') : seen.join('; ') };
+}));
 // Owner, round 5: "for the 50/100 100bb game (in the four-table overview) the pot is behind the cards". Seen from far
 // away (PokerTable's lod) the board grows x1.4 from its centre (LOD.board), and it reached over the pot's box. Each small
 // table of the overview is read every 200 ms until every table has shown every street (preflop, flop, turn, river): its

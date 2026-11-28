@@ -417,6 +417,9 @@ html[data-overview] .stage-zoom { visibility: hidden; }
 /* The board grows from its centre, up into the pot's chips: from far away it moves down and the pot up (--lod-bd,
    --lod-pu: px of the table), so the pot and the board stay apart however far; near (--lod-t 1) both are where they are. */
 [data-lod] [data-felt-cards] { transform: translateY(calc(var(--lod-bd) * (1 - var(--lod-t)))) scale(calc(1 + (var(--lod-b) - 1) * (1 - var(--lod-t)))); }
+/* Farther still (?shells=N&layout=c, a table under 300px across): a seat out of the hand shows its logo only, its cards
+   gone; the seats in it keep theirs, with the board and the pot. The logo grows a little more (LOD.fartherLogo). */
+[data-lod-farther] [data-desk-seat][data-out] [data-hole] { visibility: hidden; }
 [data-lod] [data-lod-potcol] { transform: translateY(calc(var(--lod-pu) * (var(--lod-t) - 1))); }
 /* The header's per-table items (page.tsx's StatusRow) on the overview's first paint: folded away, so Live, the units and
    Sound stand together in the middle before the page runs. */

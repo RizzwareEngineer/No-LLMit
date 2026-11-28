@@ -41,7 +41,7 @@ import { NEXT_BUTTON, NEXT_STYLE, backToOverview, isPaging, pageBy, pageTo, page
 import { holdBoxes, useFillIn, useRememberedBox } from "@/lib/boxes";
 import { MUTED, BLUE } from "@/lib/stats";
 import { PHONE, isPhone, isDraftA } from "@/lib/layout";
-import { CardLookContext, setPageCardLook, useCardLookParam, OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
+import { parseShells, useShellsKey, CardLookContext, setPageCardLook, useCardLookParam, OVERVIEW_FIRST, backToTables as toAllTables, clearFocus, pushFocus, useEdges, useFocusParam, useLayout, useTablesOverview, useTallTable } from "@/lib/tableSwitches";
 import { type Anim, nextAnim, stageKeyOf, targetOf } from "@/lib/overviewMachine";
 import TablesOverview, { EASE, Edge, ZOOM_MS, gridFor, tableLabel, type EdgeRoom } from "@/components/TablesOverview";
 import { NavPill, pillWidth, useFadeIn } from "@/components/TableNav";
@@ -427,7 +427,10 @@ export default function Home() {
   const [pillW, setPillW] = useState<Record<string, number>>({});
   const drawnPill = useCallback((label: string, w: number) => setPillW(m => (Math.abs((m[label] ?? 0) - w) < 0.5 ? m : { ...m, [label]: w })), []);
   const [room, setRoom] = useState<{ overview: Box; edges: Partial<Record<Dir, EdgeRoom>>; back: { left: number; top: number }; w: number; nav: NavRoom } | null>(null);
-  const grid = room ? gridFor(tables.length, room.overview.width, room.overview.height) : null, cols = grid?.cols ?? 1;
+  // ?shells=N (a draft): the overview draws N tables, the live ones first (TablesOverview); its grid's columns are the
+  // neighbours' above and below, and its table's width where the zoom starts.
+  const shellsN = parseShells(useShellsKey())?.n ?? 0;
+  const grid = room ? gridFor(Math.max(tables.length, shellsN), room.overview.width, room.overview.height) : null, cols = grid?.cols ?? 1;
   // The header's per-table items (hand, stakes, clock) open as a table zooms in and fold away as it zooms out (StatusRow).
   const perTable = !overviewOn || !(anim ? anim.kind === 'out' : (shown === undefined ? target === null : shown === null));
   // In the zoom the stage's table is the overview's small one growing: it starts seen from far away, as the cell drew it,
