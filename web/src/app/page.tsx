@@ -820,7 +820,7 @@ export default function Home() {
 
       {/* Status row - live indicator, hand counter, blinds, timer: its own component, so its remembered boxes mount with
           it when a window crosses into the desktop layout. */}
-      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown} perTable={perTable} fold={overviewOn} outDelay={anim?.kind === 'out' ? 140 : 0} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
+      <StatusRow className={hide} statusKnown={statusKnown} handKnown={handKnown} perTable={perTable} fold={overviewOn} outDelay={anim?.kind === 'out' ? 140 : 0} zooming={anim?.kind === 'in' || anim?.kind === 'out'} isLive={isLive} label={connection === 'down' ? 'Offline' : tableNotice ? (tableNotice.kind === 'closed' ? 'Closed' : 'Paused') : 'Live'}
         watching={watching} handNumber={handNumber} stakes={stakes} elapsedTime={elapsedTime} reserve={reserve} />
 
       <div className={hide}><SessionProgress table={usageError ? undefined : usage?.table} /></div>
@@ -987,14 +987,15 @@ export default function Home() {
 
 // The desktop status row. Its hooks live here, not in Table, so they run when the row mounts: a window that loads in
 // the phone layout and widens past the switch still remembers the label and hand number boxes.
-function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fold = false, outDelay = 0, isLive, label, watching, handNumber, stakes, elapsedTime, reserve }: {
-  className?: string; statusKnown: boolean; handKnown: boolean; perTable?: boolean; fold?: boolean; outDelay?: number; isLive: boolean; label: string; watching: number | undefined;
+function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fold = false, outDelay = 0, zooming = false, isLive, label, watching, handNumber, stakes, elapsedTime, reserve }: {
+  className?: string; statusKnown: boolean; handKnown: boolean; perTable?: boolean; fold?: boolean; outDelay?: number; zooming?: boolean; isLive: boolean; label: string; watching: number | undefined;
   handNumber: number; stakes: { smallBlind: number; bigBlind: number }; elapsedTime: string;
   reserve?: { hands: string[]; stakes: string[] }; // the overview's: every table's texts, whose widest each box keeps
 }) {
   // On the overview a slide changes the table under the row: each per-table text holds the widest box of any table's
   // (the others drawn hidden in the same grid cell), so nothing in the row moves when the table changes.
-  const held = (now: string, all?: string[]) => !all ? now : (
+  // (Without the overview the row's texts are as they always were: StatusRow's callers pass no `reserve`.)
+  const held = (now: string, all: string[]) => (
     <span className="inline-grid justify-items-center">
       {[now, ...all.filter(l => l !== now)].map((l, i) => <span key={i} aria-hidden={i ? true : undefined} style={{ gridArea: '1 / 1', visibility: i ? 'hidden' : undefined }}>{l}</span>)}
     </span>
@@ -1015,7 +1016,9 @@ function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fo
   const glide = (p: string) => `${p} ${ZOOM_MS}ms ${EASE} ${perTable ? 0 : outDelay}ms`;
   const midStyle: CSSProperties | undefined = fold ? {
     width: perTable ? midW ?? undefined : 0, marginLeft: perTable ? 0 : -16, opacity: perTable ? 1 : 0,
-    transition: reduced() ? 'none' : ['width', 'margin-left', 'opacity'].map(glide).join(', '),
+    // Glides only with a zoom in or out: a width that settles otherwise (the held texts once the tables arrive) is drawn
+    // at once, not glided across the row.
+    transition: reduced() || !zooming ? 'none' : ['width', 'margin-left', 'opacity'].map(glide).join(', '),
   } : undefined;
   useFillIn(labelRef, statusKnown);
   useFillIn(handRef, handKnown);
@@ -1026,9 +1029,9 @@ function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fo
   const handItems = (
     <div ref={handRef} data-status-hand className={`${fold ? 'flex items-center gap-x-4 shrink-0' : 'contents'} ${handKnown ? '' : '[&>*]:invisible'}`}>
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-      <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>{held(`Hand #${handNumber || '0'}`, reserve?.hands)}</span>
+      <span ref={handBox} {...handAttrs} className="text-[14px] tabular-nums" style={{ color: MUTED, ...handSize }}>{reserve ? held(`Hand #${handNumber || '0'}`, reserve.hands) : <>Hand #{handNumber || '0'}</>}</span>
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
-      <span className="text-[14px]" style={{ color: MUTED }}>{held(`${stakes.smallBlind}/${stakes.bigBlind}`, reserve?.stakes)}</span>
+      <span className="text-[14px]" style={{ color: MUTED }}>{reserve ? held(`${stakes.smallBlind}/${stakes.bigBlind}`, reserve.stakes) : <>{stakes.smallBlind}/{stakes.bigBlind}</>}</span>
       <div className="h-4 w-px" style={{ background: 'rgba(55, 53, 47, 0.09)' }} />
       <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{elapsedTime}</span>
     </div>
