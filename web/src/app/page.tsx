@@ -1013,6 +1013,13 @@ function StatusRow({ className = '', statusKnown, handKnown, perTable = true, fo
     ro.observe(el);
     return () => ro.disconnect();
   }, [fold]);
+  // And on every commit, before the paint: the observer reports a frame late, and the row drew one frame at the old
+  // width (Live and Sound a few px off) when its texts changed.
+  useLayoutEffect(() => {
+    const el = handRef.current;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- measured before the paint, so no frame has the old width
+    if (fold && el && el.offsetWidth !== midW) setMidW(el.offsetWidth);
+  });
   const glide = (p: string) => `${p} ${ZOOM_MS}ms ${EASE} ${perTable ? 0 : outDelay}ms`;
   const midStyle: CSSProperties | undefined = fold ? {
     width: perTable ? midW ?? undefined : 0, marginLeft: perTable ? 0 : -16, opacity: perTable ? 1 : 0,
