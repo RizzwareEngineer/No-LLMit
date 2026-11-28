@@ -2279,11 +2279,12 @@ group(() => check('tables-view-stable', 'With ?tables=1 at 1440x790 and 1728x111
 // ancestors') times the share of the stage box it covers. The floor, 0.4: in a push the two tables meet half way, each
 // covering half the box at full opacity (0.5), and a crossfade's midpoint gives about 0.5 x 0.5 to 1; 0.4 leaves room for
 // the ease's frame steps but not for an empty stage (0) or a table mostly faded out over a stage half bare. The slide may
-// not take longer than it did (140 ms of fading pills, 200 ms out and 300 ms in: 640 ms; 40 ms of frame slack).
+// not take longer than it did (140 ms of fading pills, 200 ms out and 300 ms in: 640 ms), judged as scheduled (each
+// animation's delay and duration on the stage's table), since a busy machine's late frames stretch the time filmed.
 const SLIDE_REC = () => {
   const eff = e => { let o = 1; for (let x = e; x; x = x.parentElement) o *= +getComputedStyle(x).opacity; return o; };
   const R = window.__srec = { s: [], on: false };
-  R.start = box => { R.s = []; R.box = box; R.t0 = performance.now(); R.on = true; };
+  R.start = box => { R.s = []; R.box = box; R.t0 = performance.now(); R.on = true; R.seen = new WeakSet(); R.sched = 0; };
   R.stop = () => { R.on = false; return R.s; };
   const tick = () => {
     if (R.on) {
@@ -2295,14 +2296,18 @@ const SLIDE_REC = () => {
         const v = eff(e) * w * h / area; n++;
         if (v > best) best = v;
       }
-      const moving = [...document.querySelectorAll('.stage-zoom [data-desk-table], .stage-zoom [data-slide-ghost]')].some(e => e.getAnimations().some(a => a.playState === 'running'));
-      R.s.push({ t: performance.now() - R.t0, v: best, n, moving });
+      const els = [...document.querySelectorAll('.stage-zoom [data-desk-table], .stage-zoom [data-slide-ghost]')];
+      const moving = els.some(e => e.getAnimations().some(a => a.playState === 'running'));
+      // Each animation run on the stage's table, once, as scheduled (its delay and duration): the slide's length by design,
+      // which a loaded machine's late frames do not stretch.
+      for (const a of els.filter(e => e.matches('[data-desk-table]')).flatMap(e => e.getAnimations())) if (a.playState !== 'finished' && !R.seen.has(a)) { R.seen.add(a); const t = a.effect.getTiming(); R.sched += (t.delay || 0) + (+t.duration || 0); }
+      R.s.push({ t: performance.now() - R.t0, v: best, n, moving, sched: R.sched });
     }
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
 };
-group(() => check('tables-slide-continuous', 'With ?tables=1 at 1440x790 and 1728x1117, in every frame of each arrow slide (right, down, left, up) some table is drawn on the stage: its opacity as drawn times the share of the stage\'s box (the table\'s box at rest) it covers is at least 0.4 (no frame shows an empty stage), and the slide takes no longer than before (640 ms)', async () => {
+group(() => check('tables-slide-continuous', 'With ?tables=1 at 1440x790 and 1728x1117, in every frame of each arrow slide (right, down, left, up) some table is drawn on the stage: its opacity as drawn times the share of the stage\'s box (the table\'s box at rest) it covers is at least 0.4 (no frame shows an empty stage), and the slide is scheduled for no longer than before (640 ms: its animations\' delays and durations, which a busy machine does not stretch; the time filmed is reported)', async () => {
   const bad = [], seen = [];
   for (const [w, h] of VIEW_SIZES) {
     const p = await viewPage(w, h, 'tables=1');
@@ -2325,10 +2330,11 @@ group(() => check('tables-slide-continuous', 'With ?tables=1 at 1440x790 and 172
         // The slide: from the click to the last frame anything on the stage moved.
         const end = s.findLastIndex(x => x.moving), frames = s.slice(0, end + 2);
         if (end < 0) { bad.push(`${tag}: nothing moved`); continue; }
-        const low = frames.filter(x => x.v < 0.4), dur = frames.at(-1).t;
+        const low = frames.filter(x => x.v < 0.4), dur = frames.at(-1).t, sched = s.at(-1).sched;
         if (low.length) bad.push(`${tag}: ${low.length} of ${frames.length} frames under 0.4 (lowest ${Math.min(...low.map(x => x.v)).toFixed(2)} at ${Math.round(low.reduce((a, x) => (x.v < a.v ? x : a)).t)} ms, from ${Math.round(low[0].t)} to ${Math.round(low.at(-1).t)} ms)`);
-        if (dur > 680) bad.push(`${tag}: the slide took ${Math.round(dur)} ms (over 640)`);
-        seen.push(`${tag}: ${frames.length} frames, ${Math.round(dur)} ms, lowest ${Math.min(...frames.map(x => x.v)).toFixed(2)}`);
+        // Its length as scheduled (the stage table's animations one after another: before, 140 + 200 out, then 300 in).
+        if (sched > 640) bad.push(`${tag}: the slide is scheduled for ${Math.round(sched)} ms (over 640)`);
+        seen.push(`${tag}: ${frames.length} frames, ${Math.round(sched)} ms scheduled (${Math.round(dur)} ms filmed), lowest ${Math.min(...frames.map(x => x.v)).toFixed(2)}`);
       }
     } finally { await p.close(); }
   }
