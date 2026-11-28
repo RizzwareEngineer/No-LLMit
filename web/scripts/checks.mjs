@@ -4090,6 +4090,12 @@ const share = (f, box, test) => {
   for (let y = t; y < b; y += 2) for (let x = l; x < r; x += 2) { const i = (y * f.w + x) * 4; all++; if (test(f.px[i], f.px[i + 1], f.px[i + 2])) n++; }
   return all ? n / all : 0;
 };
+// Whether ANY pixel of a box (every one, not every other) passes `test`: a thin anti-aliased glyph can fall between a sampled grid.
+const anyInk = (f, box, test) => {
+  const [l, t, r, b] = clip(f, box);
+  for (let y = t; y < b; y++) for (let x = l; x < r; x++) { const i = (y * f.w + x) * 4; if (test(f.px[i], f.px[i + 1], f.px[i + 2])) return true; }
+  return false;
+};
 const PAGE = (r, g, b) => Math.abs(r - 250) + Math.abs(g - 250) + Math.abs(b - 249) <= 6; // the page colour (pages-one-background)
 const INK = (r, g, b) => r + g + b < 300; // text at full strength (TEXT is 155); the darkest cell tint sums 464
 // How much a set of boxes is drawn: the darkness summed over their pixels, in pixels of black.
@@ -4241,7 +4247,7 @@ const judge = (fr, name, how, state) => {
     for (const row of f.s.rows) {
       if (!row.hit || row.o < 0.99 || row.cy[0] < Math.max(t, 44, f.s.head - 1) || Math.max(row.cy[1], row.nx[3]) > Math.min(b, f.h) || row.nx[0] < l || row.nx[2] > r) continue; // clipped, or under the sticky bar or the card's pinned header (scrolled)
       if (share(f, [row.cx[0], row.cy[0], row.cx[1], row.cy[1]], INK) * (row.cx[1] - row.cx[0]) * (row.cy[1] - row.cy[0]) / 4 < 8) continue; // no numbers drawn
-      if (share(f, [row.nx[0], row.cy[0], row.nx[2], row.cy[1]], INK) === 0 && !torn.has(row.n)) torn.set(row.n, at(n));
+      if (!anyInk(f, [row.nx[0], row.cy[0], row.nx[2], row.cy[1]], INK) && !torn.has(row.n)) torn.set(row.n, at(n));
     }
     if (f.post && f.s.tip && share(f, f.s.tip, (r, g, b) => r + g + b >= 759) > 0.5) tips.push(at(n));
     // Trends' tile shows its scrollbars while gliding too (its own, out of this work): judged on Profiles and Matchups.
